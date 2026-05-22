@@ -1,0 +1,42 @@
+<svg id="svg-horizontal" viewBox="0 0 200 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="soft-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1.4" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <mask id="tech-slash">
+      <rect width="200" height="90" fill="white" />
+      <polygon points="-10,80 210,16 210,11 -10,75" fill="black" />
+      <polygon points="-10,69 210,6 210,4.5 -10,67.5" fill="black" />
+    </mask>
+
+    <linearGradient id="border-gradient" x1="0" y1="0" x2="200" y2="90" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="white" stop-opacity="0.85" />
+      <stop offset="50%" stop-color="white" stop-opacity="0.28" />
+      <stop offset="100%" stop-color="white" stop-opacity="0.65" />
+    </linearGradient>
+  </defs>
+
+  <rect x="2" y="2" width="196" height="86" rx="10" fill="rgba(255,255,255,0.04)" />
+  <rect x="2" y="2" width="196" height="86" rx="10" fill="none" stroke="url(#border-gradient)" stroke-width="1.5" />
+  <rect x="6" y="6" width="188" height="78" rx="7" fill="none" stroke="rgba(255,255,255,0.24)" stroke-width="1.2" />
+
+  <g transform="translate(18, 5) skewX(-12)" mask="url(#tech-slash)" filter="url(#soft-glow)">
+    <g fill="none" stroke="rgba(255,255,255,0.24)" stroke-width="16" stroke-linejoin="miter" stroke-linecap="square" transform="translate(1.5, 1.5)">
+      <path d="M 36 20 H 15 V 60 H 36 M 15 40 H 29" />
+      <path d="M 55 60 V 20 L 75 48 L 95 20 V 60" />
+      <path d="M 115 20 L 135 60 L 155 20" />
+    </g>
+
+    <g fill="none" stroke="white" stroke-width="14" stroke-linejoin="miter" stroke-linecap="square">
+      <path d="M 36 20 H 15 V 60 H 36 M 15 40 H 29" />
+      <path d="M 55 60 V 20 L 75 48 L 95 20 V 60" />
+      <path d="M 115 20 L 135 60 L 155 20" />
+    </g>
+  </g>
+
+</svg>

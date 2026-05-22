@@ -1,0 +1,44 @@
+Created At: 2026-05-20T16:43:47Z
+Completed At: 2026-05-20T16:43:47Z
+File Path: `file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/pages/AdminDashboard.tsx`
+Total Lines: 3606
+Total Bytes: 247148
+Showing lines 3520 to 3590
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+3520: function BrandLogo({ brand }: { brand: any }) {
+3521:   const initial = String(brand.name || brand.code || '?').trim().charAt(0).toUpperCase() || '?';
+3522: 
+3523:   if (brand.logoUrl) {
+3524:     return (
+3525:       <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+3526:         <img src={brand.logoUrl} alt={brand.logoAltText || (brand.name ? `${brand.name} logo` : 'Brand logo')} className="h-full w-full rounded-full object-contain" />
+3527:     Array.isArray(voucher.eligibleTiers) && voucher.eligibleTiers.length ? `Hạng: ${voucher.eligibleTiers.join(', ')}` : '',
+3528:     Array.isArray(voucher.includeProductIds) && voucher.includeProductIds.length ? `SP áp dụng: ${voucher.includeProductIds.length}` : '',
+3529:     Array.isArray(voucher.excludeProductIds) && voucher.excludeProductIds.length ? `SP loại trừ: ${voucher.excludeProductIds.length}` : '',
+3530:     Array.isArray(voucher.includeCategoryIds) && voucher.includeCategoryIds.length ? `DM áp dụng: ${voucher.includeCategoryIds.length}` : '',
+3531:     Array.isArray(voucher.excludeCategoryIds) && voucher.excludeCategoryIds.length ? `DM loại trừ: ${voucher.excludeCategoryIds.length}` : '',
+3532:     voucher.assignedUserId ? `User: ${String(voucher.assignedUserId).slice(0, 8)}` : '',
+3533:     voucher.startsAt || voucher.endsAt ? `${voucher.startsAt ? new Date(voucher.startsAt).toLocaleDateString('vi-VN') : '...'} - ${voucher.endsAt ? new Date(voucher.endsAt).toLocaleDateString('vi-VN') : '..
+<truncated 5898 bytes>
+ent.preventDefault()} onDrop={(event) => onReorder(event.dataTransfer.getData('categoryId'), category.id)}>
+3571:       <td className="px-4 py-3 text-slate-400"><GripVertical className="h-4 w-4" /></td>
+3572:       <td className="px-4 py-3">
+3573:         {category.iconUrl ? <img src={category.iconUrl} alt="" className="h-10 w-10 rounded-md border border-slate-200 object-cover" /> : <span className="text-xs font-semibold text-slate-400">{category.icon || '-'}</span>}
+3574:       </td>
+3575:       <td className="px-4 py-3 font-semibold text-slate-900">
+3576:         <div className="flex items-center gap-2" style={{ paddingLeft: level * 24 }}>
+3577:           {level > 0 && <span className="h-px w-4 bg-slate-300" />}
+3578:           <span>{category.name}</span>
+3579:         </div>
+3580:       </td>
+3581:       <td className="px-4 py-3 font-mono text-xs">{category.slug}</td>
+3582:       <td className="px-4 py-3">{category.parentId ? 'Danh mục con' : 'Danh mục cha'}</td>
+3583:       <td className="px-4 py-3">{category.parentName || '-'}</td>
+3584:       <td className="px-4 py-3">{category.specFields?.length || 0} trường / {category.filterConfig?.length || 0} lọc</td>
+3585:       <td className="px-4 py-3">
+3586:         <div className="flex flex-col items-start gap-1">
+3587:           <AdminBadge tone={category.status === 'DRAFT' || category.status === 'PENDING_REVIEW' ? 'yellow' : category.isActive ? 'green' : category.status === 'REJECTED' ? 'red' : 'slate'}>{category.status || (category.isActive ? 'ACTIVE' : 'INACTIVE')}</AdminBadge>
+3588:           {category.workflowStatus && <span className="text-xs font-semibold text-slate-500">Duyệt: {category.workflowStatus}</span>}
+3589:           {category.hiddenByParent && <span className="text-xs font-semibold text-amber-600">Ẩn theo danh mục cha</span>}
+3590:         </div>
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

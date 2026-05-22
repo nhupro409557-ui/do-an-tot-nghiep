@@ -1,0 +1,55 @@
+
+> react-example@0.0.0 dev
+> vite --port=3000 --host=0.0.0.0
+
+
+  [32m[1mVITE[22m v6.4.2[39m  [2mready in [0m[1m784[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m3000[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://192.168.1.4:[1m3000[22m/[39m
+[2m6:45:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m6:56:33 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m6:58:36 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m7:05:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m7:07:27 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css, /src/App.tsx[22m
+[2m7:08:35 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m7:16:32 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m7:40:53 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m7:46:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:04:02 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:12:46 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:13:39 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:20:17 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:20:33 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:21:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:25:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:26:03 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css[22m
+[2m8:26:28 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:33:03 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:33:38 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:35:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:42:31 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:42:37 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:42:49 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:47:14 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:47:38 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:47:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css[22m
+[2m8:49:09 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:52:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:53:30 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:53:51 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:53:59 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:54:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:54:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:57:31 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m8:57:51 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\ui\ImageWithFallback.tsx, /src/index.css[22m
+[2m8:58:00 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\ui\ImageWithFallback.tsx, /src/index.css[22m
+[2m9:01:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css[22m
+[2m9:01:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m9:11:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m9:11:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m9:13:15 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m9:16:55 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m9:17:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m9:22:54 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m
+[2m9:24:57 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/@fs/C:\Users\Huynh Nhu\Downloads\Project\frontend\src\components\product\ProductDetail.tsx, /src/index.css[22m

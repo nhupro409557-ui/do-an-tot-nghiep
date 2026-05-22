@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 260" role="img" aria-labelledby="title desc">
+  <title id="title">ElectroMart Vietnam</title>
+  <desc id="desc">Logo EMV red technology ecommerce mark.</desc>
+  <defs>
+    <linearGradient id="emv-red" x1="0" x2="1" y1="1" y2="0">
+      <stop offset="0" stop-color="#7f0000"/>
+      <stop offset="0.48" stop-color="#c40012"/>
+      <stop offset="1" stop-color="#ef1b2d"/>
+    </linearGradient>
+    <filter id="soft-shadow" x="-5%" y="-10%" width="110%" height="125%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#7f0000" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+  <g fill="url(#emv-red)" filter="url(#soft-shadow)">
+    <path d="M49 139c7-47 30-78 75-78h191l-38 50H130c-17 0-28 10-34 33h177l-33 45H78c-8 0-14 7-15 15-2 13 6 21 20 21h150l-34 43H51c-38 0-55-23-47-61l11-53h40l32-24h172l-13 18H96l-33 25H13l7-34h29Z"/>
+    <path d="M18 180h44l33-25h166l-14 18H102l-33 25H14l4-18Z"/>
+    <circle cx="274" cy="164" r="15" fill="#fff"/>
+    <circle cx="274" cy="164" r="8"/>
+    <circle cx="226" cy="192" r="15" fill="#fff"/>
+    <circle cx="226" cy="192" r="8"/>
+    <path d="M337 268 455 61h74l9 121L664 61h76L626 268h-61l70-130-131 126-14-128-73 132H337Z"/>
+    <path d="M757 61h78l48 164 31-46h54l-64 89H826L757 61Z"/>
+    <path d="M881 116h23l15 86h76l32-62H921l-8-23h125l-50 101h-91l-15-85h-16c-7 0-13-5-13-12s5-12 13-12h15v7Z"/>
+    <path d="M945 159a11 11 0 0 1 22 0v27a11 11 0 1 1-22 0v-27Z"/>
+    <path d="M934 183c0-16 9-30 23-37v18c-4 4-7 11-7 18 0 14 11 25 25 25s25-11 25-25c0-8-3-15-9-19v-17c15 6 25 20 25 37 0 23-18 41-41 41s-41-18-41-41Z"/>
+    <circle cx="902" cy="240" r="14"/>
+    <circle cx="950" cy="240" r="14"/>
+  </g>
+  <g fill="url(#emv-red)">
+    <path d="M121 206H50v-9h71v9Zm812 0h-71v-9h71v9Z"/>
+    <circle cx="137" cy="201" r="12" fill="#fff" stroke="#a3000d" stroke-width="6"/>
+    <circle cx="846" cy="201" r="12" fill="#fff" stroke="#a3000d" stroke-width="6"/>
+    <text x="171" y="226" font-family="Arial, Helvetica, sans-serif" font-size="55" font-weight="800" font-style="italic" letter-spacing="-1">
+      ElectroMart Vietnam
+    </text>
+  </g>
+</svg>
