@@ -187,6 +187,9 @@ export default function MemberPolicyPage() {
       icon: <Ticket className="h-5 w-5" />,
       content: (
         <div className="space-y-4 text-sm text-slate-600 leading-relaxed">
+          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
+            <img src="/images/policies/gift_box.png" alt="Quà tặng ưu đãi" className="w-full h-auto mix-blend-multiply" />
+          </div>
           <Table
             headers={['Điều kiện', 'Nội dung']}
             rows={[

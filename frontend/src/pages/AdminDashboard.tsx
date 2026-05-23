@@ -85,7 +85,6 @@ type AttachedServiceForm = {
   priceMode: string;
   fixedPrice: number;
   percentValue: number;
-  overridePrice: number | '';
 };
 type WarrantyPolicyForm = {
   inheritWarrantyPolicy: boolean;
@@ -1320,7 +1319,6 @@ export default function AdminDashboard() {
       })),
       _attachedServices: productForm.attachedServices.map((item) => ({
         serviceId: item.serviceId,
-        overridePrice: item.overridePrice === '' ? null : Number(item.overridePrice),
       })),
       _warrantyPolicy: productForm.warrantyPolicy,
     };
@@ -1580,7 +1578,6 @@ export default function AdminDashboard() {
         priceMode: item.priceMode || 'FIXED',
         fixedPrice: Number(item.fixedPrice || 0),
         percentValue: Number(item.percentValue || 0),
-        overridePrice: item.overridePrice ?? '',
       })),
       warrantyPolicy: normalizeWarrantyPolicy(product.salesConfig?.warrantyPolicy || product.specifications?._warrantyPolicy || defaultWarrantyPolicy),
       updatedAt: product.updatedAt || '',
@@ -1978,7 +1975,6 @@ export default function AdminDashboard() {
       ],
     }));
     setAccessorySearch('');
-    setAccessorySuggestions([]);
   }
 
   function patchAccessoryOffer(productId: string, patch: Partial<AccessoryOfferForm>) {
@@ -2017,17 +2013,9 @@ export default function AdminDashboard() {
             priceMode: service.priceMode || 'FIXED',
             fixedPrice: Number(service.fixedPrice || 0),
             percentValue: Number(service.percentValue || 0),
-            overridePrice: '',
           },
         ],
       });
-  }
-
-  function patchAttachedService(serviceId: string, patch: Partial<AttachedServiceForm>) {
-    setProductForm((prev) => ({
-      ...prev,
-      attachedServices: prev.attachedServices.map((item) => (item.serviceId === serviceId ? { ...item, ...patch } : item)),
-    }));
   }
 
   function removeAttachedService(serviceId: string) {
@@ -2043,7 +2031,7 @@ export default function AdminDashboard() {
       serviceType: service.serviceType || 'SUPPORT_SERVICE',
       attributeGroup: service.attributeGroup || '',
       durationMonths: Number(service.durationMonths || 0),
-      priceMode: service.priceMode || 'FIXED',
+      priceMode: service.serviceType === 'PRODUCT_SERVICE' ? 'TIERED_AMOUNT' : service.priceMode || 'FIXED',
       fixedPrice: Number(service.fixedPrice || 0),
       percentValue: Number(service.percentValue || 0),
       baseAmount: Number(service.baseAmount || 0),
@@ -2059,8 +2047,11 @@ export default function AdminDashboard() {
 
   async function handleServiceSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (editingServiceId) await apiDb.adminUpdateAttachedService(editingServiceId, serviceForm);
-    else await apiDb.adminCreateAttachedService(serviceForm);
+    const payload = serviceForm.serviceType === 'PRODUCT_SERVICE'
+      ? { ...serviceForm, priceMode: 'TIERED_AMOUNT', fixedPrice: 0, percentValue: 0, baseAmount: 0 }
+      : serviceForm;
+    if (editingServiceId) await apiDb.adminUpdateAttachedService(editingServiceId, payload);
+    else await apiDb.adminCreateAttachedService(payload);
     resetServiceForm();
     await loadData();
   }
@@ -2611,18 +2602,17 @@ export default function AdminDashboard() {
                           <div className="mt-3 space-y-2">
                             {productForm.attachedServices.length === 0 && <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">Chưa chọn dịch vụ đi kèm.</div>}
                             {productForm.attachedServices.map((item) => (
-                              <div key={item.serviceId} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_180px_40px]">
+                              <div key={item.serviceId} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_40px]">
                                 <div>
                                   <div className="text-sm font-bold text-slate-800">{item.name || item.code || 'Dịch vụ'}</div>
                                   <div className="text-xs text-slate-500">
                                     {item.serviceType === 'PRODUCT_SERVICE' ? 'Dịch vụ sản phẩm' : 'Dịch vụ hỗ trợ'}
                                     {item.attributeGroup ? ` · Nhóm ${item.attributeGroup}` : ''}
                                     {item.durationMonths ? ` · ${item.durationMonths} tháng` : ''}
-                                    {item.fixedPrice ? ` · ${currency.format(Number(item.fixedPrice || 0))}` : ''}
+                                    {item.priceMode === 'PERCENT' ? ` · ${item.percentValue || 0}%` : item.priceMode === 'TIERED_AMOUNT' ? ' · Theo biểu phí chính sách' : ` · ${currency.format(Number(item.fixedPrice || 0))}`}
                                   </div>
                                 </div>
-                                <Input label="Giá riêng cho sản phẩm" type="number" value={item.overridePrice} onChange={(value) => patchAttachedService(item.serviceId, { overridePrice: value === '' ? '' : Number(value) })} />
-                                <button type="button" onClick={() => removeAttachedService(item.serviceId)} className="mt-5 text-red-600"><Trash2 className="h-4 w-4" /></button>
+                                <button type="button" onClick={() => removeAttachedService(item.serviceId)} className="text-red-600"><Trash2 className="h-4 w-4" /></button>
                               </div>
                             ))}
                           </div>
@@ -3041,13 +3031,19 @@ export default function AdminDashboard() {
                         <form onSubmit={handleServiceSubmit} className="grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-4">
                   <Input label="Mã dịch vụ" value={serviceForm.code} required onChange={(value) => setServiceForm({ ...serviceForm, code: value })} />
                   <Input label="Tên dịch vụ" value={serviceForm.name} required onChange={(value) => setServiceForm({ ...serviceForm, name: value })} />
-                  <Select label="Loại dịch vụ" value={serviceForm.serviceType} onChange={(value) => setServiceForm({ ...serviceForm, serviceType: value, attributeGroup: value === 'PRODUCT_SERVICE' && !serviceForm.attributeGroup ? 'WARRANTY' : serviceForm.attributeGroup })} options={[['PRODUCT_SERVICE', 'Dịch vụ sản phẩm'], ['SUPPORT_SERVICE', 'Dịch vụ hỗ trợ']]} />
+                  <Select label="Loại dịch vụ" value={serviceForm.serviceType} onChange={(value) => setServiceForm({ ...serviceForm, serviceType: value, attributeGroup: value === 'PRODUCT_SERVICE' && !serviceForm.attributeGroup ? 'WARRANTY' : serviceForm.attributeGroup, priceMode: value === 'PRODUCT_SERVICE' ? 'TIERED_AMOUNT' : serviceForm.priceMode, fixedPrice: value === 'PRODUCT_SERVICE' ? 0 : serviceForm.fixedPrice, percentValue: value === 'PRODUCT_SERVICE' ? 0 : serviceForm.percentValue, baseAmount: value === 'PRODUCT_SERVICE' ? 0 : serviceForm.baseAmount })} options={[['PRODUCT_SERVICE', 'Dịch vụ sản phẩm'], ['SUPPORT_SERVICE', 'Dịch vụ hỗ trợ']]} />
                   <Select label="Nhóm dịch vụ" value={serviceForm.attributeGroup} onChange={(value) => setServiceForm({ ...serviceForm, attributeGroup: value })} options={[['', 'Chọn nhóm'], ...serviceAttributeGroupOptions]} />
                   <Select label="Thời hạn" value={String(serviceForm.durationMonths || 0)} onChange={(value) => setServiceForm({ ...serviceForm, durationMonths: Number(value) })} options={warrantyDurationOptions} />
-                  <Select label="Cách tính giá" value={serviceForm.priceMode} onChange={(value) => setServiceForm({ ...serviceForm, priceMode: value })} options={[['FIXED', 'Giá cố định'], ['PERCENT', 'Theo % sản phẩm'], ['TIERED_AMOUNT', 'Theo định mức']]} />
-                  <Input label="Giá cố định" type="number" value={serviceForm.fixedPrice} onChange={(value) => setServiceForm({ ...serviceForm, fixedPrice: Number(value) })} />
-                  <Input label="Phần trăm" type="number" value={serviceForm.percentValue} onChange={(value) => setServiceForm({ ...serviceForm, percentValue: Number(value) })} />
-                  <Input label="Định mức" type="number" value={serviceForm.baseAmount} onChange={(value) => setServiceForm({ ...serviceForm, baseAmount: Number(value) })} />
+                  {serviceForm.serviceType === 'PRODUCT_SERVICE' ? (
+                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 md:col-span-4">Biểu phí theo chính sách</div>
+                  ) : (
+                    <>
+                      <Select label="Cách tính giá" value={serviceForm.priceMode} onChange={(value) => setServiceForm({ ...serviceForm, priceMode: value })} options={[['FIXED', 'Giá cố định'], ['PERCENT', 'Theo % sản phẩm'], ['TIERED_AMOUNT', 'Theo định mức']]} />
+                      <Input label="Giá cố định" type="number" value={serviceForm.fixedPrice} onChange={(value) => setServiceForm({ ...serviceForm, fixedPrice: Number(value) })} />
+                      <Input label="Phần trăm" type="number" value={serviceForm.percentValue} onChange={(value) => setServiceForm({ ...serviceForm, percentValue: Number(value) })} />
+                      <Input label="Định mức" type="number" value={serviceForm.baseAmount} onChange={(value) => setServiceForm({ ...serviceForm, baseAmount: Number(value) })} />
+                    </>
+                  )}
                   <Checkbox label="Đang bật" checked={serviceForm.isActive} onChange={(checked) => setServiceForm({ ...serviceForm, isActive: checked })} />
                   <SubmitButtons editing={Boolean(editingServiceId)} onCancel={resetServiceForm} />
                 </form>

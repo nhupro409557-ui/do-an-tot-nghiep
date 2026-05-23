@@ -240,6 +240,9 @@ export default function PrivacyPage() {
       icon: <Key className="h-5 w-5" />,
       content: (
         <div className="space-y-3 text-sm text-slate-600 leading-relaxed">
+          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
+            <img src="/images/policies/security_shield.png" alt="Bảo mật an toàn tuyệt đối" className="w-full h-auto mix-blend-multiply" />
+          </div>
           <p>Khách hàng tự chịu trách nhiệm bảo mật tài khoản, mật khẩu, mã OTP. Khuyến nghị:</p>
           <BulletList items={[
             'Không chia sẻ mật khẩu/OTP cho bất kỳ ai.',

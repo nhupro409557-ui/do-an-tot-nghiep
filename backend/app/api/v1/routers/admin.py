@@ -876,11 +876,9 @@ def persisted_sales_config(sales_config: dict) -> dict:
         service_id = str(item.get("serviceId") or "").strip()
         if not service_id:
             continue
-        override_price = item.get("overridePrice")
         normalized_attached_services.append(
             {
                 "serviceId": service_id,
-                "overridePrice": max(0, float(override_price)) if override_price not in (None, "") else None,
             }
         )
     return {
@@ -999,7 +997,7 @@ async def sync_product_relations(session: AsyncSession, product_id: UUID, sales_
             {
                 "product_id": product_id,
                 "service_id": service_id,
-                "override_price": item.get("overridePrice"),
+                "override_price": None,
             },
         )
 
@@ -1202,7 +1200,6 @@ class ProductAccessoryOfferPayload(BaseModel):
 
 class ProductAttachedServicePayload(BaseModel):
     serviceId: UUID
-    overridePrice: float | None = Field(default=None, ge=0)
 
 
 class AttachedServicePayload(BaseModel):
@@ -3066,7 +3063,7 @@ async def list_admin_products(
                     """
                     SELECT pas.product_id::text AS product_id, s.id::text AS service_id, s.code, s.name,
                            s.service_type, s.attribute_group, s.duration_months, s.price_mode,
-                           s.fixed_price, s.percent_value, s.base_amount, pas.override_price
+                           s.fixed_price, s.percent_value, s.base_amount
                     FROM product_attached_services pas
                     JOIN attached_services s ON s.id = pas.service_id
                     WHERE pas.product_id IN :ids
@@ -3089,7 +3086,6 @@ async def list_admin_products(
                     "fixedPrice": service["fixed_price"],
                     "percentValue": service["percent_value"],
                     "baseAmount": service["base_amount"],
-                    "overridePrice": service["override_price"],
                 }
             )
         for item in bundle_rows:
@@ -3225,6 +3221,10 @@ async def list_attached_services(session: AsyncSession = Depends(get_session)) -
 @router.post("/attached-services", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("product:create"))])
 async def create_attached_service(payload: AttachedServicePayload, session: AsyncSession = Depends(get_session)) -> dict:
     service_id = uuid4()
+    price_mode = "TIERED_AMOUNT" if payload.serviceType == "PRODUCT_SERVICE" else payload.priceMode
+    fixed_price = 0 if payload.serviceType == "PRODUCT_SERVICE" else payload.fixedPrice
+    percent_value = 0 if payload.serviceType == "PRODUCT_SERVICE" else payload.percentValue
+    base_amount = 0 if payload.serviceType == "PRODUCT_SERVICE" else payload.baseAmount
     await session.execute(
         text(
             """
@@ -3245,10 +3245,10 @@ async def create_attached_service(payload: AttachedServicePayload, session: Asyn
             "service_type": payload.serviceType,
             "attribute_group": payload.attributeGroup or None,
             "duration_months": payload.durationMonths,
-            "price_mode": payload.priceMode,
-            "fixed_price": payload.fixedPrice,
-            "percent_value": payload.percentValue,
-            "base_amount": payload.baseAmount,
+            "price_mode": price_mode,
+            "fixed_price": fixed_price,
+            "percent_value": percent_value,
+            "base_amount": base_amount,
             "is_active": payload.isActive,
             "metadata": json.dumps(payload.metadata),
         },
@@ -3259,6 +3259,10 @@ async def create_attached_service(payload: AttachedServicePayload, session: Asyn
 
 @router.patch("/attached-services/{service_id}", dependencies=[Depends(require_permission("product:update"))])
 async def update_attached_service(service_id: UUID, payload: AttachedServicePayload, session: AsyncSession = Depends(get_session)) -> dict:
+    price_mode = "TIERED_AMOUNT" if payload.serviceType == "PRODUCT_SERVICE" else payload.priceMode
+    fixed_price = 0 if payload.serviceType == "PRODUCT_SERVICE" else payload.fixedPrice
+    percent_value = 0 if payload.serviceType == "PRODUCT_SERVICE" else payload.percentValue
+    base_amount = 0 if payload.serviceType == "PRODUCT_SERVICE" else payload.baseAmount
     result = await session.execute(
         text(
             """
@@ -3278,10 +3282,10 @@ async def update_attached_service(service_id: UUID, payload: AttachedServicePayl
             "service_type": payload.serviceType,
             "attribute_group": payload.attributeGroup or None,
             "duration_months": payload.durationMonths,
-            "price_mode": payload.priceMode,
-            "fixed_price": payload.fixedPrice,
-            "percent_value": payload.percentValue,
-            "base_amount": payload.baseAmount,
+            "price_mode": price_mode,
+            "fixed_price": fixed_price,
+            "percent_value": percent_value,
+            "base_amount": base_amount,
             "is_active": payload.isActive,
             "metadata": json.dumps(payload.metadata),
         },

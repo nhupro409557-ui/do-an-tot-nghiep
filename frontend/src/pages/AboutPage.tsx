@@ -116,11 +116,19 @@ export default function AboutPage() {
           <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
             <img src="/images/policies/about.png" alt="Tầm nhìn" className="w-full h-auto mix-blend-multiply" />
           </div>
+      content: (
+        <div className="space-y-4 text-slate-600 leading-relaxed text-sm">
+          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
+            <img src="/images/policies/about.png" alt="Tầm nhìn" className="w-full h-auto mix-blend-multiply" />
+          </div>
           <p>
             ElectroMart Việt Nam hướng đến mục tiêu trở thành một nền tảng thương mại điện tử chuyên biệt trong lĩnh
             vực sản phẩm công nghệ, có khả năng cung cấp trải nghiệm mua sắm trực tuyến thuận tiện, hiện đại và đáng
             tin cậy cho người tiêu dùng Việt Nam.
           </p>
+          <div className="mb-4 mt-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
+            <img src="/images/policies/tech_gadgets.png" alt="Sản phẩm công nghệ hiện đại" className="w-full h-auto mix-blend-multiply" />
+          </div>
           <p>
             Trong tương lai, hệ thống có thể được mở rộng thêm nhiều chức năng như tích hợp trí tuệ nhân tạo trong tư
             vấn sản phẩm, cá nhân hóa gợi ý mua hàng, quản lý điểm thưởng khách hàng, phân tích hành vi tiêu dùng, tối
