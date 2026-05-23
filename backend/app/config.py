@@ -1,8 +1,8 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+import os
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+asyncpg://postgres:anhnhu057@localhost:5432/postgres"
+    database_url: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:anhnhu057@localhost:5432/postgres")
     jwt_secret_key: str = "change-me"
     jwt_algorithm: str = "HS256"
     redis_url: str = "redis://localhost:6379/0"
