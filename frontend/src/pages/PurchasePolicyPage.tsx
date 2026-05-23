@@ -260,6 +260,9 @@ export default function PurchasePolicyPage() {
       icon: <RotateCcw className="h-5 w-5" />,
       content: (
         <div className="space-y-4 text-sm text-slate-600 leading-relaxed">
+          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
+            <img src="/images/policies/payment.png" alt="Hoàn tiền nhanh chóng" className="w-full h-auto mix-blend-multiply" />
+          </div>
           <p>Việc hoàn tiền được thực hiện trong các trường hợp: đơn hàng bị hủy hợp lệ, hết hàng, thanh toán trùng, lỗi hệ thống, đủ điều kiện đổi trả...</p>
           <Table
             headers={['Phương thức thanh toán ban đầu', 'Hình thức hoàn tiền']}

@@ -3946,7 +3946,7 @@ function AdminTopBar({ onRefresh, query, setQuery, sidebarOpen, searchPlaceholde
           <div className="min-w-0 flex-1">
             <SearchBox value={query} onChange={setQuery} placeholder={searchPlaceholder} />
           </div>
-          <Link to="/" className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700">
+          <Link to="/" className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-red-100 px-4 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-200">
             <Home className="h-4 w-4" />
             <span>Trang chủ</span>
           </Link>

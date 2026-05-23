@@ -113,6 +113,9 @@ export default function AboutPage() {
       icon: <Eye className="h-5 w-5" />,
       content: (
         <div className="space-y-4 text-slate-600 leading-relaxed text-sm">
+          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
+            <img src="/images/policies/about.png" alt="Tầm nhìn" className="w-full h-auto mix-blend-multiply" />
+          </div>
           <p>
             ElectroMart Việt Nam hướng đến mục tiêu trở thành một nền tảng thương mại điện tử chuyên biệt trong lĩnh
             vực sản phẩm công nghệ, có khả năng cung cấp trải nghiệm mua sắm trực tuyến thuận tiện, hiện đại và đáng
