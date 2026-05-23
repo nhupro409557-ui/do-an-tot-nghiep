@@ -137,7 +137,7 @@ export default function RegisterPage() {
 
             <div className="mb-4 flex items-start gap-2 text-xs text-gray-600">
               <input type="checkbox" required className="mt-0.5" />
-              <p>Bằng việc đăng ký, bạn đồng ý với <Link to="/policy" className="text-blue-600 hover:underline">chính sách bảo mật</Link>.</p>
+              <p>Bằng việc đăng ký, bạn xác nhận thông tin cung cấp là chính xác.</p>
             </div>
 
             <div className="flex flex-col-reverse gap-4 pt-4 md:flex-row">

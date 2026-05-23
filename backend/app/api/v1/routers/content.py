@@ -435,7 +435,11 @@ async def list_videos(
     redis: Redis = Depends(get_redis),
 ) -> dict:
     cache_key = content_cache_key(page, limit)
-    cached = await redis.get(cache_key)
+    cached = None
+    try:
+        cached = await redis.get(cache_key)
+    except Exception:
+        cached = None
     if cached:
         return json.loads(cached)
 
@@ -525,7 +529,10 @@ async def list_videos(
         "total": int(total),
         "hasMore": offset + len(items) < int(total),
     }
-    await redis.setex(cache_key, 300, json.dumps(payload, ensure_ascii=False, default=str))
-    await redis.sadd("storefront:content:videos:keys", cache_key)
-    await redis.expire("storefront:content:videos:keys", 24 * 60 * 60)
+    try:
+        await redis.setex(cache_key, 300, json.dumps(payload, ensure_ascii=False, default=str))
+        await redis.sadd("storefront:content:videos:keys", cache_key)
+        await redis.expire("storefront:content:videos:keys", 24 * 60 * 60)
+    except Exception:
+        pass
     return payload

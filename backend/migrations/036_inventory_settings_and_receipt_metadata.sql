@@ -1,4 +1,4 @@
--- Inventory policy and richer receipt metadata
+-- Inventory settings and richer receipt metadata
 -- This migration extends the existing single-warehouse flow without replacing it.
 
 ALTER TABLE inventory_adjustment_logs

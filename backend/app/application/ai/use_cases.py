@@ -91,8 +91,6 @@ def classify_intent(message: str) -> str:
         return "ORDER_LOOKUP"
     if any(term in normalized for term in ["diem", "tich diem", "loyalty", "hang thanh vien", "voucher"]):
         return "LOYALTY"
-    if any(term in normalized for term in ["bao hanh", "doi tra", "hoan tien", "giao hang", "bao mat", "chinh sach"]):
-        return "POLICY"
     if any(term in normalized for term in ["khieu nai", "buc", "tuc", "qua te", "that vong", "nhan vien"]):
         return "COMPLAINT"
     return "PRODUCT_ADVICE"
@@ -235,8 +233,6 @@ class AIAssistantUseCase:
         user_id: str | None,
         request: AIAssistantRequest,
     ) -> dict:
-        if intent == "POLICY":
-            return {"policies": await self._find_policies(message)}
         if intent == "ORDER_LOOKUP":
             return {"order": await self._find_order(message, user_id)}
         if intent == "LOYALTY":
@@ -317,56 +313,6 @@ class AIAssistantUseCase:
 
         ranked.sort(key=lambda item: item[0], reverse=True)
         return [product for _, product in ranked[:5]]
-
-    async def _find_policies(self, message: str) -> list[dict]:
-        normalized = normalize_text(message)
-        code_hints = []
-        if "bao hanh" in normalized:
-            code_hints.append("warranty")
-        if "giao hang" in normalized or "van chuyen" in normalized:
-            code_hints.append("shipping")
-        if "doi tra" in normalized or "hoan tien" in normalized:
-            code_hints.append("return")
-        if "bao mat" in normalized:
-            code_hints.append("privacy")
-
-        if code_hints:
-            params = {f"code_{index}": code for index, code in enumerate(code_hints)}
-            placeholders = ", ".join(f":code_{index}" for index in range(len(code_hints)))
-            result = await self._session.execute(
-                text(
-                    f"""
-                    SELECT code, title, regexp_replace(content, '<[^>]+>', ' ', 'g') AS content
-                    FROM policies
-                    WHERE is_active = TRUE
-                      AND (
-                        status = 'PUBLISHED'
-                        OR (status = 'SCHEDULED' AND scheduled_at IS NOT NULL AND scheduled_at <= NOW())
-                      )
-                      AND code IN ({placeholders})
-                    ORDER BY COALESCE(published_at, updated_at) DESC, updated_at DESC
-                    LIMIT 4
-                    """
-                ),
-                params,
-            )
-        else:
-            result = await self._session.execute(
-                text(
-                    """
-                    SELECT code, title, regexp_replace(content, '<[^>]+>', ' ', 'g') AS content
-                    FROM policies
-                    WHERE is_active = TRUE
-                      AND (
-                        status = 'PUBLISHED'
-                        OR (status = 'SCHEDULED' AND scheduled_at IS NOT NULL AND scheduled_at <= NOW())
-                      )
-                    ORDER BY COALESCE(published_at, updated_at) DESC, updated_at DESC
-                    LIMIT 4
-                    """
-                )
-            )
-        return [self._clean_row(dict(row._mapping)) for row in result]
 
     async def _find_order(self, message: str, user_id: str | None) -> dict:
         if not user_id:
@@ -471,10 +417,6 @@ class AIAssistantUseCase:
                 return "Bạn vui lòng cung cấp mã đơn hàng để mình kiểm tra trạng thái chính xác."
             if order.get("not_found"):
                 return "Mình chưa tìm thấy đơn hàng này trong tài khoản của bạn."
-        if intent == "POLICY":
-            policies = retrieved_context.get("policies") or []
-            if policies:
-                return f"{policies[0].get('title')}: {policies[0].get('content')}"
         if intent == "LOYALTY":
             loyalty = retrieved_context.get("loyalty")
             if loyalty:
@@ -492,8 +434,6 @@ class AIAssistantUseCase:
         sources = []
         if context.get("products"):
             sources.append("products")
-        if context.get("policies"):
-            sources.append("policies")
         if context.get("order"):
             sources.append("orders")
         if context.get("loyalty"):

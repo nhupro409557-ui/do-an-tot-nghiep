@@ -67,7 +67,7 @@
   - anh noi dung: toi da 5MB
   - video noi dung: toi da 500MB
 - Neu dung direct-to-cloud:
-  - Backend phai tao presigned policy co `content-length-range`
+  - Backend phai tao presigned payload co `content-length-range`
   - ep `Content-Type`
   - key phai nam trong prefix `content/`
   - muc tieu la de cloud tu choi file sai ngay tai lop storage

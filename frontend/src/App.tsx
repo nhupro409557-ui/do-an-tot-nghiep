@@ -31,7 +31,18 @@ const RankingsPage = lazy(() => import('./pages/RankingsPage'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const AdminLoginPage = lazy(() => import('./pages/AdminLoginPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
-const PolicyPage = lazy(() => import('./pages/PolicyPage'));
+const AboutPage = lazy(() => import('./pages/AboutPage'));
+const WarrantyPage = lazy(() => import('./pages/WarrantyPage'));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
+const DisputePage = lazy(() => import('./pages/DisputePage'));
+const InvoicePage = lazy(() => import('./pages/InvoicePage'));
+const DataBackupPage = lazy(() => import('./pages/DataBackupPage'));
+const ExtendedWarrantyPage = lazy(() => import('./pages/ExtendedWarrantyPage'));
+const PurchasePolicyPage = lazy(() => import('./pages/PurchasePolicyPage'));
+const DeliveryPolicyPage = lazy(() => import('./pages/DeliveryPolicyPage'));
+const ReturnWarrantyPolicyPage = lazy(() => import('./pages/ReturnWarrantyPolicyPage'));
+const TermsPage = lazy(() => import('./pages/TermsPage'));
+const MemberPolicyPage = lazy(() => import('./pages/MemberPolicyPage'));
 
 export default function App() {
   return (
@@ -58,6 +69,18 @@ function AppShell() {
         <Suspense fallback={<div className="flex items-center justify-center p-20"><div className="h-8 w-8 animate-spin rounded-full border-4 border-[#d70018] border-t-transparent"></div></div>}>
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/warranty" element={<WarrantyPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/dispute" element={<DisputePage />} />
+            <Route path="/invoice" element={<InvoicePage />} />
+            <Route path="/data-backup" element={<DataBackupPage />} />
+            <Route path="/extended-warranty" element={<ExtendedWarrantyPage />} />
+            <Route path="/purchase-policy" element={<PurchasePolicyPage />} />
+            <Route path="/delivery-policy" element={<DeliveryPolicyPage />} />
+            <Route path="/return-warranty-policy" element={<ReturnWarrantyPolicyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/member-policy" element={<MemberPolicyPage />} />
             <Route path="/video" element={<VideoPage />} />
             <Route path="/images" element={<ImagesPage />} />
             <Route path="/rankings" element={<RankingsPage />} />
@@ -75,7 +98,6 @@ function AppShell() {
             <Route path="/verify-email" element={<VerifyEmailPage />} />
             <Route path="/product/:id" element={<ProductPage />} />
             <Route path="/cart" element={<CartPage />} />
-            <Route path="/policy" element={<PolicyPage />} />
             <Route path="/admin/login" element={<AdminLoginPage />} />
 
             <Route element={<ProtectedRoute />}>

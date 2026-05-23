@@ -1,0 +1,11 @@
+.vercel
+
+# Local/generated development artifacts
+.codegraph/
+frontend/dist/
+frontend-run.log
+backend/.logs/
+backend/.venv/
+backend/venv/
+**/__pycache__/
+*.pyc

@@ -13,64 +13,6 @@ from app.infrastructure.database.session import get_session
 router = APIRouter(prefix="/storefront", tags=["Storefront"])
 
 
-@router.get("/policies")
-async def list_storefront_policies(
-    code: str | None = None,
-    product_id: str | None = None,
-    category_id: str | None = None,
-    session: AsyncSession = Depends(get_session),
-) -> list[dict]:
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                id::text,
-                code,
-                title,
-                summary,
-                content,
-                seo_title AS "seoTitle",
-                seo_description AS "seoDescription",
-                seo_keywords AS "seoKeywords",
-                scope_type AS "scopeType",
-                COALESCE(product_ids, '[]'::jsonb) AS "productIds",
-                COALESCE(category_ids, '[]'::jsonb) AS "categoryIds",
-                published_at AS "publishedAt",
-                updated_at AS "updatedAt"
-            FROM policies
-            WHERE is_active = TRUE
-              AND (
-                status = 'PUBLISHED'
-                OR (status = 'SCHEDULED' AND scheduled_at IS NOT NULL AND scheduled_at <= NOW())
-              )
-              AND (:code IS NULL OR code = :code)
-              AND (
-                OR scope_type = 'GLOBAL'
-                OR (
-                  :product_id IS NULL
-                  AND :category_id IS NULL
-                )
-                OR (
-                  :product_id IS NOT NULL
-                  AND COALESCE(product_ids, '[]'::jsonb) ? :product_id
-                )
-                OR (
-                  :category_id IS NOT NULL
-                  AND COALESCE(category_ids, '[]'::jsonb) ? :category_id
-                )
-              )
-            ORDER BY COALESCE(published_at, updated_at) DESC, updated_at DESC
-            """
-        ),
-        {
-            "code": code.strip().lower() if code else None,
-            "product_id": product_id.strip() if product_id else None,
-            "category_id": category_id.strip() if category_id else None,
-        },
-    )
-    return [dict(row._mapping) for row in result]
-
-
 async def resolve_brand_redirect(session: AsyncSession, slug: str, max_hops: int = 5) -> str | None:
     current = slug
     seen = {slug}

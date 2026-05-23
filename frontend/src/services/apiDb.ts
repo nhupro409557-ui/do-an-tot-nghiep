@@ -309,10 +309,12 @@ export const apiDb = {
     method: 'POST',
     body: JSON.stringify({ action, productIds }),
   }),
-  adminSuggestProducts: (search: string, excludeId?: string) => {
+  adminSuggestProducts: (search: string, excludeId?: string, filters?: { categoryId?: string; brandId?: string }) => {
     const query = new URLSearchParams();
     if (search) query.set('search', search);
     if (excludeId) query.set('excludeId', excludeId);
+    if (filters?.categoryId) query.set('categoryId', filters.categoryId);
+    if (filters?.brandId) query.set('brandId', filters.brandId);
     return request<any[]>(`/admin/products/suggestions${query.toString() ? `?${query.toString()}` : ''}`);
   },
   adminDuplicateProduct: (id: string) => request<{ id: string }>(`/admin/products/${encodeURIComponent(id)}/duplicate`, { method: 'POST' }),
@@ -322,11 +324,21 @@ export const apiDb = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
-  adminUpdateInventoryPolicy: (id: string, data: any) => request<any>(`/admin/products/${encodeURIComponent(id)}/inventory/policy`, {
+  adminUpdateInventorySettings: (id: string, data: any) => request<any>(`/admin/products/${encodeURIComponent(id)}/inventory/settings`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   }),
   adminExportInventory: (search = '') => requestBlob(`/admin/inventory/export${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  adminListAttachedServices: () => request<any[]>('/admin/attached-services'),
+  adminCreateAttachedService: (data: any) => request<{ id: string }>('/admin/attached-services', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  adminUpdateAttachedService: (id: string, data: any) => request(`/admin/attached-services/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  adminDeleteAttachedService: (id: string) => request(`/admin/attached-services/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   adminSetVariantInventory: (productId: string, variantId: string, data: any) => request<any>(`/admin/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}/inventory`, {
     method: 'PATCH',
     body: JSON.stringify(data),
@@ -347,25 +359,6 @@ export const apiDb = {
     body: JSON.stringify({ user_id: userId }),
   }),
   listUserVouchers: (userId: string) => request<any[]>(`/users/${encodeURIComponent(userId)}/vouchers`),
-  adminListPolicies: () => request<any[]>('/admin/policies'),
-  adminGetPolicyHistory: (id: string) => request<any[]>(`/admin/policies/${encodeURIComponent(id)}/history`),
-  adminCreatePolicy: (data: any) => request<{ id: string }>('/admin/policies', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  }),
-  adminUpdatePolicy: (id: string, data: any) => request(`/admin/policies/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(data),
-  }),
-  adminDeletePolicy: (id: string) => request(`/admin/policies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  listStorefrontPolicies: (params: { code?: string; productId?: string; categoryId?: string } = {}) => {
-    const searchParams = new URLSearchParams();
-    if (params.code) searchParams.set('code', params.code);
-    if (params.productId) searchParams.set('product_id', params.productId);
-    if (params.categoryId) searchParams.set('category_id', params.categoryId);
-    const query = searchParams.toString();
-    return request<any[]>(`/storefront/policies${query ? `?${query}` : ''}`);
-  },
   adminListCustomers: (params: { search?: string; page?: number; limit?: number } = {}) => {
     const searchParams = new URLSearchParams();
     if (params.search) searchParams.set('search', params.search);

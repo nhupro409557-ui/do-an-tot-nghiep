@@ -7,44 +7,6 @@ import ReelsModal from '../components/video/ReelsModal';
 type SortMode = 'newest' | 'liked' | 'title';
 
 const topicTabs = ['Tất cả', 'Tuyển chọn', 'Điện thoại', 'Laptop', 'Phụ kiện', 'Đồng hồ', 'Camera', 'Mẹo sử dụng', 'Chính sách'];
-const demoComments = [
-  'Shop tư vấn rõ, video dễ hiểu.',
-  'Mẫu này nhìn thực tế hơn ảnh sản phẩm.',
-  'Có thể thêm so sánh giá ở video sau không?',
-  'Đúng thứ mình đang cần xem trước khi mua.',
-  'Video ngắn nhưng đủ thông tin chính.',
-];
-
-const aspectTestVideos = [
-  {
-    id: 'aspect-test-landscape',
-    title: '[TEST] Video ngang 16:9',
-    description: 'Video mẫu để kiểm tra khung mở video tự đổi sang bố cục ngang.',
-    videoUrl: 'https://samplefile.com/samples/download/video/mp4/mp4_h264_aac_360p_sample.mp4',
-    thumbnailUrl: '',
-    category: 'Tuyển chọn',
-    createdAt: '2999-01-03T00:00:00.000Z',
-  },
-  {
-    id: 'aspect-test-portrait',
-    title: '[TEST] Video dọc 9:16',
-    description: 'Video mẫu để kiểm tra khung mở video tự đổi sang bố cục dọc.',
-    videoUrl: 'https://samplefile.com/samples/download/video/mp4/mp4_portrait_h264_aac_sample.mp4',
-    thumbnailUrl: '',
-    category: 'Tuyển chọn',
-    createdAt: '2999-01-02T00:00:00.000Z',
-  },
-  {
-    id: 'aspect-test-square',
-    title: '[TEST] Video vuông 1:1',
-    description: 'Video mẫu để kiểm tra khung mở video tự đổi sang bố cục vuông.',
-    videoUrl: 'https://samplefile.com/samples/download/video/mp4/mp4_square_h264_aac_sample.mp4',
-    thumbnailUrl: '',
-    category: 'Tuyển chọn',
-    createdAt: '2999-01-01T00:00:00.000Z',
-  },
-];
-
 function videoImage(video: any) {
   return video.thumbnailUrl || video.cover || video.coverUrl || '';
 }
@@ -77,14 +39,7 @@ function demoDuration(video: any, index: number) {
 
 function demoLikeCount(video: any, index: number) {
   if (typeof video.likeCount === 'number') return video.likeCount.toLocaleString('vi-VN');
-  const seed = String(video.id || video.title || index).split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  const value = 1.2 + ((seed % 240) / 10);
-  return `${value.toFixed(1)}K`;
-}
-
-function commentFor(video: any, index: number) {
-  const seed = String(video.id || video.title || index).split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return demoComments[seed % demoComments.length];
+  return '0';
 }
 
 function findRelatedProduct(video: any, products: any[]) {
@@ -347,7 +302,7 @@ export default function VideoPage() {
       apiDb.listProducts().catch(() => []),
     ])
       .then(([videoData, productData]) => {
-        setVideos([...aspectTestVideos, ...videoData]);
+        setVideos(videoData);
         setProducts(productData);
       })
       .finally(() => setLoading(false));
@@ -380,11 +335,10 @@ export default function VideoPage() {
     return filteredVideos.map((video, index) => ({
       ...video,
       product: video.product || findRelatedProduct(video, products),
-      comments: video.comments || [
-        { id: `${video.id}-comment-1`, userName: 'Minh Anh', content: commentFor(video, index) },
-        { id: `${video.id}-comment-2`, userName: 'Echophone', content: 'Cảm ơn bạn đã xem video. Shop có thể tư vấn thêm sản phẩm phù hợp với nhu cầu của bạn.' },
-      ],
-      commentCount: video.commentCount || 8 + ((index * 7) % 56),
+      comments: Array.isArray(video.comments) ? video.comments : [],
+      commentCount: typeof video.commentCount === 'number'
+        ? video.commentCount
+        : (Array.isArray(video.comments) ? video.comments.length : 0),
     }));
   }, [filteredVideos, products]);
 

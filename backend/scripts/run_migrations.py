@@ -6,11 +6,11 @@ from app.config import settings
 
 SQL_FILES = [
     "init_database.sql",
-    "036_inventory_policy_and_receipt_metadata.sql",
+    "036_inventory_settings_and_receipt_metadata.sql",
     "037_inventory_enterprise_foundation.sql",
     "038_review_management_upgrade.sql",
     "039_review_resilience_and_user_controls.sql",
-    "040_policy_management_upgrade.sql"
+    "040_catalog_inventory_services_foundation.sql",
 ]
 
 def split_sql_statements(sql_text):
@@ -121,5 +121,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-

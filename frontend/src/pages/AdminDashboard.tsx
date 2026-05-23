@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import DOMPurify from 'dompurify';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -48,7 +47,7 @@ import { useAuth } from '../context/AuthContext';
 import { apiDb } from '../services/apiDb';
 import { signOut } from '../services/authDb';
 
-type AdminTab = 'overview' | 'products' | 'categories' | 'brands' | 'orders' | 'vouchers' | 'policies' | 'customers' | 'inventory' | 'reviews' | 'content' | 'audit' | 'permissions';
+type AdminTab = 'overview' | 'products' | 'categories' | 'brands' | 'services' | 'orders' | 'vouchers' | 'customers' | 'inventory' | 'reviews' | 'content' | 'audit' | 'permissions';
 type AdminTabGroup = 'Tổng quan' | 'Kinh doanh' | 'Catalog' | 'Vận hành' | 'Khách hàng' | 'Hệ thống';
 type SpecField = { key: string; label: string; group?: string; type: string; required: boolean; variant: boolean; isFilterable?: boolean; filterType?: string; filterEnabled?: boolean };
 type CategoryFilterField = { key: string; label: string; type: string; enabled: boolean; source?: string };
@@ -74,6 +73,25 @@ type AccessoryOfferForm = {
   discountType: 'FIXED' | 'PERCENT';
   discountValue: number;
   maxQuantity: number;
+};
+type AttachedServiceForm = {
+  serviceId: string;
+  name: string;
+  code: string;
+  serviceType: string;
+  attributeGroup: string;
+  durationMonths: number;
+  priceMode: string;
+  fixedPrice: number;
+  percentValue: number;
+  overridePrice: number | '';
+};
+type WarrantyPolicyForm = {
+  inheritWarrantyPolicy: boolean;
+  hasWarranty: boolean;
+  warrantyMonths: number;
+  allowOneForOne: boolean;
+  oneForOneDays: number;
 };
 
 const currency = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
@@ -102,6 +120,25 @@ const reviewStarOptions: [string, string][] = [
   ['2', '2 sao'],
   ['1', '1 sao'],
 ];
+const warrantyDurationOptions: [string, string][] = [
+  ['0', 'Không thời hạn'],
+  ['3', '3 tháng'],
+  ['6', '6 tháng'],
+  ['9', '9 tháng'],
+  ['12', '12 tháng'],
+  ['18', '18 tháng'],
+  ['24', '24 tháng'],
+  ['36', '36 tháng'],
+];
+const serviceAttributeGroupOptions: [string, string][] = [
+  ['WARRANTY', 'Bảo hành'],
+  ['EXTENDED_WARRANTY', 'Bảo hành mở rộng'],
+  ['ONE_FOR_ONE', '1 đổi 1'],
+  ['ACCIDENTAL_DAMAGE', 'Rơi vỡ - rơi nước'],
+  ['INSTALLATION', 'Lắp đặt'],
+  ['CLEANING', 'Vệ sinh'],
+  ['SUPPORT', 'Hỗ trợ kỹ thuật'],
+];
 
 const toNumber = (value: unknown) => Number(value || 0);
 const getOrderTotal = (order: any) => toNumber(order.totalAmount ?? order.total_amount ?? order.total ?? order.grandTotal);
@@ -116,7 +153,7 @@ const getProductStock = (product: any) => {
   const variantStock = Array.isArray(product.variants) ? product.variants.reduce((sum: number, variant: any) => sum + toNumber(variant.stock ?? variant.quantity), 0) : 0;
   return toNumber(product.stock ?? product.quantity ?? product.inventoryQuantity ?? variantStock);
 };
-const getInventoryPolicy = (product: any) => {
+const getInventorySettings = (product: any) => {
   const salesConfig = product?.salesConfig && typeof product.salesConfig === 'object' ? product.salesConfig : {};
   return {
     minimumStock: toNumber(salesConfig.minimumStock),
@@ -139,18 +176,44 @@ const slugifyText = (value: string) => value
   .replace(/[^a-z0-9]+/g, '-')
   .replace(/^-+|-+$/g, '');
 
+const defaultWarrantyPolicy: WarrantyPolicyForm = {
+  inheritWarrantyPolicy: true,
+  hasWarranty: false,
+  warrantyMonths: 0,
+  allowOneForOne: false,
+  oneForOneDays: 0,
+};
+
+function normalizeWarrantyPolicy(value: any): WarrantyPolicyForm {
+  return {
+    inheritWarrantyPolicy: value?.inheritWarrantyPolicy !== false,
+    hasWarranty: Boolean(value?.hasWarranty),
+    warrantyMonths: Number(value?.warrantyMonths || 0),
+    allowOneForOne: Boolean(value?.allowOneForOne),
+    oneForOneDays: Number(value?.oneForOneDays || 0),
+  };
+}
+
+function categoryWarrantyPolicy(category: any, parent?: any): WarrantyPolicyForm {
+  const own = normalizeWarrantyPolicy(category?.warrantyPolicy || defaultWarrantyPolicy);
+  if (category?.parentId && own.inheritWarrantyPolicy && parent) {
+    return normalizeWarrantyPolicy(parent.warrantyPolicy || defaultWarrantyPolicy);
+  }
+  return own;
+}
+
 const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Tổng quan', icon: LayoutDashboard },
   { id: 'products', label: 'Sản phẩm', icon: Package },
   { id: 'categories', label: 'Danh mục', icon: FolderTree },
   { id: 'brands', label: 'Thương hiệu', icon: Building2 },
+  { id: 'services', label: 'Dịch vụ', icon: ShieldCheck },
   { id: 'orders', label: 'Đơn hàng', icon: ClipboardList },
   { id: 'vouchers', label: 'Voucher', icon: BadgePercent },
-  { id: 'policies', label: 'Chính sách', icon: FileText },
   { id: 'customers', label: 'Khách hàng', icon: Users },
   { id: 'inventory', label: 'Tồn kho', icon: Boxes },
   { id: 'reviews', label: 'Đánh giá', icon: Star },
-  { id: 'content', label: 'Video & nội dung', icon: Megaphone },
+  { id: 'content', label: 'Video & ná»™i dung', icon: Megaphone },
   { id: 'audit', label: 'Nhật ký', icon: ScrollText },
   { id: 'permissions', label: 'Phân quyền', icon: KeyRound },
 ];
@@ -192,6 +255,15 @@ const tabTone: Record<AdminTab, { active: string; item: string; icon: string; su
     title: 'Quản lý thương hiệu',
     description: 'Khu vực quản lý logo, mã thương hiệu và thứ tự hiển thị.',
   },
+  services: {
+    active: 'border-emerald-200 bg-emerald-100 text-slate-800 shadow-sm shadow-emerald-50',
+    item: 'border-emerald-100 bg-emerald-50/75 text-slate-700 hover:bg-emerald-100/80',
+    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    surface: 'border-emerald-100 bg-emerald-50/80 text-emerald-900',
+    label: 'Catalog',
+    title: 'Quản lý dịch vụ',
+    description: 'Quản lý bảo hành mở rộng, lắp đặt, vệ sinh và các dịch vụ đi kèm sản phẩm.',
+  },
   orders: {
     active: 'bg-amber-600 text-white shadow-sm shadow-amber-200',
     item: 'border-amber-100 bg-amber-50/75 text-amber-950 hover:bg-amber-100/80',
@@ -209,15 +281,6 @@ const tabTone: Record<AdminTab, { active: string; item: string; icon: string; su
     label: 'Vận hành',
     title: 'Quản lý voucher',
     description: 'Khu vực cài đặt chiến dịch ưu đãi, ngân sách và điều kiện áp dụng.',
-  },
-  policies: {
-    active: 'bg-slate-700 text-white shadow-sm shadow-slate-200',
-    item: 'border-slate-200 bg-slate-100/80 text-slate-950 hover:bg-slate-200/70',
-    icon: 'bg-slate-100 text-slate-700 ring-slate-200',
-    surface: 'border-slate-200 bg-slate-100/80 text-slate-900',
-    label: 'Tài liệu',
-    title: 'Quản lý chính sách',
-    description: 'Khu vực cập nhật nội dung chính sách và thông tin hỗ trợ khách hàng.',
   },
   customers: {
     active: 'bg-sky-600 text-white shadow-sm shadow-sky-200',
@@ -251,8 +314,8 @@ const tabTone: Record<AdminTab, { active: string; item: string; icon: string; su
     item: 'border-teal-100 bg-teal-50/75 text-teal-950 hover:bg-teal-100/80',
     icon: 'bg-teal-50 text-teal-700 ring-teal-100',
     surface: 'border-teal-100 bg-teal-50/80 text-teal-900',
-    label: 'Nội dung',
-    title: 'Video & nội dung',
+    label: 'Ná»™i dung',
+    title: 'Video & ná»™i dung',
     description: 'Khu vực quản lý video, bài viết và nội dung hiển thị riêng với dashboard.',
   },
   audit: {
@@ -282,11 +345,11 @@ const adminTabs: { id: AdminTab; label: string; group: AdminTabGroup; icon: Reac
   { id: 'products', label: 'Sản phẩm', group: 'Catalog', icon: Package },
   { id: 'categories', label: 'Danh mục', group: 'Catalog', icon: FolderTree },
   { id: 'brands', label: 'Thương hiệu', group: 'Catalog', icon: Building2 },
+  { id: 'services', label: 'Dịch vụ', group: 'Catalog', icon: ShieldCheck },
   { id: 'inventory', label: 'Tồn kho', group: 'Vận hành', icon: Boxes },
   { id: 'content', label: 'Video & nội dung', group: 'Vận hành', icon: Megaphone },
   { id: 'customers', label: 'Khách hàng', group: 'Khách hàng', icon: Users },
   { id: 'reviews', label: 'Đánh giá', group: 'Khách hàng', icon: Star },
-  { id: 'policies', label: 'Chính sách', group: 'Hệ thống', icon: FileText },
   { id: 'audit', label: 'Nhật ký', group: 'Hệ thống', icon: ScrollText },
   { id: 'permissions', label: 'Phân quyền', group: 'Hệ thống', icon: KeyRound },
 ];
@@ -329,6 +392,15 @@ const adminTabTone: Record<AdminTab, { active: string; item: string; icon: strin
     title: 'Quản lý thương hiệu',
     description: 'Khu vực quản lý logo, mã thương hiệu và thứ tự hiển thị.',
   },
+  services: {
+    active: 'border-emerald-200 bg-emerald-100 text-slate-800 shadow-sm shadow-emerald-50',
+    item: 'border-emerald-100 bg-emerald-50/75 text-slate-700 hover:bg-emerald-100/80',
+    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    surface: 'border-emerald-100 bg-emerald-50/80 text-emerald-900',
+    label: 'Catalog',
+    title: 'Quản lý dịch vụ',
+    description: 'Quản lý bảo hành mở rộng, lắp đặt, vệ sinh và các dịch vụ đi kèm sản phẩm.',
+  },
   orders: {
     active: 'border-sky-200 bg-sky-100 text-slate-800 shadow-sm shadow-sky-50',
     item: 'border-sky-100 bg-sky-50/75 text-slate-700 hover:bg-sky-100/80',
@@ -346,15 +418,6 @@ const adminTabTone: Record<AdminTab, { active: string; item: string; icon: strin
     label: 'Kinh doanh',
     title: 'Quản lý voucher',
     description: 'Khu vực cài đặt chiến dịch ưu đãi, ngân sách và điều kiện áp dụng.',
-  },
-  policies: {
-    active: 'border-slate-200 bg-slate-100 text-slate-800 shadow-sm shadow-slate-50',
-    item: 'border-slate-200 bg-slate-100/80 text-slate-700 hover:bg-slate-200/70',
-    icon: 'bg-slate-100 text-slate-700 ring-slate-200',
-    surface: 'border-slate-200 bg-slate-100/80 text-slate-900',
-    label: 'Hệ thống',
-    title: 'Quản lý chính sách',
-    description: 'Khu vực cập nhật nội dung chính sách và thông tin hỗ trợ khách hàng.',
   },
   customers: {
     active: 'border-sky-200 bg-sky-100 text-slate-800 shadow-sm shadow-sky-50',
@@ -388,7 +451,7 @@ const adminTabTone: Record<AdminTab, { active: string; item: string; icon: strin
     item: 'border-emerald-100 bg-emerald-50/75 text-slate-700 hover:bg-emerald-100/80',
     icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
     surface: 'border-emerald-100 bg-emerald-50/80 text-emerald-900',
-    label: 'Nội dung',
+    label: 'Ná»™i dung',
     title: 'Video và nội dung',
     description: 'Khu vực quản lý video, bài viết và nội dung hiển thị riêng với dashboard.',
   },
@@ -417,9 +480,9 @@ const searchPlaceholderByTab: Record<AdminTab, string> = {
   products: 'Tìm sản phẩm, SKU, thương hiệu',
   categories: 'Tìm danh mục, slug, danh mục cha',
   brands: 'Tìm thương hiệu, mã hoặc SEO',
+  services: 'Tìm dịch vụ, mã, nhóm hoặc loại dịch vụ',
   orders: 'Tìm mã đơn, khách hàng, trạng thái',
   vouchers: 'Tìm mã voucher, loại, trạng thái',
-  policies: 'Tìm mã, tiêu đề, nội dung',
   customers: 'Tìm khách hàng, email, hạng',
   inventory: 'Tìm sản phẩm, SKU, trạng thái kho',
   reviews: 'Tìm sản phẩm, khách hàng, nội dung',
@@ -493,37 +556,6 @@ const contentStatusOptions: [string, string][] = [
   ['ARCHIVED', 'Lưu trữ'],
 ];
 
-const policyStatusOptions: [string, string][] = [
-  ['DRAFT', 'Nháp'],
-  ['SCHEDULED', 'Hẹn công khai'],
-  ['PUBLISHED', 'Đang công khai'],
-  ['ARCHIVED', 'Lưu trữ'],
-];
-
-const policyScopeOptions: [string, string][] = [
-  ['GLOBAL', 'Toàn bộ cửa hàng'],
-  ['CATEGORY', 'Theo danh mục'],
-  ['PRODUCT', 'Theo sản phẩm'],
-  ['MIXED', 'Danh mục + sản phẩm'],
-];
-
-const emptyPolicyForm = {
-  code: '',
-  title: '',
-  summary: '',
-  content: '<p></p>',
-  isActive: true,
-  status: 'DRAFT',
-  scheduledAt: '',
-  publishedAt: '',
-  seoTitle: '',
-  seoDescription: '',
-  seoKeywords: '',
-  scopeType: 'GLOBAL',
-  productIds: [] as string[],
-  categoryIds: [] as string[],
-  version: 1,
-};
 
 const emptyContentForm = {
   title: '',
@@ -607,9 +639,9 @@ const emptyProduct = {
   seoTitle: '',
   seoDescription: '',
   seoSlug: '',
-  warrantyPolicy: '',
-  bundleProducts: '',
   accessoryOffers: [] as AccessoryOfferForm[],
+  attachedServices: [] as AttachedServiceForm[],
+  warrantyPolicy: defaultWarrantyPolicy,
   updatedAt: '',
   version: 1,
   variantSpecKeys: [] as string[],
@@ -619,7 +651,12 @@ const emptyProduct = {
   isFlashSale: false,
 };
 
-const productExtraKeys = ['_variantSpecKeys', '_seoTitle', '_seoDescription', '_seoSlug', '_warrantyPolicy', '_bundleProducts', '_accessoryProducts', '_accessoryOffers'];
+const productExtraKeys = ['_variantSpecKeys', '_seoTitle', '_seoDescription', '_seoSlug', '_accessoryProducts', '_accessoryOffers', '_attachedServices', '_warrantyPolicy'];
+
+function buildVariantSku(productName: string, colorName: string, index: number) {
+  const part = (value: string, fallback: string) => slugifyText(value || fallback).split('-').map((item) => item.charAt(0)).join('').slice(0, 5).toUpperCase() || fallback;
+  return `${part(productName, 'SP')}-${part(colorName, `M${index + 1}`)}-${String(index + 1).padStart(2, '0')}`;
+}
 
 function compactId(id?: string) {
   return id ? `#${id.slice(0, 8).toUpperCase()}` : '#';
@@ -636,6 +673,10 @@ function matchesSearch(item: any, keyword: string, fields: string[]) {
     .join(' ')
     .toLowerCase()
     .includes(needle);
+}
+
+function sameId(left: unknown, right: unknown) {
+  return String(left || '') !== '' && String(left || '') === String(right || '');
 }
 
 function splitIds(value: string) {
@@ -681,6 +722,7 @@ export default function AdminDashboard() {
   const [overview, setOverview] = useState<any>({});
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [attachedServices, setAttachedServices] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [categoryMetrics, setCategoryMetrics] = useState<any>({});
   const [categoryAuditLogs, setCategoryAuditLogs] = useState<any[]>([]);
@@ -691,9 +733,6 @@ export default function AdminDashboard() {
   const [brandPage, setBrandPage] = useState(1);
   const [brandTotal, setBrandTotal] = useState(0);
   const [vouchers, setVouchers] = useState<any[]>([]);
-  const [policies, setPolicies] = useState<any[]>([]);
-  const [policyForm, setPolicyForm] = useState(emptyPolicyForm);
-  const [policyHistory, setPolicyHistory] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [customerPage, setCustomerPage] = useState(1);
   const [customerTotal, setCustomerTotal] = useState(0);
@@ -734,6 +773,7 @@ export default function AdminDashboard() {
     unitCost: number;
     locationCode: string;
     locationName: string;
+    imeis: string;
     minimumStock: number;
     blockSaleWhenOutOfStock: boolean;
     cycleCountDays: number;
@@ -754,8 +794,15 @@ export default function AdminDashboard() {
   });
 
   const [productForm, setProductForm] = useState(emptyProduct);
+  const [serviceForm, setServiceForm] = useState({ code: '', name: '', serviceType: 'SUPPORT_SERVICE', attributeGroup: '', durationMonths: 0, priceMode: 'FIXED', fixedPrice: 0, percentValue: 0, baseAmount: 0, isActive: true });
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [serviceFormOpen, setServiceFormOpen] = useState(false);
   const [accessorySearch, setAccessorySearch] = useState('');
-  const [accessorySuggestions, setAccessorySuggestions] = useState<any[]>([]);
+  const [accessoryCategoryFilter, setAccessoryCategoryFilter] = useState('');
+  const [accessoryBrandFilter, setAccessoryBrandFilter] = useState('');
+  const [attachedServiceTypeFilter, setAttachedServiceTypeFilter] = useState('');
+  const [attachedServiceGroupFilter, setAttachedServiceGroupFilter] = useState('');
+  const [attachedServiceSearch, setAttachedServiceSearch] = useState('');
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [previewProduct, setPreviewProduct] = useState<any | null>(null);
   const [categoryForm, setCategoryForm] = useState({
@@ -773,6 +820,8 @@ export default function AdminDashboard() {
     seoKeywords: '',
     specFields: [] as SpecField[],
     filterConfig: [] as CategoryFilterField[],
+    inventoryPolicy: { inheritImeiPolicy: true, trackImei: false },
+    warrantyPolicy: { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 },
     version: null as number | null,
   });
   const [brandForm, setBrandForm] = useState({ name: '', code: '', slug: '', logoUrl: '', logoAltText: '', order: 0, isActive: true, landingTitle: '', seoTitle: '', seoDescription: '' });
@@ -817,7 +866,6 @@ export default function AdminDashboard() {
   const [categorySlugStatus, setCategorySlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
   const [editingBrandId, setEditingBrandId] = useState<string | null>(null);
   const [editingVoucherId, setEditingVoucherId] = useState<string | null>(null);
-  const [editingPolicyId, setEditingPolicyId] = useState<string | null>(null);
   const [editingContentId, setEditingContentId] = useState<string | null>(null);
 
   const rootCategories = useMemo(() => categories.filter((item) => !item.parentId), [categories]);
@@ -845,6 +893,24 @@ export default function AdminDashboard() {
   const filteredProducts = useMemo(() => {
     return products.filter((product) => matchesSearch(product, query, ['name', 'brand', 'categoryName', 'category', 'sku', 'status']));
   }, [products, query]);
+  const accessoryProductChoices = useMemo(() => {
+    const selectedCategory = categories.find((category) => sameId(category.id, accessoryCategoryFilter));
+    const childCategoryIds = new Set(categories.filter((category) => sameId(category.parentId, accessoryCategoryFilter)).map((category) => String(category.id)));
+    return products
+      .filter((product) => !sameId(product.id, editingProductId))
+      .filter((product) => !productForm.accessoryOffers.some((offer) => sameId(offer.productId, product.id)))
+      .filter((product) => {
+        if (!accessoryCategoryFilter) return true;
+        return sameId(product.categoryId, accessoryCategoryFilter)
+          || sameId(product.subcategoryId, accessoryCategoryFilter)
+          || childCategoryIds.has(String(product.categoryId || ''))
+          || childCategoryIds.has(String(product.subcategoryId || ''))
+          || (!!selectedCategory && [product.category, product.categoryName, product.subcategoryName].some((value) => String(value || '').toLowerCase() === String(selectedCategory.name || selectedCategory.code || selectedCategory.slug || '').toLowerCase()));
+      })
+      .filter((product) => !accessoryBrandFilter || sameId(product.brandId, accessoryBrandFilter) || sameId(product.brand, brands.find((brand) => sameId(brand.id, accessoryBrandFilter))?.name))
+      .filter((product) => matchesSearch(product, accessorySearch, ['name', 'sku', 'brand', 'brandName', 'categoryName', 'category']))
+      .slice(0, 50);
+  }, [accessoryBrandFilter, accessoryCategoryFilter, accessorySearch, brands, categories, editingProductId, productForm.accessoryOffers, products]);
   const filteredCategories = useMemo(() => {
     return categories.filter((category) => matchesSearch(category, query, ['name', 'slug', 'parentName', 'icon']));
   }, [categories, query]);
@@ -878,10 +944,6 @@ export default function AdminDashboard() {
   const filteredVouchers = useMemo(() => {
     return vouchers.filter((voucher) => matchesSearch(voucher, query, ['code', 'discountType', 'status']));
   }, [vouchers, query]);
-  const filteredPolicies = useMemo(() => {
-    return policies.filter((policy) => matchesSearch(policy, query, ['code', 'title', 'summary', 'content', 'seoTitle']));
-  }, [policies, query]);
-  const sanitizedPolicyPreview = useMemo(() => DOMPurify.sanitize(policyForm.content || '<p>Chưa có nội dung.</p>'), [policyForm.content]);
   const filteredCustomers = useMemo(() => customers, [customers]);
   const filteredInventory = useMemo(() => {
     return products.filter((product) => matchesSearch(product, query, ['name', 'sku', 'brand', 'categoryName', 'status']));
@@ -909,9 +971,9 @@ export default function AdminDashboard() {
     products: ['product:read'],
     categories: ['category:read'],
     brands: ['brand:read'],
+    services: ['product:read'],
     orders: ['order:read'],
     vouchers: ['voucher:read'],
-    policies: ['policy:read'],
     customers: ['customer:read'],
     inventory: ['inventory:read'],
     reviews: ['review:read'],
@@ -985,33 +1047,40 @@ export default function AdminDashboard() {
     }
   }, [canAccessAdmin, tab, customerPage]);
 
-  useEffect(() => {
-    if (tab !== 'products') return;
-    const queryText = accessorySearch.trim();
-    if (!queryText) {
-      setAccessorySuggestions([]);
-      return;
-    }
-    const timer = window.setTimeout(async () => {
-      const items = await apiDb.adminSuggestProducts(queryText, editingProductId || undefined).catch(() => []);
-      setAccessorySuggestions(
-        items.filter((item: any) => !productForm.accessoryOffers.some((offer) => offer.productId === item.id)),
-      );
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [accessorySearch, editingProductId, productForm.accessoryOffers, tab]);
+  const serviceGroupOptions = useMemo(() => {
+    const groups = new Set<string>();
+    attachedServices.forEach((service) => {
+      const group = String(service.attributeGroup || '').trim();
+      if (group) groups.add(group);
+    });
+    return Array.from(groups).sort((left, right) => left.localeCompare(right));
+  }, [attachedServices]);
+
+  const productAttachedServiceChoices = useMemo(() => {
+    const keyword = attachedServiceSearch.trim().toLowerCase();
+    return attachedServices
+      .filter((service) => service.isActive !== false)
+      .filter((service) => !productForm.attachedServices.some((item) => item.serviceId === service.id))
+      .filter((service) => !attachedServiceTypeFilter || service.serviceType === attachedServiceTypeFilter)
+      .filter((service) => !attachedServiceGroupFilter || service.attributeGroup === attachedServiceGroupFilter)
+      .filter((service) => {
+        if (!keyword) return true;
+        return [service.name, service.code, service.attributeGroup, service.serviceType]
+          .some((value) => String(value || '').toLowerCase().includes(keyword));
+      });
+  }, [attachedServiceGroupFilter, attachedServiceSearch, attachedServiceTypeFilter, attachedServices, productForm.attachedServices]);
 
   async function loadData() {
     setBusy(true);
     try {
-      const [overviewData, orderData, productData, categoryData, brandData, voucherData, policyData, customerData, reviewData, reviewSummaryData, contentData, auditData, permissionData, roleData] = await Promise.all([
+      const [overviewData, orderData, productData, categoryData, brandData, serviceData, voucherData, customerData, reviewData, reviewSummaryData, contentData, auditData, permissionData, roleData] = await Promise.all([
         apiDb.adminOverview().catch(() => ({})),
         apiDb.listOrders().catch(() => []),
         apiDb.adminListProducts().catch(() => apiDb.listProducts()),
         apiDb.adminListCategories().catch(() => apiDb.listCategories()),
         apiDb.adminListBrands({ page: brandPage, limit: 10, search: query, status: brandStatusFilter }).catch(() => apiDb.listBrands().then((items) => ({ items, total: items.length, page: 1, limit: items.length || 10 }))),
+        apiDb.adminListAttachedServices().catch(() => []),
         apiDb.adminListVouchers().catch(() => []),
-        apiDb.adminListPolicies().catch(() => []),
         apiDb.adminListCustomers({ search: query, page: customerPage, limit: 20 }).catch(() => ({ items: [], total: 0, page: 1, limit: 20 })),
         apiDb.adminListReviews().catch(() => []),
         apiDb.adminListReviewSummary().catch(() => []),
@@ -1025,10 +1094,10 @@ export default function AdminDashboard() {
       setProducts(productData);
       setCategories(categoryData);
       setBrands(Array.isArray(brandData) ? brandData : brandData.items || []);
+      setAttachedServices(serviceData);
       setBrandTotal(Array.isArray(brandData) ? brandData.length : brandData.total || 0);
       setBrandImportJobs(tab === 'brands' ? await apiDb.adminListBrandImportJobs().catch(() => []) : brandImportJobs);
       setVouchers(voucherData);
-      setPolicies(policyData);
       setCustomers(Array.isArray(customerData) ? customerData : customerData.items || []);
       setCustomerTotal(Array.isArray(customerData) ? customerData.length : customerData.total || 0);
       setReviews(reviewData);
@@ -1073,7 +1142,8 @@ export default function AdminDashboard() {
     setEditingProductId(null);
     setProductForm({ ...emptyProduct, images: [], specifications: {}, variants: [] });
     setAccessorySearch('');
-    setAccessorySuggestions([]);
+    setAccessoryCategoryFilter('');
+    setAccessoryBrandFilter('');
   }
 
   function resetCategoryForm() {
@@ -1081,7 +1151,7 @@ export default function AdminDashboard() {
     setCategorySlugStatus('idle');
     setCategoryAuditLogs([]);
     setCategoryMigrationJobs([]);
-    setCategoryForm({ name: '', slug: '', icon: 'phone', iconUrl: '', bannerUrl: '', parentId: '', order: 0, isActive: true, status: 'ACTIVE', seoTitle: '', seoDescription: '', seoKeywords: '', specFields: [], filterConfig: [], version: null });
+    setCategoryForm({ name: '', slug: '', icon: 'phone', iconUrl: '', bannerUrl: '', parentId: '', order: 0, isActive: true, status: 'ACTIVE', seoTitle: '', seoDescription: '', seoKeywords: '', specFields: [], filterConfig: [], inventoryPolicy: { inheritImeiPolicy: true, trackImei: false }, warrantyPolicy: { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 }, version: null });
   }
 
   function resetBrandForm() {
@@ -1125,11 +1195,6 @@ export default function AdminDashboard() {
     });
   }
 
-  function resetPolicyForm() {
-    setEditingPolicyId(null);
-    setPolicyForm(emptyPolicyForm);
-    setPolicyHistory([]);
-  }
 
   function resetContentForm() {
     setEditingContentId(null);
@@ -1246,17 +1311,17 @@ export default function AdminDashboard() {
     const specifications = {
       ...productForm.specifications,
       _variantSpecKeys: productForm.variantSpecKeys,
-      _seoTitle: productForm.seoTitle,
-      _seoDescription: productForm.seoDescription,
-      _seoSlug: productForm.seoSlug,
-      _warrantyPolicy: productForm.warrantyPolicy,
-      _bundleProducts: productForm.bundleProducts,
       _accessoryOffers: productForm.accessoryOffers.map((item) => ({
         productId: item.productId,
         discountType: item.discountType,
         discountValue: item.discountValue,
         maxQuantity: item.maxQuantity,
       })),
+      _attachedServices: productForm.attachedServices.map((item) => ({
+        serviceId: item.serviceId,
+        overridePrice: item.overridePrice === '' ? null : Number(item.overridePrice),
+      })),
+      _warrantyPolicy: productForm.warrantyPolicy,
     };
     const sortedVariants = [...productForm.variants].sort((left, right) => {
       const leftColor = `${left.colorName || ''}`.toLowerCase();
@@ -1281,6 +1346,7 @@ export default function AdminDashboard() {
       videoUrl: productForm.videoUrl || null,
       variants: sortedVariants.map((item) => ({
         ...item,
+        sku: item.sku || buildVariantSku(productForm.name, item.colorName, sortedVariants.indexOf(item)),
         storage: '',
         ram: '',
         configuration: '',
@@ -1443,20 +1509,6 @@ export default function AdminDashboard() {
     await loadData();
   }
 
-  async function handlePolicySubmit(event: React.FormEvent) {
-    event.preventDefault();
-    const payload = {
-      ...policyForm,
-      seoKeywords: policyForm.seoKeywords.trim(),
-      code: policyForm.code.trim(),
-      title: policyForm.title.trim(),
-      summary: policyForm.summary.trim(),
-    };
-    if (editingPolicyId) await apiDb.adminUpdatePolicy(editingPolicyId, payload);
-    else await apiDb.adminCreatePolicy(payload);
-    resetPolicyForm();
-    await loadData();
-  }
 
   async function handleContentSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -1508,8 +1560,6 @@ export default function AdminDashboard() {
       seoTitle: product.seoMetadata?.title || product.specifications?._seoTitle || '',
       seoDescription: product.seoMetadata?.description || product.specifications?._seoDescription || '',
       seoSlug: product.seoMetadata?.slug || product.specifications?._seoSlug || product.slug || '',
-      warrantyPolicy: product.salesConfig?.warrantyPolicy || product.specifications?._warrantyPolicy || '',
-      bundleProducts: (product.salesConfig?.bundleRefs || []).join(', ') || product.specifications?._bundleProducts || '',
       accessoryOffers: (product.salesConfig?.accessoryOffers || []).map((item: any) => ({
         productId: item.productId || '',
         productName: item.productName || '',
@@ -1519,6 +1569,19 @@ export default function AdminDashboard() {
         discountValue: Number(item.discountValue || 0),
         maxQuantity: Number(item.maxQuantity || 1),
       })),
+      attachedServices: (product.salesConfig?.attachedServices || []).map((item: any) => ({
+        serviceId: item.serviceId || '',
+        name: item.name || '',
+        code: item.code || '',
+        serviceType: item.serviceType || 'SUPPORT_SERVICE',
+        attributeGroup: item.attributeGroup || '',
+        durationMonths: Number(item.durationMonths || 0),
+        priceMode: item.priceMode || 'FIXED',
+        fixedPrice: Number(item.fixedPrice || 0),
+        percentValue: Number(item.percentValue || 0),
+        overridePrice: item.overridePrice ?? '',
+      })),
+      warrantyPolicy: normalizeWarrantyPolicy(product.salesConfig?.warrantyPolicy || product.specifications?._warrantyPolicy || defaultWarrantyPolicy),
       updatedAt: product.updatedAt || '',
       version: Number(product.version || 1),
       variantSpecKeys: savedVariantSpecKeys,
@@ -1561,6 +1624,8 @@ export default function AdminDashboard() {
       seoKeywords: category.seoKeywords || '',
       specFields: category.ownSpecFields || category.specFields || [],
       filterConfig: category.ownFilterConfig || category.filterConfig || [],
+      inventoryPolicy: category.inventoryPolicy || { inheritImeiPolicy: true, trackImei: false },
+      warrantyPolicy: category.warrantyPolicy || { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 },
       version: Number(category.version || 1),
     });
   }
@@ -1616,27 +1681,6 @@ export default function AdminDashboard() {
     });
   }
 
-  function editPolicy(policy: any) {
-    setEditingPolicyId(policy.id);
-    setPolicyForm({
-      code: policy.code || '',
-      title: policy.title || '',
-      summary: policy.summary || '',
-      content: policy.content || '<p></p>',
-      isActive: policy.isActive !== false,
-      status: policy.status || 'DRAFT',
-      scheduledAt: policy.scheduledAt ? String(policy.scheduledAt).slice(0, 16) : '',
-      publishedAt: policy.publishedAt ? String(policy.publishedAt).slice(0, 16) : '',
-      seoTitle: policy.seoTitle || '',
-      seoDescription: policy.seoDescription || '',
-      seoKeywords: policy.seoKeywords || '',
-      scopeType: policy.scopeType || 'GLOBAL',
-      productIds: Array.isArray(policy.productIds) ? policy.productIds : [],
-      categoryIds: Array.isArray(policy.categoryIds) ? policy.categoryIds : [],
-      version: Number(policy.version || 1),
-    });
-    void apiDb.adminGetPolicyHistory(policy.id).then(setPolicyHistory).catch(() => setPolicyHistory([]));
-  }
 
   function editContent(item: any) {
     setEditingContentId(item.id);
@@ -1688,7 +1732,7 @@ export default function AdminDashboard() {
 
   async function openInventoryDialog(product: any, variant?: any) {
     const detail = await apiDb.adminGetProductInventory(product.id);
-    const policy = getInventoryPolicy(detail);
+    const inventorySettings = getInventorySettings(detail);
     setInventoryDraft({
       product,
       variant,
@@ -1699,11 +1743,12 @@ export default function AdminDashboard() {
       note: '',
       supplierName: '',
       unitCost: 0,
-      locationCode: detail.preferredLocationCode || policy.preferredLocationCode || '',
-      locationName: detail.preferredLocationName || policy.preferredLocationName || '',
-      minimumStock: detail.minimumStock ?? policy.minimumStock,
-      blockSaleWhenOutOfStock: detail.blockSaleWhenOutOfStock ?? policy.blockSaleWhenOutOfStock,
-      cycleCountDays: detail.cycleCountDays ?? policy.cycleCountDays,
+      locationCode: detail.preferredLocationCode || inventorySettings.preferredLocationCode || '',
+      locationName: detail.preferredLocationName || inventorySettings.preferredLocationName || '',
+      imeis: '',
+      minimumStock: detail.minimumStock ?? inventorySettings.minimumStock,
+      blockSaleWhenOutOfStock: detail.blockSaleWhenOutOfStock ?? inventorySettings.blockSaleWhenOutOfStock,
+      cycleCountDays: detail.cycleCountDays ?? inventorySettings.cycleCountDays,
       logs: detail.logs || [],
     });
   }
@@ -1719,7 +1764,7 @@ export default function AdminDashboard() {
       window.alert('Số lượng thay đổi phải khác 0.');
       return;
     }
-    await apiDb.adminUpdateInventoryPolicy(inventoryDraft.product.id, {
+    await apiDb.adminUpdateInventorySettings(inventoryDraft.product.id, {
       minimumStock: inventoryDraft.minimumStock,
       blockSaleWhenOutOfStock: inventoryDraft.blockSaleWhenOutOfStock,
       preferredLocationCode: inventoryDraft.locationCode.trim(),
@@ -1737,6 +1782,7 @@ export default function AdminDashboard() {
       unitCost: Number.isFinite(inventoryDraft.unitCost) && inventoryDraft.unitCost > 0 ? inventoryDraft.unitCost : null,
       locationCode: inventoryDraft.locationCode.trim() || null,
       locationName: inventoryDraft.locationName.trim() || null,
+      imeis: inventoryDraft.imeis.split(/[\n,]/).map((item) => item.trim()).filter(Boolean),
     });
     setInventoryDraft(null);
     await loadData();
@@ -1948,6 +1994,76 @@ export default function AdminDashboard() {
     }));
   }
 
+  function addAttachedService(service: any) {
+    const group = String(service.attributeGroup || '').trim();
+    if (group && productForm.attachedServices.some((item) => item.serviceType === service.serviceType && item.attributeGroup === group)) {
+      window.alert('Mỗi nhóm thuộc tính của dịch vụ chỉ được chọn một lựa chọn. Hãy bỏ lựa chọn cũ trước khi chọn lựa chọn mới.');
+      return;
+    }
+    setProductForm((prev) => prev.attachedServices.some((item) => item.serviceId === service.id)
+      ? prev
+      : {
+        ...prev,
+        attachedServices: [
+          ...prev.attachedServices,
+          {
+            serviceId: service.id,
+            name: service.name || '',
+            code: service.code || '',
+            serviceType: service.serviceType || 'SUPPORT_SERVICE',
+            attributeGroup: service.attributeGroup || '',
+            durationMonths: Number(service.durationMonths || 0),
+            priceMode: service.priceMode || 'FIXED',
+            fixedPrice: Number(service.fixedPrice || 0),
+            percentValue: Number(service.percentValue || 0),
+            overridePrice: '',
+          },
+        ],
+      });
+  }
+
+  function patchAttachedService(serviceId: string, patch: Partial<AttachedServiceForm>) {
+    setProductForm((prev) => ({
+      ...prev,
+      attachedServices: prev.attachedServices.map((item) => (item.serviceId === serviceId ? { ...item, ...patch } : item)),
+    }));
+  }
+
+  function removeAttachedService(serviceId: string) {
+    setProductForm((prev) => ({ ...prev, attachedServices: prev.attachedServices.filter((item) => item.serviceId !== serviceId) }));
+  }
+
+  function editService(service: any) {
+    setEditingServiceId(service.id);
+    setServiceFormOpen(true);
+    setServiceForm({
+      code: service.code || '',
+      name: service.name || '',
+      serviceType: service.serviceType || 'SUPPORT_SERVICE',
+      attributeGroup: service.attributeGroup || '',
+      durationMonths: Number(service.durationMonths || 0),
+      priceMode: service.priceMode || 'FIXED',
+      fixedPrice: Number(service.fixedPrice || 0),
+      percentValue: Number(service.percentValue || 0),
+      baseAmount: Number(service.baseAmount || 0),
+      isActive: service.isActive !== false,
+    });
+  }
+
+  function resetServiceForm() {
+    setEditingServiceId(null);
+    setServiceFormOpen(false);
+    setServiceForm({ code: '', name: '', serviceType: 'SUPPORT_SERVICE', attributeGroup: '', durationMonths: 0, priceMode: 'FIXED', fixedPrice: 0, percentValue: 0, baseAmount: 0, isActive: true });
+  }
+
+  async function handleServiceSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (editingServiceId) await apiDb.adminUpdateAttachedService(editingServiceId, serviceForm);
+    else await apiDb.adminCreateAttachedService(serviceForm);
+    resetServiceForm();
+    await loadData();
+  }
+
   function toggleVariantSpecField(key: string, checked: boolean) {
     setProductForm((prev) => ({
       ...prev,
@@ -2131,7 +2247,7 @@ export default function AdminDashboard() {
   const riskyVouchers = vouchers.filter((item) => item.status === 'ACTIVE' && getVoucherBudgetUsage(item) >= 0.8);
   const negativeStockProducts = products.filter((item) => getProductStock(item) < 0);
   const lowStockProducts = products.filter((item) => {
-    const threshold = getInventoryPolicy(item).minimumStock;
+    const threshold = getInventorySettings(item).minimumStock;
     const stock = getProductStock(item);
     return stock >= 0 && stock <= threshold;
   });
@@ -2228,7 +2344,6 @@ export default function AdminDashboard() {
                         ['Danh mục', categories.length, FolderTree],
                         ['Thương hiệu', brands.length, Building2],
                         ['Khách hàng', customers.length, Users],
-                        ['Chính sách', policies.length, FileText],
                       ].map(([label, value, Icon]: [string, number, any]) => (
                         <div key={label} className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
                           <span className="flex items-center gap-2 text-sm font-semibold text-slate-600">
@@ -2340,16 +2455,22 @@ export default function AdminDashboard() {
                   </label>
                 </div>
               }>
-                <CollapsibleSection title={editingProductId ? 'Đang chỉnh sửa sản phẩm' : 'Thêm sản phẩm mới'} description="Mở popup khi cần nhập sản phẩm, media, thông số và biến thể. Bảng sản phẩm bên dưới vẫn luôn sẵn sàng để tìm kiếm." defaultOpen={false} forceOpen={Boolean(editingProductId)}>
+                <CollapsibleSection title={editingProductId ? 'Đang chỉnh sửa sản phẩm' : 'Thêm sản phẩm mới'} description="Mở popup khi cần nhập sản phẩm, media, thông số và biến thể. Bảng sản phẩm bên dưới vẫn luôn sẵn sàng để tìm kiếm." defaultOpen={false} forceOpen={Boolean(editingProductId)} forceOpenKey={editingProductId} onClose={resetProductForm}>
                   <form onSubmit={handleProductSubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-4">
                     <Input label="Tên sản phẩm" value={productForm.name} required onChange={(value) => setProductForm({ ...productForm, name: value })} />
                     <Input label="Giá gốc chung" type="number" value={productForm.price} onChange={(value) => setProductForm({ ...productForm, price: Number(value) })} />
                     <Input label="Giá bán chung" type="number" value={productForm.discountPrice} onChange={(value) => setProductForm({ ...productForm, discountPrice: Number(value) })} />
                     <Select label="Danh mục cha" value={productForm.categoryId} onChange={(value) => {
                       const category = rootCategories.find((item) => item.id === value);
-                      setProductForm({ ...productForm, categoryId: value, category: (category?.code || category?.slug || productForm.category).toUpperCase(), specifications: {}, variantSpecKeys: [], variants: productForm.variants.map((variant) => ({ ...variant, specs: {} })) });
+                      const nextWarranty = productForm.warrantyPolicy.inheritWarrantyPolicy ? categoryWarrantyPolicy(category) : productForm.warrantyPolicy;
+                      setProductForm({ ...productForm, categoryId: value, category: (category?.code || category?.slug || productForm.category).toUpperCase(), warrantyPolicy: nextWarranty, specifications: {}, variantSpecKeys: [], variants: productForm.variants.map((variant) => ({ ...variant, specs: {} })) });
                     }} options={[['', 'Chưa chọn'], ...rootCategories.map((item) => [item.id, item.name] as [string, string])]} />
-                    <Select label="Danh mục con" value={productForm.subcategoryId} onChange={(value) => setProductForm({ ...productForm, subcategoryId: value })} options={[['', 'Chưa chọn'], ...subCategories.map((item) => [item.id, `${item.parentName || 'Khác'} / ${item.name}`] as [string, string])]} />
+                    <Select label="Danh mục con" value={productForm.subcategoryId} onChange={(value) => {
+                      const child = subCategories.find((item) => item.id === value);
+                      const parent = rootCategories.find((item) => item.id === (child?.parentId || productForm.categoryId));
+                      const nextWarranty = productForm.warrantyPolicy.inheritWarrantyPolicy ? categoryWarrantyPolicy(child || parent, parent) : productForm.warrantyPolicy;
+                      setProductForm({ ...productForm, subcategoryId: value, warrantyPolicy: nextWarranty });
+                    }} options={[['', 'Chưa chọn'], ...subCategories.map((item) => [item.id, `${item.parentName || 'Khác'} / ${item.name}`] as [string, string])]} />
                     <Select label="Thương hiệu" value={productForm.brandId} onChange={(value) => {
                       const brand = brands.find((item) => item.id === value);
                       setProductForm({ ...productForm, brandId: value, brand: brand?.name || productForm.brand });
@@ -2360,6 +2481,20 @@ export default function AdminDashboard() {
                     <FileInput label="Video sản phẩm dùng chung" accept="video/*" onFiles={async (files) => setProductForm({ ...productForm, videoUrl: (await uploadFiles(files, 'products'))[0] || productForm.videoUrl })} />
                     <MediaPreview title="Ảnh đại diện chung" items={productForm.imageUrl ? [productForm.imageUrl] : []} onRemove={() => setProductForm({ ...productForm, imageUrl: '' })} />
                     {productForm.videoUrl && <VideoPreview title="Video sản phẩm dùng chung" url={productForm.videoUrl} onRemove={() => setProductForm({ ...productForm, videoUrl: '' })} />}
+                    <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-4">
+                      <div className="mb-3 text-sm font-bold text-slate-700">Bảo hành sản phẩm</div>
+                      <div className="grid gap-3 md:grid-cols-5">
+                        <Checkbox label="Theo danh mục" checked={productForm.warrantyPolicy.inheritWarrantyPolicy} onChange={(checked) => {
+                          const parent = rootCategories.find((item) => item.id === productForm.categoryId);
+                          const child = subCategories.find((item) => item.id === productForm.subcategoryId);
+                          setProductForm({ ...productForm, warrantyPolicy: checked ? categoryWarrantyPolicy(child || parent, parent) : { ...productForm.warrantyPolicy, inheritWarrantyPolicy: false } });
+                        }} />
+                        <Checkbox label="Có bảo hành" checked={productForm.warrantyPolicy.hasWarranty} disabled={productForm.warrantyPolicy.inheritWarrantyPolicy} onChange={(checked) => setProductForm({ ...productForm, warrantyPolicy: { ...productForm.warrantyPolicy, hasWarranty: checked, inheritWarrantyPolicy: false } })} />
+                        <Input label="Tháng bảo hành" type="number" disabled={productForm.warrantyPolicy.inheritWarrantyPolicy} value={productForm.warrantyPolicy.warrantyMonths} onChange={(value) => setProductForm({ ...productForm, warrantyPolicy: { ...productForm.warrantyPolicy, warrantyMonths: Math.max(0, Number(value)), inheritWarrantyPolicy: false } })} />
+                        <Checkbox label="Có 1 đổi 1" checked={productForm.warrantyPolicy.allowOneForOne} disabled={productForm.warrantyPolicy.inheritWarrantyPolicy} onChange={(checked) => setProductForm({ ...productForm, warrantyPolicy: { ...productForm.warrantyPolicy, allowOneForOne: checked, inheritWarrantyPolicy: false } })} />
+                        <Input label="Ngày 1 đổi 1" type="number" disabled={productForm.warrantyPolicy.inheritWarrantyPolicy} value={productForm.warrantyPolicy.oneForOneDays} onChange={(value) => setProductForm({ ...productForm, warrantyPolicy: { ...productForm.warrantyPolicy, oneForOneDays: Math.max(0, Number(value)), inheritWarrantyPolicy: false } })} />
+                      </div>
+                    </div>
 
                     {productSpecFields.length > 0 && (
                       <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-4">
@@ -2383,37 +2518,46 @@ export default function AdminDashboard() {
                     <textarea className="min-h-20 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500 md:col-span-4" placeholder="Mô tả ngắn" value={productForm.description} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })} />
 
                     <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-4">
-                      <div className="mb-3 text-sm font-bold text-slate-700">SEO, bảo hành và bán kèm</div>
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <Input label="SEO title" value={productForm.seoTitle} onChange={(value) => setProductForm({ ...productForm, seoTitle: value })} />
-                        <Input label="Slug SEO" value={productForm.seoSlug} onChange={(value) => setProductForm({ ...productForm, seoSlug: slugifyText(value) })} />
-                        <Input label="Bảo hành" value={productForm.warrantyPolicy} onChange={(value) => setProductForm({ ...productForm, warrantyPolicy: value })} />
-                        <textarea className="min-h-16 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500 md:col-span-3" placeholder="Meta description" value={productForm.seoDescription} onChange={(event) => setProductForm({ ...productForm, seoDescription: event.target.value })} />
-                        <textarea className="min-h-16 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500" placeholder="Combo/bundle: nhập SKU hoặc ID, cách nhau bằng dấu phẩy" value={productForm.bundleProducts} onChange={(event) => setProductForm({ ...productForm, bundleProducts: event.target.value })} />
-                        <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-2">
+                      <div className="mb-3 text-sm font-bold text-slate-700">Sản phẩm bán kèm và dịch vụ đi kèm</div>
+                      <div className="grid gap-3">
+                        <div className="rounded-md border border-slate-200 bg-white p-3">
                           <div className="text-sm font-bold text-slate-800">Sản phẩm mua kèm giảm giá</div>
-                          <div className="mt-1 text-xs font-medium text-slate-500">Chọn từ danh sách sản phẩm. Giảm giá chỉ áp dụng trong số lượng admin đã cấu hình.</div>
-                          <div className="mt-3">
-                            <Input label="Tìm sản phẩm mua kèm" value={accessorySearch} onChange={setAccessorySearch} />
+                          <div className="mt-1 text-xs font-medium text-slate-500">Chọn từ danh sách sản phẩm sau khi lọc. Giảm giá chỉ áp dụng trong số lượng admin đã cấu hình.</div>
+                          <div className="mt-3 grid gap-3 md:grid-cols-3">
+                            <Select label="Danh mục" value={accessoryCategoryFilter} onChange={setAccessoryCategoryFilter} options={[['', 'Tất cả'], ...categories.map((item) => [item.id, item.parentName ? `${item.parentName} / ${item.name}` : item.name] as [string, string])]} />
+                            <Select label="Thương hiệu" value={accessoryBrandFilter} onChange={setAccessoryBrandFilter} options={[['', 'Tất cả'], ...brands.map((item) => [item.id, item.name] as [string, string])]} />
+                            <Input label="Tìm sản phẩm" value={accessorySearch} onChange={setAccessorySearch} />
                           </div>
-                          {accessorySuggestions.length > 0 && (
-                            <div className="mt-2 rounded-md border border-slate-200">
-                              {accessorySuggestions.map((item) => (
-                                <button
-                                  key={item.id}
-                                  type="button"
-                                  onClick={() => addAccessoryOffer(item)}
-                                  className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
-                                >
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm font-semibold text-slate-800">{item.name}</div>
-                                    <div className="text-xs text-slate-500">{item.sku || compactId(item.id)}</div>
-                                  </div>
-                                  <span className="text-xs font-bold text-red-600">Chọn</span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
+                          <div className="mt-2 rounded-md border border-slate-200">
+                            {(accessoryCategoryFilter || accessoryBrandFilter || accessorySearch.trim()) ? (
+                              accessoryProductChoices.length > 0 ? (
+                                <>
+                                  <button type="button" onClick={() => accessoryProductChoices.forEach((item) => addAccessoryOffer(item))} className="flex w-full items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-3 py-2 text-left text-xs font-bold text-slate-700">
+                                    Chọn tất cả sản phẩm đang lọc
+                                    <Plus className="h-4 w-4" />
+                                  </button>
+                                  {accessoryProductChoices.map((item) => (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      onClick={() => addAccessoryOffer(item)}
+                                      className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+                                    >
+                                      <div className="min-w-0">
+                                        <div className="truncate text-sm font-semibold text-slate-800">{item.name}</div>
+                                        <div className="text-xs text-slate-500">{item.sku || compactId(item.id)}</div>
+                                      </div>
+                                      <span className="text-xs font-bold text-red-600">Chọn</span>
+                                    </button>
+                                  ))}
+                                </>
+                              ) : (
+                                <div className="px-3 py-4 text-sm font-medium text-slate-500">Không có sản phẩm phù hợp với bộ lọc.</div>
+                              )
+                            ) : (
+                              <div className="px-3 py-4 text-sm font-medium text-slate-500">Chọn danh mục, thương hiệu hoặc nhập tên/SKU để hiện danh sách sản phẩm.</div>
+                            )}
+                          </div>
                           <div className="mt-3 space-y-3">
                             {productForm.accessoryOffers.length === 0 && <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">Chưa có sản phẩm mua kèm giảm giá.</div>}
                             {productForm.accessoryOffers.map((item) => (
@@ -2437,6 +2581,51 @@ export default function AdminDashboard() {
                             ))}
                           </div>
                         </div>
+                        <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-3">
+                          <div className="text-sm font-bold text-slate-800">Dịch vụ đi kèm</div>
+                          <div className="mt-1 text-xs font-medium text-slate-500">Chọn từ danh sách dịch vụ admin đã tạo. Với cùng một nhóm bảo hành, hệ thống chỉ cho chọn một thời hạn.</div>
+                          <div className="mt-3 grid gap-3 md:grid-cols-3">
+                            <Select label="Loại dịch vụ" value={attachedServiceTypeFilter} onChange={setAttachedServiceTypeFilter} options={[['', 'Tất cả'], ['PRODUCT_SERVICE', 'Dịch vụ sản phẩm'], ['SUPPORT_SERVICE', 'Dịch vụ hỗ trợ']]} />
+                            <Select label="Nhóm dịch vụ" value={attachedServiceGroupFilter} onChange={setAttachedServiceGroupFilter} options={[['', 'Tất cả'], ...serviceGroupOptions.map((item) => [item, item] as [string, string])]} />
+                            <Input label="Tìm dịch vụ" value={attachedServiceSearch} onChange={setAttachedServiceSearch} />
+                          </div>
+                          <div className="mt-3 rounded-md border border-slate-200">
+                            {productAttachedServiceChoices.length === 0 ? (
+                              <div className="px-3 py-4 text-sm font-medium text-slate-500">Không có dịch vụ phù hợp hoặc tất cả dịch vụ trong bộ lọc đã được chọn.</div>
+                            ) : productAttachedServiceChoices.map((service) => (
+                              <button key={service.id} type="button" onClick={() => addAttachedService(service)} className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50">
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-semibold text-slate-800">{service.name} <span className="text-xs text-slate-400">({service.code})</span></div>
+                                  <div className="text-xs text-slate-500">
+                                    {service.serviceType === 'PRODUCT_SERVICE' ? 'Dịch vụ sản phẩm' : 'Dịch vụ hỗ trợ'}
+                                    {service.attributeGroup ? ` · Nhóm ${service.attributeGroup}` : ''}
+                                    {service.durationMonths ? ` · ${service.durationMonths} tháng` : ''}
+                                    {service.priceMode === 'PERCENT' ? ` · ${service.percentValue || 0}%` : service.priceMode === 'TIERED_AMOUNT' ? ' · Theo biểu phí' : ` · ${currency.format(Number(service.fixedPrice || service.baseAmount || 0))}`}
+                                  </div>
+                                </div>
+                                <Plus className="h-4 w-4 shrink-0 text-red-600" />
+                              </button>
+                            ))}
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            {productForm.attachedServices.length === 0 && <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">Chưa chọn dịch vụ đi kèm.</div>}
+                            {productForm.attachedServices.map((item) => (
+                              <div key={item.serviceId} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_180px_40px]">
+                                <div>
+                                  <div className="text-sm font-bold text-slate-800">{item.name || item.code || 'Dịch vụ'}</div>
+                                  <div className="text-xs text-slate-500">
+                                    {item.serviceType === 'PRODUCT_SERVICE' ? 'Dịch vụ sản phẩm' : 'Dịch vụ hỗ trợ'}
+                                    {item.attributeGroup ? ` · Nhóm ${item.attributeGroup}` : ''}
+                                    {item.durationMonths ? ` · ${item.durationMonths} tháng` : ''}
+                                    {item.fixedPrice ? ` · ${currency.format(Number(item.fixedPrice || 0))}` : ''}
+                                  </div>
+                                </div>
+                                <Input label="Giá riêng cho sản phẩm" type="number" value={item.overridePrice} onChange={(value) => patchAttachedService(item.serviceId, { overridePrice: value === '' ? '' : Number(value) })} />
+                                <button type="button" onClick={() => removeAttachedService(item.serviceId)} className="mt-5 text-red-600"><Trash2 className="h-4 w-4" /></button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -2446,7 +2635,7 @@ export default function AdminDashboard() {
                           <div className="text-sm font-bold text-slate-700">Biến thể sản phẩm</div>
                           <p className="mt-1 text-xs font-medium text-slate-500">Chọn thông số nào của danh mục sẽ dùng để tách biến thể cho riêng sản phẩm này.</p>
                         </div>
-                        <button type="button" onClick={addVariant} className="inline-flex h-9 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-bold text-white"><Plus className="h-4 w-4" /> Thêm biến thể</button>
+                        <button type="button" onClick={addVariant} className="inline-flex h-9 items-center gap-2 rounded-md border border-rose-200 bg-rose-100 px-3 text-sm font-bold text-rose-800 transition hover:bg-rose-200"><Plus className="h-4 w-4" /> Thêm biến thể</button>
                       </div>
                       <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 p-3">
                         <div className="text-xs font-bold uppercase tracking-wide text-slate-400">Chọn cách dùng thông số có thể tạo biến thể</div>
@@ -2484,8 +2673,8 @@ export default function AdminDashboard() {
                               <button type="button" onClick={() => setProductForm({ ...productForm, variants: productForm.variants.filter((_, i) => i !== index) })} className="text-red-600"><Trash2 className="h-4 w-4" /></button>
                             </div>
                             <div className="grid gap-3 md:grid-cols-4">
-                              <Input label="SKU" value={variant.sku} onChange={(value) => patchVariant(index, { sku: value })} />
-                              <Input label="Màu sắc" value={variant.colorName} onChange={(value) => patchVariant(index, { colorName: value })} />
+                              <Input label="SKU biến thể" value={variant.sku || buildVariantSku(productForm.name, variant.colorName, index)} onChange={(value) => patchVariant(index, { sku: value })} />
+                              <Input label="Màu sắc chính" value={variant.colorName} onChange={(value) => patchVariant(index, { colorName: value, sku: variant.sku || buildVariantSku(productForm.name, value, index) })} />
                               <Input label="Mã màu" value={variant.colorCode} type="color" onChange={(value) => patchVariant(index, { colorCode: value })} />
                               <Input label="Giá gốc riêng" value={variant.price} type="number" onChange={(value) => patchVariant(index, { price: Number(value) })} />
                               <Input label="Giá bán riêng" value={variant.salePrice} type="number" onChange={(value) => patchVariant(index, { salePrice: Number(value) })} />
@@ -2550,7 +2739,7 @@ export default function AdminDashboard() {
 
             {tab === 'categories' && (
               <AdminPanel title="Quản lý danh mục và form thông số" action={<SearchBox value={query} onChange={setQuery} placeholder="Tìm danh mục, slug, danh mục cha" />}>
-                <CollapsibleSection title={editingCategoryId ? 'Đang chỉnh sửa danh mục' : 'Thêm danh mục và form thông số'} description="Mở khi cần tạo danh mục cha, danh mục con hoặc cấu hình form thông số kỹ thuật cho danh mục cha." defaultOpen={false} forceOpen={Boolean(editingCategoryId)}>
+                <CollapsibleSection title={editingCategoryId ? 'Đang chỉnh sửa danh mục' : 'Thêm danh mục và form thông số'} description="Mở khi cần tạo danh mục cha, danh mục con hoặc cấu hình form thông số kỹ thuật cho danh mục cha." defaultOpen={false} forceOpen={Boolean(editingCategoryId)} forceOpenKey={editingCategoryId} onClose={resetCategoryForm}>
                   <form onSubmit={handleCategorySubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-5">
                     <Input label="Tên danh mục" value={categoryForm.name} required onChange={(value) => setCategoryForm({ ...categoryForm, name: value, slug: categoryForm.slug || slugifyText(value) })} />
                     <Input label="Slug" value={categoryForm.slug} onBlur={checkCategorySlug} onChange={(value) => {
@@ -2584,12 +2773,24 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                     <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-5">
+                      <div className="mb-3 text-sm font-bold text-slate-700">Tồn kho và bảo hành mặc định</div>
+                      <div className="grid gap-3 md:grid-cols-5">
+                        <Checkbox label="Theo IMEI của cha" checked={Boolean(categoryForm.inventoryPolicy.inheritImeiPolicy)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, inheritImeiPolicy: checked } })} />
+                        <Checkbox label="Quản lý IMEI" checked={Boolean(categoryForm.inventoryPolicy.trackImei)} disabled={Boolean(categoryForm.inventoryPolicy.inheritImeiPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, trackImei: checked } })} />
+                        <Checkbox label="Theo bảo hành của cha" checked={Boolean(categoryForm.warrantyPolicy.inheritWarrantyPolicy)} onChange={(checked) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, inheritWarrantyPolicy: checked } })} />
+                        <Checkbox label="Có bảo hành" checked={Boolean(categoryForm.warrantyPolicy.hasWarranty)} disabled={Boolean(categoryForm.warrantyPolicy.inheritWarrantyPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, hasWarranty: checked } })} />
+                        <Input label="Tháng bảo hành" type="number" value={Number(categoryForm.warrantyPolicy.warrantyMonths || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, warrantyMonths: Math.max(0, Number(value)) } })} />
+                        <Checkbox label="Có 1 đổi 1" checked={Boolean(categoryForm.warrantyPolicy.allowOneForOne)} disabled={Boolean(categoryForm.warrantyPolicy.inheritWarrantyPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, allowOneForOne: checked } })} />
+                        <Input label="Ngày 1 đổi 1" type="number" value={Number(categoryForm.warrantyPolicy.oneForOneDays || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, oneForOneDays: Math.max(0, Number(value)) } })} />
+                      </div>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-5">
                       <div className="mb-3 flex items-center justify-between">
                         <div>
                           <span className="text-sm font-bold text-slate-700">Form thông số kỹ thuật</span>
                           <p className="mt-1 text-xs font-medium text-slate-500">{categoryForm.parentId ? 'Danh mục con kế thừa thông số chung từ danh mục cha và có thể thêm thông số đặc thù riêng.' : 'Danh mục cha lưu thông số chung. Danh mục con có thể cộng thêm thông số riêng nếu cần.'}</p>
                         </div>
-                        <button type="button" onClick={addSpecField} className="inline-flex h-9 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-bold text-white"><Plus className="h-4 w-4" /> Thêm trường</button>
+                        <button type="button" onClick={addSpecField} className="inline-flex h-9 items-center gap-2 rounded-md border border-rose-200 bg-rose-100 px-3 text-sm font-bold text-rose-800 transition hover:bg-rose-200"><Plus className="h-4 w-4" /> Thêm trường</button>
                       </div>
                       <div className="space-y-2">
                         {categoryForm.specFields.map((field, index) => (
@@ -2614,7 +2815,7 @@ export default function AdminDashboard() {
                           <span className="text-sm font-bold text-slate-700">Bộ lọc hiển thị ngoài trang khách hàng</span>
                           <p className="mt-1 text-xs font-medium text-slate-500">Chọn các thuộc tính sẽ xuất hiện ở sidebar/bộ lọc của trang danh mục.</p>
                         </div>
-                        <button type="button" onClick={addCategoryFilter} className="inline-flex h-9 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-bold text-white"><Plus className="h-4 w-4" /> Thêm bộ lọc</button>
+                        <button type="button" onClick={addCategoryFilter} className="inline-flex h-9 items-center gap-2 rounded-md border border-rose-200 bg-rose-100 px-3 text-sm font-bold text-rose-800 transition hover:bg-rose-200"><Plus className="h-4 w-4" /> Thêm bộ lọc</button>
                       </div>
                       <div className="space-y-2">
                         {derivedCategoryFilters.map((field, index) => {
@@ -2631,7 +2832,7 @@ export default function AdminDashboard() {
                             </div>
                           );
                         })}
-                        {derivedCategoryFilters.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-500">Chưa có bộ lọc. Đánh dấu “Dùng làm lọc” ở thông số kỹ thuật hoặc thêm bộ lọc thủ công.</div>}
+                        {derivedCategoryFilters.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-500">Chưa có bộ lọc. Đánh dấu "Dùng làm lọc" ở thông số kỹ thuật hoặc thêm bộ lọc thủ công.</div>}
                       </div>
                     </div>
                     <SubmitButtons editing={Boolean(editingCategoryId)} onCancel={resetCategoryForm} />
@@ -2738,7 +2939,7 @@ export default function AdminDashboard() {
 
             {tab === 'brands' && (
               <AdminPanel title="Quản lý thương hiệu và logo" action={<div className="flex flex-col gap-2 sm:flex-row"><Select label="Trạng thái" value={brandStatusFilter} onChange={setBrandStatusFilter} options={[['all', 'Tất cả'], ['active', 'Đang hiển thị'], ['inactive', 'Đã ẩn']]} /><SearchBox value={query} onChange={setQuery} placeholder="Tìm thương hiệu, mã" /></div>}>
-                <CollapsibleSection title={editingBrandId ? 'Đang chỉnh sửa thương hiệu' : 'Thêm thương hiệu mới'} description="Mở khi cần tạo hoặc cập nhật tên, mã và logo thương hiệu." defaultOpen={false} forceOpen={Boolean(editingBrandId)}>
+                <CollapsibleSection title={editingBrandId ? 'Đang chỉnh sửa thương hiệu' : 'Thêm thương hiệu mới'} description="Mở khi cần tạo hoặc cập nhật tên, mã và logo thương hiệu." defaultOpen={false} forceOpen={Boolean(editingBrandId)} forceOpenKey={editingBrandId} onClose={resetBrandForm}>
                   <form onSubmit={handleBrandSubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-6">
                     <Input label="Tên thương hiệu" value={brandForm.name} required onChange={(value) => setBrandForm({ ...brandForm, name: value, slug: brandForm.slug || slugifyText(value) })} />
                     <Input label="Mã thương hiệu" value={brandForm.code} required onBlur={checkBrandCodeOnBlur} onChange={(value) => { setBrandCodeStatus('idle'); setBrandForm({ ...brandForm, code: value }); }} />
@@ -2818,6 +3019,55 @@ export default function AdminDashboard() {
                     <button type="button" disabled={brandPage * 10 >= brandTotal} onClick={() => setBrandPage((page) => page + 1)} className="rounded-md border border-slate-200 px-3 py-1 disabled:opacity-40">Sau</button>
                   </div>
                 </div>
+              </AdminPanel>
+            )}
+
+            {tab === 'services' && (
+              <AdminPanel title="Quản lý dịch vụ đi kèm" action={<div className="flex flex-col gap-2 sm:flex-row sm:items-center"><SearchBox value={query} onChange={setQuery} placeholder="Tìm dịch vụ, mã, nhóm" /><button type="button" onClick={() => { resetServiceForm(); setServiceFormOpen(true); }} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-rose-200 px-4 text-sm font-bold text-slate-800 shadow-sm shadow-rose-50 transition hover:bg-rose-300"><Plus className="h-4 w-4" /> Thêm</button></div>}>
+                {serviceFormOpen && (
+                  <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+                    <div className="w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-2xl">
+                      <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
+                        <div>
+                          <h3 className="text-lg font-bold text-slate-950">{editingServiceId ? 'Đang chỉnh sửa dịch vụ' : 'Thêm dịch vụ đi kèm'}</h3>
+                          <p className="mt-1 text-sm text-slate-500">Tạo các gói bảo hành, 1 đổi 1, lắp đặt, vệ sinh hoặc hỗ trợ để chọn trong form sản phẩm.</p>
+                        </div>
+                        <button type="button" onClick={resetServiceForm} title="Đóng popup" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-950">
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <div className="max-h-[calc(100vh-150px)] overflow-y-auto p-5">
+                        <form onSubmit={handleServiceSubmit} className="grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-4">
+                  <Input label="Mã dịch vụ" value={serviceForm.code} required onChange={(value) => setServiceForm({ ...serviceForm, code: value })} />
+                  <Input label="Tên dịch vụ" value={serviceForm.name} required onChange={(value) => setServiceForm({ ...serviceForm, name: value })} />
+                  <Select label="Loại dịch vụ" value={serviceForm.serviceType} onChange={(value) => setServiceForm({ ...serviceForm, serviceType: value, attributeGroup: value === 'PRODUCT_SERVICE' && !serviceForm.attributeGroup ? 'WARRANTY' : serviceForm.attributeGroup })} options={[['PRODUCT_SERVICE', 'Dịch vụ sản phẩm'], ['SUPPORT_SERVICE', 'Dịch vụ hỗ trợ']]} />
+                  <Select label="Nhóm dịch vụ" value={serviceForm.attributeGroup} onChange={(value) => setServiceForm({ ...serviceForm, attributeGroup: value })} options={[['', 'Chọn nhóm'], ...serviceAttributeGroupOptions]} />
+                  <Select label="Thời hạn" value={String(serviceForm.durationMonths || 0)} onChange={(value) => setServiceForm({ ...serviceForm, durationMonths: Number(value) })} options={warrantyDurationOptions} />
+                  <Select label="Cách tính giá" value={serviceForm.priceMode} onChange={(value) => setServiceForm({ ...serviceForm, priceMode: value })} options={[['FIXED', 'Giá cố định'], ['PERCENT', 'Theo % sản phẩm'], ['TIERED_AMOUNT', 'Theo định mức']]} />
+                  <Input label="Giá cố định" type="number" value={serviceForm.fixedPrice} onChange={(value) => setServiceForm({ ...serviceForm, fixedPrice: Number(value) })} />
+                  <Input label="Phần trăm" type="number" value={serviceForm.percentValue} onChange={(value) => setServiceForm({ ...serviceForm, percentValue: Number(value) })} />
+                  <Input label="Định mức" type="number" value={serviceForm.baseAmount} onChange={(value) => setServiceForm({ ...serviceForm, baseAmount: Number(value) })} />
+                  <Checkbox label="Đang bật" checked={serviceForm.isActive} onChange={(checked) => setServiceForm({ ...serviceForm, isActive: checked })} />
+                  <SubmitButtons editing={Boolean(editingServiceId)} onCancel={resetServiceForm} />
+                </form>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <AdminTable headers={['Mã', 'Tên dịch vụ', 'Loại', 'Nhóm', 'Thời hạn', 'Giá', 'Trạng thái', 'Thao tác']}>
+                  {attachedServices.filter((item) => matchesSearch(item, query, ['code', 'name', 'serviceType', 'attributeGroup'])).map((service) => (
+                    <tr key={service.id}>
+                      <td className="px-4 py-3 font-mono text-xs">{service.code}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{service.name}</td>
+                      <td className="px-4 py-3">{service.serviceType === 'PRODUCT_SERVICE' ? 'Dịch vụ sản phẩm' : 'Dịch vụ hỗ trợ'}</td>
+                      <td className="px-4 py-3">{service.attributeGroup || '-'}</td>
+                      <td className="px-4 py-3">{service.durationMonths ? `${service.durationMonths} thang` : '-'}</td>
+                      <td className="px-4 py-3">{service.priceMode === 'PERCENT' ? `${service.percentValue || 0}%` : service.priceMode === 'TIERED_AMOUNT' ? 'Theo biểu phí' : currency.format(Number(service.fixedPrice || service.baseAmount || 0))}</td>
+                      <td className="px-4 py-3"><AdminBadge tone={service.isActive ? 'green' : 'slate'}>{service.isActive ? 'ACTIVE' : 'INACTIVE'}</AdminBadge></td>
+                      <td className="px-4 py-3"><RowActions onEdit={() => editService(service)} onDelete={() => apiDb.adminDeleteAttachedService(service.id).then(loadData)} /></td>
+                    </tr>
+                  ))}
+                </AdminTable>
               </AdminPanel>
             )}
 
@@ -2960,7 +3210,7 @@ export default function AdminDashboard() {
 
             {tab === 'vouchers' && (
               <AdminPanel title="Quản lý voucher" action={<SearchBox value={query} onChange={setQuery} placeholder="Tìm mã voucher, loại, trạng thái" />}>
-                <CollapsibleSection title={editingVoucherId ? 'Đang chỉnh sửa voucher' : 'Thêm voucher mới'} description="Mở khi cần thiết lập mã giảm giá, điều kiện đơn tối thiểu và giới hạn sử dụng." defaultOpen={false} forceOpen={Boolean(editingVoucherId)}>
+                <CollapsibleSection title={editingVoucherId ? 'Đang chỉnh sửa voucher' : 'Thêm voucher mới'} description="Mở khi cần thiết lập mã giảm giá, điều kiện đơn tối thiểu và giới hạn sử dụng." defaultOpen={false} forceOpen={Boolean(editingVoucherId)} forceOpenKey={editingVoucherId} onClose={resetVoucherForm}>
                   <form onSubmit={handleVoucherSubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-6">
                     <Input label="Mã voucher" value={voucherForm.code} required onChange={(value) => setVoucherForm({ ...voucherForm, code: value.toUpperCase() })} />
                     <Select label="Mục tiêu" value={voucherForm.campaignType} onChange={(value) => setVoucherForm({ ...voucherForm, campaignType: value })} options={voucherCampaignOptions} />
@@ -3023,113 +3273,6 @@ export default function AdminDashboard() {
               </AdminPanel>
             )}
 
-            {tab === 'policies' && (
-              <AdminPanel title="Quản lý chính sách" action={<SearchBox value={query} onChange={setQuery} placeholder="Tìm mã, tiêu đề, nội dung" />}>
-                <CollapsibleSection title={editingPolicyId ? 'Đang chỉnh sửa chính sách' : 'Thêm chính sách mới'} description="Mở khi cần nhập nội dung chính sách dài; danh sách bên dưới vẫn giữ nguyên để tra cứu nhanh." defaultOpen={false} forceOpen={Boolean(editingPolicyId)}>
-                  <form onSubmit={handlePolicySubmit} className="mb-5 space-y-4 rounded-lg bg-slate-50 p-4">
-                    <div className="grid gap-3 md:grid-cols-4">
-                      <Input label="Mã chính sách" value={policyForm.code} required onChange={(value) => setPolicyForm({ ...policyForm, code: value })} />
-                      <Input label="Tiêu đề" value={policyForm.title} required onChange={(value) => setPolicyForm({ ...policyForm, title: value })} />
-                      <Select label="Trạng thái" value={policyForm.status} onChange={(value) => setPolicyForm({ ...policyForm, status: value })} options={policyStatusOptions} />
-                      <Select label="Phạm vi áp dụng" value={policyForm.scopeType} onChange={(value) => setPolicyForm({ ...policyForm, scopeType: value })} options={policyScopeOptions} />
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <label className="block">
-                        <span className="mb-1.5 block text-xs font-bold text-slate-500">Tóm tắt ngắn</span>
-                        <textarea className="min-h-24 w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500" placeholder="Mô tả ngắn dùng cho preview, SEO hoặc listing." value={policyForm.summary} onChange={(event) => setPolicyForm({ ...policyForm, summary: event.target.value })} />
-                      </label>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <Input label="Hẹn công khai" type="datetime-local" value={policyForm.scheduledAt} onChange={(value) => setPolicyForm({ ...policyForm, scheduledAt: value })} />
-                        <Input label="Ngày public" type="datetime-local" value={policyForm.publishedAt} onChange={(value) => setPolicyForm({ ...policyForm, publishedAt: value })} />
-                        <Checkbox label="Cho phép hiển thị ngoài trang khách" checked={policyForm.isActive} onChange={(checked) => setPolicyForm({ ...policyForm, isActive: checked })} />
-                        <div className="flex items-end justify-end">
-                          <SubmitButtons editing={Boolean(editingPolicyId)} onCancel={resetPolicyForm} />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid gap-4 lg:grid-cols-[1.2fr,0.8fr]">
-                      <div className="space-y-3">
-                        <RichTextEditor label="Nội dung chính sách" value={policyForm.content} onChange={(value) => setPolicyForm({ ...policyForm, content: value })} />
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <MultiSelectBox
-                            label="Gắn theo danh mục"
-                            options={categories.map((item) => ({ value: item.id, label: item.name }))}
-                            values={policyForm.categoryIds}
-                            onChange={(values) => setPolicyForm({ ...policyForm, categoryIds: values })}
-                          />
-                          <MultiSelectBox
-                            label="Gắn theo sản phẩm"
-                            options={products.slice(0, 120).map((item) => ({ value: item.id, label: item.name }))}
-                            values={policyForm.productIds}
-                            onChange={(values) => setPolicyForm({ ...policyForm, productIds: values })}
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-3">
-                        <div className="rounded-lg border border-slate-200 bg-white p-4">
-                          <div className="mb-3 flex items-center justify-between">
-                            <h3 className="text-sm font-black text-slate-900">Preview trước khi xuất bản</h3>
-                            <AdminBadge tone={policyForm.status === 'PUBLISHED' ? 'green' : policyForm.status === 'SCHEDULED' ? 'blue' : 'slate'}>{policyForm.status}</AdminBadge>
-                          </div>
-                          <div className="space-y-2">
-                            <p className="font-mono text-xs text-slate-400">{policyForm.code || 'policy-code'}</p>
-                            <h4 className="text-lg font-black text-slate-950">{policyForm.title || 'Tiêu đề chính sách'}</h4>
-                            <p className="text-sm leading-6 text-slate-500">{policyForm.summary || 'Tóm tắt sẽ xuất hiện ở đây để người biên tập kiểm tra nhanh trước khi public.'}</p>
-                            <div className="prose prose-sm max-w-none text-slate-700" dangerouslySetInnerHTML={{ __html: sanitizedPolicyPreview }} />
-                          </div>
-                        </div>
-                        <div className="rounded-lg border border-slate-200 bg-white p-4">
-                          <h3 className="mb-3 text-sm font-black text-slate-900">SEO</h3>
-                          <div className="grid gap-3">
-                            <Input label="SEO title" value={policyForm.seoTitle} onChange={(value) => setPolicyForm({ ...policyForm, seoTitle: value })} />
-                            <label className="block">
-                              <span className="mb-1.5 block text-xs font-bold text-slate-500">SEO description</span>
-                              <textarea className="min-h-20 w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500" value={policyForm.seoDescription} onChange={(event) => setPolicyForm({ ...policyForm, seoDescription: event.target.value })} />
-                            </label>
-                            <Input label="SEO keywords" value={policyForm.seoKeywords} onChange={(value) => setPolicyForm({ ...policyForm, seoKeywords: value })} />
-                          </div>
-                        </div>
-                        {editingPolicyId && (
-                          <div className="rounded-lg border border-slate-200 bg-white p-4">
-                            <h3 className="mb-3 text-sm font-black text-slate-900">Lịch sử cập nhật</h3>
-                            <div className="space-y-2">
-                              {policyHistory.length === 0 && <p className="text-sm text-slate-500">Chưa có bản ghi lịch sử.</p>}
-                              {policyHistory.map((entry) => (
-                                <div key={entry.id} className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <span className="font-bold text-slate-800">v{entry.versionNumber} · {entry.action}</span>
-                                    <span className="text-xs text-slate-500">{entry.createdAt ? new Date(entry.createdAt).toLocaleString('vi-VN') : '-'}</span>
-                                  </div>
-                                  <div className="mt-1 text-xs text-slate-500">{entry.snapshot?.title || entry.snapshot?.code || 'Snapshot'}</div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </form>
-                </CollapsibleSection>
-                <AdminTable headers={['Mã', 'Tiêu đề', 'Phiên bản', 'Lịch', 'Trạng thái', 'Thao tác']}>
-                  {filteredPolicies.map((policy) => (
-                    <tr key={policy.id}>
-                      <td className="px-4 py-3 font-mono text-xs">{policy.code}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-900">{policy.title}</div>
-                        <div className="line-clamp-2 text-xs text-slate-500">{policy.summary || 'Chưa có tóm tắt ngắn.'}</div>
-                      </td>
-                      <td className="px-4 py-3">v{policy.version || 1}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500">
-                        <div>{policy.scheduledAt ? `Lên lịch: ${new Date(policy.scheduledAt).toLocaleString('vi-VN')}` : 'Đăng ngay / không lịch'}</div>
-                        <div>{policy.publishedAt ? `Public: ${new Date(policy.publishedAt).toLocaleString('vi-VN')}` : 'Chưa public'}</div>
-                      </td>
-                      <td className="px-4 py-3"><AdminBadge tone={policy.isActive && policy.status === 'PUBLISHED' ? 'green' : policy.status === 'SCHEDULED' ? 'blue' : 'slate'}>{policy.isActive ? policy.status : 'Đã ẩn'}</AdminBadge></td>
-                      <td className="px-4 py-3"><RowActions onEdit={() => editPolicy(policy)} onDelete={() => confirmDelete(policy.title, () => apiDb.adminDeletePolicy(policy.id))} /></td>
-                    </tr>
-                  ))}
-                </AdminTable>
-              </AdminPanel>
-            )}
 
             {tab === 'customers' && (
               <AdminPanel title={usePermission('sys:manage_users') ? 'Quản lý khách hàng và phân quyền' : 'Tra cứu khách hàng'} action={<SearchBox value={query} onChange={setQuery} placeholder="Tìm khách hàng, email, hạng" />}>
@@ -3193,14 +3336,14 @@ export default function AdminDashboard() {
               <AdminPanel title="Quản lý tồn kho" action={<div className="flex items-center gap-2"><SearchBox value={query} onChange={setQuery} placeholder="Tìm sản phẩm, SKU, trạng thái kho" /><button type="button" onClick={() => void exportInventorySnapshot()} className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><Download className="h-4 w-4" /> Xuất Excel</button></div>}>
                 <AdminTable headers={['Sản phẩm', 'SKU / Biến thể', 'Tồn kho', 'Cảnh báo', 'Trạng thái', 'Điều chỉnh']}>
                   {filteredInventory.flatMap((product) => {
-                    const policy = getInventoryPolicy(product);
+                    const inventorySettings = getInventorySettings(product);
                     const rows = [
                       <tr key={`${product.id}-base`}>
                         <td className="px-4 py-3 font-semibold text-slate-900">{product.name}</td>
                         <td className="px-4 py-3 font-mono text-xs">{product.sku || compactId(product.id)}</td>
                         <td className="px-4 py-3">{product.stock ?? 0}</td>
-                        <td className="px-4 py-3">{Number(product.stock || 0) <= policy.minimumStock ? `Cần nhập thêm (min ${policy.minimumStock})` : 'Ổn định'}</td>
-                        <td className="px-4 py-3">{Number(product.stock || 0) > 0 ? 'Còn hàng' : policy.blockSaleWhenOutOfStock ? 'Khóa bán khi hết' : 'Hết hàng'}</td>
+                        <td className="px-4 py-3">{Number(product.stock || 0) <= inventorySettings.minimumStock ? `Cần nhập thêm (min ${inventorySettings.minimumStock})` : 'Ổn định'}</td>
+                        <td className="px-4 py-3">{Number(product.stock || 0) > 0 ? 'Còn hàng' : inventorySettings.blockSaleWhenOutOfStock ? 'Khóa bán khi hết' : 'Hết hàng'}</td>
                         <td className="px-4 py-3"><button type="button" onClick={() => openInventoryDialog(product)} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800">Nhập/điều chỉnh</button></td>
                       </tr>,
                     ];
@@ -3210,7 +3353,7 @@ export default function AdminDashboard() {
                           <td className="px-4 py-3 pl-8 text-sm text-slate-600">{product.name}</td>
                           <td className="px-4 py-3 font-mono text-xs">{variant.sku || compactId(variant.id)} {variant.colorName ? `- ${variant.colorName}` : ''}</td>
                           <td className="px-4 py-3">{variant.stockQuantity ?? 0}</td>
-                          <td className="px-4 py-3">{Number(variant.stockQuantity || 0) <= policy.minimumStock ? `Cần nhập thêm (min ${policy.minimumStock})` : 'Ổn định'}</td>
+                          <td className="px-4 py-3">{Number(variant.stockQuantity || 0) <= inventorySettings.minimumStock ? `Cần nhập thêm (min ${inventorySettings.minimumStock})` : 'Ổn định'}</td>
                           <td className="px-4 py-3">{variant.isActive === false ? 'Đã ẩn' : Number(variant.stockQuantity || 0) > 0 ? 'Còn hàng' : 'Hết hàng'}</td>
                           <td className="px-4 py-3"><button type="button" onClick={() => openInventoryDialog(product, variant)} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800">Nhập/điều chỉnh</button></td>
                         </tr>,
@@ -3321,6 +3464,8 @@ export default function AdminDashboard() {
                   description="Quản trị nội dung tập trung cho video, banner và bài marketing. Có thể gắn sản phẩm, danh mục, hẹn lịch đăng và nhập sẵn bình luận mẫu để kiểm duyệt."
                   defaultOpen={false}
                   forceOpen={Boolean(editingContentId)}
+                  forceOpenKey={editingContentId}
+                  onClose={resetContentForm}
                 >
                   <form onSubmit={handleContentSubmit} className="grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-4">
                     <Input label="Tiêu đề" value={contentForm.title} required onChange={(value) => setContentForm({ ...contentForm, title: value })} />
@@ -3571,7 +3716,7 @@ export default function AdminDashboard() {
                               <Select label="Voucher" value={customerVoucherId} onChange={setCustomerVoucherId} options={[['', 'Chọn voucher'], ...vouchers.filter((voucher) => voucher.status === 'ACTIVE').map((voucher) => [voucher.id, `${voucher.code} - ${voucher.discountType === 'PERCENT' ? `${voucher.discountValue}%` : currency.format(Number(voucher.discountValue || 0))}`] as [string, string])]} />
                               <Input label="Ghi chú nội bộ" value={customerVoucherNote} onChange={setCustomerVoucherNote} />
                               <div className="flex items-end">
-                                <button type="button" onClick={() => void issueCustomerVoucher()} className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700">Gửi voucher</button>
+                                <button type="button" onClick={() => void issueCustomerVoucher()} className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700">Gá»­i voucher</button>
                               </div>
                             </div>
                           </div>
@@ -3700,6 +3845,7 @@ export default function AdminDashboard() {
                       <input type="checkbox" checked={inventoryDraft.blockSaleWhenOutOfStock} onChange={(event) => setInventoryDraft({ ...inventoryDraft, blockSaleWhenOutOfStock: event.target.checked })} className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500" />
                       Khóa bán khi hết hàng
                     </label>
+                    <textarea className="min-h-20 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500 md:col-span-2" placeholder="IMEI khi nhập kho, mỗi dòng một IMEI. Để trống hệ thống tự tạo từ SKU biến thể + 10 số ngẫu nhiên." value={inventoryDraft.imeis} onChange={(event) => setInventoryDraft({ ...inventoryDraft, imeis: event.target.value })} />
                     <textarea className="min-h-20 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500 md:col-span-2" placeholder="Ghi chú kho" value={inventoryDraft.note} onChange={(event) => setInventoryDraft({ ...inventoryDraft, note: event.target.value })} />
                     <div className="rounded-md border border-slate-200 bg-slate-50 p-3 md:col-span-2">
                       <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Lịch sử gần nhất</div>
@@ -3718,7 +3864,7 @@ export default function AdminDashboard() {
                       )}
                     </div>
                     <div className="flex justify-end gap-2 md:col-span-2">
-                      <button type="button" onClick={() => setInventoryDraft(null)} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-bold text-slate-700">Hủy</button>
+                      <button type="button" onClick={() => setInventoryDraft(null)} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-bold text-slate-700">Há»§y</button>
                       <button type="submit" className="h-10 rounded-md bg-amber-600 px-4 text-sm font-bold text-white">Lưu giao dịch</button>
                     </div>
                   </div>
@@ -3754,8 +3900,6 @@ export default function AdminDashboard() {
                       <p className="mt-4 whitespace-pre-line text-sm leading-6 text-slate-600">{previewProduct.description || 'Chưa có mô tả.'}</p>
                       <div className="mt-4 grid gap-3 sm:grid-cols-2">
                         <MiniMetric label="SEO title" value={previewProduct.seoMetadata?.title || previewProduct.specifications?._seoTitle || '-'} helper={previewProduct.seoMetadata?.description || previewProduct.specifications?._seoDescription || 'Chưa có meta description'} />
-                        <MiniMetric label="Bảo hành" value={previewProduct.salesConfig?.warrantyPolicy || previewProduct.specifications?._warrantyPolicy || '-'} helper="Cấu hình theo từng sản phẩm" />
-                        <MiniMetric label="Combo/bundle" value={(previewProduct.salesConfig?.bundleRefs || []).join(', ') || previewProduct.specifications?._bundleProducts || '-'} helper="SKU hoặc ID bán kèm" />
                         <MiniMetric
                           label="Mua kèm giảm giá"
                           value={(previewProduct.salesConfig?.accessoryOffers || []).map((item: any) => item.productName || item.productSku || item.productId).join(', ') || '-'}
@@ -3920,12 +4064,17 @@ function EmptyState({ text }: { text: string }) {
   return <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm font-semibold text-slate-500">{text}</div>;
 }
 
-function CollapsibleSection({ title, description, children, defaultOpen = false, forceOpen = false }: { title: string; description?: string; children: React.ReactNode; defaultOpen?: boolean; forceOpen?: boolean }) {
+function CollapsibleSection({ title, description, children, defaultOpen = false, forceOpen = false, forceOpenKey, onClose }: { title: string; description?: string; children: React.ReactNode; defaultOpen?: boolean; forceOpen?: boolean; forceOpenKey?: string | null; onClose?: () => void }) {
   const [open, setOpen] = useState(defaultOpen);
 
   useEffect(() => {
     if (forceOpen) setOpen(true);
-  }, [forceOpen]);
+  }, [forceOpen, forceOpenKey]);
+
+  const closePopup = () => {
+    setOpen(false);
+    onClose?.();
+  };
 
   return (
     <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -3946,7 +4095,7 @@ function CollapsibleSection({ title, description, children, defaultOpen = false,
                 <h3 className="text-lg font-bold text-slate-950">{title}</h3>
                 {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
               </div>
-              <button type="button" onClick={() => setOpen(false)} title="Đóng popup" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-950">
+              <button type="button" onClick={closePopup} title="Đóng popup" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-950">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -4082,7 +4231,28 @@ function SearchBox({ value, onChange, placeholder = 'Tìm kiếm nhanh' }: { val
 
 function RowActions({ onEdit, onDelete, onRestore }: { onEdit: () => void; onDelete: () => void; onRestore?: () => void }) {
   const [open, setOpen] = useState(false);
-  return <div className="relative flex items-center gap-2"><button type="button" onClick={onEdit} title="S???a" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-rose-200 bg-white/90 text-slate-600 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"><Edit2 className="h-4 w-4" /></button><button type="button" onClick={() => setOpen((value) => !value)} title="Thao t??c kh??c" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white/90 text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"><MoreHorizontal className="h-4 w-4" /></button>{open && <div className="absolute right-0 top-10 z-20 min-w-[140px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"><button type="button" onClick={() => { setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50"><Trash2 className="h-4 w-4" />X??a/???n</button>{onRestore && <button type="button" onClick={() => { setOpen(false); onRestore(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"><RotateCcw className="h-4 w-4" />B???t l???i</button>}</div>}</div>;
+  return (
+    <div className="relative flex items-center gap-2">
+      <button type="button" onClick={onEdit} title="Sửa" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-rose-200 bg-white/90 text-slate-600 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700">
+        <Edit2 className="h-4 w-4" />
+      </button>
+      <button type="button" onClick={() => setOpen((value) => !value)} title="Thao tác khác" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white/90 text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900">
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-10 z-20 min-w-[150px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+          <button type="button" onClick={() => { setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50">
+            <Trash2 className="h-4 w-4" /> Xóa / ẩn
+          </button>
+          {onRestore && (
+            <button type="button" onClick={() => { setOpen(false); onRestore(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50">
+              <RotateCcw className="h-4 w-4" /> Bật lại
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CategoryTableRow({ category, level, onEdit, onDelete, onRestore, onReorder }: { category: any; level: number; onEdit: () => void; onDelete: () => void; onRestore?: () => void; onReorder: (draggedId: string, targetId: string) => void }) {
@@ -4136,3 +4306,6 @@ function VideoPreview({ title, url, onRemove }: { title: string; url: string; on
 function SimpleList({ title, icon: Icon, headers, rows, emptyText, action }: { title: string; icon: React.ElementType; headers: string[]; rows: (string | number)[][]; emptyText: string; action?: React.ReactNode }) {
   return <AdminPanel title={title} action={<div className="flex flex-col gap-2 sm:flex-row sm:items-center"><Icon className="hidden h-5 w-5 text-red-600 sm:block" />{action}</div>}><AdminTable headers={headers}>{rows.length === 0 ? <tr><td colSpan={headers.length} className="px-4 py-8 text-center text-sm font-medium text-slate-500">{emptyText}</td></tr> : rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={`${index}-${cellIndex}`} className={`px-4 py-3 ${cellIndex === 0 ? 'font-semibold text-slate-900' : ''}`}>{cell}</td>)}</tr>)}</AdminTable></AdminPanel>;
 }
+
+
+

@@ -17,9 +17,9 @@ const footerGroups = [
     title: 'Hỗ trợ khách hàng',
     links: [
       ['Tra cứu đơn hàng', '/dashboard'],
-      ['Chính sách bảo hành', '/policy'],
-      ['Đổi trả và hoàn tiền', '/policy'],
-      ['Hướng dẫn thanh toán', '/policy'],
+      ['Giỏ hàng của bạn', '/cart'],
+      ['Thanh toán', '/checkout'],
+      ['Đăng nhập tài khoản', '/login'],
     ],
   },
   {
@@ -29,6 +29,20 @@ const footerGroups = [
       ['Đăng ký', '/register'],
       ['Hạng thành viên', '/loyalty'],
       ['Đổi mật khẩu', '/change-password'],
+    ],
+  },
+  {
+    title: 'Giới thiệu & Chính sách',
+    links: [
+      ['Giới thiệu công ty', '/about'],
+      ['Chính sách mua hàng & thanh toán', '/purchase-policy'],
+      ['Chính sách giao nhận hàng', '/delivery-policy'],
+      ['Bảo hành, Đổi trả & Kỹ thuật', '/return-warranty-policy'],
+      ['Bảo mật & Dữ liệu cá nhân', '/privacy'],
+      ['Khiếu nại & Tranh chấp', '/dispute'],
+      ['Chính sách hóa đơn VAT', '/invoice'],
+      ['Quy chế hoạt động', '/terms'],
+      ['Thành viên & Khuyến mãi', '/member-policy'],
     ],
   },
 ];
@@ -64,7 +78,7 @@ export function Footer() {
             </div>
           </div>
 
-          <div className="grid gap-6 sm:grid-cols-3">
+          <div className="grid gap-6 sm:grid-cols-4">
             {footerGroups.map((group) => (
               <div key={group.title}>
                 <h3 className="text-sm font-bold uppercase tracking-wide text-slate-950">{group.title}</h3>
@@ -93,8 +107,8 @@ export function Footer() {
           <div className="flex items-start gap-3 rounded-md bg-slate-50 p-3">
             <ShieldCheck className="h-5 w-5 shrink-0 text-primary" />
             <div>
-              <div className="text-sm font-bold text-slate-900">Bảo hành minh bạch</div>
-              <div className="mt-1 text-xs leading-5 text-slate-500">Chính sách đổi trả, bảo hành và hoàn tiền được công khai.</div>
+              <div className="text-sm font-bold text-slate-900">Thông tin minh bạch</div>
+              <div className="mt-1 text-xs leading-5 text-slate-500">Tập trung vào danh mục, đơn hàng, thanh toán và hỗ trợ sau mua.</div>
             </div>
           </div>
           <div className="flex items-start gap-3 rounded-md bg-slate-50 p-3">
@@ -118,19 +132,14 @@ export function Footer() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <a href="https://facebook.com" target="_blank" rel="noreferrer" className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-slate-100 text-slate-600 transition hover:bg-primary hover:text-white" aria-label="Facebook">
+          <div className="flex items-center gap-2">
+            <a href="https://facebook.com" target="_blank" rel="noreferrer" className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:border-primary hover:text-primary">
               <Facebook className="h-4 w-4" />
             </a>
-            <a href="https://youtube.com" target="_blank" rel="noreferrer" className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-slate-100 text-slate-600 transition hover:bg-primary hover:text-white" aria-label="YouTube">
+            <a href="https://youtube.com" target="_blank" rel="noreferrer" className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:border-primary hover:text-primary">
               <Youtube className="h-4 w-4" />
             </a>
           </div>
-        </div>
-
-        <div className="mt-6 flex flex-col gap-2 border-t border-slate-100 pt-5 text-xs font-medium text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-          <span>© 2026 ElectroMart Vietnam. Đồ án thương mại điện tử.</span>
-          <span>VNPAY Sandbox Active · Loyalty · Voucher · Reviews</span>
         </div>
       </div>
     </footer>

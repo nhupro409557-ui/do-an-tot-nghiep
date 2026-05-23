@@ -87,7 +87,7 @@ async def list_orders(user_id: UUID | None = None, session: AsyncSession = Depen
             LEFT JOIN users u ON u.id = o.user_id
             LEFT JOIN order_items oi ON oi.order_id = o.id
             {where}
-            GROUP BY o.id
+            GROUP BY o.id, u.email, u.full_name
             ORDER BY o.created_at DESC
             """
         ),
@@ -178,7 +178,7 @@ async def get_order_detail(order_id: UUID, session: AsyncSession = Depends(get_s
             LEFT JOIN order_items oi ON oi.order_id = o.id
             LEFT JOIN payment_transactions pt ON pt.order_id = o.id
             WHERE o.id = :order_id
-            GROUP BY o.id
+            GROUP BY o.id, u.email, u.full_name
             """
         ),
         {"order_id": order_id},

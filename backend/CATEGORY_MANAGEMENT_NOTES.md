@@ -116,3 +116,20 @@ This file records the non-obvious decisions added while hardening category manag
 3. Restoring a category does not auto-reactivate products that were inactivated by the delete flow.
 4. Stale migration jobs older than 30 minutes are treated as failed and their category workflow lock is released automatically.
 5. Category operators benefit from seeing operational telemetry in the same screen as category edits, not only through backend logs.
+
+## Update 2026-05-23
+
+- Danh muc co them `inventory_policy` de quy dinh quan ly IMEI:
+  - `inheritImeiPolicy`: danh muc con co lay theo cha hay khong.
+  - `trackImei`: danh muc nay co quan ly theo IMEI hay khong.
+  - Uu tien cao nhat la danh muc con; neu con bat `inheritImeiPolicy` thi bo qua `trackImei` cua con va theo cha.
+- Danh muc co them `warranty_policy` de lam mac dinh cho san pham:
+  - `inheritWarrantyPolicy`
+  - `hasWarranty`
+  - `warrantyMonths`
+  - `allowOneForOne`
+  - `oneForOneDays`
+- Cac gia tri tren chi la mac dinh giup admin do nhap lap. San pham van co quyen override trong `products.sales_config.warrantyPolicy` neu bao hanh thuc te khac danh muc.
+- Migration lien quan: `backend/migrations/040_catalog_inventory_services_foundation.sql`.
+- Product form da nap mac dinh bao hanh tu danh muc cha/con khi san pham bat "theo danh muc"; danh muc con duoc uu tien, tru khi con bat `inheritWarrantyPolicy`.
+- Product form co the override `warrantyMonths`, `allowOneForOne`, `oneForOneDays` de xu ly truong hop san pham khac mac dinh danh muc.

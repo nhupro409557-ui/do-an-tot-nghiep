@@ -337,7 +337,7 @@ class TargetingRule(VoucherRule):
 
 
 class VoucherService:
-    # Rule pipeline keeps the voucher policy modular so future business rules can be added safely.
+    # Rule pipeline keeps the voucher rules modular so future business rules can be added safely.
     _rules: tuple[VoucherRule, ...] = (
         VoucherActiveWindowRule(),
         VoucherWalletRule(),

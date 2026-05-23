@@ -652,54 +652,9 @@ CREATE INDEX IF NOT EXISTS idx_content_comments_parent_id
 
 
 -- ==========================================
--- Migration: 005_admin_policies.sql
+-- Migration: 005_admin_content_page_cleanup.sql
 -- ==========================================
 
-CREATE TABLE IF NOT EXISTS policies (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code VARCHAR(80) NOT NULL UNIQUE,
-    title VARCHAR(255) NOT NULL,
-    summary TEXT NOT NULL DEFAULT '',
-    content TEXT NOT NULL DEFAULT '',
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    status VARCHAR(30) NOT NULL DEFAULT 'PUBLISHED',
-    scheduled_at TIMESTAMPTZ NULL,
-    published_at TIMESTAMPTZ NULL,
-    seo_title VARCHAR(255) NOT NULL DEFAULT '',
-    seo_description VARCHAR(500) NOT NULL DEFAULT '',
-    seo_keywords VARCHAR(500) NOT NULL DEFAULT '',
-    scope_type VARCHAR(30) NOT NULL DEFAULT 'GLOBAL',
-    product_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
-    category_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
-    version INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_policies_code ON policies(code);
-CREATE INDEX IF NOT EXISTS idx_policies_is_active ON policies(is_active);
-CREATE INDEX IF NOT EXISTS idx_policies_status_publish ON policies(status, is_active, scheduled_at, published_at);
-
-CREATE TABLE IF NOT EXISTS policy_versions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    policy_id UUID NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
-    version_number INTEGER NOT NULL,
-    action VARCHAR(30) NOT NULL DEFAULT 'UPDATED',
-    snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
-    actor_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_policy_versions_policy_version ON policy_versions(policy_id, version_number);
-CREATE INDEX IF NOT EXISTS idx_policy_versions_policy_created ON policy_versions(policy_id, created_at DESC);
-
-INSERT INTO policies (code, title, content)
-VALUES
-    ('shipping', 'Chinh sach giao hang', 'Cap nhat noi dung chinh sach giao hang tai day.'),
-    ('warranty', 'Chinh sach bao hanh', 'Cap nhat noi dung chinh sach bao hanh tai day.'),
-    ('return', 'Chinh sach doi tra', 'Cap nhat noi dung chinh sach doi tra tai day.'),
-    ('privacy', 'Chinh sach bao mat', 'Cap nhat noi dung chinh sach bao mat tai day.')
-ON CONFLICT (code) DO NOTHING;
 
 
 -- ==========================================
@@ -1205,10 +1160,6 @@ VALUES
     ('voucher:create', 'voucher', 'Tạo voucher'),
     ('voucher:update', 'voucher', 'Cập nhật voucher'),
     ('voucher:delete', 'voucher', 'Tắt voucher'),
-    ('policy:read', 'policy', 'Xem chính sách'),
-    ('policy:create', 'policy', 'Tạo chính sách'),
-    ('policy:update', 'policy', 'Cập nhật chính sách'),
-    ('policy:delete', 'policy', 'Ẩn chính sách'),
     ('customer:read', 'customer', 'Xem khách hàng'),
     ('inventory:read', 'inventory', 'Xem tồn kho'),
     ('inventory:adjust', 'inventory', 'Điều chỉnh tồn kho'),
@@ -1816,7 +1767,7 @@ ON CONFLICT DO NOTHING;
 
 
 -- ==========================================
--- Migration: 036_inventory_policy_and_receipt_metadata.sql
+-- Migration: 036_inventory_settings_and_receipt_metadata.sql
 -- ==========================================
 
 ALTER TABLE inventory_adjustment_logs

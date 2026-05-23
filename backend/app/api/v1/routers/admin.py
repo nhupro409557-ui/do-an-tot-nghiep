@@ -37,6 +37,23 @@ def slugify(value: str) -> str:
     return "-".join(part for part in slug.split("-") if part) or uuid4().hex[:8]
 
 
+def sku_code(value: str | None, fallback: str = "SP") -> str:
+    slug = slugify(value or fallback)
+    parts = [part for part in slug.split("-") if part]
+    code = "".join(part[0] for part in parts[:5]).upper()
+    return code or fallback
+
+
+def generate_variant_sku(product_name: str, color_name: str | None, index: int) -> str:
+    suffix = sku_code(color_name, f"M{index}")
+    return f"{sku_code(product_name)}-{suffix}-{index:02d}"
+
+
+def generate_inventory_imei(variant_sku: str | None, product_sku: str | None) -> str:
+    prefix = re.sub(r"[^A-Z0-9]", "", (variant_sku or product_sku or "IMEI").upper())[:24] or "IMEI"
+    return f"{prefix}{uuid4().int % 10_000_000_000:010d}"
+
+
 def category_path_label(category_id: UUID) -> str:
     return f"c_{str(category_id).replace('-', '')}"
 
@@ -722,7 +739,7 @@ async def resolve_catalog_labels(session: AsyncSession, payload: "ProductPayload
     return category, brand
 
 
-async def upsert_product_variants(session: AsyncSession, product_id: UUID, variants: list["ProductVariantPayload"]) -> None:
+async def upsert_product_variants(session: AsyncSession, product_id: UUID, variants: list["ProductVariantPayload"], product_name: str = "") -> None:
     incoming_ids = [variant.id for variant in variants if variant.id]
     if incoming_ids:
         existing_rows = (
@@ -760,7 +777,7 @@ async def upsert_product_variants(session: AsyncSession, product_id: UUID, varia
         values = {
             "id": variant.id or uuid4(),
             "product_id": product_id,
-            "sku": variant.sku or f"VAR-{product_id.hex[:8].upper()}-{index}",
+            "sku": variant.sku or generate_variant_sku(product_name, variant.colorName, index),
             "color_name": variant.colorName,
             "color_code": variant.colorCode,
             "storage": variant.storage,
@@ -825,10 +842,11 @@ def extract_product_metadata(specifications: dict) -> tuple[dict, dict, dict]:
         "slug": specs.pop("_seoSlug", "") or "",
     }
     sales_config = {
-        "warrantyPolicy": specs.pop("_warrantyPolicy", "") or "",
         "bundleRefs": split_relation_tokens(specs.pop("_bundleProducts", "")),
         "accessoryRefs": split_relation_tokens(specs.pop("_accessoryProducts", "")),
         "accessoryOffers": accessory_offers,
+        "warrantyPolicy": specs.pop("_warrantyPolicy", {}) if isinstance(specs.get("_warrantyPolicy"), dict) else {},
+        "attachedServices": specs.pop("_attachedServices", []) if isinstance(specs.get("_attachedServices"), list) else [],
         "variantSpecKeys": specs.get("_variantSpecKeys", []),
     }
     return specs, seo, sales_config
@@ -851,10 +869,25 @@ def persisted_sales_config(sales_config: dict) -> dict:
                 "maxQuantity": max(1, int(item.get("maxQuantity") or 1)),
             }
         )
+    normalized_attached_services: list[dict] = []
+    for item in sales_config.get("attachedServices", []) or []:
+        if not isinstance(item, dict):
+            continue
+        service_id = str(item.get("serviceId") or "").strip()
+        if not service_id:
+            continue
+        override_price = item.get("overridePrice")
+        normalized_attached_services.append(
+            {
+                "serviceId": service_id,
+                "overridePrice": max(0, float(override_price)) if override_price not in (None, "") else None,
+            }
+        )
     return {
-        "warrantyPolicy": sales_config.get("warrantyPolicy", "") or "",
         "variantSpecKeys": sales_config.get("variantSpecKeys", []) or [],
         "accessoryOffers": normalized_accessory_offers,
+        "warrantyPolicy": sales_config.get("warrantyPolicy", {}) if isinstance(sales_config.get("warrantyPolicy"), dict) else {},
+        "attachedServices": normalized_attached_services,
         "minimumStock": max(0, int(sales_config.get("minimumStock") or 0)),
         "blockSaleWhenOutOfStock": bool(sales_config.get("blockSaleWhenOutOfStock", True)),
         "preferredLocationCode": sales_config.get("preferredLocationCode", "") or "",
@@ -911,6 +944,7 @@ async def sync_product_relations(session: AsyncSession, product_id: UUID, sales_
     )
     await session.execute(text("DELETE FROM product_bundles WHERE product_id = :product_id"), {"product_id": product_id})
     await session.execute(text("DELETE FROM product_accessories WHERE product_id = :product_id"), {"product_id": product_id})
+    await session.execute(text("DELETE FROM product_attached_services WHERE product_id = :product_id"), {"product_id": product_id})
     for bundled_id in bundle_ids:
         await session.execute(
             text(
@@ -932,6 +966,41 @@ async def sync_product_relations(session: AsyncSession, product_id: UUID, sales_
                 """
             ),
             {"product_id": product_id, "related_id": accessory_id},
+        )
+    used_service_groups: set[str] = set()
+    for item in sales_config.get("attachedServices", []) or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            service_id = UUID(str(item.get("serviceId") or ""))
+        except ValueError:
+            continue
+        service_row = (
+            await session.execute(
+                text("SELECT service_type, attribute_group FROM attached_services WHERE id = :id AND is_active = TRUE"),
+                {"id": service_id},
+            )
+        ).mappings().first()
+        if not service_row:
+            continue
+        group_key = f"{service_row['service_type']}:{service_row['attribute_group'] or service_id}"
+        if service_row["attribute_group"] and group_key in used_service_groups:
+            continue
+        used_service_groups.add(group_key)
+        await session.execute(
+            text(
+                """
+                INSERT INTO product_attached_services (product_id, service_id, override_price)
+                VALUES (:product_id, :service_id, :override_price)
+                ON CONFLICT (product_id, service_id)
+                DO UPDATE SET override_price = EXCLUDED.override_price
+                """
+            ),
+            {
+                "product_id": product_id,
+                "service_id": service_id,
+                "override_price": item.get("overridePrice"),
+            },
         )
 
 
@@ -1030,6 +1099,8 @@ class CategoryPayload(BaseModel):
     seoKeywords: str | None = None
     specFields: list[dict] = Field(default_factory=list)
     filterConfig: list[dict] = Field(default_factory=list)
+    inventoryPolicy: dict = Field(default_factory=dict)
+    warrantyPolicy: dict = Field(default_factory=dict)
     allowSpecTypeMigration: bool = False
     version: int | None = Field(default=None, ge=1)
 
@@ -1129,6 +1200,25 @@ class ProductAccessoryOfferPayload(BaseModel):
     maxQuantity: int = Field(default=1, ge=1, le=999)
 
 
+class ProductAttachedServicePayload(BaseModel):
+    serviceId: UUID
+    overridePrice: float | None = Field(default=None, ge=0)
+
+
+class AttachedServicePayload(BaseModel):
+    code: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=180)
+    serviceType: str = Field(default="SUPPORT_SERVICE", pattern="^(PRODUCT_SERVICE|SUPPORT_SERVICE)$")
+    attributeGroup: str | None = Field(default=None, max_length=80)
+    durationMonths: int = Field(default=0, ge=0, le=120)
+    priceMode: str = Field(default="FIXED", pattern="^(FIXED|PERCENT|TIERED_AMOUNT)$")
+    fixedPrice: float = Field(default=0, ge=0)
+    percentValue: float = Field(default=0, ge=0)
+    baseAmount: float = Field(default=0, ge=0)
+    isActive: bool = True
+    metadata: dict = Field(default_factory=dict)
+
+
 class ProductPayload(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     price: float = Field(ge=0)
@@ -1172,9 +1262,10 @@ class InventoryAdjustmentPayload(BaseModel):
     unitCost: float | None = Field(default=None, ge=0)
     locationCode: str | None = Field(default=None, max_length=60)
     locationName: str | None = Field(default=None, max_length=160)
+    imeis: list[str] = Field(default_factory=list, max_length=500)
 
 
-class InventoryPolicyPayload(BaseModel):
+class InventorySettingsPayload(BaseModel):
     minimumStock: int = Field(default=0, ge=0)
     blockSaleWhenOutOfStock: bool = True
     preferredLocationCode: str | None = Field(default=None, max_length=60)
@@ -1220,24 +1311,6 @@ class VoucherPayload(BaseModel):
     endsAt: str | None = None
     internalNote: str | None = None
     status: str = Field(default="ACTIVE", max_length=30)
-
-
-class PolicyPayload(BaseModel):
-    code: str = Field(min_length=1, max_length=80)
-    title: str = Field(min_length=1, max_length=255)
-    summary: str = Field(default="", max_length=1000)
-    content: str = ""
-    isActive: bool = True
-    status: str = Field(default="DRAFT", max_length=30)
-    scheduledAt: str | None = None
-    publishedAt: str | None = None
-    seoTitle: str = Field(default="", max_length=255)
-    seoDescription: str = Field(default="", max_length=500)
-    seoKeywords: str = Field(default="", max_length=500)
-    scopeType: str = Field(default="GLOBAL", max_length=30)
-    productIds: list[str] = Field(default_factory=list)
-    categoryIds: list[str] = Field(default_factory=list)
-    version: int | None = Field(default=None, ge=1)
 
 
 class ContentCommentPayload(BaseModel):
@@ -1547,8 +1620,7 @@ async def overview(session: AsyncSession = Depends(get_session)) -> dict:
                 (SELECT COUNT(*) FROM categories WHERE is_active = TRUE AND status = 'ACTIVE' AND COALESCE(is_deleted, FALSE) = FALSE) AS categories,
                 (SELECT COUNT(*) FROM brands WHERE is_active = TRUE) AS brands,
                 (SELECT COUNT(*) FROM orders) AS orders,
-                (SELECT COUNT(*) FROM vouchers WHERE status = 'ACTIVE') AS vouchers,
-                (SELECT COUNT(*) FROM policies WHERE is_active = TRUE) AS policies
+                (SELECT COUNT(*) FROM vouchers WHERE status = 'ACTIVE') AS vouchers
             """
         )
     )
@@ -1623,6 +1695,8 @@ async def list_admin_categories(session: AsyncSession = Depends(get_session)) ->
                 COALESCE(parent.spec_fields, '[]'::jsonb) || c.spec_fields AS "specFields",
                 c.filter_config AS "ownFilterConfig",
                 COALESCE(parent.filter_config, '[]'::jsonb) || c.filter_config AS "filterConfig",
+                COALESCE(c.inventory_policy, '{}'::jsonb) AS "inventoryPolicy",
+                COALESCE(c.warranty_policy, '{}'::jsonb) AS "warrantyPolicy",
                 c.sort_order AS "order",
                 c.status,
                 COALESCE(c.workflow_status, 'APPROVED') AS "workflowStatus",
@@ -1699,12 +1773,13 @@ async def create_category(
             INSERT INTO categories (
                 id, parent_id, code, slug, name, icon, icon_url, banner_url,
                 seo_title, seo_description, seo_keywords, spec_fields, filter_config,
-                sort_order, status, workflow_status, is_active, path
+                inventory_policy, warranty_policy, sort_order, status, workflow_status, is_active, path
             )
             VALUES (
                 :id, :parent_id, :code, :slug, :name, :icon, :icon_url, :banner_url,
                 :seo_title, :seo_description, :seo_keywords, CAST(:spec_fields AS jsonb),
-                CAST(:filter_config AS jsonb), :sort_order, :status, :workflow_status, :is_active,
+                CAST(:filter_config AS jsonb), CAST(:inventory_policy AS jsonb), CAST(:warranty_policy AS jsonb),
+                :sort_order, :status, :workflow_status, :is_active,
                 CASE
                     WHEN :parent_id IS NULL THEN CAST(:path_label AS ltree)
                     ELSE (SELECT path FROM categories WHERE id = :parent_id) || CAST(:path_label AS ltree)
@@ -1726,6 +1801,8 @@ async def create_category(
             "seo_keywords": payload.seoKeywords,
             "spec_fields": json.dumps(payload.specFields),
             "filter_config": json.dumps(filter_config),
+            "inventory_policy": json.dumps(payload.inventoryPolicy),
+            "warranty_policy": json.dumps(payload.warrantyPolicy),
             "sort_order": payload.order,
             "status": category_status,
             "workflow_status": category_workflow_status(category_status),
@@ -1921,6 +1998,8 @@ async def update_category(
                 seo_keywords = :seo_keywords,
                 spec_fields = CAST(:spec_fields AS jsonb),
                 filter_config = CAST(:filter_config AS jsonb),
+                inventory_policy = CAST(:inventory_policy AS jsonb),
+                warranty_policy = CAST(:warranty_policy AS jsonb),
                 sort_order = :sort_order,
                 status = :status,
                 workflow_status = :workflow_status,
@@ -1950,6 +2029,8 @@ async def update_category(
             "seo_keywords": payload.seoKeywords,
             "spec_fields": json.dumps(spec_fields),
             "filter_config": json.dumps(filter_config),
+            "inventory_policy": json.dumps(payload.inventoryPolicy),
+            "warranty_policy": json.dumps(payload.warrantyPolicy),
             "sort_order": payload.order,
             "status": category_status,
             "workflow_status": category_workflow_status(category_status),
@@ -2979,6 +3060,38 @@ async def list_admin_products(
         bundles: dict[str, list[str]] = {}
         accessories: dict[str, list[str]] = {}
         accessory_lookup: dict[str, list[dict]] = {}
+        service_rows = (
+            await session.execute(
+                text(
+                    """
+                    SELECT pas.product_id::text AS product_id, s.id::text AS service_id, s.code, s.name,
+                           s.service_type, s.attribute_group, s.duration_months, s.price_mode,
+                           s.fixed_price, s.percent_value, s.base_amount, pas.override_price
+                    FROM product_attached_services pas
+                    JOIN attached_services s ON s.id = pas.service_id
+                    WHERE pas.product_id IN :ids
+                    """
+                ).bindparams(bindparam("ids", expanding=True)),
+                {"ids": product_ids},
+            )
+        ).mappings().all()
+        service_lookup: dict[str, list[dict]] = {}
+        for service in service_rows:
+            service_lookup.setdefault(service["product_id"], []).append(
+                {
+                    "serviceId": service["service_id"],
+                    "code": service["code"],
+                    "name": service["name"],
+                    "serviceType": service["service_type"],
+                    "attributeGroup": service["attribute_group"],
+                    "durationMonths": service["duration_months"],
+                    "priceMode": service["price_mode"],
+                    "fixedPrice": service["fixed_price"],
+                    "percentValue": service["percent_value"],
+                    "baseAmount": service["base_amount"],
+                    "overridePrice": service["override_price"],
+                }
+            )
         for item in bundle_rows:
             bundles.setdefault(item["product_id"], []).append(item["sku"])
         for item in accessory_rows:
@@ -3017,6 +3130,7 @@ async def list_admin_products(
                 "bundleRefs": bundles.get(item["id"], []),
                 "accessoryRefs": accessories.get(item["id"], []),
                 "accessoryOffers": accessory_offers,
+                "attachedServices": service_lookup.get(item["id"], sales_config.get("attachedServices", [])),
             }
     if search:
         needle = search.strip().lower()
@@ -3045,27 +3159,149 @@ async def suggest_admin_products(
     search: str = Query(default="", max_length=120),
     limit: int = Query(default=10, ge=1, le=50),
     excludeId: UUID | None = None,
+    categoryId: UUID | None = None,
+    brandId: UUID | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     result = await session.execute(
         text(
             """
-            SELECT id::text, sku, name, image_url AS "imageUrl", status
-            FROM products
-            WHERE (:exclude_id IS NULL OR id <> :exclude_id)
+            SELECT
+                p.id::text,
+                p.sku,
+                p.name,
+                p.image_url AS "imageUrl",
+                p.status,
+                p.category_id::text AS "categoryId",
+                p.brand_id::text AS "brandId",
+                c.name AS "categoryName",
+                b.name AS "brandName"
+            FROM products p
+            LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN brands b ON b.id = p.brand_id
+            WHERE (:exclude_id IS NULL OR p.id <> :exclude_id)
+              AND (:category_id IS NULL OR p.category_id = :category_id OR p.subcategory_id = :category_id)
+              AND (:brand_id IS NULL OR p.brand_id = :brand_id)
               AND (
                 :search = ''
-                OR LOWER(name) LIKE LOWER(:pattern)
-                OR LOWER(sku) LIKE LOWER(:pattern)
-                OR LOWER(brand) LIKE LOWER(:pattern)
+                OR LOWER(p.name) LIKE LOWER(:pattern)
+                OR LOWER(p.sku) LIKE LOWER(:pattern)
+                OR LOWER(p.brand) LIKE LOWER(:pattern)
               )
-            ORDER BY status = 'ACTIVE' DESC, name
+            ORDER BY p.status = 'ACTIVE' DESC, p.name
             LIMIT :limit
             """
         ),
-        {"search": search.strip(), "pattern": f"%{search.strip()}%", "limit": limit, "exclude_id": excludeId},
+        {
+            "search": search.strip(),
+            "pattern": f"%{search.strip()}%",
+            "limit": limit,
+            "exclude_id": excludeId,
+            "category_id": categoryId,
+            "brand_id": brandId,
+        },
     )
     return [dict(row._mapping) for row in result]
+
+
+@router.get("/attached-services", dependencies=[Depends(require_permission("product:read"))])
+async def list_attached_services(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    result = await session.execute(
+        text(
+            """
+            SELECT id::text, code, name, service_type AS "serviceType",
+                   attribute_group AS "attributeGroup", duration_months AS "durationMonths",
+                   price_mode AS "priceMode", fixed_price AS "fixedPrice",
+                   percent_value AS "percentValue", base_amount AS "baseAmount",
+                   is_active AS "isActive", metadata, created_at AS "createdAt", updated_at AS "updatedAt"
+            FROM attached_services
+            ORDER BY service_type, attribute_group NULLS LAST, name
+            """
+        )
+    )
+    return [dict(row._mapping) for row in result]
+
+
+@router.post("/attached-services", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("product:create"))])
+async def create_attached_service(payload: AttachedServicePayload, session: AsyncSession = Depends(get_session)) -> dict:
+    service_id = uuid4()
+    await session.execute(
+        text(
+            """
+            INSERT INTO attached_services (
+                id, code, name, service_type, attribute_group, duration_months,
+                price_mode, fixed_price, percent_value, base_amount, is_active, metadata
+            )
+            VALUES (
+                :id, :code, :name, :service_type, :attribute_group, :duration_months,
+                :price_mode, :fixed_price, :percent_value, :base_amount, :is_active, CAST(:metadata AS jsonb)
+            )
+            """
+        ),
+        {
+            "id": service_id,
+            "code": payload.code.strip().upper(),
+            "name": payload.name.strip(),
+            "service_type": payload.serviceType,
+            "attribute_group": payload.attributeGroup or None,
+            "duration_months": payload.durationMonths,
+            "price_mode": payload.priceMode,
+            "fixed_price": payload.fixedPrice,
+            "percent_value": payload.percentValue,
+            "base_amount": payload.baseAmount,
+            "is_active": payload.isActive,
+            "metadata": json.dumps(payload.metadata),
+        },
+    )
+    await session.commit()
+    return {"id": str(service_id)}
+
+
+@router.patch("/attached-services/{service_id}", dependencies=[Depends(require_permission("product:update"))])
+async def update_attached_service(service_id: UUID, payload: AttachedServicePayload, session: AsyncSession = Depends(get_session)) -> dict:
+    result = await session.execute(
+        text(
+            """
+            UPDATE attached_services
+            SET code = :code, name = :name, service_type = :service_type,
+                attribute_group = :attribute_group, duration_months = :duration_months,
+                price_mode = :price_mode, fixed_price = :fixed_price,
+                percent_value = :percent_value, base_amount = :base_amount,
+                is_active = :is_active, metadata = CAST(:metadata AS jsonb), updated_at = NOW()
+            WHERE id = :id
+            """
+        ),
+        {
+            "id": service_id,
+            "code": payload.code.strip().upper(),
+            "name": payload.name.strip(),
+            "service_type": payload.serviceType,
+            "attribute_group": payload.attributeGroup or None,
+            "duration_months": payload.durationMonths,
+            "price_mode": payload.priceMode,
+            "fixed_price": payload.fixedPrice,
+            "percent_value": payload.percentValue,
+            "base_amount": payload.baseAmount,
+            "is_active": payload.isActive,
+            "metadata": json.dumps(payload.metadata),
+        },
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Service not found.")
+    await session.commit()
+    return {"ok": True}
+
+
+@router.delete("/attached-services/{service_id}", dependencies=[Depends(require_permission("product:update"))])
+async def deactivate_attached_service(service_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
+    result = await session.execute(
+        text("UPDATE attached_services SET is_active = FALSE, updated_at = NOW() WHERE id = :id"),
+        {"id": service_id},
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Service not found.")
+    await session.commit()
+    return {"ok": True, "action": "deactivated"}
 
 
 async def process_product_import_job(job_id: UUID, csv_text: str) -> None:
@@ -3090,7 +3326,6 @@ async def process_product_import_job(job_id: UUID, csv_text: str) -> None:
                         "_seoTitle": row.get("seoTitle") or "",
                         "_seoDescription": row.get("seoDescription") or "",
                         "_seoSlug": row.get("seoSlug") or "",
-                        "_warrantyPolicy": row.get("warrantyPolicy") or "",
                     })
                     await session.execute(
                         text(
@@ -3205,7 +3440,7 @@ async def create_product_revision(
             "is_flash_sale": payload.isFlashSale,
         },
     )
-    await upsert_product_variants(session, revision_id, payload.variants)
+    await upsert_product_variants(session, revision_id, payload.variants, payload.name)
     await sync_parent_price_from_variants(session, revision_id)
     await sync_product_relations(session, revision_id, sales_config)
     await session.commit()
@@ -3279,7 +3514,7 @@ async def process_product_export_job(job_id: UUID, filters: dict) -> None:
             )
             rows = [dict(row._mapping) for row in result]
             output = io.StringIO()
-            writer = csv.DictWriter(output, fieldnames=["id", "sku", "name", "brand", "category", "price", "discountPrice", "stock", "status", "seoTitle", "seoDescription", "seoSlug", "warrantyPolicy"])
+            writer = csv.DictWriter(output, fieldnames=["id", "sku", "name", "brand", "category", "price", "discountPrice", "stock", "status", "seoTitle", "seoDescription", "seoSlug"])
             writer.writeheader()
             for row in rows:
                 seo = row.get("seo_metadata") if isinstance(row.get("seo_metadata"), dict) else {}
@@ -3297,7 +3532,6 @@ async def process_product_export_job(job_id: UUID, filters: dict) -> None:
                     "seoTitle": seo.get("title", ""),
                     "seoDescription": seo.get("description", ""),
                     "seoSlug": seo.get("slug", ""),
-                    "warrantyPolicy": sales.get("warrantyPolicy", ""),
                 })
             export_dir = Path("exports")
             export_dir.mkdir(exist_ok=True)
@@ -3488,7 +3722,7 @@ async def create_product(payload: ProductPayload, session: AsyncSession = Depend
             "is_flash_sale": payload.isFlashSale,
         },
     )
-    await upsert_product_variants(session, product_id, payload.variants)
+    await upsert_product_variants(session, product_id, payload.variants, payload.name)
     await sync_parent_price_from_variants(session, product_id)
     await sync_product_relations(session, product_id, sales_config)
     await audit_product_event(session, product_id, "PRODUCT_CREATED", new_value={"name": payload.name, "status": normalize_status(payload.status)})
@@ -3584,7 +3818,7 @@ async def update_product(product_id: UUID, payload: ProductPayload, session: Asy
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Product not found.")
-    await upsert_product_variants(session, product_id, payload.variants)
+    await upsert_product_variants(session, product_id, payload.variants, payload.name)
     await sync_parent_price_from_variants(session, product_id)
     if normalize_status(payload.status) == "INACTIVE":
         await session.execute(text("UPDATE product_variants SET is_active = FALSE, updated_at = NOW() WHERE product_id = :product_id"), {"product_id": product_id})
@@ -4005,10 +4239,10 @@ async def get_product_inventory(product_id: UUID, session: AsyncSession = Depend
     return {**product_data, "variants": [dict(row) for row in variants], "logs": [dict(row) for row in logs]}
 
 
-@router.patch("/products/{product_id}/inventory/policy", dependencies=[Depends(require_permission("inventory:adjust"))])
-async def update_product_inventory_policy(
+@router.patch("/products/{product_id}/inventory/settings", dependencies=[Depends(require_permission("inventory:adjust"))])
+async def update_product_inventory_settings(
     product_id: UUID,
-    payload: InventoryPolicyPayload,
+    payload: InventorySettingsPayload,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     row = (
@@ -4167,6 +4401,7 @@ async def adjust_product_inventory(
             text("UPDATE product_variants SET stock_quantity = :quantity, updated_at = NOW() WHERE id = :id"),
             {"id": payload.variantId, "quantity": new_quantity},
         )
+        item_sku = row["sku"]
     else:
         row = (
             await session.execute(
@@ -4184,6 +4419,33 @@ async def adjust_product_inventory(
             text("UPDATE products SET stock_quantity = :quantity, updated_at = NOW() WHERE id = :id"),
             {"id": product_id, "quantity": new_quantity},
         )
+        item_sku = row["sku"]
+
+    imeis = [str(item).strip() for item in payload.imeis if str(item).strip()]
+    if payload.transactionType == "RECEIPT" and delta > 0:
+        if payload.variantId and len(imeis) < delta:
+            imeis.extend(generate_inventory_imei(item_sku, None) for _ in range(delta - len(imeis)))
+        for imei in imeis[:delta]:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO product_imeis (
+                        id, product_id, variant_id, imei, status, source_reference, received_at
+                    )
+                    VALUES (
+                        :id, :product_id, :variant_id, :imei, 'IN_STOCK', :source_reference, NOW()
+                    )
+                    ON CONFLICT (imei) DO NOTHING
+                    """
+                ),
+                {
+                    "id": uuid4(),
+                    "product_id": product_id,
+                    "variant_id": payload.variantId,
+                    "imei": imei,
+                    "source_reference": payload.referenceCode,
+                },
+            )
     await session.execute(
         text(
             """
@@ -4481,222 +4743,6 @@ async def deactivate_voucher(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     await session.execute(text("UPDATE vouchers SET status = 'INACTIVE', updated_at = NOW() WHERE id = :id"), {"id": voucher_id})
-    await session.commit()
-    return {"ok": True}
-
-
-@router.get("/policies", dependencies=[Depends(require_permission("policy:read"))])
-async def list_policies(session: AsyncSession = Depends(get_session)) -> list[dict]:
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                id::text,
-                code,
-                title,
-                summary,
-                content,
-                is_active AS "isActive",
-                status,
-                scheduled_at AS "scheduledAt",
-                published_at AS "publishedAt",
-                seo_title AS "seoTitle",
-                seo_description AS "seoDescription",
-                seo_keywords AS "seoKeywords",
-                scope_type AS "scopeType",
-                COALESCE(product_ids, '[]'::jsonb) AS "productIds",
-                COALESCE(category_ids, '[]'::jsonb) AS "categoryIds",
-                version,
-                updated_at AS "updatedAt"
-            FROM policies
-            ORDER BY updated_at DESC
-            """
-        )
-    )
-    return [dict(row._mapping) for row in result]
-
-
-@router.post("/policies", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("policy:create"))])
-async def create_policy(
-    payload: PolicyPayload,
-    actor_id: UUID = Depends(get_current_user_id),
-    session: AsyncSession = Depends(get_session),
-) -> dict:
-    policy_id = uuid4()
-    scheduled_at = parse_optional_datetime(payload.scheduledAt)
-    published_at = parse_optional_datetime(payload.publishedAt)
-    if scheduled_at and scheduled_at < datetime.now(timezone.utc) and payload.isActive:
-        raise HTTPException(status_code=422, detail="scheduledAt must not be in the past.")
-    effective_status = normalize_policy_status(payload.status, is_active=payload.isActive, scheduled_at=scheduled_at)
-    if effective_status == "PUBLISHED" and not published_at:
-        published_at = datetime.now(timezone.utc)
-    await session.execute(
-        text(
-            """
-            INSERT INTO policies (
-                id, code, title, summary, content, is_active, status, scheduled_at, published_at,
-                seo_title, seo_description, seo_keywords, scope_type, product_ids, category_ids, version
-            )
-            VALUES (
-                :id, :code, :title, :summary, :content, :is_active, :status, :scheduled_at, :published_at,
-                :seo_title, :seo_description, :seo_keywords, :scope_type,
-                CAST(:product_ids AS jsonb), CAST(:category_ids AS jsonb), 1
-            )
-            """
-        ),
-        {
-            "id": policy_id,
-            "code": payload.code.strip().lower(),
-            "title": payload.title,
-            "summary": payload.summary.strip(),
-            "content": payload.content,
-            "is_active": payload.isActive,
-            "status": effective_status,
-            "scheduled_at": scheduled_at,
-            "published_at": published_at,
-            "seo_title": payload.seoTitle.strip(),
-            "seo_description": payload.seoDescription.strip(),
-            "seo_keywords": payload.seoKeywords.strip(),
-            "scope_type": (payload.scopeType or "GLOBAL").strip().upper(),
-            "product_ids": json.dumps(normalize_policy_scope_ids(payload.productIds), ensure_ascii=False),
-            "category_ids": json.dumps(normalize_policy_scope_ids(payload.categoryIds), ensure_ascii=False),
-        },
-    )
-    await create_policy_version_snapshot(session, policy_id=policy_id, version_number=1, action="CREATED", actor_id=actor_id)
-    await audit_admin_event(session, actor_id=actor_id, event_type="policy_created", resource="policy", metadata={"policyId": str(policy_id), "code": payload.code.strip().lower(), "status": effective_status})
-    await session.commit()
-    return {"id": str(policy_id)}
-
-
-@router.patch("/policies/{policy_id}", dependencies=[Depends(require_permission("policy:update"))])
-async def update_policy(
-    policy_id: UUID,
-    payload: PolicyPayload,
-    actor_id: UUID = Depends(get_current_user_id),
-    session: AsyncSession = Depends(get_session),
-) -> dict:
-    current = (
-        await session.execute(
-            text("SELECT version FROM policies WHERE id = :id"),
-            {"id": policy_id},
-        )
-    ).mappings().first()
-    if not current:
-        raise HTTPException(status_code=404, detail="Policy not found.")
-    if payload.version is not None and int(current["version"] or 0) != payload.version:
-        raise HTTPException(status_code=409, detail="Policy version mismatch. Reload before saving.")
-    scheduled_at = parse_optional_datetime(payload.scheduledAt)
-    published_at = parse_optional_datetime(payload.publishedAt)
-    if scheduled_at and scheduled_at < datetime.now(timezone.utc) and payload.isActive:
-        raise HTTPException(status_code=422, detail="scheduledAt must not be in the past.")
-    effective_status = normalize_policy_status(payload.status, is_active=payload.isActive, scheduled_at=scheduled_at)
-    if effective_status == "PUBLISHED" and not published_at:
-        published_at = datetime.now(timezone.utc)
-    result = await session.execute(
-        text(
-            """
-            UPDATE policies
-            SET code = :code,
-                title = :title,
-                summary = :summary,
-                content = :content,
-                is_active = :is_active,
-                status = :status,
-                scheduled_at = :scheduled_at,
-                published_at = :published_at,
-                seo_title = :seo_title,
-                seo_description = :seo_description,
-                seo_keywords = :seo_keywords,
-                scope_type = :scope_type,
-                product_ids = CAST(:product_ids AS jsonb),
-                category_ids = CAST(:category_ids AS jsonb),
-                version = version + 1,
-                updated_at = NOW()
-            WHERE id = :id AND (:expected_version IS NULL OR version = :expected_version)
-            """
-        ),
-        {
-            "id": policy_id,
-            "code": payload.code.strip().lower(),
-            "title": payload.title,
-            "summary": payload.summary.strip(),
-            "content": payload.content,
-            "is_active": payload.isActive,
-            "status": effective_status,
-            "scheduled_at": scheduled_at,
-            "published_at": published_at,
-            "seo_title": payload.seoTitle.strip(),
-            "seo_description": payload.seoDescription.strip(),
-            "seo_keywords": payload.seoKeywords.strip(),
-            "scope_type": (payload.scopeType or "GLOBAL").strip().upper(),
-            "product_ids": json.dumps(normalize_policy_scope_ids(payload.productIds), ensure_ascii=False),
-            "category_ids": json.dumps(normalize_policy_scope_ids(payload.categoryIds), ensure_ascii=False),
-            "expected_version": payload.version,
-        },
-    )
-    if result.rowcount == 0:
-        raise HTTPException(status_code=409, detail="Policy version mismatch. Reload before saving.")
-    next_version = int(current["version"] or 0) + 1
-    await create_policy_version_snapshot(session, policy_id=policy_id, version_number=next_version, action="UPDATED", actor_id=actor_id)
-    await audit_admin_event(session, actor_id=actor_id, event_type="policy_updated", resource="policy", metadata={"policyId": str(policy_id), "status": effective_status, "version": next_version})
-    await session.commit()
-    return {"ok": True}
-
-
-@router.get("/policies/{policy_id}/history", dependencies=[Depends(require_permission("policy:read"))])
-async def list_policy_history(
-    policy_id: UUID,
-    session: AsyncSession = Depends(get_session),
-) -> list[dict]:
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                pv.id::text,
-                pv.version_number AS "versionNumber",
-                pv.action,
-                pv.actor_id::text AS "actorId",
-                pv.snapshot,
-                pv.created_at AS "createdAt"
-            FROM policy_versions pv
-            WHERE pv.policy_id = :policy_id
-            ORDER BY pv.version_number DESC, pv.created_at DESC
-            """
-        ),
-        {"policy_id": policy_id},
-    )
-    return [dict(row._mapping) for row in result]
-
-
-@router.delete("/policies/{policy_id}", dependencies=[Depends(require_permission("policy:delete"))])
-async def deactivate_policy(
-    policy_id: UUID,
-    actor_id: UUID = Depends(get_current_user_id),
-    session: AsyncSession = Depends(get_session),
-) -> dict:
-    current = (
-        await session.execute(
-            text("SELECT version FROM policies WHERE id = :id"),
-            {"id": policy_id},
-        )
-    ).mappings().first()
-    if not current:
-        raise HTTPException(status_code=404, detail="Policy not found.")
-    result = await session.execute(
-        text(
-            """
-            UPDATE policies
-            SET is_active = FALSE, status = 'ARCHIVED', version = version + 1, updated_at = NOW()
-            WHERE id = :id
-            """
-        ),
-        {"id": policy_id},
-    )
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Policy not found.")
-    next_version = int(current["version"] or 0) + 1
-    await create_policy_version_snapshot(session, policy_id=policy_id, version_number=next_version, action="ARCHIVED", actor_id=actor_id)
-    await audit_admin_event(session, actor_id=actor_id, event_type="policy_archived", resource="policy", metadata={"policyId": str(policy_id), "version": next_version})
     await session.commit()
     return {"ok": True}
 
@@ -5620,87 +5666,6 @@ def parse_optional_datetime(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
-
-
-def normalize_policy_status(status_value: str | None, *, is_active: bool, scheduled_at: datetime | None) -> str:
-    candidate = (status_value or "DRAFT").strip().upper()
-    if candidate not in {"DRAFT", "SCHEDULED", "PUBLISHED", "ARCHIVED"}:
-        candidate = "DRAFT"
-    if candidate == "ARCHIVED":
-        return "ARCHIVED"
-    if scheduled_at and scheduled_at > datetime.now(timezone.utc):
-        return "SCHEDULED"
-    if candidate == "PUBLISHED" and is_active:
-        return "PUBLISHED"
-    return candidate
-
-
-def normalize_policy_scope_ids(values: list[str] | None) -> list[str]:
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for value in values or []:
-        cleaned = str(value or "").strip()
-        if not cleaned or cleaned in seen:
-            continue
-        seen.add(cleaned)
-        normalized.append(cleaned)
-    return normalized[:100]
-
-
-async def create_policy_version_snapshot(
-    session: AsyncSession,
-    *,
-    policy_id: UUID,
-    version_number: int,
-    action: str,
-    actor_id: UUID | None,
-) -> None:
-    snapshot_result = await session.execute(
-        text(
-            """
-            SELECT jsonb_build_object(
-                'id', id::text,
-                'code', code,
-                'title', title,
-                'summary', summary,
-                'content', content,
-                'isActive', is_active,
-                'status', status,
-                'scheduledAt', scheduled_at,
-                'publishedAt', published_at,
-                'seoTitle', seo_title,
-                'seoDescription', seo_description,
-                'seoKeywords', seo_keywords,
-                'scopeType', scope_type,
-                'productIds', COALESCE(product_ids, '[]'::jsonb),
-                'categoryIds', COALESCE(category_ids, '[]'::jsonb),
-                'updatedAt', updated_at
-            )
-            FROM policies
-            WHERE id = :id
-            """
-        ),
-        {"id": policy_id},
-    )
-    snapshot = snapshot_result.scalar_one_or_none()
-    if snapshot is None:
-        return
-    await session.execute(
-        text(
-            """
-            INSERT INTO policy_versions (id, policy_id, version_number, action, snapshot, actor_id)
-            VALUES (:id, :policy_id, :version_number, :action, CAST(:snapshot AS jsonb), :actor_id)
-            """
-        ),
-        {
-            "id": uuid4(),
-            "policy_id": policy_id,
-            "version_number": version_number,
-            "action": action,
-            "snapshot": json.dumps(snapshot, ensure_ascii=False, default=str),
-            "actor_id": actor_id,
-        },
-    )
 
 
 def normalize_content_comments(comments: list[ContentCommentPayload]) -> list[dict]:
