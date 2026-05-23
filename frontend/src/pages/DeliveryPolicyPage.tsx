@@ -95,6 +95,9 @@ export default function DeliveryPolicyPage() {
       icon: <MapPin className="h-5 w-5" />,
       content: (
         <div className="space-y-4 text-sm text-slate-600 leading-relaxed">
+          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
+            <img src="/images/policies/delivery.png" alt="Giao hàng nhanh chóng" className="w-full h-auto mix-blend-multiply" />
+          </div>
           <p>ElectroMart Việt Nam hỗ trợ giao hàng đến địa chỉ khách hàng cung cấp trong quá trình đặt hàng, tùy theo phạm vi hoạt động và khả năng phục vụ của đơn vị vận chuyển.</p>
           <Table
             headers={['Khu vực giao hàng', 'Hình thức hỗ trợ']}

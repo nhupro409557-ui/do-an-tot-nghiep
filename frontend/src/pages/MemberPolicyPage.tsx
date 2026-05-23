@@ -127,6 +127,9 @@ export default function MemberPolicyPage() {
       icon: <TrendingUp className="h-5 w-5" />,
       content: (
         <div className="space-y-4 text-sm text-slate-600 leading-relaxed">
+          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
+            <img src="/images/policies/member.png" alt="Tích điểm và hạng thành viên" className="w-full h-auto mix-blend-multiply" />
+          </div>
           <p>Điểm thưởng được ghi nhận khi đơn hàng:</p>
           <BulletList items={[
             'Đặt bằng tài khoản thành viên hợp lệ.',

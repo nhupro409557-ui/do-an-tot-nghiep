@@ -171,7 +171,10 @@ export default function PurchasePolicyPage() {
       icon: <CreditCard className="h-5 w-5" />,
       content: (
         <div className="space-y-4 text-sm text-slate-600 leading-relaxed">
-          <p>ElectroMart Việt Nam hỗ trợ nhiều phương thức thanh toán nhằm tạo sự thuận tiện cho khách hàng:</p>
+          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
+            <img src="/images/policies/purchase.png" alt="Phương thức thanh toán an toàn" className="w-full h-auto mix-blend-multiply" />
+          </div>
+          <p>ElectroMart cung cấp đa dạng phương thức thanh toán nhằm mang lại sự tiện lợi tối đa cho khách hàng:</p>
           <Table
             headers={['Phương thức thanh toán', 'Mô tả']}
             rows={[

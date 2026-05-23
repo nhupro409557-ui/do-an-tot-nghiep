@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   BellOutlined,
+  HomeOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -101,6 +102,17 @@ export function AdminEnterpriseShell({
                 </div>
               )}
             </div>
+            <Tooltip title="Trở về trang chủ">
+              <Button
+                block={!collapsed}
+                className="mt-3"
+                href="/"
+                icon={<HomeOutlined />}
+                type="primary"
+              >
+                {!collapsed && 'Trang chủ'}
+              </Button>
+            </Tooltip>
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 py-4">

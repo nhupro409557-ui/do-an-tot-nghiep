@@ -17,6 +17,7 @@ import {
   FileText,
   FolderTree,
   GripVertical,
+  Home,
   Image,
   LayoutDashboard,
   LogOut,
@@ -3941,8 +3942,14 @@ function AdminTopBar({ onRefresh, query, setQuery, sidebarOpen, searchPlaceholde
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:min-w-[620px] lg:justify-end">
-          <SearchBox value={query} onChange={setQuery} placeholder={searchPlaceholder} />
+        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
+          <div className="min-w-0 flex-1">
+            <SearchBox value={query} onChange={setQuery} placeholder={searchPlaceholder} />
+          </div>
+          <Link to="/" className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-red-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700">
+            <Home className="h-4 w-4" />
+            <span>Trang chủ</span>
+          </Link>
           <button type="button" onClick={onRefresh} title="Làm mới dữ liệu" className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
             <RefreshCw className="h-4 w-4" />
             <span className="hidden xl:inline">Làm mới</span>
@@ -4226,7 +4233,7 @@ function SubmitButtons({ editing, onCancel }: { editing: boolean; onCancel: () =
 }
 
 function SearchBox({ value, onChange, placeholder = 'Tìm kiếm nhanh' }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
-  return <label className="relative block w-full sm:w-80"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="h-11 w-full rounded-2xl border border-rose-200 bg-white/90 pl-9 pr-3 text-sm outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-100" /></label>;
+  return <label className="relative block w-full"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="h-11 w-full rounded-2xl border border-rose-200 bg-white/90 pl-9 pr-3 text-sm outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-100" /></label>;
 }
 
 function RowActions({ onEdit, onDelete, onRestore }: { onEdit: () => void; onDelete: () => void; onRestore?: () => void }) {
