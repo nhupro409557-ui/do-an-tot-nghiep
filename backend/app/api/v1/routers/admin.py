@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
+from passlib.context import CryptContext
 from redis.asyncio import Redis
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,18 @@ from app.shared.reviews import sanitize_review_text, sync_product_review_stats
 
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+BASIC_STAFF_PERMISSION_CODES = [
+    "overview:read",
+    "product:read",
+    "category:read",
+    "brand:read",
+    "order:read",
+    "customer:read",
+    "inventory:read",
+    "review:read",
+    "content:read",
+]
 
 # Cache danh mục được tách theo root branch để các thay đổi trong một nhánh
 # không bắt buộc phải rebuild lại toàn bộ cây danh mục.
@@ -1322,6 +1335,8 @@ class ContentPayload(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str = Field(default="", max_length=2000)
     contentType: str = Field(default="VIDEO", max_length=30)
+    videoSource: str = Field(default="UPLOAD", max_length=30)
+    videoCategory: str = Field(default="PRODUCT", max_length=60)
     status: str = Field(default="DRAFT", max_length=30)
     videoUrl: str | None = None
     thumbnailUrl: str | None = None
@@ -1341,6 +1356,14 @@ class ContentPayload(BaseModel):
     version: int | None = Field(default=None, ge=1)
 
 
+class AdminVideoCommentReplyPayload(BaseModel):
+    body: str = Field(min_length=1, max_length=1000)
+
+
+class AdminVideoCommentVisibilityPayload(BaseModel):
+    isHidden: bool = True
+
+
 class ReviewStatusPayload(BaseModel):
     status: str | None = Field(default=None, pattern="^(PENDING|PUBLISHED|HIDDEN|REJECTED)$")
     moderationNote: str | None = Field(default=None, max_length=1000)
@@ -1351,11 +1374,25 @@ class ReviewStatusPayload(BaseModel):
 
 
 class UserRolePayload(BaseModel):
-    role: str = Field(pattern="^(CUSTOMER|STAFF_ADMIN|SUPER_ADMIN)$")
+    role: str = Field(pattern="^(CUSTOMER|STAFF_ADMIN)$")
     status: str = Field(default="ACTIVE", pattern="^(ACTIVE|SUSPENDED)$")
+    permissionCodes: list[str] | None = None
 
 
 class RolePermissionsPayload(BaseModel):
+    permissionCodes: list[str] = Field(default_factory=list)
+
+
+class StaffCreatePayload(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    fullName: str = Field(min_length=1, max_length=255)
+    phone: str | None = Field(default=None, max_length=30)
+    status: str = Field(default="ACTIVE", pattern="^(ACTIVE|SUSPENDED)$")
+    permissionCodes: list[str] = Field(default_factory=list)
+
+
+class UserPermissionsPayload(BaseModel):
     permissionCodes: list[str] = Field(default_factory=list)
 
 
@@ -1391,6 +1428,74 @@ async def clear_permission_cache(redis: Redis, user_ids: list[UUID]) -> None:
     if not user_ids:
         return
     await redis.delete(*[f"admin_permissions:{user_id}" for user_id in user_ids])
+
+
+async def ensure_user_permissions_table(session: AsyncSession) -> None:
+    await session.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS user_permissions (
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+                granted_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (user_id, permission_id)
+            )
+            """
+        )
+    )
+    await session.execute(text("CREATE INDEX IF NOT EXISTS idx_user_permissions_permission_id ON user_permissions(permission_id)"))
+
+
+async def validate_permission_codes(session: AsyncSession, permission_codes: list[str]) -> list[str]:
+    codes = sorted(set(permission_codes))
+    if not codes:
+        return []
+    known = (
+        await session.execute(
+            text("SELECT code FROM permissions WHERE code IN :codes").bindparams(bindparam("codes", expanding=True)),
+            {"codes": codes},
+        )
+    ).scalars().all()
+    if set(known) != set(codes):
+        raise HTTPException(status_code=400, detail="One or more permissions are invalid.")
+    return codes
+
+
+async def set_user_extra_permissions(session: AsyncSession, user_id: UUID, permission_codes: list[str]) -> list[str]:
+    await ensure_user_permissions_table(session)
+    codes = await validate_permission_codes(session, permission_codes)
+    await session.execute(text("DELETE FROM user_permissions WHERE user_id = :user_id"), {"user_id": user_id})
+    if codes:
+        await session.execute(
+            text(
+                """
+                INSERT INTO user_permissions (user_id, permission_id)
+                SELECT :user_id, id
+                FROM permissions
+                WHERE code IN :codes
+                ON CONFLICT DO NOTHING
+                """
+            ).bindparams(bindparam("codes", expanding=True)),
+            {"user_id": user_id, "codes": codes},
+        )
+    return codes
+
+
+async def list_user_extra_permissions(session: AsyncSession, user_id: UUID) -> list[str]:
+    await ensure_user_permissions_table(session)
+    result = await session.execute(
+        text(
+            """
+            SELECT p.code
+            FROM user_permissions up
+            JOIN permissions p ON p.id = up.permission_id
+            WHERE up.user_id = :user_id
+            ORDER BY p.code
+            """
+        ),
+        {"user_id": user_id},
+    )
+    return [str(code) for code in result.scalars().all()]
 
 
 def normalize_customer_tags(tags: list[str]) -> list[str]:
@@ -1613,15 +1718,92 @@ async def overview(session: AsyncSession = Depends(get_session)) -> dict:
         text(
             """
             SELECT
-                (SELECT COUNT(*) FROM products WHERE status = 'ACTIVE') AS products,
-                (SELECT COUNT(*) FROM categories WHERE is_active = TRUE AND status = 'ACTIVE' AND COALESCE(is_deleted, FALSE) = FALSE) AS categories,
-                (SELECT COUNT(*) FROM brands WHERE is_active = TRUE) AS brands,
-                (SELECT COUNT(*) FROM orders) AS orders,
-                (SELECT COUNT(*) FROM vouchers WHERE status = 'ACTIVE') AS vouchers
+                (SELECT COUNT(*) FROM products) AS products_total,
+                (SELECT COUNT(*) FROM products WHERE status = 'ACTIVE') AS products_active,
+                (SELECT COUNT(*) FROM products WHERE COALESCE(stock_quantity, 0) < 0) AS products_negative_stock,
+                (SELECT COUNT(*) FROM products WHERE COALESCE(stock_quantity, 0) <= 5) AS products_low_stock,
+                (SELECT COUNT(*) FROM categories WHERE COALESCE(is_deleted, FALSE) = FALSE) AS categories_total,
+                (SELECT COUNT(*) FROM brands WHERE is_active = TRUE) AS brands_total,
+                (SELECT COUNT(*) FROM orders) AS orders_total,
+                (SELECT COUNT(*) FROM orders WHERE status = 'PENDING') AS orders_pending,
+                (SELECT COUNT(*) FROM orders WHERE status = 'PROCESSING') AS orders_processing,
+                (SELECT COUNT(*) FROM orders WHERE status IN ('CANCELLED', 'CANCELED')) AS orders_cancelled,
+                (SELECT COUNT(*) FROM orders WHERE status IN ('REFUNDED', 'RETURNED', 'RETURNING')) AS orders_refunded,
+                (SELECT COALESCE(SUM(total_amount), 0) FROM orders) AS total_revenue,
+                (SELECT COUNT(*) FROM vouchers) AS vouchers_total,
+                (SELECT COUNT(*) FROM vouchers WHERE status = 'ACTIVE') AS vouchers_active,
+                (SELECT COUNT(*) FROM vouchers WHERE status = 'ACTIVE' AND COALESCE(total_budget_cap, 0) > 0 AND (COALESCE(total_discount_used, 0) / total_budget_cap) >= 0.8) AS vouchers_risky,
+                (SELECT COUNT(*) FROM users) AS customers_total,
+                (SELECT COUNT(*) FROM product_reviews) AS reviews_total,
+                (SELECT COUNT(*) FROM product_reviews WHERE status = 'PENDING') AS reviews_pending
             """
         )
     )
-    return dict(result.one()._mapping)
+    row = dict(result.one()._mapping)
+
+    rev_by_day = await session.execute(
+        text(
+            """
+            SELECT to_char(created_at, 'DD/MM') AS date, SUM(total_amount) AS total
+            FROM orders
+            WHERE created_at >= NOW() - INTERVAL '14 days'
+            GROUP BY to_char(created_at, 'DD/MM'), date_trunc('day', created_at)
+            ORDER BY date_trunc('day', created_at) ASC
+            """
+        )
+    )
+    revenueByDay = [{"date": r.date, "total": float(r.total)} for r in rev_by_day]
+
+    rev_by_month = await session.execute(
+        text(
+            """
+            SELECT to_char(created_at, 'MM/YYYY') AS month, SUM(total_amount) AS total
+            FROM orders
+            WHERE created_at >= NOW() - INTERVAL '6 months'
+            GROUP BY to_char(created_at, 'MM/YYYY'), date_trunc('month', created_at)
+            ORDER BY date_trunc('month', created_at) ASC
+            """
+        )
+    )
+    revenueByMonth = [{"month": r.month, "total": float(r.total)} for r in rev_by_month]
+
+    top_prods = await session.execute(
+        text(
+            """
+            SELECT product_id AS id, MAX(product_name) AS name, SUM(quantity) AS soldCount, SUM(total_price) AS periodRevenue
+            FROM order_items
+            JOIN orders ON orders.id = order_items.order_id
+            WHERE orders.status NOT IN ('CANCELLED', 'CANCELED', 'REFUNDED', 'RETURNED')
+            GROUP BY product_id
+            ORDER BY SUM(quantity) DESC NULLS LAST
+            LIMIT 5
+            """
+        )
+    )
+    topProducts = [{"id": str(r.id), "name": r.name, "soldCount": int(r.soldcount), "periodRevenue": float(r.periodrevenue)} for r in top_prods if r.id]
+
+    return {
+        "products": {"total": row["products_total"], "active": row["products_active"]},
+        "categories": {"total": row["categories_total"]},
+        "brands": {"total": row["brands_total"]},
+        "orders": {
+            "total": row["orders_total"],
+            "pending": row["orders_pending"],
+            "processing": row["orders_processing"],
+            "cancelled": row["orders_cancelled"],
+            "refunded": row["orders_refunded"]
+        },
+        "vouchers": {"total": row["vouchers_total"], "active": row["vouchers_active"]},
+        "customers": {"total": row["customers_total"]},
+        "reviews": {"total": row["reviews_total"], "pending": row["reviews_pending"]},
+        "revenue": float(row["total_revenue"]),
+        "revenueByDay": revenueByDay,
+        "revenueByMonth": revenueByMonth,
+        "topProducts": topProducts,
+        "lowStockCount": row["products_low_stock"],
+        "negativeStockCount": row["products_negative_stock"],
+        "riskyVoucherCount": row["vouchers_risky"]
+    }
 
 
 @router.post("/uploads/presigned-url", dependencies=[Depends(require_permission("product:create"))])
@@ -4758,6 +4940,7 @@ async def list_admin_customers(
     limit: int = Query(default=20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
+    await ensure_user_permissions_table(session)
     offset = (page - 1) * limit
     search_value = (search or "").strip().lower()
     params: dict[str, object] = {"limit": limit, "offset": offset, "search": f"%{search_value}%"}
@@ -4795,12 +4978,18 @@ async def list_admin_customers(
                 r.code AS role,
                 u.loyalty_tier AS tier,
                 u.loyalty_points_balance AS points,
+                COALESCE(
+                    jsonb_agg(DISTINCT up_perm.code) FILTER (WHERE up_perm.code IS NOT NULL),
+                    '[]'::jsonb
+                ) AS "extraPermissionCodes",
                 COUNT(o.id) AS "orderCount",
                 COALESCE(SUM(o.total_amount), 0) AS "totalSpent",
                 u.created_at AS "createdAt"
             FROM users u
             JOIN roles r ON r.id = u.role_id
             LEFT JOIN orders o ON o.user_id = u.id
+            LEFT JOIN user_permissions up ON up.user_id = u.id
+            LEFT JOIN permissions up_perm ON up_perm.id = up.permission_id
             {where_clause}
             GROUP BY u.id, r.code
             ORDER BY u.created_at DESC
@@ -4820,6 +5009,7 @@ async def list_admin_customers(
 
 @router.get("/customers/{user_id}", dependencies=[Depends(require_permission("customer:read"))])
 async def get_admin_customer_detail(user_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
+    await ensure_user_permissions_table(session)
     customer = (
         await session.execute(
             text(
@@ -4884,6 +5074,7 @@ async def get_admin_customer_detail(user_id: UUID, session: AsyncSession = Depen
     return {
         **dict(customer),
         "tags": [str(tag) for tag in tags],
+        "extraPermissionCodes": await list_user_extra_permissions(session, user_id),
         "noteCount": int(notes["count"] or 0) if notes else 0,
         "lastNoteAt": notes["lastCreatedAt"] if notes else None,
         "voucherCount": int(voucher_count or 0),
@@ -5256,6 +5447,60 @@ async def issue_admin_customer_voucher(
     return {"ok": True, **dict(claimed)}
 
 
+@router.post("/staff", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("sys:manage_users"))])
+async def create_staff_account(
+    payload: StaffCreatePayload,
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    await ensure_user_permissions_table(session)
+    email = payload.email.lower().strip()
+    existing = await session.scalar(text("SELECT id FROM users WHERE LOWER(email) = :email AND status != 'DELETED'"), {"email": email})
+    if existing:
+        raise HTTPException(status_code=409, detail="Email already exists.")
+    role_id = await session.scalar(text("SELECT id FROM roles WHERE code = 'STAFF_ADMIN'"))
+    if role_id is None:
+        raise HTTPException(status_code=404, detail="Staff role not found.")
+    user_id = uuid4()
+    await session.execute(
+        text(
+            """
+            INSERT INTO users (
+                id, role_id, email, password_hash, full_name, phone, status,
+                marketing_opt_in, profile, addresses, loyalty_points_balance,
+                loyalty_tier, loyalty_wallet_status, created_at, updated_at
+            )
+            VALUES (
+                :id, :role_id, :email, :password_hash, :full_name, :phone, :status,
+                FALSE, '{}'::jsonb, '[]'::jsonb, 0, 'MEMBER', 'ACTIVE', NOW(), NOW()
+            )
+            """
+        ),
+        {
+            "id": user_id,
+            "role_id": role_id,
+            "email": email,
+            "password_hash": pwd_context.hash(payload.password),
+            "full_name": payload.fullName.strip(),
+            "phone": payload.phone,
+            "status": payload.status,
+        },
+    )
+    extra_permissions = await set_user_extra_permissions(session, user_id, [])
+    await clear_permission_cache(redis, [user_id])
+    await audit_admin_event(
+        session,
+        actor_id=current_user_id,
+        event_type="admin_staff_created",
+        resource="staff",
+        target_user_id=user_id,
+        metadata={"email": email, "status": payload.status, "extraPermissionCodes": extra_permissions},
+    )
+    await session.commit()
+    return {"ok": True, "id": str(user_id), "extraPermissionCodes": extra_permissions}
+
+
 @router.patch("/users/status/bulk", dependencies=[Depends(require_permission("sys:manage_users"))])
 async def bulk_update_user_status(
     payload: CustomerBulkStatusPayload,
@@ -5287,6 +5532,55 @@ async def bulk_update_user_status(
     return {"ok": True, "affectedUsers": result.rowcount}
 
 
+@router.get("/users/{user_id}/permissions", dependencies=[Depends(require_permission("sys:manage_users"))])
+async def get_user_extra_permissions(user_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
+    exists = await session.scalar(text("SELECT 1 FROM users WHERE id = :user_id AND status != 'DELETED'"), {"user_id": user_id})
+    if not exists:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return {"userId": str(user_id), "permissionCodes": await list_user_extra_permissions(session, user_id)}
+
+
+@router.put("/users/{user_id}/permissions", dependencies=[Depends(require_permission("sys:manage_users"))])
+async def update_user_extra_permissions(
+    user_id: UUID,
+    payload: UserPermissionsPayload,
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    user = (
+        await session.execute(
+            text(
+                """
+                SELECT r.code AS role
+                FROM users u
+                JOIN roles r ON r.id = u.role_id
+                WHERE u.id = :user_id AND u.status != 'DELETED'
+                """
+            ),
+            {"user_id": user_id},
+        )
+    ).mappings().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    if user["role"] != "STAFF_ADMIN":
+        raise HTTPException(status_code=400, detail="Only Staff Admin accounts can receive extra permissions.")
+    before = await list_user_extra_permissions(session, user_id)
+    after = await set_user_extra_permissions(session, user_id, payload.permissionCodes)
+    await revoke_users(session, [user_id], "user_permissions_changed")
+    await clear_permission_cache(redis, [user_id])
+    await audit_admin_event(
+        session,
+        actor_id=current_user_id,
+        event_type="admin_user_permissions_updated",
+        resource="user_permissions",
+        target_user_id=user_id,
+        metadata={"before": before, "after": after, "role": user["role"]},
+    )
+    await session.commit()
+    return {"ok": True, "permissionCodes": after}
+
+
 @router.patch("/users/{user_id}/role", dependencies=[Depends(require_permission("sys:manage_users"))])
 async def update_user_role(
     user_id: UUID,
@@ -5310,12 +5604,13 @@ async def update_user_role(
     ).mappings().first()
     if before is None:
         raise HTTPException(status_code=404, detail="User not found.")
+    if before["role"] == "SUPER_ADMIN":
+        raise HTTPException(status_code=400, detail="Super Admin cannot be managed from staff/customer access.")
     role_id = (
         await session.execute(text("SELECT id FROM roles WHERE code = :code"), {"code": payload.role})
     ).scalar_one_or_none()
     if role_id is None:
         raise HTTPException(status_code=404, detail="Role not found.")
-
     result = await session.execute(
         text(
             """
@@ -5326,6 +5621,11 @@ async def update_user_role(
         ),
         {"user_id": user_id, "role_id": role_id, "status": payload.status},
     )
+    extra_permissions: list[str] | None = None
+    if payload.role == "STAFF_ADMIN" and payload.permissionCodes is not None:
+        extra_permissions = await set_user_extra_permissions(session, user_id, payload.permissionCodes)
+    elif payload.role != "STAFF_ADMIN":
+        extra_permissions = await set_user_extra_permissions(session, user_id, [])
     await revoke_users(session, [user_id], "role_changed")
     await clear_permission_cache(redis, [user_id])
     await audit_admin_event(
@@ -5337,6 +5637,7 @@ async def update_user_role(
         metadata={
             "before": dict(before),
             "after": {"role": payload.role, "status": payload.status},
+            "extraPermissionCodes": extra_permissions,
         },
     )
     await session.commit()
@@ -5364,8 +5665,8 @@ async def list_roles(session: AsyncSession = Depends(get_session)) -> list[dict]
             """
             SELECT id::text, code, name
             FROM roles
-            WHERE code IN ('CUSTOMER', 'STAFF_ADMIN', 'SUPER_ADMIN')
-            ORDER BY CASE code WHEN 'SUPER_ADMIN' THEN 1 WHEN 'STAFF_ADMIN' THEN 2 ELSE 3 END
+            WHERE code IN ('CUSTOMER', 'STAFF_ADMIN')
+            ORDER BY CASE code WHEN 'STAFF_ADMIN' THEN 1 ELSE 2 END
             """
         )
     )
@@ -5379,6 +5680,8 @@ async def get_role_permissions(role_id: UUID, session: AsyncSession = Depends(ge
     ).mappings().first()
     if not role:
         raise HTTPException(status_code=404, detail="Role not found.")
+    if role["code"] == "SUPER_ADMIN":
+        raise HTTPException(status_code=400, detail="Super Admin permissions are not managed here.")
     result = await session.execute(
         text(
             """
@@ -5422,19 +5725,16 @@ async def update_role_permissions(
         )
     ).scalars().all()
     if role == "SUPER_ADMIN":
-        permission_codes = (
-            await session.execute(text("SELECT code FROM permissions ORDER BY code"))
-        ).scalars().all()
-    else:
-        permission_codes = sorted(set(payload.permissionCodes))
-        unknown = (
-            await session.execute(
-                text("SELECT code FROM permissions WHERE code IN :codes").bindparams(bindparam("codes", expanding=True)),
-                {"codes": permission_codes or ["__none__"]},
-            )
-        ).scalars().all()
-        if set(unknown) != set(permission_codes):
-            raise HTTPException(status_code=400, detail="One or more permissions are invalid.")
+        raise HTTPException(status_code=400, detail="Super Admin permissions are not managed here.")
+    permission_codes = sorted(set(payload.permissionCodes))
+    unknown = (
+        await session.execute(
+            text("SELECT code FROM permissions WHERE code IN :codes").bindparams(bindparam("codes", expanding=True)),
+            {"codes": permission_codes or ["__none__"]},
+        )
+    ).scalars().all()
+    if set(unknown) != set(permission_codes):
+        raise HTTPException(status_code=400, detail="One or more permissions are invalid.")
 
     await session.execute(text("DELETE FROM role_permissions WHERE role_id = :role_id"), {"role_id": role_id})
     if permission_codes:
@@ -5687,8 +5987,31 @@ def normalize_content_comments(comments: list[ContentCommentPayload]) -> list[di
     return normalized
 
 
+def normalize_video_source(value: str | None) -> str:
+    normalized = (value or "UPLOAD").strip().upper()
+    if normalized not in {"UPLOAD", "YOUTUBE"}:
+        raise HTTPException(status_code=422, detail="videoSource must be UPLOAD or YOUTUBE.")
+    return normalized
+
+
+def normalize_video_category(value: str | None) -> str:
+    normalized = (value or "PRODUCT").strip().upper()
+    allowed = {"PRODUCT", "NEWS", "TIPS", "SERVICE", "REVIEW", "OTHER"}
+    if normalized not in allowed:
+        raise HTTPException(status_code=422, detail="Invalid videoCategory.")
+    return normalized
+
+
+def is_youtube_url(value: str | None) -> bool:
+    if not value:
+        return False
+    return bool(re.search(r"(youtube\.com/watch\?v=|youtube\.com/embed/|youtu\.be/|youtube\.com/shorts/)", value, re.I))
+
+
 def validate_content_payload(payload: ContentPayload) -> dict:
     content_type = normalize_content_type(payload.contentType)
+    video_source = normalize_video_source(payload.videoSource)
+    video_category = normalize_video_category(payload.videoCategory)
     ensure_not_data_url(payload.videoUrl, "videoUrl")
     ensure_not_data_url(payload.thumbnailUrl, "thumbnailUrl")
     ensure_not_data_url(payload.bannerImageUrl, "bannerImageUrl")
@@ -5700,8 +6023,10 @@ def validate_content_payload(payload: ContentPayload) -> dict:
         raise HTTPException(status_code=422, detail="Video content requires videoUrl.")
     if content_type == "BANNER" and not (payload.bannerImageUrl or payload.thumbnailUrl):
         raise HTTPException(status_code=422, detail="Banner content requires bannerImageUrl or thumbnailUrl.")
-    if payload.videoUrl and not any(str(payload.videoUrl).lower().endswith(ext) for ext in (".mp4", ".webm")):
+    if payload.videoUrl and video_source == "UPLOAD" and not any(str(payload.videoUrl).lower().split("?")[0].endswith(ext) for ext in (".mp4", ".webm")):
         raise HTTPException(status_code=422, detail="videoUrl must use mp4 or webm.")
+    if payload.videoUrl and video_source == "YOUTUBE" and not is_youtube_url(payload.videoUrl):
+        raise HTTPException(status_code=422, detail="videoUrl must be a YouTube link.")
     if scheduled_at and scheduled_at < now_utc + timedelta(minutes=5):
         raise HTTPException(status_code=422, detail="scheduledAt must be at least 5 minutes in the future.")
     if scheduled_at and published_at and published_at < scheduled_at:
@@ -5712,6 +6037,8 @@ def validate_content_payload(payload: ContentPayload) -> dict:
         "title": payload.title.strip(),
         "description": payload.description.strip(),
         "content_type": content_type,
+        "video_source": video_source,
+        "video_category": video_category,
         "status": status_value,
         "video_url": payload.videoUrl,
         "thumbnail_url": payload.thumbnailUrl,
@@ -5722,8 +6049,8 @@ def validate_content_payload(payload: ContentPayload) -> dict:
         "product_ids": [item for item in payload.productIds if item],
         "category_ids": [item for item in payload.categoryIds if item],
         "comments": comments,
-        "like_count": payload.likeCount,
-        "view_count": payload.viewCount,
+        "like_count": 0,
+        "view_count": 0,
         "sort_order": payload.sortOrder,
         "scheduled_at": scheduled_at,
         "published_at": published_at,
@@ -5821,6 +6148,8 @@ async def list_admin_content(session: AsyncSession = Depends(get_session)) -> li
                 v.title,
                 v.description,
                 v.content_type AS "contentType",
+                v.video_source AS "videoSource",
+                v.video_category AS "videoCategory",
                 v.status,
                 v.video_url AS "videoUrl",
                 v.thumbnail_url AS "thumbnailUrl",
@@ -5829,7 +6158,7 @@ async def list_admin_content(session: AsyncSession = Depends(get_session)) -> li
                 LEFT(COALESCE(v.content_body, ''), 320) AS "contentBodyPreview",
                 v.cta_label AS "ctaLabel",
                 v.cta_url AS "ctaUrl",
-                v.like_count AS "likeCount",
+                COALESCE((SELECT COUNT(*) FROM video_likes vl WHERE vl.video_id = v.id), 0)::int AS "likeCount",
                 v.view_count AS "viewCount",
                 v.sort_order AS "sortOrder",
                 v.scheduled_at AS "scheduledAt",
@@ -5843,9 +6172,10 @@ async def list_admin_content(session: AsyncSession = Depends(get_session)) -> li
                 v.updated_at AS "updatedAt",
                 COALESCE(
                     (
-                        SELECT json_agg(json_build_object('id', p.id::text, 'name', p.name))
+                        SELECT json_agg(json_build_object('id', p.id::text, 'name', p.name, 'brand', b.name, 'categoryId', p.category_id::text, 'imageUrl', p.image_url, 'price', p.sale_price))
                         FROM content_product_relations cpr
                         JOIN products p ON p.id = cpr.product_id
+                        LEFT JOIN brands b ON b.id = p.brand_id
                         WHERE cpr.content_id = v.id
                     ),
                     '[]'::json
@@ -5883,7 +6213,9 @@ async def list_admin_content(session: AsyncSession = Depends(get_session)) -> li
                                 'userName', cc.user_name,
                                 'content', cc.body,
                                 'parentId', cc.parent_id::text,
+                                'replyToUserName', cc.reply_to_user_name,
                                 'isHidden', cc.is_hidden,
+                                'moderationReason', cc.moderation_reason,
                                 'createdAt', cc.created_at
                             )
                             ORDER BY cc.created_at ASC
@@ -5923,15 +6255,15 @@ async def create_content(
             text(
                 """
                 INSERT INTO videos (
-                    id, title, description, content_type, status, video_url, thumbnail_url, banner_image_url,
+                    id, title, description, content_type, video_source, video_category, status, video_url, thumbnail_url, banner_image_url,
                     content_body, cta_label, cta_url,
                     like_count, view_count, sort_order, scheduled_at, published_at,
                     is_active, version, created_by, updated_by, created_at, updated_at
                 )
                 VALUES (
-                    :id, :title, :description, :content_type, :status, :video_url, :thumbnail_url, :banner_image_url,
+                    :id, :title, :description, :content_type, :video_source, :video_category, :status, :video_url, :thumbnail_url, :banner_image_url,
                     :content_body, :cta_label, :cta_url,
-                    :like_count, :view_count, :sort_order, :scheduled_at, :published_at,
+                    0, 0, :sort_order, :scheduled_at, :published_at,
                     :is_active, 1, :created_by, :updated_by, NOW(), NOW()
                 )
                 """
@@ -5941,7 +6273,7 @@ async def create_content(
         await replace_content_product_relations(session, content_id, data["product_ids"])
         await replace_content_category_relations(session, content_id, data["category_ids"])
         await replace_content_comments(session, content_id, data["comments"], actor_id)
-        await audit_admin_event(session, actor_id=actor_id, event_type="content_created", resource="content", metadata={"contentId": str(content_id), "contentType": data["content_type"], "status": data["status"]})
+        await audit_admin_event(session, actor_id=actor_id, event_type="content_created", resource="content", metadata={"contentId": str(content_id), "contentType": data["content_type"], "videoCategory": data["video_category"], "status": data["status"]})
     await invalidate_content_storefront_cache(redis)
     return {"id": str(content_id)}
 
@@ -5967,6 +6299,8 @@ async def update_content(
                     title = :title,
                     description = :description,
                     content_type = :content_type,
+                    video_source = :video_source,
+                    video_category = :video_category,
                     status = :status,
                     video_url = :video_url,
                     thumbnail_url = :thumbnail_url,
@@ -5974,8 +6308,6 @@ async def update_content(
                     content_body = :content_body,
                     cta_label = :cta_label,
                     cta_url = :cta_url,
-                    like_count = :like_count,
-                    view_count = :view_count,
                     sort_order = :sort_order,
                     scheduled_at = :scheduled_at,
                     published_at = :published_at,
@@ -5998,7 +6330,7 @@ async def update_content(
         await replace_content_product_relations(session, content_id, data["product_ids"])
         await replace_content_category_relations(session, content_id, data["category_ids"])
         await replace_content_comments(session, content_id, data["comments"], actor_id)
-        await audit_admin_event(session, actor_id=actor_id, event_type="content_updated", resource="content", metadata={"contentId": str(content_id), "contentType": data["content_type"], "status": data["status"]})
+        await audit_admin_event(session, actor_id=actor_id, event_type="content_updated", resource="content", metadata={"contentId": str(content_id), "contentType": data["content_type"], "videoCategory": data["video_category"], "status": data["status"]})
     await invalidate_content_storefront_cache(redis)
     return {"ok": True}
 
@@ -6026,4 +6358,138 @@ async def delete_content(
             raise HTTPException(status_code=404, detail="Content not found.")
         await audit_admin_event(session, actor_id=actor_id, event_type="content_deleted", resource="content", metadata={"contentId": str(content_id), "mode": "soft_delete"})
     await invalidate_content_storefront_cache(redis)
+    return {"ok": True}
+
+
+@router.get("/videos", dependencies=[Depends(require_permission("content:read"))])
+async def list_admin_videos(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    items = await list_admin_content(session)
+    return [item for item in items if item.get("contentType") == "VIDEO"]
+
+
+@router.post("/videos", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("content:create"))])
+async def create_admin_video(
+    payload: ContentPayload,
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    payload.contentType = "VIDEO"
+    return await create_content(payload, session, redis, actor_id)
+
+
+@router.patch("/videos/{video_id}", dependencies=[Depends(require_permission("content:update"))])
+async def update_admin_video(
+    video_id: UUID,
+    payload: ContentPayload,
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    payload.contentType = "VIDEO"
+    return await update_content(video_id, payload, session, redis, actor_id)
+
+
+@router.delete("/videos/{video_id}", dependencies=[Depends(require_permission("content:delete"))])
+async def delete_admin_video(
+    video_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    async with session.begin():
+        result = await session.execute(
+            text("DELETE FROM videos WHERE id = :id AND content_type = 'VIDEO'"),
+            {"id": video_id},
+        )
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Video not found.")
+        await audit_admin_event(session, actor_id=actor_id, event_type="video_deleted", resource="content", metadata={"videoId": str(video_id), "mode": "hard_delete"})
+    await invalidate_content_storefront_cache(redis)
+    return {"ok": True}
+
+
+@router.post("/videos/{video_id}/comments/{comment_id}/reply", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("content:update"))])
+async def reply_admin_video_comment(
+    video_id: UUID,
+    comment_id: UUID,
+    payload: AdminVideoCommentReplyPayload,
+    session: AsyncSession = Depends(get_session),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    target = (
+        await session.execute(
+            text(
+                """
+                SELECT cc.id, cc.parent_id, cc.user_name, v.id AS video_id
+                FROM content_comments cc
+                JOIN videos v ON v.id = cc.content_id
+                WHERE cc.id = :comment_id
+                  AND cc.content_id = :video_id
+                  AND v.content_type = 'VIDEO'
+                  AND cc.deleted_at IS NULL
+                """
+            ),
+            {"comment_id": comment_id, "video_id": video_id},
+        )
+    ).mappings().first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Comment not found.")
+    root_parent_id = target["parent_id"] or comment_id
+    actor = (
+        await session.execute(text("SELECT full_name FROM users WHERE id = :id"), {"id": actor_id})
+    ).scalar_one_or_none() or "Admin"
+    reply_id = uuid4()
+    await session.execute(
+        text(
+            """
+            INSERT INTO content_comments (
+                id, content_id, user_id, user_name, body, parent_id, reply_to_user_name,
+                is_hidden, created_by, updated_by, created_at, updated_at
+            )
+            VALUES (
+                :id, :video_id, :actor_id, :user_name, :body, :parent_id, :reply_to_user_name,
+                FALSE, :actor_id, :actor_id, NOW(), NOW()
+            )
+            """
+        ),
+        {
+            "id": reply_id,
+            "video_id": video_id,
+            "actor_id": actor_id,
+            "user_name": actor,
+            "body": sanitize_review_text(payload.body).strip(),
+            "parent_id": root_parent_id,
+            "reply_to_user_name": target["user_name"],
+        },
+    )
+    await audit_admin_event(session, actor_id=actor_id, event_type="video_comment_replied", resource="content", metadata={"videoId": str(video_id), "commentId": str(comment_id), "replyId": str(reply_id)})
+    await session.commit()
+    return {"id": str(reply_id)}
+
+
+@router.patch("/videos/{video_id}/comments/{comment_id}", dependencies=[Depends(require_permission("content:update"))])
+async def update_admin_video_comment(
+    video_id: UUID,
+    comment_id: UUID,
+    payload: AdminVideoCommentVisibilityPayload,
+    session: AsyncSession = Depends(get_session),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    async with session.begin():
+        result = await session.execute(
+            text(
+                """
+                UPDATE content_comments
+                SET is_hidden = :is_hidden, updated_by = :actor_id, updated_at = NOW()
+                WHERE id = :comment_id
+                  AND content_id = :video_id
+                  AND deleted_at IS NULL
+                """
+            ),
+            {"comment_id": comment_id, "video_id": video_id, "is_hidden": payload.isHidden, "actor_id": actor_id},
+        )
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Comment not found.")
+        await audit_admin_event(session, actor_id=actor_id, event_type="video_comment_visibility_updated", resource="content", metadata={"videoId": str(video_id), "commentId": str(comment_id), "isHidden": payload.isHidden})
     return {"ok": True}

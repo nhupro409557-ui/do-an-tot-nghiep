@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   BadgePercent,
   BarChart3,
-  Bell,
+
   Boxes,
   Building2,
   CheckCircle2,
@@ -17,18 +16,18 @@ import {
   FileText,
   FolderTree,
   GripVertical,
-  Home,
+
   Image,
   LayoutDashboard,
-  LogOut,
-  Menu,
+
+
   Megaphone,
-  MoreHorizontal,
+
   Package,
   Plus,
   RefreshCw,
   RotateCcw,
-  Search,
+
   KeyRound,
   ScrollText,
   ShieldCheck,
@@ -38,15 +37,48 @@ import {
   Trash2,
   Truck,
   Upload,
+
   UserCircle,
   Users,
   WalletCards,
   X,
 } from 'lucide-react';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import {
+  AdminBadge,
+  AdminPanel,
+  AdminTable,
+  AdminTopBar,
+  AlertRow,
+  BrandLogo,
+  CategoryTableRow,
+  Checkbox,
+  CollapsibleSection,
+  EmptyState,
+  FileInput,
+  Input,
+  MediaPreview,
+  MetricCard,
+  MiniMetric,
+  MultiSelectBox,
+  RichTextEditor,
+  RowActions,
+  SearchBox,
+  Select,
+  SimpleList,
+  StatCard,
+  SubmitButtons,
+  VideoPreview,
+  VoucherConditions,
+  type StatTone,
+} from '../components/admin/AdminDashboardParts';
 import { useAuth } from '../context/AuthContext';
 import { apiDb } from '../services/apiDb';
-import { signOut } from '../services/authDb';
+
+const AdminOverviewTab = React.lazy(() => import('../components/admin/tabs/AdminOverviewTab'));
+const AdminProductsTab = React.lazy(() => import('../components/admin/tabs/AdminProductsTab'));
+const AdminCategoriesTab = React.lazy(() => import('../components/admin/tabs/AdminCategoriesTab'));
+const AdminOrdersTab = React.lazy(() => import('../components/admin/tabs/AdminOrdersTab'));
+const AdminPermissionsTab = React.lazy(() => import('../components/admin/tabs/AdminPermissionsTab'));
 
 type AdminTab = 'overview' | 'products' | 'categories' | 'brands' | 'services' | 'orders' | 'vouchers' | 'customers' | 'inventory' | 'reviews' | 'content' | 'audit' | 'permissions';
 type AdminTabGroup = 'Tổng quan' | 'Kinh doanh' | 'Catalog' | 'Vận hành' | 'Khách hàng' | 'Hệ thống';
@@ -347,7 +379,7 @@ const adminTabs: { id: AdminTab; label: string; group: AdminTabGroup; icon: Reac
   { id: 'brands', label: 'Thương hiệu', group: 'Catalog', icon: Building2 },
   { id: 'services', label: 'Dịch vụ', group: 'Catalog', icon: ShieldCheck },
   { id: 'inventory', label: 'Tồn kho', group: 'Vận hành', icon: Boxes },
-  { id: 'content', label: 'Video & nội dung', group: 'Vận hành', icon: Megaphone },
+  { id: 'content', label: 'Video', group: 'Vận hành', icon: Megaphone },
   { id: 'customers', label: 'Khách hàng', group: 'Khách hàng', icon: Users },
   { id: 'reviews', label: 'Đánh giá', group: 'Khách hàng', icon: Star },
   { id: 'audit', label: 'Nhật ký', group: 'Hệ thống', icon: ScrollText },
@@ -549,6 +581,18 @@ const contentTypeOptions: [string, string][] = [
   ['BANNER', 'Banner'],
   ['MARKETING_PAGE', 'Trang marketing'],
 ];
+const videoSourceOptions: [string, string][] = [
+  ['UPLOAD', 'Upload file'],
+  ['YOUTUBE', 'Link YouTube'],
+];
+const videoCategoryOptions: [string, string][] = [
+  ['PRODUCT', 'Liên quan sản phẩm'],
+  ['NEWS', 'Tin tức'],
+  ['TIPS', 'Mẹo hay'],
+  ['SERVICE', 'Dịch vụ'],
+  ['REVIEW', 'Đánh giá / trải nghiệm'],
+  ['OTHER', 'Khác'],
+];
 const contentStatusOptions: [string, string][] = [
   ['DRAFT', 'Nháp'],
   ['SCHEDULED', 'Chờ đăng'],
@@ -561,6 +605,8 @@ const emptyContentForm = {
   title: '',
   description: '',
   contentType: 'VIDEO',
+  videoSource: 'UPLOAD',
+  videoCategory: 'PRODUCT',
   status: 'DRAFT',
   videoUrl: '',
   thumbnailUrl: '',
@@ -717,6 +763,11 @@ export default function AdminDashboard() {
   const { canAccessAdmin, loading, usePermission, useAnyPermission } = useAuth();
   const [tab, setTab] = useState<AdminTab>('overview');
   const [query, setQuery] = useState('');
+  const [productCategoryFilter, setProductCategoryFilter] = useState('');
+  const [productBrandFilter, setProductBrandFilter] = useState('');
+  const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState('');
+  const [inventoryBrandFilter, setInventoryBrandFilter] = useState('');
+  const [brandCategoryFilter, setBrandCategoryFilter] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [busy, setBusy] = useState(false);
   const [overview, setOverview] = useState<any>({});
@@ -755,12 +806,23 @@ export default function AdminDashboard() {
   const [reviewSummary, setReviewSummary] = useState<any[]>([]);
   const [reviewStatusFilter, setReviewStatusFilter] = useState('all');
   const [reviewStarFilter, setReviewStarFilter] = useState('all');
+  const [contentTypeFilter, setContentTypeFilter] = useState('all');
+  const [contentStatusFilter, setContentStatusFilter] = useState('all');
+  const [videoProductSearch, setVideoProductSearch] = useState('');
+  const [videoProductCategoryFilter, setVideoProductCategoryFilter] = useState('all');
+  const [videoProductBrandFilter, setVideoProductBrandFilter] = useState('all');
+  const [videoReplyDrafts, setVideoReplyDrafts] = useState<Record<string, string>>({});
   const [contentItems, setContentItems] = useState<any[]>([]);
   const [contentForm, setContentForm] = useState(emptyContentForm);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [permissions, setPermissions] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [rolePermissionMap, setRolePermissionMap] = useState<Record<string, string[]>>({});
+  const [staffForm, setStaffForm] = useState({ email: '', password: '', fullName: '', phone: '', status: 'ACTIVE', permissionCodes: [] as string[] });
+  const [editingStaffAccessId, setEditingStaffAccessId] = useState<string | null>(null);
+  const [rolePermissionEditing, setRolePermissionEditing] = useState(false);
+  const [staffPermissionEditor, setStaffPermissionEditor] = useState<any | null>(null);
+  const [staffPermissionDraft, setStaffPermissionDraft] = useState<string[]>([]);
   const [inventoryDraft, setInventoryDraft] = useState<{
     product: any;
     variant?: any;
@@ -890,9 +952,30 @@ export default function AdminDashboard() {
   const productSpecFields = specFields.filter((item) => !item.variant || !productForm.variantSpecKeys.includes(item.key));
   const groupedProductSpecFields = useMemo(() => groupSpecFields(productSpecFields), [productSpecFields]);
   const groupedActiveVariantFields = useMemo(() => groupSpecFields(activeVariantFields), [activeVariantFields]);
+  const productBrandOptions = useMemo(() => {
+    return [['', 'Tất cả thương hiệu'], ...brands.filter((b: any) => {
+      if (!productCategoryFilter) return true;
+      if (b.categoryIds && (b.categoryIds.includes(productCategoryFilter) || categories.some((c: any) => c.parentId === productCategoryFilter && b.categoryIds.includes(c.id)))) return true;
+      return products.some((p: any) => (p.brandId === b.id || p.brand === b.name) && (p.categoryId === productCategoryFilter || p.subcategoryId === productCategoryFilter || categories.some((c: any) => c.parentId === productCategoryFilter && (p.categoryId === c.id || p.subcategoryId === c.id))));
+    }).map((b: any) => [b.id, b.name])];
+  }, [brands, productCategoryFilter, categories, products]);
+
+  const inventoryBrandOptions = useMemo(() => {
+    return [['', 'Tất cả thương hiệu'], ...brands.filter((b: any) => {
+      if (!inventoryCategoryFilter) return true;
+      if (b.categoryIds && (b.categoryIds.includes(inventoryCategoryFilter) || categories.some((c: any) => c.parentId === inventoryCategoryFilter && b.categoryIds.includes(c.id)))) return true;
+      return products.some((p: any) => (p.brandId === b.id || p.brand === b.name) && (p.categoryId === inventoryCategoryFilter || p.subcategoryId === inventoryCategoryFilter || categories.some((c: any) => c.parentId === inventoryCategoryFilter && (p.categoryId === c.id || p.subcategoryId === c.id))));
+    }).map((b: any) => [b.id, b.name])];
+  }, [brands, inventoryCategoryFilter, categories, products]);
+
   const filteredProducts = useMemo(() => {
-    return products.filter((product) => matchesSearch(product, query, ['name', 'brand', 'categoryName', 'category', 'sku', 'status']));
-  }, [products, query]);
+    return products.filter((product) => {
+      const ms = matchesSearch(product, query, ['name', 'brand', 'categoryName', 'category', 'sku', 'status']);
+      const mc = !productCategoryFilter || String(product.categoryId) === productCategoryFilter || String(product.subcategoryId) === productCategoryFilter;
+      const mb = !productBrandFilter || String(product.brandId) === productBrandFilter || (product.brand && brands.find(b => String(b.id) === productBrandFilter)?.name === product.brand);
+      return ms && mc && mb;
+    });
+  }, [products, query, productCategoryFilter, productBrandFilter, brands]);
   const accessoryProductChoices = useMemo(() => {
     const selectedCategory = categories.find((category) => sameId(category.id, accessoryCategoryFilter));
     const childCategoryIds = new Set(categories.filter((category) => sameId(category.parentId, accessoryCategoryFilter)).map((category) => String(category.id)));
@@ -936,8 +1019,12 @@ export default function AdminDashboard() {
     setCategorySlugStatus(categorySlugTaken ? 'taken' : 'idle');
   }, [categorySlugTaken]);
   const filteredBrands = useMemo(() => {
-    return brands.filter((brand) => matchesSearch(brand, query, ['name', 'code']));
-  }, [brands, query]);
+    return brands.filter((brand) => {
+      const ms = matchesSearch(brand, query, ['name', 'code']);
+      const mc = !brandCategoryFilter || (brand.categoryIds && (brand.categoryIds.includes(brandCategoryFilter) || categories.some((c: any) => c.parentId === brandCategoryFilter && brand.categoryIds.includes(c.id))));
+      return ms && mc;
+    });
+  }, [brands, query, brandCategoryFilter, categories]);
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => matchesSearch(order, query, ['id', 'orderCode', 'userId', 'user_id', 'recipientName', 'recipientPhone', 'paymentMethod', 'payment_method', 'trackingCode', 'status']));
   }, [orders, query]);
@@ -945,9 +1032,28 @@ export default function AdminDashboard() {
     return vouchers.filter((voucher) => matchesSearch(voucher, query, ['code', 'discountType', 'status']));
   }, [vouchers, query]);
   const filteredCustomers = useMemo(() => customers, [customers]);
+  const staffUsers = useMemo(() => (
+    customers
+      .filter((item) => String(item.role || '').toUpperCase() === 'STAFF_ADMIN')
+      .sort((a, b) => String(a.role || '').localeCompare(String(b.role || '')))
+  ), [customers]);
+  const staffBasePermissionCodes = useMemo(() => {
+    const staffRole = roles.find((role) => role.code === 'STAFF_ADMIN');
+    return staffRole ? (rolePermissionMap[staffRole.id] || []) : [];
+  }, [rolePermissionMap, roles]);
+  const permissionsByModule = useMemo(() => permissions.reduce<Record<string, any[]>>((groups, permission) => {
+    const moduleName = permission.module || 'Khác';
+    groups[moduleName] = [...(groups[moduleName] || []), permission];
+    return groups;
+  }, {}), [permissions]);
   const filteredInventory = useMemo(() => {
-    return products.filter((product) => matchesSearch(product, query, ['name', 'sku', 'brand', 'categoryName', 'status']));
-  }, [products, query]);
+    return products.filter((product) => {
+      const ms = matchesSearch(product, query, ['name', 'sku', 'brand', 'categoryName', 'status']);
+      const mc = !inventoryCategoryFilter || String(product.categoryId) === inventoryCategoryFilter || String(product.subcategoryId) === inventoryCategoryFilter;
+      const mb = !inventoryBrandFilter || String(product.brandId) === inventoryBrandFilter || (product.brand && brands.find(b => String(b.id) === inventoryBrandFilter)?.name === product.brand);
+      return ms && mc && mb;
+    });
+  }, [products, query, inventoryCategoryFilter, inventoryBrandFilter, brands]);
   const filteredReviews = useMemo(() => {
     return reviews.filter((review) => {
       const matchesQuery = matchesSearch(review, query, ['productName', 'userName', 'status', 'comment', 'moderationNote', 'shopReply', 'flaggedReason', 'spamReason', 'orderOutcome']);
@@ -957,8 +1063,26 @@ export default function AdminDashboard() {
     });
   }, [reviews, query, reviewStatusFilter, reviewStarFilter]);
   const filteredContentItems = useMemo(() => {
-    return contentItems.filter((item) => matchesSearch(item, query, ['title', 'description', 'status']));
-  }, [contentItems, query]);
+    return contentItems.filter((item) => {
+      const matchesQuery = matchesSearch(item, query, ['title', 'description', 'status', 'contentType']);
+      const matchesType = contentTypeFilter === 'all' || item.videoCategory === contentTypeFilter;
+      const matchesStatus = contentStatusFilter === 'all' || item.status === contentStatusFilter;
+      return matchesQuery && matchesType && matchesStatus;
+    });
+  }, [contentItems, contentStatusFilter, contentTypeFilter, query]);
+  const selectedVideoProductIds = useMemo(() => splitIds(contentForm.productIds), [contentForm.productIds]);
+  const videoProductChoices = useMemo(() => {
+    const keyword = videoProductSearch.trim().toLowerCase();
+    return products
+      .filter((product) => {
+        if (videoProductCategoryFilter !== 'all' && String(product.categoryId || product.category_id || product.category || '') !== videoProductCategoryFilter) return false;
+        if (videoProductBrandFilter !== 'all' && String(product.brandId || product.brand_id || product.brand || '') !== videoProductBrandFilter) return false;
+        if (!keyword) return true;
+        return [product.name, product.sku, product.brand, product.categoryName, product.category]
+          .some((value) => String(value || '').toLowerCase().includes(keyword));
+      })
+      .slice(0, 30);
+  }, [products, videoProductBrandFilter, videoProductCategoryFilter, videoProductSearch]);
   const reviewMetrics = useMemo(() => ({
     total: reviews.length,
     pending: reviews.filter((item) => item.status === 'PENDING').length,
@@ -987,10 +1111,14 @@ export default function AdminDashboard() {
   const canCreateContent = usePermission('content:create');
   const canUpdateContent = usePermission('content:update');
   const canDeleteContent = usePermission('content:delete');
+  const loadedAdminSectionsRef = useRef<Set<AdminTab>>(new Set());
+  const preloadingAdminSectionsRef = useRef(false);
 
   useEffect(() => {
-    if (canAccessAdmin) loadData();
-  }, [canAccessAdmin]);
+    if (canAccessAdmin) void loadData(tab);
+  }, [canAccessAdmin, tab]);
+
+  // Prefetch effect removed to optimize admin loading performance.
 
   useEffect(() => {
     if (canAccessAdmin && tab === 'categories') {
@@ -1008,7 +1136,7 @@ export default function AdminDashboard() {
   }, [categoryMigrationJobs, editingCategoryId, tab]);
 
   useEffect(() => {
-    if (canAccessAdmin && tab === 'brands') loadData();
+    if (canAccessAdmin && tab === 'brands') void loadData('brands', { force: true });
   }, [brandPage, brandStatusFilter, query, tab]);
 
   useEffect(() => {
@@ -1029,7 +1157,7 @@ export default function AdminDashboard() {
       setActiveBrandImportJob(nextJob);
       if (['COMPLETED', 'FAILED'].includes(nextJob.status)) {
         window.clearInterval(timer);
-        await loadData();
+        await loadData(tab, { force: true });
       }
     }, 3000);
     return () => window.clearInterval(timer);
@@ -1043,7 +1171,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (canAccessAdmin && tab === 'customers') {
-      void loadData();
+      void loadData('customers', { force: true });
     }
   }, [canAccessAdmin, tab, customerPage]);
 
@@ -1070,49 +1198,110 @@ export default function AdminDashboard() {
       });
   }, [attachedServiceGroupFilter, attachedServiceSearch, attachedServiceTypeFilter, attachedServices, productForm.attachedServices]);
 
-  async function loadData() {
-    setBusy(true);
+  async function loadData(targetTab: AdminTab = tab, options: { force?: boolean; silent?: boolean; prefetch?: boolean } = {}) {
+    if (options.prefetch && loadedAdminSectionsRef.current.has(targetTab)) return;
+    if (!options.silent) setBusy(true);
     try {
-      const [overviewData, orderData, productData, categoryData, brandData, serviceData, voucherData, customerData, reviewData, reviewSummaryData, contentData, auditData, permissionData, roleData] = await Promise.all([
-        apiDb.adminOverview().catch(() => ({})),
-        apiDb.listOrders().catch(() => []),
-        apiDb.adminListProducts().catch(() => apiDb.listProducts()),
-        apiDb.adminListCategories().catch(() => apiDb.listCategories()),
-        apiDb.adminListBrands({ page: brandPage, limit: 10, search: query, status: brandStatusFilter }).catch(() => apiDb.listBrands().then((items) => ({ items, total: items.length, page: 1, limit: items.length || 10 }))),
-        apiDb.adminListAttachedServices().catch(() => []),
-        apiDb.adminListVouchers().catch(() => []),
-        apiDb.adminListCustomers({ search: query, page: customerPage, limit: 20 }).catch(() => ({ items: [], total: 0, page: 1, limit: 20 })),
-        apiDb.adminListReviews().catch(() => []),
-        apiDb.adminListReviewSummary().catch(() => []),
-        apiDb.adminListContent().catch(() => []),
-        apiDb.adminListAuditLogs({ limit: 100 }).catch(() => []),
-        apiDb.adminListPermissions().catch(() => []),
-        apiDb.adminListRoles().catch(() => []),
-      ]);
-      setOverview(overviewData);
-      setOrders(orderData);
-      setProducts(productData);
-      setCategories(categoryData);
-      setBrands(Array.isArray(brandData) ? brandData : brandData.items || []);
-      setAttachedServices(serviceData);
-      setBrandTotal(Array.isArray(brandData) ? brandData.length : brandData.total || 0);
-      setBrandImportJobs(tab === 'brands' ? await apiDb.adminListBrandImportJobs().catch(() => []) : brandImportJobs);
-      setVouchers(voucherData);
-      setCustomers(Array.isArray(customerData) ? customerData : customerData.items || []);
-      setCustomerTotal(Array.isArray(customerData) ? customerData.length : customerData.total || 0);
-      setReviews(reviewData);
-      setReviewSummary(reviewSummaryData);
-      setContentItems(contentData);
-      setAuditLogs(auditData);
-      setPermissions(permissionData);
-      setRoles(roleData);
-      const roleEntries = await Promise.all((roleData || []).map(async (role: any) => {
-        const detail = await apiDb.adminGetRolePermissions(role.id).catch(() => ({ permissionCodes: [] }));
-        return [role.id, detail.permissionCodes || []] as const;
-      }));
-      setRolePermissionMap(Object.fromEntries(roleEntries));
+      const ensureOverview = async () => {
+        const overviewData = await apiDb.adminOverview().catch(() => ({}));
+        setOverview(overviewData);
+      };
+      const loadProducts = async () => {
+        const productData = await apiDb.adminListProducts().catch(() => apiDb.listProducts());
+        setProducts(productData);
+      };
+      const loadCategories = async () => {
+        const categoryData = await apiDb.adminListCategories().catch(() => apiDb.listCategories());
+        setCategories(categoryData);
+      };
+      const loadBrands = async () => {
+        const brandData = await apiDb.adminListBrands({ page: brandPage, limit: 1000, search: query, status: brandStatusFilter }).catch(() => apiDb.listBrands().then((items) => ({ items, total: items.length, page: 1, limit: items.length || 1000 })));
+        setBrands(Array.isArray(brandData) ? brandData : brandData.items || []);
+        setBrandTotal(Array.isArray(brandData) ? brandData.length : brandData.total || 0);
+        if (targetTab === 'brands') {
+          setBrandImportJobs(await apiDb.adminListBrandImportJobs().catch(() => []));
+        }
+      };
+      const loadServices = async () => {
+        const serviceData = await apiDb.adminListAttachedServices().catch(() => []);
+        setAttachedServices(serviceData);
+      };
+      const loadOrders = async () => {
+        const orderData = await apiDb.listOrders().catch(() => []);
+        setOrders(orderData);
+      };
+      const loadVouchers = async () => {
+        const voucherData = await apiDb.adminListVouchers().catch(() => []);
+        setVouchers(voucherData);
+      };
+      const loadCustomers = async () => {
+        const customerData = await apiDb.adminListCustomers({ search: query, page: customerPage, limit: 20 }).catch(() => ({ items: [], total: 0, page: 1, limit: 20 }));
+        setCustomers(Array.isArray(customerData) ? customerData : customerData.items || []);
+        setCustomerTotal(Array.isArray(customerData) ? customerData.length : customerData.total || 0);
+      };
+      const loadReviews = async () => {
+        const [reviewData, reviewSummaryData] = await Promise.all([
+          apiDb.adminListReviews().catch(() => []),
+          apiDb.adminListReviewSummary().catch(() => []),
+        ]);
+        setReviews(reviewData);
+        setReviewSummary(reviewSummaryData);
+      };
+      const loadContent = async () => {
+        const contentData = await apiDb.adminListVideos().catch(() => []);
+        setContentItems(contentData);
+      };
+      const loadAudit = async () => {
+        const auditData = await apiDb.adminListAuditLogs({ limit: 100 }).catch(() => []);
+        setAuditLogs(auditData);
+      };
+      const loadPermissions = async () => {
+        const [permissionData, roleData] = await Promise.all([
+          apiDb.adminListPermissions().catch(() => []),
+          apiDb.adminListRoles().catch(() => []),
+        ]);
+        setPermissions(permissionData);
+        setRoles(roleData);
+        const roleEntries = await Promise.all((roleData || []).map(async (role: any) => {
+          const detail = await apiDb.adminGetRolePermissions(role.id).catch(() => ({ permissionCodes: [] }));
+          return [role.id, detail.permissionCodes || []] as const;
+        }));
+        setRolePermissionMap(Object.fromEntries(roleEntries));
+      };
+
+      if (options.force) loadedAdminSectionsRef.current.delete(targetTab);
+      if (loadedAdminSectionsRef.current.has(targetTab) && !options.force) return;
+
+      if (targetTab === 'overview') {
+        await ensureOverview();
+      } else if (targetTab === 'products') {
+        await Promise.all([loadProducts(), loadCategories(), loadBrands(), loadServices()]);
+      } else if (targetTab === 'categories') {
+        await loadCategories();
+      } else if (targetTab === 'brands') {
+        await loadBrands();
+      } else if (targetTab === 'services') {
+        await loadServices();
+      } else if (targetTab === 'orders') {
+        await loadOrders();
+      } else if (targetTab === 'vouchers') {
+        await Promise.all([loadVouchers(), loadProducts(), loadCategories()]);
+      } else if (targetTab === 'customers') {
+        await Promise.all([loadCustomers(), loadVouchers()]);
+      } else if (targetTab === 'inventory') {
+        await loadProducts();
+      } else if (targetTab === 'reviews') {
+        await loadReviews();
+      } else if (targetTab === 'content') {
+        await Promise.all([loadContent(), loadProducts(), loadCategories(), loadBrands()]);
+      } else if (targetTab === 'audit') {
+        await loadAudit();
+      } else if (targetTab === 'permissions') {
+        await Promise.all([loadPermissions(), loadCustomers()]);
+      }
+      loadedAdminSectionsRef.current.add(targetTab);
     } finally {
-      setBusy(false);
+      if (!options.silent) setBusy(false);
     }
   }
 
@@ -1365,7 +1554,7 @@ export default function AdminDashboard() {
       await apiDb.adminCreateProduct(productPayload());
     }
     resetProductForm();
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function handleCategorySubmit(event: React.FormEvent) {
@@ -1426,7 +1615,7 @@ export default function AdminDashboard() {
     if (editingBrandId) await apiDb.adminUpdateBrand(editingBrandId, payload);
     else await apiDb.adminCreateBrand(payload);
     resetBrandForm();
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function checkBrandCodeOnBlur() {
@@ -1480,7 +1669,7 @@ export default function AdminDashboard() {
     }
     const result = await apiDb.adminImportBrands(file, brandImportMode);
     setActiveBrandImportJob({ id: result.jobId, status: result.status, progress: 0, totalRows: 0, processedRows: 0, importedRows: 0, updatedRows: 0, skippedRows: 0 });
-    await loadData();
+    await loadData(tab, { force: true });
     window.alert(`Đã đưa file vào hàng đợi xử lý. Mã lịch sử: ${result.jobId}`);
   }
 
@@ -1505,7 +1694,7 @@ export default function AdminDashboard() {
     if (editingVoucherId) await apiDb.adminUpdateVoucher(editingVoucherId, payload);
     else await apiDb.adminCreateVoucher(payload);
     resetVoucherForm();
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
 
@@ -1513,25 +1702,24 @@ export default function AdminDashboard() {
     event.preventDefault();
     const payload = {
       ...contentForm,
+      contentType: 'VIDEO',
       productIds: splitIds(contentForm.productIds),
-      categoryIds: splitIds(contentForm.categoryIds),
-      comments: serializeContentComments(contentForm.commentsText),
-      likeCount: Number(contentForm.likeCount || 0),
-      viewCount: Number(contentForm.viewCount || 0),
+      categoryIds: [],
+      comments: [],
       sortOrder: Number(contentForm.sortOrder || 0),
       scheduledAt: contentForm.scheduledAt || null,
       publishedAt: contentForm.publishedAt || null,
       videoUrl: contentForm.videoUrl || null,
       thumbnailUrl: contentForm.thumbnailUrl || null,
-      bannerImageUrl: contentForm.bannerImageUrl || null,
+      bannerImageUrl: null,
       ctaLabel: contentForm.ctaLabel || null,
       ctaUrl: contentForm.ctaUrl || null,
       version: editingContentId ? Number(contentForm.version || 1) : undefined,
     };
-    if (editingContentId) await apiDb.adminUpdateContent(editingContentId, payload);
-    else await apiDb.adminCreateContent(payload);
+    if (editingContentId) await apiDb.adminUpdateVideo(editingContentId, payload);
+    else await apiDb.adminCreateVideo(payload);
     resetContentForm();
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   function editProduct(product: any) {
@@ -1686,6 +1874,8 @@ export default function AdminDashboard() {
       title: item.title || '',
       description: item.description || '',
       contentType: item.contentType || 'VIDEO',
+      videoSource: item.videoSource || 'UPLOAD',
+      videoCategory: item.videoCategory || 'PRODUCT',
       status: item.status || 'DRAFT',
       videoUrl: item.videoUrl || '',
       thumbnailUrl: item.thumbnailUrl || '',
@@ -1706,11 +1896,31 @@ export default function AdminDashboard() {
     });
   }
 
+  function setVideoProductSelected(productId: string, selected: boolean) {
+    const current = new Set(splitIds(contentForm.productIds));
+    if (selected) current.add(productId);
+    else current.delete(productId);
+    setContentForm({ ...contentForm, productIds: Array.from(current).join(', ') });
+  }
+
+  async function replyVideoComment(video: any, comment: any) {
+    const body = (videoReplyDrafts[comment.id] || '').trim();
+    if (!body) return;
+    await apiDb.adminReplyVideoComment(video.id, comment.id, body);
+    setVideoReplyDrafts((drafts) => ({ ...drafts, [comment.id]: '' }));
+    await loadData(tab, { force: true });
+  }
+
+  async function toggleVideoCommentHidden(video: any, comment: any) {
+    await apiDb.adminUpdateVideoComment(video.id, comment.id, { isHidden: !comment.isHidden });
+    await loadData(tab, { force: true });
+  }
+
   async function confirmDelete(label: string, action: () => Promise<unknown>) {
     if (!window.confirm(`Bạn có chắc muốn xóa ${label}? Nếu mục này đã có dữ liệu liên quan, hệ thống sẽ ẩn thay vì xóa để giữ lịch sử.`)) return;
     try {
       const result = await action() as { action?: string };
-      await loadData();
+      await loadData(tab, { force: true });
       if (result?.action === 'deleted') {
         window.alert(`${label} đã được xóa vì chưa có ràng buộc dữ liệu.`);
       } else if (result?.action === 'archived') {
@@ -1725,7 +1935,7 @@ export default function AdminDashboard() {
 
   async function reactivateProduct(product: any) {
     await apiDb.adminUpdateProduct(product.id, { ...product, status: 'ACTIVE', discountPrice: product.discountPrice || null });
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function openInventoryDialog(product: any, variant?: any) {
@@ -1783,7 +1993,7 @@ export default function AdminDashboard() {
       imeis: inventoryDraft.imeis.split(/[\n,]/).map((item) => item.trim()).filter(Boolean),
     });
     setInventoryDraft(null);
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function exportInventorySnapshot() {
@@ -1800,17 +2010,17 @@ export default function AdminDashboard() {
 
   async function submitProduct(product: any) {
     await apiDb.adminSubmitProduct(product.id);
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function approveProduct(product: any) {
     await apiDb.adminApproveProduct(product.id);
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function duplicateProduct(product: any) {
     const result = await apiDb.adminDuplicateProduct(product.id);
-    await loadData();
+    await loadData(tab, { force: true });
     window.alert(`Đã sao chép sản phẩm sang bản nháp mới: ${result.id}`);
   }
 
@@ -1826,7 +2036,7 @@ export default function AdminDashboard() {
     }
     const result = await apiDb.adminBulkApproveProducts(ids);
     setSelectedProductIds([]);
-    await loadData();
+    await loadData(tab, { force: true });
     window.alert(`Đã duyệt ${result.updated} sản phẩm. Bỏ qua: ${result.skipped.length}.`);
   }
 
@@ -1849,7 +2059,7 @@ export default function AdminDashboard() {
 
   async function archiveProduct(product: any) {
     await apiDb.adminArchiveProduct(product.id);
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function reactivateCategory(category: any) {
@@ -1860,13 +2070,13 @@ export default function AdminDashboard() {
 
   async function reactivateBrand(brand: any) {
     await apiDb.adminUpdateBrandStatus(brand.id, true);
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function hideBrand(brand: any) {
     if (!window.confirm(`Ẩn thương hiệu ${brand.name}? Thương hiệu sẽ không hiển thị ở storefront.`)) return;
     await apiDb.adminUpdateBrandStatus(brand.id, false);
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function bulkUpdateBrandStatus(isActive: boolean) {
@@ -1874,7 +2084,7 @@ export default function AdminDashboard() {
     if (!window.confirm(`${isActive ? 'Khôi phục' : 'Ẩn'} ${selectedBrandIds.length} thương hiệu đã chọn?`)) return;
     const result = await apiDb.adminUpdateBrandsStatus(selectedBrandIds, isActive);
     setSelectedBrandIds([]);
-    await loadData();
+    await loadData(tab, { force: true });
     window.alert(`Đã cập nhật ${result.updated} thương hiệu. Lỗi: ${result.failed.length}.`);
   }
 
@@ -2053,7 +2263,7 @@ export default function AdminDashboard() {
     if (editingServiceId) await apiDb.adminUpdateAttachedService(editingServiceId, payload);
     else await apiDb.adminCreateAttachedService(payload);
     resetServiceForm();
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   function toggleVariantSpecField(key: string, checked: boolean) {
@@ -2072,43 +2282,76 @@ export default function AdminDashboard() {
 
   async function updateReviewStatus(review: any, status: 'PENDING' | 'PUBLISHED' | 'HIDDEN' | 'REJECTED') {
     await apiDb.adminUpdateReview(review.id, { status });
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function replyToReview(review: any) {
     const nextReply = window.prompt(`Phản hồi đánh giá cho ${review.userName || 'khách hàng'}`, review.shopReply || '');
     if (nextReply === null) return;
     await apiDb.adminUpdateReview(review.id, { shopReply: nextReply });
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function flagReview(review: any) {
     const reason = window.prompt(`Lý do báo cáo/đánh dấu đánh giá của ${review.userName || 'khách hàng'}`, review.flaggedReason || 'Có dấu hiệu nội dung xấu hoặc cần xem xét thêm');
     if (reason === null) return;
     await apiDb.adminUpdateReview(review.id, { flaggedReason: reason, status: review.status === 'PUBLISHED' ? 'HIDDEN' : review.status });
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function markReviewSpam(review: any) {
     const reason = window.prompt(`Lý do đánh dấu spam cho đánh giá của ${review.userName || 'khách hàng'}`, review.spamReason || 'Spam hoặc nội dung lặp bất thường');
     if (reason === null) return;
     await apiDb.adminUpdateReview(review.id, { isSpam: true, spamReason: reason, status: 'REJECTED', moderationNote: 'Đánh dấu spam bởi quản trị viên.' });
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function deleteReview(review: any) {
     if (!window.confirm(`Xóa vĩnh viễn đánh giá của ${review.userName || 'khách hàng'} cho sản phẩm ${review.productName}?`)) return;
     await apiDb.adminDeleteReview(review.id);
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function updateUserAccess(customer: any, patch: { role?: string; status?: string }) {
     if (!usePermission('sys:manage_users')) return;
+    if (customer.role === 'SUPER_ADMIN' || patch.role === 'SUPER_ADMIN') return;
     await apiDb.adminUpdateUserRole(customer.id, {
       role: patch.role || customer.role || 'CUSTOMER',
       status: patch.status || customer.status || 'ACTIVE',
+      permissionCodes: patch.role === 'STAFF_ADMIN' || (!patch.role && customer.role === 'STAFF_ADMIN') ? (customer.extraPermissionCodes || []) : [],
     });
-    await loadData();
+    setEditingStaffAccessId(null);
+    await loadData(tab, { force: true });
+  }
+
+  async function createStaffAccount(event: React.FormEvent) {
+    event.preventDefault();
+    if (!canManageCustomerAccess || !staffForm.email.trim() || !staffForm.password || !staffForm.fullName.trim()) return;
+    await apiDb.adminCreateStaff({
+      email: staffForm.email.trim(),
+      password: staffForm.password,
+      fullName: staffForm.fullName.trim(),
+      phone: staffForm.phone.trim() || undefined,
+      status: staffForm.status,
+      permissionCodes: [],
+    });
+    setStaffForm({ email: '', password: '', fullName: '', phone: '', status: 'ACTIVE', permissionCodes: [] });
+    await loadData(tab, { force: true });
+  }
+
+  async function openStaffPermissionEditor(staff: any) {
+    if (!canManageCustomerAccess) return;
+    const detail = await apiDb.adminGetUserPermissions(staff.id).catch(() => ({ permissionCodes: staff.extraPermissionCodes || [] }));
+    setStaffPermissionEditor(staff);
+    setStaffPermissionDraft(detail.permissionCodes || []);
+  }
+
+  async function saveStaffPermissions() {
+    if (!staffPermissionEditor?.id || !canManageCustomerAccess) return;
+    await apiDb.adminUpdateUserPermissions(staffPermissionEditor.id, staffPermissionDraft);
+    setStaffPermissionEditor(null);
+    setStaffPermissionDraft([]);
+    await loadData(tab, { force: true });
   }
 
   async function openCustomerDetail(customer: any) {
@@ -2138,7 +2381,7 @@ export default function AdminDashboard() {
     const detail = await apiDb.adminGetCustomerOverview(selectedCustomer.id);
     setSelectedCustomer(detail);
     setCustomerTagDraft(Array.isArray(detail.tags) ? detail.tags.join(', ') : '');
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function loadCustomerSection(section: 'orders' | 'loyalty' | 'notes' | 'audit') {
@@ -2194,7 +2437,7 @@ export default function AdminDashboard() {
     if (!selectedCustomerIds.length || !canManageCustomerAccess) return;
     await apiDb.adminBulkUpdateUserStatus(selectedCustomerIds, 'SUSPENDED');
     setSelectedCustomerIds([]);
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function bulkApplyCustomerTags() {
@@ -2202,7 +2445,7 @@ export default function AdminDashboard() {
     const tags = customerTagDraft.split(',').map((item) => item.trim()).filter(Boolean);
     await apiDb.adminBulkUpdateCustomerTags(selectedCustomerIds, tags);
     setSelectedCustomerIds([]);
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   async function toggleRolePermission(roleId: string, code: string, checked: boolean) {
@@ -2210,50 +2453,22 @@ export default function AdminDashboard() {
     const next = checked ? [...new Set([...current, code])] : current.filter((item) => item !== code);
     setRolePermissionMap((prev) => ({ ...prev, [roleId]: next }));
     await apiDb.adminUpdateRolePermissions(roleId, next);
-    await loadData();
+    await loadData(tab, { force: true });
   }
 
   if (loading || !canAccessAdmin) return <div className="flex min-h-[60vh] items-center justify-center text-sm font-semibold text-slate-500">Đang kiểm tra quyền truy cập...</div>;
 
-  const revenueByDay = Array.from(
-    orders.reduce((map: Map<string, number>, order) => {
-      const key = getOrderDate(order).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
-      map.set(key, (map.get(key) || 0) + getOrderTotal(order));
-      return map;
-    }, new Map<string, number>()),
-    ([date, total]) => ({ date, total }),
-  ).slice(-14);
-  const revenueByMonth = Array.from(
-    orders.reduce((map: Map<string, number>, order) => {
-      const key = getOrderDate(order).toLocaleDateString('vi-VN', { month: '2-digit', year: 'numeric' });
-      map.set(key, (map.get(key) || 0) + getOrderTotal(order));
-      return map;
-    }, new Map<string, number>()),
-    ([month, total]) => ({ month, total }),
-  ).slice(-6);
-  const topProducts = [...products]
-    .sort((a, b) => getProductSold(b) - getProductSold(a) || toNumber(b.periodRevenue) - toNumber(a.periodRevenue))
-    .slice(0, 5);
-  const cancelledOrders = orders.filter((item) => ['CANCELLED', 'CANCELED'].includes(String(item.status).toUpperCase())).length;
-  const refundedOrders = orders.filter((item) => ['REFUNDED', 'RETURNED', 'RETURNING'].includes(String(item.status).toUpperCase())).length;
-  const riskyVouchers = vouchers.filter((item) => item.status === 'ACTIVE' && getVoucherBudgetUsage(item) >= 0.8);
-  const negativeStockProducts = products.filter((item) => getProductStock(item) < 0);
-  const lowStockProducts = products.filter((item) => {
-    const threshold = getInventorySettings(item).minimumStock;
-    const stock = getProductStock(item);
-    return stock >= 0 && stock <= threshold;
-  });
-  const roleDashboards = [
-    { role: 'Nhân viên kho', metric: `${lowStockProducts.length + negativeStockProducts.length} cảnh báo`, helper: 'Thiếu hàng, tồn kho âm hoặc cần kiểm kê', icon: Boxes },
-    { role: 'CSKH', metric: `${orders.filter((item) => ['PENDING', 'PROCESSING'].includes(String(item.status).toUpperCase())).length} đơn cần theo dõi`, helper: 'Ưu tiên đơn chờ xử lý và phản hồi mới', icon: UserCircle },
-    { role: 'Quản lý', metric: currency.format(revenue), helper: 'Theo dõi doanh thu, tỉ lệ hủy và ngân sách voucher', icon: ShieldCheck },
+  const stats = [
+    { label: 'Doanh thu', value: currency.format(overview?.revenue || 0), icon: WalletCards, tone: 'emerald', caption: `${overview?.orders?.total || 0} đơn đã ghi nhận` },
+    { label: 'Sản phẩm', value: overview?.products?.total || 0, icon: Package, tone: 'red', caption: `${overview?.products?.active || 0} đang bán` },
+    { label: 'Đơn hàng', value: overview?.orders?.total || 0, icon: Truck, tone: 'sky', caption: `${overview?.orders?.pending || 0} chờ xử lý` },
+    { label: 'Voucher', value: overview?.vouchers?.total || 0, icon: BadgePercent, tone: 'amber', caption: `${overview?.vouchers?.active || 0} đang chạy` },
   ];
 
-  const stats = [
-    { label: 'Doanh thu', value: currency.format(revenue), icon: WalletCards, tone: 'emerald', caption: `${orders.length} đơn đã ghi nhận` },
-    { label: 'Sản phẩm', value: overview.products ?? products.length, icon: Package, tone: 'red', caption: `${products.filter((item) => item.status === 'ACTIVE').length} đang bán` },
-    { label: 'Đơn hàng', value: overview.orders ?? orders.length, icon: Truck, tone: 'sky', caption: `${orders.filter((item) => item.status === 'PENDING').length} chờ xử lý` },
-    { label: 'Voucher', value: overview.vouchers ?? vouchers.length, icon: BadgePercent, tone: 'amber', caption: `${vouchers.filter((item) => item.status === 'ACTIVE').length} đang chạy` },
+  const roleDashboards = [
+    { role: 'Nhân viên kho', metric: `${(overview?.lowStockCount || 0) + (overview?.negativeStockCount || 0)} cảnh báo`, helper: 'Thiếu hàng, tồn kho âm hoặc cần kiểm kê', icon: Boxes },
+    { role: 'CSKH', metric: `${(overview?.orders?.pending || 0) + (overview?.orders?.processing || 0)} đơn cần theo dõi`, helper: 'Ưu tiên đơn chờ xử lý và phản hồi mới', icon: UserCircle },
+    { role: 'Quản lý', metric: currency.format(overview?.revenue || 0), helper: 'Theo dõi doanh thu, tỉ lệ hủy và ngân sách voucher', icon: ShieldCheck },
   ];
   const activeTone = adminTabTone[tab];
   const ActiveIcon = availableTabs.find((item) => item.id === tab)?.icon || LayoutDashboard;
@@ -2265,7 +2480,7 @@ export default function AdminDashboard() {
   return (
     <div className={`h-screen overflow-hidden px-4 py-6 text-slate-900 sm:px-6 lg:px-8 ${tab === 'overview' ? 'bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_42%,#f8fafc_100%)]' : tab === 'content' ? 'bg-[linear-gradient(180deg,#ecfdf5_0%,#f8fafc_42%,#f8fafc_100%)]' : 'bg-[linear-gradient(180deg,#f8fafc_0%,#f1f5f9_44%,#f8fafc_100%)]'}`}>
       <div className="mx-auto flex h-full w-full max-w-[1500px] flex-col">
-        <AdminTopBar onRefresh={loadData} query={query} setQuery={setQuery} sidebarOpen={sidebarOpen} searchPlaceholder={searchPlaceholderByTab[tab]} onToggleSidebar={() => setSidebarOpen((value) => !value)} />
+        <AdminTopBar onRefresh={() => void loadData(tab, { force: true })} query={query} setQuery={setQuery} sidebarOpen={sidebarOpen} searchPlaceholder={searchPlaceholderByTab[tab]} onToggleSidebar={() => setSidebarOpen((value) => !value)} />
         <div className={`min-h-0 flex-1 grid gap-5 ${sidebarOpen ? 'lg:grid-cols-[280px_minmax(0,1fr)]' : 'lg:grid-cols-1'}`}>
           <aside className={`${sidebarOpen ? 'block' : 'hidden'} admin-scroll-panel rounded-[28px] border border-rose-200/80 bg-[linear-gradient(180deg,#fff7f7_0%,#fff1f2_100%)] p-4 shadow-[0_24px_60px_rgba(127,29,29,0.08)]`}>
             <div className="mb-4 rounded-2xl border border-rose-100 bg-[linear-gradient(135deg,#fff1f2_0%,#fffaf9_100%)] px-4 py-4 shadow-sm">
@@ -2313,621 +2528,129 @@ export default function AdminDashboard() {
             </div>
 
             {tab === 'overview' && (
-              <div className="space-y-5">
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  {stats.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <StatCard key={item.label} label={item.label} value={item.value} caption={item.caption} icon={Icon} tone={item.tone as StatTone} />
-                    );
-                  })}
-                </div>
-                <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-                  <AdminPanel title="Nhịp vận hành hôm nay" action={<Activity className="h-5 w-5 text-red-600" />}>
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <MiniMetric label="Đơn chờ xử lý" value={orders.filter((item) => item.status === 'PENDING').length} helper="Cần xác nhận sớm" />
-                      <MiniMetric label="Sản phẩm sắp hết" value={lowStockProducts.length} helper="Ưu tiên nhập kho" />
-                      <MiniMetric label="Đánh giá mới" value={reviews.length} helper="Theo dõi trải nghiệm" />
-                    </div>
-                  </AdminPanel>
-                  <AdminPanel title="Danh mục dữ liệu" action={<ShoppingBag className="h-5 w-5 text-red-600" />}>
-                    <div className="space-y-3">
-                      {[
-                        ['Danh mục', categories.length, FolderTree],
-                        ['Thương hiệu', brands.length, Building2],
-                        ['Khách hàng', customers.length, Users],
-                      ].map(([label, value, Icon]: [string, number, any]) => (
-                        <div key={label} className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
-                          <span className="flex items-center gap-2 text-sm font-semibold text-slate-600">
-                            <Icon className="h-4 w-4 text-slate-400" />
-                            {label}
-                          </span>
-                          <span className="font-mono text-sm font-bold text-slate-900">{value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </AdminPanel>
-                </div>
-                <div className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
-                  <AdminPanel title="Doanh thu theo ngày" action={<TrendingUp className="h-5 w-5 text-emerald-600" />}>
-                    <div className="h-72">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={revenueByDay} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="adminRevenue" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#10b981" stopOpacity={0.28} />
-                              <stop offset="95%" stopColor="#10b981" stopOpacity={0.02} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="date" tick={{ fontSize: 12 }} stroke="#64748b" />
-                          <YAxis tickFormatter={(value) => compactCurrency.format(Number(value))} tick={{ fontSize: 12 }} stroke="#64748b" width={48} />
-                          <Tooltip formatter={(value) => currency.format(Number(value))} labelFormatter={(label) => `Ngày ${label}`} />
-                          <Area type="monotone" dataKey="total" stroke="#059669" strokeWidth={3} fill="url(#adminRevenue)" />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </AdminPanel>
-                  <AdminPanel title="Doanh thu theo tháng" action={<BarChart3 className="h-5 w-5 text-sky-600" />}>
-                    <div className="h-72">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={revenueByMonth} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="month" tick={{ fontSize: 12 }} stroke="#64748b" />
-                          <YAxis tickFormatter={(value) => compactCurrency.format(Number(value))} tick={{ fontSize: 12 }} stroke="#64748b" width={48} />
-                          <Tooltip formatter={(value) => currency.format(Number(value))} />
-                          <Bar dataKey="total" fill="#2563eb" radius={[6, 6, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </AdminPanel>
-                </div>
-                <div className="grid gap-5 xl:grid-cols-3">
-                  <AdminPanel title="Top sản phẩm bán chạy" action={<ShoppingBag className="h-5 w-5 text-red-600" />}>
-                    <div className="space-y-3">
-                      {topProducts.map((product, index) => (
-                        <div key={product.id || product.name} className="flex items-center gap-3 rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-red-100 text-sm font-black text-red-700">{index + 1}</span>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-bold text-slate-800">{product.name}</div>
-                            <div className="text-xs font-semibold text-slate-500">{getProductSold(product)} đã bán</div>
-                          </div>
-                          <span className="text-xs font-bold text-slate-700">{compactCurrency.format(toNumber(product.periodRevenue))}</span>
-                        </div>
-                      ))}
-                      {topProducts.length === 0 && <EmptyState text="Chưa có dữ liệu bán chạy." />}
-                    </div>
-                  </AdminPanel>
-                  <AdminPanel title="Tỉ lệ hủy và hoàn đơn" action={<RotateCcw className="h-5 w-5 text-amber-600" />}>
-                    <div className="grid gap-3">
-                      <MiniMetric label="Tỉ lệ hủy đơn" value={orders.length ? percent.format(cancelledOrders / orders.length) : '0%'} helper={`${cancelledOrders} đơn đã hủy`} />
-                      <MiniMetric label="Tỉ lệ hoàn đơn" value={orders.length ? percent.format(refundedOrders / orders.length) : '0%'} helper={`${refundedOrders} đơn hoàn / trả`} />
-                    </div>
-                  </AdminPanel>
-                  <AdminPanel title="Cảnh báo điều hành" action={<AlertTriangle className="h-5 w-5 text-amber-600" />}>
-                    <div className="space-y-3">
-                      <AlertRow label="Voucher gần hết ngân sách" value={riskyVouchers.length} detail="Đã dùng từ 80% ngân sách" />
-                      <AlertRow label="Tồn kho âm" value={negativeStockProducts.length} detail="Cần đối soát lệch kho" />
-                      <AlertRow label="Sắp hết hàng" value={lowStockProducts.length} detail="Dựa trên ngưỡng tối thiểu từng sản phẩm" />
-                    </div>
-                  </AdminPanel>
-                </div>
-                <AdminPanel title="Dashboard theo vai trò" action={<ShieldCheck className="h-5 w-5 text-slate-600" />}>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    {roleDashboards.map((item) => {
-                      const Icon = item.icon;
-                      return (
-                        <div key={item.role} className="rounded-md border border-slate-100 bg-white p-4 shadow-sm">
-                          <div className="flex items-center gap-3">
-                            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-slate-100 text-slate-700">
-                              <Icon className="h-5 w-5" />
-                            </span>
-                            <div>
-                              <div className="text-sm font-black text-slate-900">{item.role}</div>
-                              <div className="text-xs font-semibold text-slate-500">{item.metric}</div>
-                            </div>
-                          </div>
-                          <p className="mt-3 text-sm font-medium leading-5 text-slate-600">{item.helper}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </AdminPanel>
-              </div>
+              <Suspense fallback={<div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm font-semibold text-slate-500">?ang t?i t?ng quan...</div>}>
+                <AdminOverviewTab
+                  stats={stats}
+                  overview={overview}
+                  roleDashboards={roleDashboards}
+                  currency={currency}
+                  compactCurrency={compactCurrency}
+                  percent={percent}
+                />
+              </Suspense>
             )}
-
             {tab === 'products' && (
-              <AdminPanel title="Quản lý sản phẩm, media và biến thể" action={
-                <div className="flex flex-wrap items-center gap-2">
-                  <SearchBox value={query} onChange={setQuery} placeholder="Tìm sản phẩm, SKU, thương hiệu" />
-                  <button type="button" onClick={exportProducts} className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700"><Download className="h-4 w-4" />Xuất</button>
-                  <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700">
-                    <Upload className="h-4 w-4" />Import
-                    <input type="file" accept=".csv,text/csv" className="hidden" onChange={(event) => importProducts(event.target.files)} />
-                  </label>
-                </div>
-              }>
-                <CollapsibleSection title={editingProductId ? 'Đang chỉnh sửa sản phẩm' : 'Thêm sản phẩm mới'} description="Mở popup khi cần nhập sản phẩm, media, thông số và biến thể. Bảng sản phẩm bên dưới vẫn luôn sẵn sàng để tìm kiếm." defaultOpen={false} forceOpen={Boolean(editingProductId)} forceOpenKey={editingProductId} onClose={resetProductForm}>
-                  <form onSubmit={handleProductSubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-4">
-                    <Input label="Tên sản phẩm" value={productForm.name} required onChange={(value) => setProductForm({ ...productForm, name: value })} />
-                    <Input label="Giá gốc chung" type="number" value={productForm.price} onChange={(value) => setProductForm({ ...productForm, price: Number(value) })} />
-                    <Input label="Giá bán chung" type="number" value={productForm.discountPrice} onChange={(value) => setProductForm({ ...productForm, discountPrice: Number(value) })} />
-                    <Select label="Danh mục cha" value={productForm.categoryId} onChange={(value) => {
-                      const category = rootCategories.find((item) => item.id === value);
-                      const nextWarranty = productForm.warrantyPolicy.inheritWarrantyPolicy ? categoryWarrantyPolicy(category) : productForm.warrantyPolicy;
-                      setProductForm({ ...productForm, categoryId: value, category: (category?.code || category?.slug || productForm.category).toUpperCase(), warrantyPolicy: nextWarranty, specifications: {}, variantSpecKeys: [], variants: productForm.variants.map((variant) => ({ ...variant, specs: {} })) });
-                    }} options={[['', 'Chưa chọn'], ...rootCategories.map((item) => [item.id, item.name] as [string, string])]} />
-                    <Select label="Danh mục con" value={productForm.subcategoryId} onChange={(value) => {
-                      const child = subCategories.find((item) => item.id === value);
-                      const parent = rootCategories.find((item) => item.id === (child?.parentId || productForm.categoryId));
-                      const nextWarranty = productForm.warrantyPolicy.inheritWarrantyPolicy ? categoryWarrantyPolicy(child || parent, parent) : productForm.warrantyPolicy;
-                      setProductForm({ ...productForm, subcategoryId: value, warrantyPolicy: nextWarranty });
-                    }} options={[['', 'Chưa chọn'], ...subCategories.map((item) => [item.id, `${item.parentName || 'Khác'} / ${item.name}`] as [string, string])]} />
-                    <Select label="Thương hiệu" value={productForm.brandId} onChange={(value) => {
-                      const brand = brands.find((item) => item.id === value);
-                      setProductForm({ ...productForm, brandId: value, brand: brand?.name || productForm.brand });
-                    }} options={[['', 'Nhập tay'], ...brands.map((item) => [item.id, item.name] as [string, string])]} />
-                    <Select label="Trạng thái" value={productForm.status} onChange={(value) => setProductForm({ ...productForm, status: value })} options={productStatusOptions} />
-                    <Input label="Thương hiệu nhập tay" value={productForm.brand} onChange={(value) => setProductForm({ ...productForm, brand: value })} />
-                    <FileInput label="Ảnh đại diện chung" accept="image/*" onFiles={async (files) => setProductForm({ ...productForm, imageUrl: (await uploadFiles(files, 'products'))[0] || productForm.imageUrl })} />
-                    <FileInput label="Video sản phẩm dùng chung" accept="video/*" onFiles={async (files) => setProductForm({ ...productForm, videoUrl: (await uploadFiles(files, 'products'))[0] || productForm.videoUrl })} />
-                    <MediaPreview title="Ảnh đại diện chung" items={productForm.imageUrl ? [productForm.imageUrl] : []} onRemove={() => setProductForm({ ...productForm, imageUrl: '' })} />
-                    {productForm.videoUrl && <VideoPreview title="Video sản phẩm dùng chung" url={productForm.videoUrl} onRemove={() => setProductForm({ ...productForm, videoUrl: '' })} />}
-                    <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-4">
-                      <div className="mb-3 text-sm font-bold text-slate-700">Bảo hành sản phẩm</div>
-                      <div className="grid gap-3 md:grid-cols-5">
-                        <Checkbox label="Theo danh mục" checked={productForm.warrantyPolicy.inheritWarrantyPolicy} onChange={(checked) => {
-                          const parent = rootCategories.find((item) => item.id === productForm.categoryId);
-                          const child = subCategories.find((item) => item.id === productForm.subcategoryId);
-                          setProductForm({ ...productForm, warrantyPolicy: checked ? categoryWarrantyPolicy(child || parent, parent) : { ...productForm.warrantyPolicy, inheritWarrantyPolicy: false } });
-                        }} />
-                        <Checkbox label="Có bảo hành" checked={productForm.warrantyPolicy.hasWarranty} disabled={productForm.warrantyPolicy.inheritWarrantyPolicy} onChange={(checked) => setProductForm({ ...productForm, warrantyPolicy: { ...productForm.warrantyPolicy, hasWarranty: checked, inheritWarrantyPolicy: false } })} />
-                        <Input label="Tháng bảo hành" type="number" disabled={productForm.warrantyPolicy.inheritWarrantyPolicy} value={productForm.warrantyPolicy.warrantyMonths} onChange={(value) => setProductForm({ ...productForm, warrantyPolicy: { ...productForm.warrantyPolicy, warrantyMonths: Math.max(0, Number(value)), inheritWarrantyPolicy: false } })} />
-                        <Checkbox label="Có 1 đổi 1" checked={productForm.warrantyPolicy.allowOneForOne} disabled={productForm.warrantyPolicy.inheritWarrantyPolicy} onChange={(checked) => setProductForm({ ...productForm, warrantyPolicy: { ...productForm.warrantyPolicy, allowOneForOne: checked, inheritWarrantyPolicy: false } })} />
-                        <Input label="Ngày 1 đổi 1" type="number" disabled={productForm.warrantyPolicy.inheritWarrantyPolicy} value={productForm.warrantyPolicy.oneForOneDays} onChange={(value) => setProductForm({ ...productForm, warrantyPolicy: { ...productForm.warrantyPolicy, oneForOneDays: Math.max(0, Number(value)), inheritWarrantyPolicy: false } })} />
-                      </div>
-                    </div>
-
-                    {productSpecFields.length > 0 && (
-                      <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-4">
-                        <div className="mb-3">
-                          <div className="text-sm font-bold text-slate-700">Thông số kỹ thuật theo danh mục</div>
-                          <p className="mt-1 text-xs font-medium text-slate-500">Các trường này lấy từ form thông số của danh mục cha và áp dụng cho sản phẩm.</p>
-                        </div>
-                        <div className="space-y-4">
-                          {groupedProductSpecFields.map((group) => (
-                            <div key={group.title}>
-                              <div className="mb-2 text-xs font-bold uppercase text-slate-500">{group.title}</div>
-                              <div className="grid gap-3 md:grid-cols-3">
-                                {group.fields.map((field) => <Input key={field.key} label={field.label || field.key} value={productForm.specifications[field.key] || ''} required={field.required} onChange={(value) => setProductForm({ ...productForm, specifications: { ...productForm.specifications, [field.key]: value } })} />)}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <textarea className="min-h-20 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500 md:col-span-4" placeholder="Mô tả ngắn" value={productForm.description} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })} />
-
-                    <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-4">
-                      <div className="mb-3 text-sm font-bold text-slate-700">Sản phẩm bán kèm và dịch vụ đi kèm</div>
-                      <div className="grid gap-3">
-                        <div className="rounded-md border border-slate-200 bg-white p-3">
-                          <div className="text-sm font-bold text-slate-800">Sản phẩm mua kèm giảm giá</div>
-                          <div className="mt-1 text-xs font-medium text-slate-500">Chọn từ danh sách sản phẩm sau khi lọc. Giảm giá chỉ áp dụng trong số lượng admin đã cấu hình.</div>
-                          <div className="mt-3 grid gap-3 md:grid-cols-3">
-                            <Select label="Danh mục" value={accessoryCategoryFilter} onChange={setAccessoryCategoryFilter} options={[['', 'Tất cả'], ...categories.map((item) => [item.id, item.parentName ? `${item.parentName} / ${item.name}` : item.name] as [string, string])]} />
-                            <Select label="Thương hiệu" value={accessoryBrandFilter} onChange={setAccessoryBrandFilter} options={[['', 'Tất cả'], ...brands.map((item) => [item.id, item.name] as [string, string])]} />
-                            <Input label="Tìm sản phẩm" value={accessorySearch} onChange={setAccessorySearch} />
-                          </div>
-                          <div className="mt-2 rounded-md border border-slate-200">
-                            {(accessoryCategoryFilter || accessoryBrandFilter || accessorySearch.trim()) ? (
-                              accessoryProductChoices.length > 0 ? (
-                                <>
-                                  <button type="button" onClick={() => accessoryProductChoices.forEach((item) => addAccessoryOffer(item))} className="flex w-full items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-3 py-2 text-left text-xs font-bold text-slate-700">
-                                    Chọn tất cả sản phẩm đang lọc
-                                    <Plus className="h-4 w-4" />
-                                  </button>
-                                  {accessoryProductChoices.map((item) => (
-                                    <button
-                                      key={item.id}
-                                      type="button"
-                                      onClick={() => addAccessoryOffer(item)}
-                                      className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
-                                    >
-                                      <div className="min-w-0">
-                                        <div className="truncate text-sm font-semibold text-slate-800">{item.name}</div>
-                                        <div className="text-xs text-slate-500">{item.sku || compactId(item.id)}</div>
-                                      </div>
-                                      <span className="text-xs font-bold text-red-600">Chọn</span>
-                                    </button>
-                                  ))}
-                                </>
-                              ) : (
-                                <div className="px-3 py-4 text-sm font-medium text-slate-500">Không có sản phẩm phù hợp với bộ lọc.</div>
-                              )
-                            ) : (
-                              <div className="px-3 py-4 text-sm font-medium text-slate-500">Chọn danh mục, thương hiệu hoặc nhập tên/SKU để hiện danh sách sản phẩm.</div>
-                            )}
-                          </div>
-                          <div className="mt-3 space-y-3">
-                            {productForm.accessoryOffers.length === 0 && <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">Chưa có sản phẩm mua kèm giảm giá.</div>}
-                            {productForm.accessoryOffers.map((item) => (
-                              <div key={item.productId} className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="flex items-center gap-3">
-                                    {item.imageUrl ? <img src={item.imageUrl} alt="" className="h-12 w-12 rounded-md border border-slate-200 object-contain" /> : <div className="flex h-12 w-12 items-center justify-center rounded-md border border-slate-200 bg-white"><Image className="h-4 w-4 text-slate-300" /></div>}
-                                    <div>
-                                      <div className="text-sm font-bold text-slate-800">{item.productName || 'Sản phẩm mua kèm'}</div>
-                                      <div className="text-xs text-slate-500">{item.productSku || compactId(item.productId)}</div>
-                                    </div>
-                                  </div>
-                                  <button type="button" onClick={() => removeAccessoryOffer(item.productId)} className="text-red-600"><Trash2 className="h-4 w-4" /></button>
-                                </div>
-                                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                                  <Select label="Kiểu giảm" value={item.discountType} onChange={(value) => patchAccessoryOffer(item.productId, { discountType: value as 'FIXED' | 'PERCENT' })} options={[['PERCENT', 'Theo %'], ['FIXED', 'Theo tiền']]} />
-                                  <Input label={item.discountType === 'PERCENT' ? 'Giảm giá (%)' : 'Giảm giá (VND)'} type="number" value={item.discountValue} onChange={(value) => patchAccessoryOffer(item.productId, { discountValue: Number(value) })} />
-                                  <Input label="Số lượng được giảm" type="number" value={item.maxQuantity} onChange={(value) => patchAccessoryOffer(item.productId, { maxQuantity: Math.max(1, Number(value) || 1) })} />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-3">
-                          <div className="text-sm font-bold text-slate-800">Dịch vụ đi kèm</div>
-                          <div className="mt-1 text-xs font-medium text-slate-500">Chọn từ danh sách dịch vụ admin đã tạo. Với cùng một nhóm bảo hành, hệ thống chỉ cho chọn một thời hạn.</div>
-                          <div className="mt-3 grid gap-3 md:grid-cols-3">
-                            <Select label="Loại dịch vụ" value={attachedServiceTypeFilter} onChange={setAttachedServiceTypeFilter} options={[['', 'Tất cả'], ['PRODUCT_SERVICE', 'Dịch vụ sản phẩm'], ['SUPPORT_SERVICE', 'Dịch vụ hỗ trợ']]} />
-                            <Select label="Nhóm dịch vụ" value={attachedServiceGroupFilter} onChange={setAttachedServiceGroupFilter} options={[['', 'Tất cả'], ...serviceGroupOptions.map((item) => [item, item] as [string, string])]} />
-                            <Input label="Tìm dịch vụ" value={attachedServiceSearch} onChange={setAttachedServiceSearch} />
-                          </div>
-                          <div className="mt-3 rounded-md border border-slate-200">
-                            {productAttachedServiceChoices.length === 0 ? (
-                              <div className="px-3 py-4 text-sm font-medium text-slate-500">Không có dịch vụ phù hợp hoặc tất cả dịch vụ trong bộ lọc đã được chọn.</div>
-                            ) : productAttachedServiceChoices.map((service) => (
-                              <button key={service.id} type="button" onClick={() => addAttachedService(service)} className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50">
-                                <div className="min-w-0">
-                                  <div className="truncate text-sm font-semibold text-slate-800">{service.name} <span className="text-xs text-slate-400">({service.code})</span></div>
-                                  <div className="text-xs text-slate-500">
-                                    {service.serviceType === 'PRODUCT_SERVICE' ? 'Dịch vụ sản phẩm' : 'Dịch vụ hỗ trợ'}
-                                    {service.attributeGroup ? ` · Nhóm ${service.attributeGroup}` : ''}
-                                    {service.durationMonths ? ` · ${service.durationMonths} tháng` : ''}
-                                    {service.priceMode === 'PERCENT' ? ` · ${service.percentValue || 0}%` : service.priceMode === 'TIERED_AMOUNT' ? ' · Theo biểu phí' : ` · ${currency.format(Number(service.fixedPrice || service.baseAmount || 0))}`}
-                                  </div>
-                                </div>
-                                <Plus className="h-4 w-4 shrink-0 text-red-600" />
-                              </button>
-                            ))}
-                          </div>
-                          <div className="mt-3 space-y-2">
-                            {productForm.attachedServices.length === 0 && <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">Chưa chọn dịch vụ đi kèm.</div>}
-                            {productForm.attachedServices.map((item) => (
-                              <div key={item.serviceId} className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_40px]">
-                                <div>
-                                  <div className="text-sm font-bold text-slate-800">{item.name || item.code || 'Dịch vụ'}</div>
-                                  <div className="text-xs text-slate-500">
-                                    {item.serviceType === 'PRODUCT_SERVICE' ? 'Dịch vụ sản phẩm' : 'Dịch vụ hỗ trợ'}
-                                    {item.attributeGroup ? ` · Nhóm ${item.attributeGroup}` : ''}
-                                    {item.durationMonths ? ` · ${item.durationMonths} tháng` : ''}
-                                    {item.priceMode === 'PERCENT' ? ` · ${item.percentValue || 0}%` : item.priceMode === 'TIERED_AMOUNT' ? ' · Theo biểu phí chính sách' : ` · ${currency.format(Number(item.fixedPrice || 0))}`}
-                                  </div>
-                                </div>
-                                <button type="button" onClick={() => removeAttachedService(item.serviceId)} className="text-red-600"><Trash2 className="h-4 w-4" /></button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-4">
-                      <div className="mb-3 flex items-center justify-between">
-                        <div>
-                          <div className="text-sm font-bold text-slate-700">Biến thể sản phẩm</div>
-                          <p className="mt-1 text-xs font-medium text-slate-500">Chọn thông số nào của danh mục sẽ dùng để tách biến thể cho riêng sản phẩm này.</p>
-                        </div>
-                        <button type="button" onClick={addVariant} className="inline-flex h-9 items-center gap-2 rounded-md border border-rose-200 bg-rose-100 px-3 text-sm font-bold text-rose-800 transition hover:bg-rose-200"><Plus className="h-4 w-4" /> Thêm biến thể</button>
-                      </div>
-                      <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 p-3">
-                        <div className="text-xs font-bold uppercase tracking-wide text-slate-400">Chọn cách dùng thông số có thể tạo biến thể</div>
-                        {selectedCategory ? (
-                          variantFields.length > 0 ? (
-                            <div className="mt-3 grid gap-2 md:grid-cols-2">
-                              {variantFields.map((field) => {
-                                const checked = productForm.variantSpecKeys.includes(field.key);
-                                return (
-                                  <label key={field.key} className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 transition ${checked ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white'}`}>
-                                    <div>
-                                      <div className="text-sm font-bold text-slate-800">{field.label || field.key}</div>
-                                      <div className="mt-0.5 text-xs font-medium text-slate-500">{checked ? 'Đang dùng làm biến thể' : 'Dùng chung trong thông số sản phẩm'}</div>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
-                                      <span>{checked ? 'Dùng biến thể' : 'Dùng chung'}</span>
-                                      <input type="checkbox" checked={checked} onChange={(event) => toggleVariantSpecField(field.key, event.target.checked)} className="h-4 w-4 accent-red-600" />
-                                    </div>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <p className="mt-2 text-sm font-medium text-amber-700">Danh mục này chưa có thông số nào được đánh dấu dùng cho biến thể.</p>
-                          )
-                        ) : (
-                          <p className="mt-2 text-sm font-medium text-slate-500">Chọn danh mục cha để hệ thống nạp danh sách thông số cho biến thể.</p>
-                        )}
-                      </div>
-                      <div className="space-y-3">
-                        {productForm.variants.map((variant, index) => (
-                          <div key={index} className="rounded-md bg-slate-50 p-3">
-                            <div className="mb-3 flex items-center justify-between">
-                              <span className="text-sm font-bold text-slate-700">Biến thể {index + 1}</span>
-                              <button type="button" onClick={() => setProductForm({ ...productForm, variants: productForm.variants.filter((_, i) => i !== index) })} className="text-red-600"><Trash2 className="h-4 w-4" /></button>
-                            </div>
-                            <div className="grid gap-3 md:grid-cols-4">
-                              <Input label="SKU biến thể" value={variant.sku || buildVariantSku(productForm.name, variant.colorName, index)} onChange={(value) => patchVariant(index, { sku: value })} />
-                              <Input label="Màu sắc chính" value={variant.colorName} onChange={(value) => patchVariant(index, { colorName: value, sku: variant.sku || buildVariantSku(productForm.name, value, index) })} />
-                              <Input label="Mã màu" value={variant.colorCode} type="color" onChange={(value) => patchVariant(index, { colorCode: value })} />
-                              <Input label="Giá gốc riêng" value={variant.price} type="number" onChange={(value) => patchVariant(index, { price: Number(value) })} />
-                              <Input label="Giá bán riêng" value={variant.salePrice} type="number" onChange={(value) => patchVariant(index, { salePrice: Number(value) })} />
-                              <FileInput label="Ảnh riêng biến thể" accept="image/*" onFiles={async (files) => patchVariant(index, { imageUrl: (await uploadFiles(files, 'products'))[0] || variant.imageUrl })} />
-                              {variant.imageUrl && <MediaPreview title={`Xem trước ảnh màu ${variant.colorName || index + 1}`} items={[variant.imageUrl]} onRemove={() => patchVariant(index, { imageUrl: '' })} />}
-                              {groupedActiveVariantFields.map((group) => (
-                                <div key={group.title} className="md:col-span-4">
-                                  <div className="mb-2 text-xs font-bold uppercase text-slate-500">{group.title}</div>
-                                  <div className="grid gap-3 md:grid-cols-4">
-                                    {group.fields.map((field) => <Input key={field.key} label={`${field.label || field.key} (biến thể)`} value={variant.specs[field.key] || ''} required={field.required} onChange={(value) => patchVariant(index, { specs: { ...variant.specs, [field.key]: value } })} />)}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                        {productForm.variants.length === 0 && <div className="rounded-md bg-slate-50 p-4 text-sm text-slate-500">Chưa có biến thể. Sản phẩm vẫn dùng giá và ảnh chung.</div>}
-                      </div>
-                    </div>
-
-                    <SubmitButtons editing={Boolean(editingProductId)} onCancel={resetProductForm} />
-                  </form>
-                </CollapsibleSection>
-
-                {selectedProductIds.length > 0 && (
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-sky-100 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800">
-                    <span>Đã chọn {selectedProductIds.length} sản phẩm</span>
-                    <button type="button" onClick={bulkApproveProducts} className="inline-flex h-9 items-center gap-2 rounded-md bg-sky-700 px-3 text-xs font-bold text-white"><CheckCircle2 className="h-4 w-4" />Duyệt hàng loạt</button>
-                  </div>
-                )}
-
-                <AdminTable headers={['Chọn', 'Ảnh', 'Sản phẩm', 'Danh mục', 'Thương hiệu', 'Giá', 'Kho', 'Biến thể', 'Trạng thái', 'Thao tác']}>
-                  {filteredProducts.map((product) => (
-                    <tr key={product.id}>
-                      <td className="px-4 py-3"><input type="checkbox" checked={selectedProductIds.includes(product.id)} onChange={(event) => setSelectedProductIds((ids) => event.target.checked ? [...new Set([...ids, product.id])] : ids.filter((id) => id !== product.id))} className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500" /></td>
-                      <td className="px-4 py-3">{product.imageUrl ? <img src={product.imageUrl} alt="" className="h-11 w-11 rounded-md object-contain" /> : <Image className="h-6 w-6 text-slate-300" />}</td>
-                      <td className="px-4 py-3"><div className="font-semibold text-slate-900">{product.name}</div><div className="text-xs text-slate-500">{product.sku || compactId(product.id)}</div></td>
-                      <td className="px-4 py-3">{product.categoryName || product.category || '-'}</td>
-                      <td className="px-4 py-3">{product.brand || '-'}</td>
-                      <td className="px-4 py-3 font-semibold text-red-600">{currency.format(Number(product.discountPrice || product.price || 0))}</td>
-                      <td className="px-4 py-3">
-                        <div className="font-semibold">{product.stock ?? 0}</div>
-                        <AdminBadge tone={Number(product.stock || 0) > 0 ? 'green' : 'yellow'}>{Number(product.stock || 0) > 0 ? 'Còn hàng' : 'Hết hàng'}</AdminBadge>
-                      </td>
-                      <td className="px-4 py-3">{product.variants?.length || 0}</td>
-                      <td className="px-4 py-3"><AdminBadge tone={product.status === 'ACTIVE' ? 'green' : product.status === 'PENDING' ? 'blue' : product.status === 'DRAFT' ? 'yellow' : 'slate'}>{productStatusLabel[product.status] || product.status || 'Nháp'}</AdminBadge></td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <RowActions onEdit={() => editProduct(product)} onDelete={() => confirmDelete(product.name, () => apiDb.adminDeactivateProduct(product.id))} onRestore={product.status !== 'ACTIVE' && product.status !== 'ARCHIVED' ? () => reactivateProduct(product) : undefined} />
-                          <button type="button" onClick={() => setPreviewProduct(product)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700"><Eye className="inline h-3.5 w-3.5" /> Preview</button>
-                          <button type="button" onClick={() => duplicateProduct(product)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700"><Copy className="inline h-3.5 w-3.5" /> Sao chép</button>
-                          {product.status === 'DRAFT' && <button type="button" onClick={() => submitProduct(product)} className="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-bold text-sky-700">Gửi duyệt</button>}
-                          {product.status === 'PENDING' && <button type="button" onClick={() => approveProduct(product)} className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-bold text-emerald-700">Duyệt</button>}
-                          {(product.status === 'DRAFT' || product.status === 'INACTIVE') && <button type="button" onClick={() => archiveProduct(product)} className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700">Lưu trữ</button>}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </AdminTable>
-              </AdminPanel>
+              <Suspense fallback={<div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm font-semibold text-slate-500">?ang t?i s?n ph?m...</div>}>
+                <AdminProductsTab
+                  productCategoryFilter={productCategoryFilter}
+                  setProductCategoryFilter={setProductCategoryFilter}
+                  productBrandFilter={productBrandFilter}
+                  productBrandOptions={productBrandOptions}
+                  setProductBrandFilter={setProductBrandFilter}
+                  accessoryBrandFilter={accessoryBrandFilter}
+                  accessoryCategoryFilter={accessoryCategoryFilter}
+                  accessoryProductChoices={accessoryProductChoices}
+                  accessorySearch={accessorySearch}
+                  addAccessoryOffer={addAccessoryOffer}
+                  addAttachedService={addAttachedService}
+                  addVariant={addVariant}
+                  approveProduct={approveProduct}
+                  archiveProduct={archiveProduct}
+                  attachedServiceGroupFilter={attachedServiceGroupFilter}
+                  attachedServiceSearch={attachedServiceSearch}
+                  attachedServiceTypeFilter={attachedServiceTypeFilter}
+                  brands={brands}
+                  buildVariantSku={buildVariantSku}
+                  bulkApproveProducts={bulkApproveProducts}
+                  categories={categories}
+                  categoryWarrantyPolicy={categoryWarrantyPolicy}
+                  compactId={compactId}
+                  confirmDelete={confirmDelete}
+                  currency={currency}
+                  duplicateProduct={duplicateProduct}
+                  editProduct={editProduct}
+                  editingProductId={editingProductId}
+                  exportProducts={exportProducts}
+                  filteredProducts={filteredProducts}
+                  groupedActiveVariantFields={groupedActiveVariantFields}
+                  groupedProductSpecFields={groupedProductSpecFields}
+                  handleProductSubmit={handleProductSubmit}
+                  importProducts={importProducts}
+                  patchAccessoryOffer={patchAccessoryOffer}
+                  patchVariant={patchVariant}
+                  productAttachedServiceChoices={productAttachedServiceChoices}
+                  productForm={productForm}
+                  productSpecFields={productSpecFields}
+                  productStatusLabel={productStatusLabel}
+                  productStatusOptions={productStatusOptions}
+                  query={query}
+                  reactivateProduct={reactivateProduct}
+                  removeAccessoryOffer={removeAccessoryOffer}
+                  removeAttachedService={removeAttachedService}
+                  resetProductForm={resetProductForm}
+                  rootCategories={rootCategories}
+                  selectedCategory={selectedCategory}
+                  selectedProductIds={selectedProductIds}
+                  serviceGroupOptions={serviceGroupOptions}
+                  setAccessoryBrandFilter={setAccessoryBrandFilter}
+                  setAccessoryCategoryFilter={setAccessoryCategoryFilter}
+                  setAccessorySearch={setAccessorySearch}
+                  setAttachedServiceGroupFilter={setAttachedServiceGroupFilter}
+                  setAttachedServiceSearch={setAttachedServiceSearch}
+                  setAttachedServiceTypeFilter={setAttachedServiceTypeFilter}
+                  setPreviewProduct={setPreviewProduct}
+                  setProductForm={setProductForm}
+                  setQuery={setQuery}
+                  setSelectedProductIds={setSelectedProductIds}
+                  subCategories={subCategories}
+                  submitProduct={submitProduct}
+                  toggleVariantSpecField={toggleVariantSpecField}
+                  uploadFiles={uploadFiles}
+                  variantFields={variantFields}
+                />
+              </Suspense>
             )}
-
             {tab === 'categories' && (
-              <AdminPanel title="Quản lý danh mục và form thông số" action={<SearchBox value={query} onChange={setQuery} placeholder="Tìm danh mục, slug, danh mục cha" />}>
-                <CollapsibleSection title={editingCategoryId ? 'Đang chỉnh sửa danh mục' : 'Thêm danh mục và form thông số'} description="Mở khi cần tạo danh mục cha, danh mục con hoặc cấu hình form thông số kỹ thuật cho danh mục cha." defaultOpen={false} forceOpen={Boolean(editingCategoryId)} forceOpenKey={editingCategoryId} onClose={resetCategoryForm}>
-                  <form onSubmit={handleCategorySubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-5">
-                    <Input label="Tên danh mục" value={categoryForm.name} required onChange={(value) => setCategoryForm({ ...categoryForm, name: value, slug: categoryForm.slug || slugifyText(value) })} />
-                    <Input label="Slug" value={categoryForm.slug} onBlur={checkCategorySlug} onChange={(value) => {
-                      setCategorySlugStatus('idle');
-                      setCategoryForm({ ...categoryForm, slug: slugifyText(value) });
-                    }} />
-                    <Input label="Icon" value={categoryForm.icon} onChange={(value) => setCategoryForm({ ...categoryForm, icon: value })} />
-                    <Select label="Danh mục cha" value={categoryForm.parentId} onChange={(value) => setCategoryForm({ ...categoryForm, parentId: value })} options={[['', 'Là danh mục cha'], ...rootCategories.map((item) => [item.id, item.name] as [string, string])]} />
-                    <Input label="Thứ tự" type="number" value={categoryForm.order} onChange={(value) => setCategoryForm({ ...categoryForm, order: Number(value) })} />
-                    <Select label="Trạng thái" value={categoryForm.status} onChange={(value) => setCategoryForm({ ...categoryForm, status: value, isActive: ['ACTIVE', 'APPROVED'].includes(value) })} options={categoryStatusOptions} />
-                    {categoryParentMigrationHint && <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 md:col-span-5">Danh mục này đang có sản phẩm. Nếu đổi danh mục cha, hệ thống sẽ tạo tác vụ nền để chuẩn hóa lại thông số sản phẩm theo cây mới.</div>}
-                    {(categorySlugTaken || categorySlugStatus !== 'idle') && (
-                      <div className={`rounded-md border px-3 py-2 text-sm font-semibold md:col-span-5 ${categorySlugStatus === 'available' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}>
-                        {categorySlugStatus === 'checking' ? 'Đang kiểm tra slug...' : categorySlugStatus === 'available' ? 'Slug có thể sử dụng.' : 'Slug này đã tồn tại. Hãy đổi slug trước khi lưu.'}
-                      </div>
-                    )}
-                    <FileInput label="Icon/hình danh mục" accept="image/*" onFiles={async (files) => setCategoryForm({ ...categoryForm, iconUrl: (await uploadFiles(files, 'categories'))[0] || categoryForm.iconUrl })} />
-                    <FileInput label="Banner danh mục" accept="image/*" onFiles={async (files) => setCategoryForm({ ...categoryForm, bannerUrl: (await uploadFiles(files, 'categories'))[0] || categoryForm.bannerUrl })} />
-                    {(categoryForm.iconUrl || categoryForm.bannerUrl) && (
-                      <div className="grid gap-3 md:col-span-3 md:grid-cols-2">
-                        {categoryForm.iconUrl && <img src={categoryForm.iconUrl} alt="" className="h-24 w-full rounded-md border border-slate-200 object-cover" />}
-                        {categoryForm.bannerUrl && <img src={categoryForm.bannerUrl} alt="" className="h-24 w-full rounded-md border border-slate-200 object-cover" />}
-                      </div>
-                    )}
-                    <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-5">
-                      <div className="mb-3 text-sm font-bold text-slate-700">SEO Metadata</div>
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <Input label="Meta Title" value={categoryForm.seoTitle} onChange={(value) => setCategoryForm({ ...categoryForm, seoTitle: value })} />
-                        <Input label="Keywords" value={categoryForm.seoKeywords} onChange={(value) => setCategoryForm({ ...categoryForm, seoKeywords: value })} />
-                        <textarea className="min-h-16 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500 md:col-span-3" placeholder="Meta Description" value={categoryForm.seoDescription} onChange={(event) => setCategoryForm({ ...categoryForm, seoDescription: event.target.value })} />
-                      </div>
-                    </div>
-                    <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-5">
-                      <div className="mb-3 text-sm font-bold text-slate-700">Tồn kho và bảo hành mặc định</div>
-                      <div className="grid gap-3 md:grid-cols-5">
-                        <Checkbox label="Theo IMEI của cha" checked={Boolean(categoryForm.inventoryPolicy.inheritImeiPolicy)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, inheritImeiPolicy: checked } })} />
-                        <Checkbox label="Quản lý IMEI" checked={Boolean(categoryForm.inventoryPolicy.trackImei)} disabled={Boolean(categoryForm.inventoryPolicy.inheritImeiPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, trackImei: checked } })} />
-                        <Checkbox label="Theo bảo hành của cha" checked={Boolean(categoryForm.warrantyPolicy.inheritWarrantyPolicy)} onChange={(checked) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, inheritWarrantyPolicy: checked } })} />
-                        <Checkbox label="Có bảo hành" checked={Boolean(categoryForm.warrantyPolicy.hasWarranty)} disabled={Boolean(categoryForm.warrantyPolicy.inheritWarrantyPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, hasWarranty: checked } })} />
-                        <Input label="Tháng bảo hành" type="number" value={Number(categoryForm.warrantyPolicy.warrantyMonths || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, warrantyMonths: Math.max(0, Number(value)) } })} />
-                        <Checkbox label="Có 1 đổi 1" checked={Boolean(categoryForm.warrantyPolicy.allowOneForOne)} disabled={Boolean(categoryForm.warrantyPolicy.inheritWarrantyPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, allowOneForOne: checked } })} />
-                        <Input label="Ngày 1 đổi 1" type="number" value={Number(categoryForm.warrantyPolicy.oneForOneDays || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, oneForOneDays: Math.max(0, Number(value)) } })} />
-                      </div>
-                    </div>
-                    <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-5">
-                      <div className="mb-3 flex items-center justify-between">
-                        <div>
-                          <span className="text-sm font-bold text-slate-700">Form thông số kỹ thuật</span>
-                          <p className="mt-1 text-xs font-medium text-slate-500">{categoryForm.parentId ? 'Danh mục con kế thừa thông số chung từ danh mục cha và có thể thêm thông số đặc thù riêng.' : 'Danh mục cha lưu thông số chung. Danh mục con có thể cộng thêm thông số riêng nếu cần.'}</p>
-                        </div>
-                        <button type="button" onClick={addSpecField} className="inline-flex h-9 items-center gap-2 rounded-md border border-rose-200 bg-rose-100 px-3 text-sm font-bold text-rose-800 transition hover:bg-rose-200"><Plus className="h-4 w-4" /> Thêm trường</button>
-                      </div>
-                      <div className="space-y-2">
-                        {categoryForm.specFields.map((field, index) => (
-                          <div key={index} className="grid gap-2 rounded-md bg-slate-50 p-2 md:grid-cols-[1fr_1fr_1fr_130px_90px_100px_110px_130px_40px]">
-                            <Input label="Mã trường" value={field.key} onChange={(value) => patchSpecField(index, { key: value })} />
-                            <Input label="Tên hiển thị" value={field.label} onChange={(value) => patchSpecField(index, { label: value })} />
-                            <Input label="Nhóm cha" value={field.group || ''} onChange={(value) => patchSpecField(index, { group: value })} />
-                            <Select label="Kiểu" value={field.type} onChange={(value) => patchSpecField(index, { type: value })} options={[['text', 'Chữ'], ['number', 'Số'], ['select', 'Lựa chọn'], ['color', 'Màu']]} />
-                            <Checkbox label="Bắt buộc" checked={field.required} onChange={(checked) => patchSpecField(index, { required: checked })} />
-                            <Checkbox label="Dùng cho biến thể" checked={field.variant} onChange={(checked) => patchSpecField(index, { variant: checked })} />
-                            <Checkbox label="Dùng làm lọc" checked={Boolean(field.isFilterable)} onChange={(checked) => patchSpecField(index, { isFilterable: checked })} />
-                            <Select label="Kiểu lọc" value={field.filterType || (field.type === 'number' ? 'range' : 'checkbox')} onChange={(value) => patchSpecField(index, { filterType: value })} options={[['checkbox', 'Checkbox'], ['range', 'Khoảng'], ['select', 'Danh sách']]} />
-                            <button type="button" onClick={() => setCategoryForm({ ...categoryForm, specFields: categoryForm.specFields.filter((_, i) => i !== index) })} className="mt-5 text-red-600"><Trash2 className="h-4 w-4" /></button>
-                          </div>
-                        ))}
-                        {categoryForm.specFields.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-500">Chưa có trường thông số. Hãy thêm các trường như màn hình, chip, pin, camera, chất liệu...</div>}
-                      </div>
-                    </div>
-                    <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-5">
-                      <div className="mb-3 flex items-center justify-between">
-                        <div>
-                          <span className="text-sm font-bold text-slate-700">Bộ lọc hiển thị ngoài trang khách hàng</span>
-                          <p className="mt-1 text-xs font-medium text-slate-500">Chọn các thuộc tính sẽ xuất hiện ở sidebar/bộ lọc của trang danh mục.</p>
-                        </div>
-                        <button type="button" onClick={addCategoryFilter} className="inline-flex h-9 items-center gap-2 rounded-md border border-rose-200 bg-rose-100 px-3 text-sm font-bold text-rose-800 transition hover:bg-rose-200"><Plus className="h-4 w-4" /> Thêm bộ lọc</button>
-                      </div>
-                      <div className="space-y-2">
-                        {derivedCategoryFilters.map((field, index) => {
-                          const manualIndex = categoryForm.filterConfig.findIndex((item) => item.key === field.key && item.source !== 'attribute');
-                          const isAttributeFilter = field.source === 'attribute';
-                          return (
-                            <div key={`${field.source || 'manual'}-${field.key}-${index}`} className="grid gap-2 rounded-md bg-slate-50 p-2 md:grid-cols-[1fr_1fr_150px_110px_110px_40px]">
-                              <Input label="Mã lọc" value={field.key} disabled={isAttributeFilter} onChange={(value) => manualIndex >= 0 && patchCategoryFilter(manualIndex, { key: value })} />
-                              <Input label="Tên hiển thị" value={field.label} disabled={isAttributeFilter} onChange={(value) => manualIndex >= 0 && patchCategoryFilter(manualIndex, { label: value })} />
-                              <Select label="Kiểu lọc" value={field.type} disabled={isAttributeFilter} onChange={(value) => manualIndex >= 0 && patchCategoryFilter(manualIndex, { type: value })} options={[['checkbox', 'Checkbox'], ['range', 'Khoảng giá/số'], ['select', 'Danh sách']]} />
-                              <Checkbox label="Hiển thị" checked={field.enabled} disabled={isAttributeFilter} onChange={(checked) => manualIndex >= 0 && patchCategoryFilter(manualIndex, { enabled: checked })} />
-                              <span className="mt-5 rounded-md bg-slate-200 px-2 py-1 text-center text-xs font-bold text-slate-700">{isAttributeFilter ? 'Từ thông số' : 'Thủ công'}</span>
-                              <button type="button" disabled={isAttributeFilter} onClick={() => manualIndex >= 0 && setCategoryForm({ ...categoryForm, filterConfig: categoryForm.filterConfig.filter((_, i) => i !== manualIndex) })} className="mt-5 text-red-600 disabled:text-slate-300"><Trash2 className="h-4 w-4" /></button>
-                            </div>
-                          );
-                        })}
-                        {derivedCategoryFilters.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-500">Chưa có bộ lọc. Đánh dấu "Dùng làm lọc" ở thông số kỹ thuật hoặc thêm bộ lọc thủ công.</div>}
-                      </div>
-                    </div>
-                    <SubmitButtons editing={Boolean(editingCategoryId)} onCancel={resetCategoryForm} />
-                  </form>
-                </CollapsibleSection>
-                <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900">Quản lý form thông số theo danh mục cha</h3>
-                      <p className="text-xs font-medium text-slate-500">Chỉ danh mục cha có form thông số; danh mục con kế thừa khi tạo sản phẩm.</p>
-                    </div>
-                    <AdminBadge tone="blue">{filteredRootCategories.length}/{rootCategories.length} danh mục cha</AdminBadge>
-                  </div>
-                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                    {filteredRootCategories.map((category) => (
-                      <button key={category.id} type="button" onClick={() => editCategory(category)} className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-red-200 hover:bg-red-50">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-bold text-slate-900">{category.name}</div>
-                          <div className="mt-1 text-xs font-medium text-slate-500">{category.slug || category.id}</div>
-                        </div>
-                        <span className="ml-3 rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{category.specFields?.length || 0} trường</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="mb-5 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-                  <div className="rounded-lg border border-slate-200 bg-white p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <div>
-                        <h3 className="text-sm font-bold text-slate-900">Tình trạng vận hành danh mục</h3>
-                        <p className="text-xs font-medium text-slate-500">Theo dõi cache, job di trú và các cảnh báo tự phục hồi của cây danh mục.</p>
-                      </div>
-                      <button type="button" onClick={() => refreshCategoryWorkspace()} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-bold text-slate-700">
-                        <RefreshCw className={`h-4 w-4 ${categoryPanelBusy ? 'animate-spin' : ''}`} />
-                        Làm mới
-                      </button>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <MetricCard label="Tỉ lệ cache hit" value={`${Math.round(Number(categoryMetrics.cacheHitRatio ?? 0) * 100)}%`} tone="emerald" />
-                      <MetricCard label="P99 đọc danh mục" value={`${Number(categoryMetrics.latencyP99Ms ?? 0)} ms`} tone="sky" />
-                      <MetricCard label="Job đang chạy" value={String(categoryMetrics.migrationRunningJobs ?? 0)} tone="amber" />
-                      <MetricCard label="Job stale đã cứu" value={String(categoryMetrics.migrationWatchdogRecoveredJobs ?? 0)} tone="slate" />
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-white p-4">
-                    <div className="mb-3">
-                      <h3 className="text-sm font-bold text-slate-900">Nhật ký danh mục đang chọn</h3>
-                      <p className="text-xs font-medium text-slate-500">{editingCategory ? `Đang xem: ${editingCategory.name}` : 'Chọn một danh mục để xem lịch sử thay đổi và job nền.'}</p>
-                    </div>
-                    {editingCategory ? (
-                      <div className="space-y-4">
-                        <div>
-                          <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Migration jobs</div>
-                          <div className="space-y-2">
-                            {categoryMigrationJobs.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">Chưa có job di trú nào cho danh mục này.</div>}
-                            {categoryMigrationJobs.slice(0, 4).map((job) => (
-                              <div key={job.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                                <div className="flex items-center justify-between gap-3">
-                                  <span className="font-mono text-xs text-slate-500">{compactId(job.id)}</span>
-                                  <AdminBadge tone={job.status === 'COMPLETED' ? 'green' : job.status === 'FAILED' ? 'red' : 'amber'}>{job.status}</AdminBadge>
-                                </div>
-                                <div className="mt-1 text-xs text-slate-600">Đã xử lý {job.processedProducts || 0}/{job.totalProducts || 0} sản phẩm</div>
-                                {job.errorMessage && <div className="mt-1 text-xs font-medium text-red-600">{job.errorMessage}</div>}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Audit gần nhất</div>
-                          <div className="space-y-2">
-                            {categoryAuditLogs.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">Chưa có lịch sử thay đổi gần đây.</div>}
-                            {categoryAuditLogs.slice(0, 5).map((log) => (
-                              <div key={log.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="text-sm font-semibold text-slate-800">{String(log.actionType || '').replaceAll('_', ' ')}</div>
-                                  <div className="text-xs text-slate-500">{new Date(log.createdAt).toLocaleString('vi-VN')}</div>
-                                </div>
-                                <div className="mt-1 text-xs text-slate-500">Actor: {compactId(log.actorId)}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-6 text-sm text-slate-500">Danh sách lịch sử và job nền sẽ hiện ở đây khi bạn mở một danh mục để chỉnh sửa.</div>
-                    )}
-                  </div>
-                </div>
-                <AdminTable headers={['Sắp xếp', 'Ảnh', 'Tên', 'Slug', 'Loại', 'Danh mục cha', 'Thông số / lọc', 'Trạng thái', 'Thao tác']}>
-                  {filteredCategoryTree.flatMap((category) => [category, ...(category.children || [])]).map((category) => (
-                    <CategoryTableRow
-                      key={category.id}
-                      category={category}
-                      level={category.parentId ? 1 : 0}
-                      onEdit={() => editCategory(category)}
-                      onDelete={() => confirmDelete(category.name, () => apiDb.adminDeleteCategory(category.id))}
-                      onRestore={category.isActive ? undefined : () => reactivateCategory(category)}
-                      onReorder={reorderCategory}
-                    />
-                  ))}
-                </AdminTable>
-              </AdminPanel>
+              <Suspense fallback={<div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm font-semibold text-slate-500">?ang t?i danh m?c...</div>}>
+                <AdminCategoriesTab
+                  addCategoryFilter={addCategoryFilter}
+                  addSpecField={addSpecField}
+                  apiDb={apiDb}
+                  categoryAuditLogs={categoryAuditLogs}
+                  categoryForm={categoryForm}
+                  categoryMetrics={categoryMetrics}
+                  categoryMigrationJobs={categoryMigrationJobs}
+                  categoryPanelBusy={categoryPanelBusy}
+                  categoryParentMigrationHint={categoryParentMigrationHint}
+                  categorySlugStatus={categorySlugStatus}
+                  categorySlugTaken={categorySlugTaken}
+                  categoryStatusOptions={categoryStatusOptions}
+                  checkCategorySlug={checkCategorySlug}
+                  compactId={compactId}
+                  confirmDelete={confirmDelete}
+                  derivedCategoryFilters={derivedCategoryFilters}
+                  editCategory={editCategory}
+                  editingCategory={editingCategory}
+                  editingCategoryId={editingCategoryId}
+                  filteredCategoryTree={filteredCategoryTree}
+                  filteredRootCategories={filteredRootCategories}
+                  handleCategorySubmit={handleCategorySubmit}
+                  patchCategoryFilter={patchCategoryFilter}
+                  patchSpecField={patchSpecField}
+                  query={query}
+                  reactivateCategory={reactivateCategory}
+                  refreshCategoryWorkspace={refreshCategoryWorkspace}
+                  reorderCategory={reorderCategory}
+                  resetCategoryForm={resetCategoryForm}
+                  rootCategories={rootCategories}
+                  setCategoryForm={setCategoryForm}
+                  setCategorySlugStatus={setCategorySlugStatus}
+                  setQuery={setQuery}
+                  slugifyText={slugifyText}
+                  uploadFiles={uploadFiles}
+                />
+              </Suspense>
             )}
-
             {tab === 'brands' && (
               <AdminPanel title="Quản lý thương hiệu và logo" action={<div className="flex flex-col gap-2 sm:flex-row"><Select label="Trạng thái" value={brandStatusFilter} onChange={setBrandStatusFilter} options={[['all', 'Tất cả'], ['active', 'Đang hiển thị'], ['inactive', 'Đã ẩn']]} /><SearchBox value={query} onChange={setQuery} placeholder="Tìm thương hiệu, mã" /></div>}>
                 <CollapsibleSection title={editingBrandId ? 'Đang chỉnh sửa thương hiệu' : 'Thêm thương hiệu mới'} description="Mở khi cần tạo hoặc cập nhật tên, mã và logo thương hiệu." defaultOpen={false} forceOpen={Boolean(editingBrandId)} forceOpenKey={editingBrandId} onClose={resetBrandForm}>
@@ -3069,142 +2792,33 @@ export default function AdminDashboard() {
             )}
 
             {tab === 'orders' && (
-              <AdminPanel title="Quản lý đơn hàng" action={<SearchBox value={query} onChange={setQuery} placeholder="Tìm mã đơn, khách hàng, trạng thái" />}>
-                <div className="mb-4 grid gap-3 md:grid-cols-4">
-                  <MetricCard label="Chờ xử lý" value={String(orders.filter((item) => item.status === 'PENDING').length)} tone="amber" />
-                  <MetricCard label="Đang giao" value={String(orders.filter((item) => item.status === 'SHIPPED').length)} tone="sky" />
-                  <MetricCard label="Đã hủy" value={String(cancelledOrders)} tone="slate" />
-                  <MetricCard label="Đã hoàn tiền" value={String(refundedOrders)} tone="emerald" />
-                </div>
-                <AdminTable headers={['Mã đơn', 'Khách hàng', 'Tổng tiền', 'Thanh toán', 'Trạng thái', 'Theo dõi', 'Thao tác']}>
-                  {filteredOrders.map((order) => (
-                    <tr key={order.id}>
-                      <td className="px-4 py-3">
-                        <div className="font-mono text-xs">{order.orderCode || compactId(order.id)}</div>
-                        <div className="mt-1 text-xs text-slate-500">{order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '-'}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-900">{order.recipientName || order.userId || order.user_id || 'Khách lẻ'}</div>
-                        <div className="mt-1 text-xs text-slate-500">{order.recipientPhone || 'Không có số điện thoại'}</div>
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-red-600">{currency.format(Number(order.totalAmount || order.total_amount || 0))}</td>
-                      <td className="px-4 py-3">
-                        <div>{order.paymentMethod || order.payment_method || '-'}</div>
-                        <div className="mt-1 text-xs text-slate-500">{order.paymentStatus || order.payment_status || '-'}</div>
-                      </td>
-                      <td className="px-4 py-3"><AdminBadge tone={order.status === 'COMPLETED' ? 'green' : order.status === 'CANCELLED' ? 'red' : 'yellow'}>{statusLabel[order.status] || order.status}</AdminBadge></td>
-                      <td className="px-4 py-3 text-xs">
-                        <div>{order.shippingProvider || 'Chưa gán đơn vị vận chuyển'}</div>
-                        <div className="mt-1 font-mono text-slate-500">{order.trackingCode || 'Chưa có mã vận đơn'}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <button type="button" onClick={() => openOrderPanel(order.id)} className="inline-flex h-8 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700">
-                            <Eye className="h-4 w-4" /> Chi tiết
-                          </button>
-                          <select className="h-9 rounded-md border border-slate-200 px-2 text-sm outline-none" value={order.status} onChange={(event) => updateOrderStatus(order.id, event.target.value)}>
-                            {(orderTransitionMap[order.status] || orderStatusOptions.map(([value]) => value)).map((value) => <option key={value} value={value}>{statusLabel[value] || value}</option>)}
-                          </select>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </AdminTable>
-                {orderPanelOpen && (
-                  <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
-                    <div className="w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-2xl">
-                      <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
-                        <div>
-                          <h3 className="text-lg font-bold text-slate-950">Chi tiết đơn hàng</h3>
-                          <p className="mt-1 text-sm text-slate-500">{selectedOrder?.orderCode || compactId(selectedOrder?.id)} · {selectedOrder ? (statusLabel[selectedOrder.status] || selectedOrder.status) : ''}</p>
-                        </div>
-                        <button type="button" onClick={() => setOrderPanelOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50"><X className="h-4 w-4" /></button>
-                      </div>
-                      <div className="max-h-[calc(100vh-120px)] overflow-y-auto p-5">
-                        {orderPanelBusy || !selectedOrder ? <EmptyState text="Đang tải chi tiết đơn hàng..." /> : (
-                          <div className="space-y-5">
-                            <div className="grid gap-4 md:grid-cols-4">
-                              <MetricCard label="Tổng tiền" value={currency.format(Number(selectedOrder.totalAmount || 0))} tone="amber" />
-                              <MetricCard label="Thanh toán" value={selectedOrder.paymentStatus || '-'} tone="sky" />
-                              <MetricCard label="Điểm cộng" value={String(selectedOrder.pointsEarned || 0)} tone="emerald" />
-                              <MetricCard label="Điểm dùng" value={String(selectedOrder.pointsUsed || 0)} tone="slate" />
-                            </div>
-                            <div className="grid gap-5 lg:grid-cols-[1.05fr_0.95fr]">
-                              <div className="space-y-5">
-                                <AdminPanel title="Thông tin nhận hàng" action={<Truck className="h-5 w-5 text-red-600" />}>
-                                  <div className="grid gap-3 md:grid-cols-2">
-                                    <Input label="Người nhận" value={selectedOrder.recipientName || ''} onChange={() => { }} disabled />
-                                    <Input label="Số điện thoại" value={selectedOrder.recipientPhone || ''} onChange={() => { }} disabled />
-                                    <div className="md:col-span-2"><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-500">Địa chỉ</span><textarea value={selectedOrder.shippingAddress || ''} readOnly className="min-h-[92px] w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none" /></label></div>
-                                  </div>
-                                </AdminPanel>
-                                <AdminPanel title="Sản phẩm trong đơn" action={<ShoppingBag className="h-5 w-5 text-red-600" />}>
-                                  <AdminTable headers={['Sản phẩm', 'SL', 'Đơn giá', 'Thành tiền']}>
-                                    {(selectedOrder.items || []).map((item: any) => (
-                                      <tr key={item.id}>
-                                        <td className="px-4 py-3 font-semibold text-slate-900">{item.productName}</td>
-                                        <td className="px-4 py-3">{item.quantity}</td>
-                                        <td className="px-4 py-3">{currency.format(Number(item.price || 0))}</td>
-                                        <td className="px-4 py-3 font-semibold text-red-600">{currency.format(Number(item.totalPrice || 0))}</td>
-                                      </tr>
-                                    ))}
-                                  </AdminTable>
-                                </AdminPanel>
-                              </div>
-                              <div className="space-y-5">
-                                <AdminPanel title="Điều phối xử lý" action={<ClipboardList className="h-5 w-5 text-red-600" />}>
-                                  <div className="grid gap-3 md:grid-cols-2">
-                                    <Select label="Trạng thái" value={orderDraft.status} onChange={(value) => setOrderDraft({ ...orderDraft, status: value })} options={(orderTransitionMap[selectedOrder.status] || [selectedOrder.status]).map((value) => [value, statusLabel[value] || value]) as [string, string][]} />
-                                    <Input label="Nhân viên xử lý" value={orderDraft.assignedStaffName} onChange={(value) => setOrderDraft({ ...orderDraft, assignedStaffName: value })} />
-                                    <Input label="Đơn vị vận chuyển" value={orderDraft.shippingProvider} onChange={(value) => setOrderDraft({ ...orderDraft, shippingProvider: value })} />
-                                    <Input label="Mã vận đơn" value={orderDraft.trackingCode} onChange={(value) => setOrderDraft({ ...orderDraft, trackingCode: value })} />
-                                    <div className="md:col-span-2"><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-500">Ghi chú nội bộ</span><textarea value={orderDraft.internalNote} onChange={(event) => setOrderDraft({ ...orderDraft, internalNote: event.target.value })} className="min-h-[110px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100" /></label></div>
-                                    <div className="md:col-span-2"><label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-500">Lý do hủy</span><textarea value={orderDraft.cancellationReason} onChange={(event) => setOrderDraft({ ...orderDraft, cancellationReason: event.target.value })} placeholder="Bắt buộc khi chuyển sang trạng thái đã hủy" className="min-h-[92px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100" /></label></div>
-                                    <div className="md:col-span-2"><Checkbox label="Đánh dấu hoàn tiền cho giao dịch online" checked={orderDraft.refundPayment} onChange={(checked) => setOrderDraft({ ...orderDraft, refundPayment: checked })} disabled={selectedOrder.paymentMethod === 'COD'} /></div>
-                                  </div>
-                                  <div className="mt-4 flex flex-wrap gap-2">
-                                    <button type="button" onClick={() => saveOrderDraft()} disabled={orderSaving} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-red-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50"><CheckCircle2 className="h-4 w-4" />Lưu cập nhật</button>
-                                    <button type="button" onClick={() => printOrderDocument(selectedOrder, 'invoice')} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"><Download className="h-4 w-4" />In hóa đơn</button>
-                                    <button type="button" onClick={() => printOrderDocument(selectedOrder, 'delivery')} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"><FileText className="h-4 w-4" />In phiếu giao hàng</button>
-                                  </div>
-                                </AdminPanel>
-                                <AdminPanel title="Dấu mốc đơn hàng" action={<Activity className="h-5 w-5 text-red-600" />}>
-                                  <div className="space-y-2 text-sm text-slate-600">
-                                    <div>Tạo đơn: {selectedOrder.createdAt ? new Date(selectedOrder.createdAt).toLocaleString('vi-VN') : '-'}</div>
-                                    <div>Giao vận: {selectedOrder.shippedAt ? new Date(selectedOrder.shippedAt).toLocaleString('vi-VN') : 'Chưa giao vận'}</div>
-                                    <div>Hoàn tất: {selectedOrder.completedAt ? new Date(selectedOrder.completedAt).toLocaleString('vi-VN') : 'Chưa hoàn tất'}</div>
-                                    <div>Hủy đơn: {selectedOrder.cancelledAt ? new Date(selectedOrder.cancelledAt).toLocaleString('vi-VN') : 'Không có'}</div>
-                                    <div>Hoàn tiền: {selectedOrder.refundedAt ? new Date(selectedOrder.refundedAt).toLocaleString('vi-VN') : 'Chưa hoàn tiền'}</div>
-                                  </div>
-                                </AdminPanel>
-                                <AdminPanel title="Lịch sử thao tác" action={<ScrollText className="h-5 w-5 text-red-600" />}>
-                                  <div className="space-y-3">
-                                    {(selectedOrder.historyLogs || []).length === 0 && <EmptyState text="Chưa có lịch sử thao tác." />}
-                                    {(selectedOrder.historyLogs || []).map((log: any) => (
-                                      <div key={log.id} className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                                        <div className="flex items-center justify-between gap-3">
-                                          <div className="text-sm font-bold text-slate-900">
-                                            {(statusLabel[log.oldStatus] || log.oldStatus || 'Khởi tạo')} → {statusLabel[log.newStatus] || log.newStatus}
-                                          </div>
-                                          <div className="text-xs text-slate-500">{log.createdAt ? new Date(log.createdAt).toLocaleString('vi-VN') : '-'}</div>
-                                        </div>
-                                        <div className="mt-1 text-xs font-semibold text-slate-500">Thực hiện bởi: {log.changedBy || 'Hệ thống'}</div>
-                                        {log.note && <div className="mt-2 text-sm text-slate-600">{log.note}</div>}
-                                      </div>
-                                    ))}
-                                  </div>
-                                </AdminPanel>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </AdminPanel>
+              <Suspense fallback={<div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm font-semibold text-slate-500">?ang t?i ??n h?ng...</div>}>
+                <AdminOrdersTab
+                  cancelledOrders={cancelledOrders}
+                  compactId={compactId}
+                  currency={currency}
+                  filteredOrders={filteredOrders}
+                  openOrderPanel={openOrderPanel}
+                  orderDraft={orderDraft}
+                  orderPanelBusy={orderPanelBusy}
+                  orderPanelOpen={orderPanelOpen}
+                  orderSaving={orderSaving}
+                  orderStatusOptions={orderStatusOptions}
+                  orderTransitionMap={orderTransitionMap}
+                  orders={orders}
+                  printOrderDocument={printOrderDocument}
+                  query={query}
+                  refundedOrders={refundedOrders}
+                  saveOrderDraft={saveOrderDraft}
+                  selectedOrder={selectedOrder}
+                  setOrderDraft={setOrderDraft}
+                  setOrderPanelOpen={setOrderPanelOpen}
+                  setQuery={setQuery}
+                  statusLabel={statusLabel}
+                  updateOrderStatus={updateOrderStatus}
+                />
+              </Suspense>
             )}
-
             {tab === 'vouchers' && (
               <AdminPanel title="Quản lý voucher" action={<SearchBox value={query} onChange={setQuery} placeholder="Tìm mã voucher, loại, trạng thái" />}>
                 <CollapsibleSection title={editingVoucherId ? 'Đang chỉnh sửa voucher' : 'Thêm voucher mới'} description="Mở khi cần thiết lập mã giảm giá, điều kiện đơn tối thiểu và giới hạn sử dụng." defaultOpen={false} forceOpen={Boolean(editingVoucherId)} forceOpenKey={editingVoucherId} onClose={resetVoucherForm}>
@@ -3291,15 +2905,7 @@ export default function AdminDashboard() {
                       <td className="px-4 py-3 font-semibold text-slate-900">{item.fullName || item.email}</td>
                       <td className="px-4 py-3">{item.email}</td>
                       <td className="px-4 py-3">
-                        {canManageCustomerAccess ? (
-                          <select value={item.role || 'CUSTOMER'} onChange={(event) => updateUserAccess(item, { role: event.target.value })} className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold outline-none focus:border-red-500">
-                            <option value="CUSTOMER">Customer</option>
-                            <option value="STAFF_ADMIN">Staff Admin</option>
-                            <option value="SUPER_ADMIN">Super Admin</option>
-                          </select>
-                        ) : (
-                          item.role === 'SUPER_ADMIN' ? 'Super Admin' : item.role === 'STAFF_ADMIN' ? 'Staff Admin' : item.tier
-                        )}
+                        {item.role === 'SUPER_ADMIN' ? 'Super Admin' : item.role === 'STAFF_ADMIN' ? 'Staff Admin' : item.tier}
                       </td>
                       <td className="px-4 py-3">{item.points ?? 0}</td>
                       <td className="px-4 py-3">{item.orderCount || 0} đơn</td>
@@ -3330,7 +2936,14 @@ export default function AdminDashboard() {
               </AdminPanel>
             )}
             {tab === 'inventory' && (
-              <AdminPanel title="Quản lý tồn kho" action={<div className="flex items-center gap-2"><SearchBox value={query} onChange={setQuery} placeholder="Tìm sản phẩm, SKU, trạng thái kho" /><button type="button" onClick={() => void exportInventorySnapshot()} className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><Download className="h-4 w-4" /> Xuất Excel</button></div>}>
+              <AdminPanel title="Quản lý tồn kho" action={
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={inventoryCategoryFilter} onChange={setInventoryCategoryFilter} options={[['', 'Tất cả danh mục'], ...categories.map(c => [c.id, c.parentName ? `${c.parentName} / ${c.name}` : c.name])]} />
+                  <Select value={inventoryBrandFilter} onChange={setInventoryBrandFilter} options={inventoryBrandOptions} />
+                  <SearchBox value={query} onChange={setQuery} placeholder="Tìm sản phẩm, SKU, trạng thái kho" />
+                  <button type="button" onClick={() => void exportInventorySnapshot()} className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><Download className="h-4 w-4" /> Xuất</button>
+                </div>
+              }>
                 <AdminTable headers={['Sản phẩm', 'SKU / Biến thể', 'Tồn kho', 'Cảnh báo', 'Trạng thái', 'Điều chỉnh']}>
                   {filteredInventory.flatMap((product) => {
                     const inventorySettings = getInventorySettings(product);
@@ -3455,7 +3068,22 @@ export default function AdminDashboard() {
               </AdminPanel>
             )}
             {tab === 'content' && (
-              <AdminPanel title="Quản lý video và nội dung" action={<SearchBox value={query} onChange={setQuery} placeholder="Tìm tiêu đề, loại, mô tả" />}>
+              <AdminPanel
+                title="Quản lý video"
+                action={
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                    <SearchBox value={query} onChange={setQuery} placeholder="Tìm tiêu đề, loại, mô tả" />
+                    <select value={contentTypeFilter} onChange={(event) => setContentTypeFilter(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-red-500">
+                      <option value="all">Tất cả nhóm</option>
+                      {videoCategoryOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                    <select value={contentStatusFilter} onChange={(event) => setContentStatusFilter(event.target.value)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-red-500">
+                      <option value="all">Tất cả trạng thái</option>
+                      {contentStatusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                  </div>
+                }
+              >
                 {(canCreateContent || canUpdateContent) && <CollapsibleSection
                   title={editingContentId ? 'Đang chỉnh sửa nội dung' : 'Thêm video, banner hoặc trang marketing'}
                   description="Quản trị nội dung tập trung cho video, banner và bài marketing. Có thể gắn sản phẩm, danh mục, hẹn lịch đăng và nhập sẵn bình luận mẫu để kiểm duyệt."
@@ -3466,7 +3094,8 @@ export default function AdminDashboard() {
                 >
                   <form onSubmit={handleContentSubmit} className="grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-4">
                     <Input label="Tiêu đề" value={contentForm.title} required onChange={(value) => setContentForm({ ...contentForm, title: value })} />
-                    <Select label="Loại nội dung" value={contentForm.contentType} onChange={(value) => setContentForm({ ...contentForm, contentType: value })} options={contentTypeOptions} />
+                    <Select label="Nguồn video" value={contentForm.videoSource} onChange={(value) => setContentForm({ ...contentForm, videoSource: value, videoUrl: '' })} options={videoSourceOptions} />
+                    <Select label="Nhóm nội dung" value={contentForm.videoCategory} onChange={(value) => setContentForm({ ...contentForm, videoCategory: value })} options={videoCategoryOptions} />
                     <Input label="Thứ tự hiển thị" type="number" value={contentForm.sortOrder} onChange={(value) => setContentForm({ ...contentForm, sortOrder: Number(value || 0) })} />
                     <Checkbox label="Đang hiển thị" checked={contentForm.isActive} onChange={(checked) => setContentForm({ ...contentForm, isActive: checked })} />
                     <div className="md:col-span-4">
@@ -3475,45 +3104,91 @@ export default function AdminDashboard() {
                         <textarea className="min-h-20 w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500" value={contentForm.description} onChange={(event) => setContentForm({ ...contentForm, description: event.target.value })} />
                       </label>
                     </div>
-                    <FileInput label="Upload video" accept="video/*" onFiles={async (files) => setContentForm({ ...contentForm, videoUrl: (await uploadFiles(files, 'content'))[0] || contentForm.videoUrl })} />
+                    {contentForm.videoSource === 'UPLOAD' ? (
+                      <FileInput label="Upload video" accept="video/*" onFiles={async (files) => setContentForm({ ...contentForm, videoUrl: (await uploadFiles(files, 'content'))[0] || contentForm.videoUrl })} />
+                    ) : (
+                      <Input label="Link YouTube" value={contentForm.videoUrl} required onChange={(value) => setContentForm({ ...contentForm, videoUrl: value })} />
+                    )}
                     <FileInput label="Upload thumbnail" accept="image/*" onFiles={async (files) => setContentForm({ ...contentForm, thumbnailUrl: (await uploadFiles(files, 'content'))[0] || contentForm.thumbnailUrl })} />
-                    <FileInput label="Upload banner" accept="image/*" onFiles={async (files) => setContentForm({ ...contentForm, bannerImageUrl: (await uploadFiles(files, 'content'))[0] || contentForm.bannerImageUrl })} />
-                    <Input label="CTA URL" value={contentForm.ctaUrl} onChange={(value) => setContentForm({ ...contentForm, ctaUrl: value })} />
-                    <Input label="CTA label" value={contentForm.ctaLabel} onChange={(value) => setContentForm({ ...contentForm, ctaLabel: value })} />
-                    <Input label="Sản phẩm liên kết" value={contentForm.productIds} onChange={(value) => setContentForm({ ...contentForm, productIds: value })} />
-                    <Input label="Danh mục liên kết" value={contentForm.categoryIds} onChange={(value) => setContentForm({ ...contentForm, categoryIds: value })} />
+                    {contentForm.videoUrl && <div className="md:col-span-2"><VideoPreview title="Video đang chọn" url={contentForm.videoUrl} onRemove={() => setContentForm({ ...contentForm, videoUrl: '' })} /></div>}
+                    {contentForm.thumbnailUrl && <div className="md:col-span-2"><MediaPreview title="Thumbnail đang chọn" items={[contentForm.thumbnailUrl]} onRemove={() => setContentForm({ ...contentForm, thumbnailUrl: '' })} /></div>}
+                    <div className="md:col-span-4 rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="mb-3 text-xs font-bold text-slate-500">Sản phẩm liên kết</div>
+                      <div className="grid gap-2 md:grid-cols-3">
+                        <Input label="Tìm sản phẩm" value={videoProductSearch} onChange={setVideoProductSearch} />
+                        <Select label="Lọc danh mục" value={videoProductCategoryFilter} onChange={setVideoProductCategoryFilter} options={[['all', 'Tất cả danh mục'], ...categories.map((category) => [String(category.id || category.code || category.slug), category.name] as [string, string])]} />
+                        <Select label="Lọc thương hiệu" value={videoProductBrandFilter} onChange={setVideoProductBrandFilter} options={[['all', 'Tất cả thương hiệu'], ...brands.map((brand) => [String(brand.id || brand.name), brand.name] as [string, string])]} />
+                      </div>
+                      <div className="mt-3 grid max-h-72 gap-2 overflow-y-auto md:grid-cols-2">
+                        {videoProductChoices.map((product) => (
+                          <label key={product.id} className="flex cursor-pointer items-center gap-3 rounded-md border border-slate-200 p-2 text-sm transition hover:bg-slate-50">
+                            <input type="checkbox" checked={selectedVideoProductIds.includes(product.id)} onChange={(event) => setVideoProductSelected(product.id, event.target.checked)} className="h-4 w-4 accent-red-600" />
+                            {product.imageUrl && <img src={product.imageUrl} alt="" className="h-10 w-10 rounded bg-slate-50 object-contain" />}
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-semibold text-slate-900">{product.name}</span>
+                              <span className="block truncate text-xs text-slate-500">{product.brand || product.categoryName || product.category || 'Sản phẩm'}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                     <Input label="Lịch đăng" type="datetime-local" value={contentForm.scheduledAt} onChange={(value) => setContentForm({ ...contentForm, scheduledAt: value })} />
                     <Input label="Ngày public" type="datetime-local" value={contentForm.publishedAt} onChange={(value) => setContentForm({ ...contentForm, publishedAt: value })} />
-                    <Input label="Lượt thích" type="number" value={contentForm.likeCount} onChange={(value) => setContentForm({ ...contentForm, likeCount: Number(value || 0) })} />
-                    <Input label="Lượt xem" type="number" value={contentForm.viewCount} onChange={(value) => setContentForm({ ...contentForm, viewCount: Number(value || 0) })} />
-                    <div className="md:col-span-4">
-                      <label className="block">
-                        <span className="mb-1.5 block text-xs font-bold text-slate-500">Nội dung dài / landing content</span>
-                        <textarea className="min-h-32 w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500" value={contentForm.contentBody} onChange={(event) => setContentForm({ ...contentForm, contentBody: event.target.value })} />
-                      </label>
-                    </div>
-                    <div className="md:col-span-4">
-                      <label className="block">
-                        <span className="mb-1.5 block text-xs font-bold text-slate-500">Bình luận video</span>
-                        <textarea className="min-h-28 w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500" placeholder="Mỗi dòng theo mẫu: Tên khách: Nội dung bình luận" value={contentForm.commentsText} onChange={(event) => setContentForm({ ...contentForm, commentsText: event.target.value })} />
-                      </label>
-                    </div>
-                    <div className="md:col-span-4 rounded-md border border-dashed border-slate-200 bg-white p-3 text-xs text-slate-500">
-                      Gợi ý: danh sách sản phẩm/danh mục bên dưới dùng ID, có thể nhập nhiều mục bằng dấu phẩy hoặc xuống dòng.
-                    </div>
+                    <div className="md:col-span-4 rounded-md border border-dashed border-slate-200 bg-white p-3 text-xs text-slate-500">Lượt xem, lượt thích và bình luận được lấy từ tương tác thực tế của người dùng.</div>
                     <SubmitButtons editing={Boolean(editingContentId)} onCancel={resetContentForm} />
                   </form>
                 </CollapsibleSection>}
-                <AdminTable headers={['Tiêu đề', 'Loại', 'Liên kết', 'Lịch & thứ tự', 'Tương tác', 'Trạng thái', 'Thao tác']}>
+                <AdminTable headers={['Tiêu đề', 'Media', 'Loại', 'Liên kết', 'Lịch & thứ tự', 'Tương tác', 'Trạng thái', 'Thao tác']}>
                   {filteredContentItems.length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-8 text-center text-sm font-medium text-slate-500">Không tìm thấy nội dung phù hợp.</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-sm font-medium text-slate-500">Không tìm thấy nội dung phù hợp.</td></tr>
                   ) : filteredContentItems.map((item) => (
                     <tr key={item.id}>
                       <td className="px-4 py-3">
                         <div className="font-semibold text-slate-900">{item.title}</div>
                         <div className="mt-1 text-xs text-slate-500">{item.description || '-'}</div>
+                        {Array.isArray(item.comments) && item.comments.length > 0 && (
+                          <div className="mt-3 max-w-xl rounded-lg border border-slate-200 bg-slate-50 p-2">
+                            <div className="mb-2 text-xs font-bold text-slate-500">Bình luận video</div>
+                            <div className="space-y-2">
+                              {item.comments.slice(0, 4).map((comment: any) => (
+                                <div key={comment.id} className={`rounded-md border bg-white p-2 text-xs ${comment.isHidden ? 'border-amber-200 opacity-70' : 'border-slate-200'}`}>
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <span className="font-bold text-slate-800">{comment.userName || 'Khách hàng'}</span>
+                                      {comment.replyToUserName && <span className="ml-1 text-slate-500">trả lời @{comment.replyToUserName}</span>}
+                                      <p className="mt-1 text-slate-600">{comment.content}</p>
+                                      {comment.isHidden && <p className="mt-1 font-semibold text-amber-700">Đang ẩn{comment.moderationReason ? `: ${comment.moderationReason}` : ''}</p>}
+                                    </div>
+                                    <button type="button" onClick={() => toggleVideoCommentHidden(item, comment)} className="shrink-0 rounded border border-slate-200 px-2 py-1 font-bold text-slate-600 hover:bg-slate-50">{comment.isHidden ? 'Hiện' : 'Ẩn'}</button>
+                                  </div>
+                                  <div className="mt-2 flex gap-2">
+                                    <input value={videoReplyDrafts[comment.id] || ''} onChange={(event) => setVideoReplyDrafts((drafts) => ({ ...drafts, [comment.id]: event.target.value }))} placeholder={`Trả lời ${comment.userName || 'khách hàng'}`} className="h-8 flex-1 rounded border border-slate-200 px-2 outline-none focus:border-red-400" />
+                                    <button type="button" onClick={() => replyVideoComment(item, comment)} className="rounded bg-red-600 px-3 font-bold text-white">Gửi</button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </td>
-                      <td className="px-4 py-3">{item.contentType || (item.videoUrl ? 'VIDEO' : 'MARKETING_PAGE')}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {(item.thumbnailUrl || item.bannerImageUrl) ? (
+                            <img src={item.thumbnailUrl || item.bannerImageUrl} alt="" className="h-14 w-20 rounded-md border border-slate-200 object-cover" />
+                          ) : (
+                            <div className="flex h-14 w-20 items-center justify-center rounded-md border border-dashed border-slate-200 text-[10px] font-bold text-slate-400">NO MEDIA</div>
+                          )}
+                          {item.videoUrl && (
+                            <a href={item.videoUrl} target="_blank" rel="noreferrer" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700" title="Mở video">
+                              <Eye className="h-4 w-4" />
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div>{videoCategoryOptions.find(([value]) => value === item.videoCategory)?.[1] || item.videoCategory || 'Video'}</div>
+                        <div className="mt-1 text-xs text-slate-500">{item.videoSource === 'YOUTUBE' ? 'YouTube' : 'Upload'}</div>
+                      </td>
                       <td className="px-4 py-3 text-xs text-slate-600">
                         <div>{Array.isArray(item.products) && item.products.length ? `${item.products.length} sản phẩm` : 'Chưa gắn sản phẩm'}</div>
                         <div>{Array.isArray(item.categories) && item.categories.length ? `${item.categories.length} danh mục` : 'Chưa gắn danh mục'}</div>
@@ -3540,7 +3215,7 @@ export default function AdminDashboard() {
                             </button>
                           )}
                           {canDeleteContent && (
-                            <button type="button" onClick={() => void confirmDelete(item.title, () => apiDb.adminDeleteContent(item.id))} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700">
+                            <button type="button" onClick={() => void confirmDelete(item.title, () => apiDb.adminDeleteVideo(item.id))} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700">
                               <Trash2 className="h-4 w-4" />
                             </button>
                           )}
@@ -3571,249 +3246,65 @@ export default function AdminDashboard() {
               </AdminPanel>
             )}
             {tab === 'permissions' && (
-              <AdminPanel title="Ma trận phân quyền theo vai trò" action={<RefreshCw className="h-5 w-5 text-red-600" />}>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-left text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
-                        <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3">Quyền</th>
-                        {roles.filter((role) => role.code !== 'CUSTOMER').map((role) => (
-                          <th key={role.id} className="px-4 py-3">{role.name || role.code}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {permissions.map((permission) => (
-                        <tr key={permission.code} className="hover:bg-slate-50/70">
-                          <td className="sticky left-0 z-10 bg-white px-4 py-3">
-                            <div className="font-semibold text-slate-900">{permission.code}</div>
-                            <div className="text-xs text-slate-500">{permission.description || permission.module}</div>
-                          </td>
-                          {roles.filter((role) => role.code !== 'CUSTOMER').map((role) => {
-                            const checked = (rolePermissionMap[role.id] || []).includes(permission.code);
-                            const locked = role.code === 'SUPER_ADMIN';
-                            return (
-                              <td key={`${role.id}-${permission.code}`} className="px-4 py-3">
-                                <input
-                                  type="checkbox"
-                                  checked={checked || locked}
-                                  disabled={locked}
-                                  onChange={(event) => toggleRolePermission(role.id, permission.code, event.target.checked)}
-                                  className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
-                                />
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <div className="mb-3 text-sm font-bold text-slate-900">Nhật ký đổi quyền gần đây</div>
-                  <div className="space-y-2">
-                    {auditLogs
-                      .filter((log) => ['admin_user_access_updated', 'admin_role_permissions_updated'].includes(log.eventType))
-                      .slice(0, 8)
-                      .map((log) => (
-                        <div key={log.id} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="font-semibold text-slate-900">{log.eventType === 'admin_user_access_updated' ? 'Đổi vai trò / trạng thái user' : 'Cập nhật ma trận quyền'}</span>
-                            <span className="text-xs text-slate-500">{log.createdAt ? new Date(log.createdAt).toLocaleString('vi-VN') : '-'}</span>
-                          </div>
-                          <div className="mt-1 text-xs text-slate-600">
-                            {log.eventType === 'admin_user_access_updated'
-                              ? `User: ${log.metadata?.targetUserId || '-'} | Vai trò mới: ${log.metadata?.after?.role || '-'} | Trạng thái mới: ${log.metadata?.after?.status || '-'}`
-                              : `Role: ${log.metadata?.roleCode || '-'} | Số user bị ảnh hưởng: ${log.metadata?.affectedUsers || 0}`}
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              </AdminPanel>
-            )}
-            {customerDetailOpen && (
-              <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
-                <div className="w-full max-w-6xl overflow-hidden rounded-lg bg-white shadow-2xl">
-                  <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-950">Hồ sơ khách hàng</h3>
-                      <p className="mt-1 text-sm text-slate-500">{selectedCustomer?.fullName || selectedCustomer?.email || 'Đang tải dữ liệu khách hàng'}</p>
-                    </div>
-                    <button type="button" onClick={() => setCustomerDetailOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-950">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="max-h-[calc(100vh-150px)] overflow-y-auto p-5">
-                    {customerDetailBusy || !selectedCustomer ? (
-                      <EmptyState text="Đang tải hồ sơ khách hàng..." />
-                    ) : (
-                      <div className="space-y-5">
-                        <div className="flex flex-wrap gap-2">
-                          {[
-                            ['summary', 'Tổng quan'],
-                            ['orders', 'Đơn hàng'],
-                            ['loyalty', 'Điểm thưởng'],
-                            ['notes', 'Ghi chú CSKH'],
-                            ['audit', 'Nhật ký'],
-                          ].map(([sectionId, label]) => (
-                            <button
-                              key={sectionId}
-                              type="button"
-                              onClick={() => sectionId === 'summary' ? setCustomerActiveSection('summary') : void loadCustomerSection(sectionId as 'orders' | 'loyalty' | 'notes' | 'audit')}
-                              className={`rounded-md px-3 py-2 text-sm font-bold transition ${customerActiveSection === sectionId ? 'bg-slate-950 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="grid gap-3 md:grid-cols-4">
-                          <MetricCard label="Tổng chi tiêu" value={currency.format(Number(selectedCustomer.totalSpent || 0))} tone="sky" />
-                          <MetricCard label="Điểm hiện có" value={String(selectedCustomer.points || 0)} tone="amber" />
-                          <MetricCard label="Số đơn" value={String(selectedCustomer.orderCount || 0)} tone="emerald" />
-                          <MetricCard label="Voucher đã giữ" value={String(selectedCustomer.voucherCount || 0)} />
-                        </div>
-                        <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                            <div className="text-sm font-bold text-slate-900">Thông tin chung</div>
-                            <div className="mt-3 grid gap-3 md:grid-cols-2">
-                              <div><div className="text-xs font-bold text-slate-500">Email</div><div className="mt-1 text-sm text-slate-900">{selectedCustomer.email}</div></div>
-                              <div><div className="text-xs font-bold text-slate-500">Điện thoại</div><div className="mt-1 text-sm text-slate-900">{selectedCustomer.phone || '-'}</div></div>
-                              <div><div className="text-xs font-bold text-slate-500">Vai trò</div><div className="mt-1 text-sm text-slate-900">{selectedCustomer.role || '-'}</div></div>
-                              <div><div className="text-xs font-bold text-slate-500">Hạng thành viên</div><div className="mt-1 text-sm text-slate-900">{selectedCustomer.tier || '-'}</div></div>
-                              <div><div className="text-xs font-bold text-slate-500">Trạng thái</div><div className="mt-1 text-sm text-slate-900">{selectedCustomer.status || '-'}</div></div>
-                              <div><div className="text-xs font-bold text-slate-500">Ngày tạo</div><div className="mt-1 text-sm text-slate-900">{selectedCustomer.createdAt ? new Date(selectedCustomer.createdAt).toLocaleString('vi-VN') : '-'}</div></div>
-                            </div>
-                          </div>
-                          <div className="rounded-lg border border-slate-200 bg-white p-4">
-                            <div className="text-sm font-bold text-slate-900">Tag khách hàng</div>
-                            <p className="mt-1 text-xs text-slate-500">Nhập tag cách nhau bởi dấu phẩy để phục vụ CSKH và phân nhóm thủ công.</p>
-                            <textarea value={customerTagDraft} onChange={(event) => setCustomerTagDraft(event.target.value)} className="mt-3 min-h-24 w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500" />
-                            {canManageCustomerProfile && (
-                              <button type="button" onClick={() => void saveCustomerTags()} className="mt-3 rounded-md bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800">Lưu tag</button>
-                            )}
-                          </div>
-                        </div>
-                        {usePermission('customer:loyalty_adjust') && (
-                          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                            <div className="text-sm font-bold text-amber-900">Cộng / trừ điểm thủ công</div>
-                            <div className="mt-3 grid gap-3 md:grid-cols-[160px_1fr_auto]">
-                              <Input label="Số điểm" value={customerPointDelta} onChange={setCustomerPointDelta} type="number" />
-                              <Input label="Lý do" value={customerPointReason} onChange={setCustomerPointReason} />
-                              <div className="flex items-end">
-                                <button type="button" onClick={() => void adjustCustomerPoints()} className="inline-flex h-10 items-center justify-center rounded-md bg-amber-600 px-4 text-sm font-bold text-white transition hover:bg-amber-700">Cập nhật điểm</button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                        {usePermission('customer:issue_voucher') && (
-                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-                            <div className="text-sm font-bold text-emerald-900">Gửi voucher riêng</div>
-                            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-                              <Select label="Voucher" value={customerVoucherId} onChange={setCustomerVoucherId} options={[['', 'Chọn voucher'], ...vouchers.filter((voucher) => voucher.status === 'ACTIVE').map((voucher) => [voucher.id, `${voucher.code} - ${voucher.discountType === 'PERCENT' ? `${voucher.discountValue}%` : currency.format(Number(voucher.discountValue || 0))}`] as [string, string])]} />
-                              <Input label="Ghi chú nội bộ" value={customerVoucherNote} onChange={setCustomerVoucherNote} />
-                              <div className="flex items-end">
-                                <button type="button" onClick={() => void issueCustomerVoucher()} className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-600 px-4 text-sm font-bold text-white transition hover:bg-emerald-700">Gá»­i voucher</button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                        {customerActiveSection === 'summary' && (
-                          <div className="grid gap-5 xl:grid-cols-2">
-                            <AdminPanel title="Lịch sử đơn hàng">
-                              <AdminTable headers={['Mã đơn', 'Trạng thái', 'Thanh toán', 'Tổng tiền', 'Ngày tạo']}>
-                                {customerOrders.length === 0 ? <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">Chưa có đơn hàng.</td></tr> : customerOrders.map((order) => (
-                                  <tr key={order.id}>
-                                    <td className="px-4 py-3 font-mono text-xs">{order.orderCode || compactId(order.id)}</td>
-                                    <td className="px-4 py-3">{order.status}</td>
-                                    <td className="px-4 py-3">{order.paymentStatus || order.paymentMethod || '-'}</td>
-                                    <td className="px-4 py-3">{currency.format(Number(order.totalAmount || 0))}</td>
-                                    <td className="px-4 py-3">{order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '-'}</td>
-                                  </tr>
-                                ))}
-                              </AdminTable>
-                            </AdminPanel>
-                            <AdminPanel title="Lịch sử điểm thưởng">
-                              <AdminTable headers={['Loại', 'Điểm', 'Số dư trước/sau', 'Lý do', 'Thời gian']}>
-                                {customerLoyaltyHistory.length === 0 ? <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">Chưa có lịch sử điểm.</td></tr> : customerLoyaltyHistory.map((item) => (
-                                  <tr key={item.id}>
-                                    <td className="px-4 py-3">{item.type}</td>
-                                    <td className="px-4 py-3 font-semibold">{item.metadata?.delta ?? item.points}</td>
-                                    <td className="px-4 py-3">{item.balanceBefore} / {item.balanceAfter}</td>
-                                    <td className="px-4 py-3 text-sm text-slate-600">{item.reason}</td>
-                                    <td className="px-4 py-3">{item.createdAt ? new Date(item.createdAt).toLocaleString('vi-VN') : '-'}</td>
-                                  </tr>
-                                ))}
-                              </AdminTable>
-                            </AdminPanel>
-                          </div>
-                        )}
-                        {customerActiveSection === 'orders' && (
-                          <AdminPanel title="Lịch sử đơn hàng">
-                            <AdminTable headers={['Mã đơn', 'Trạng thái', 'Thanh toán', 'Tổng tiền', 'Ngày tạo']}>
-                              {customerOrders.length === 0 ? <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">Chưa có đơn hàng.</td></tr> : customerOrders.map((order) => (
-                                <tr key={order.id}>
-                                  <td className="px-4 py-3 font-mono text-xs">{order.orderCode || compactId(order.id)}</td>
-                                  <td className="px-4 py-3">{order.status}</td>
-                                  <td className="px-4 py-3">{order.paymentStatus || order.paymentMethod || '-'}</td>
-                                  <td className="px-4 py-3">{currency.format(Number(order.totalAmount || 0))}</td>
-                                  <td className="px-4 py-3">{order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '-'}</td>
-                                </tr>
-                              ))}
-                            </AdminTable>
-                          </AdminPanel>
-                        )}
-                        {customerActiveSection === 'loyalty' && (
-                          <AdminPanel title="Lịch sử điểm thưởng">
-                            <AdminTable headers={['Loại', 'Điểm', 'Số dư trước/sau', 'Lý do', 'Thời gian']}>
-                              {customerLoyaltyHistory.length === 0 ? <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">Chưa có lịch sử điểm.</td></tr> : customerLoyaltyHistory.map((item) => (
-                                <tr key={item.id}>
-                                  <td className="px-4 py-3">{item.type}</td>
-                                  <td className="px-4 py-3 font-semibold">{item.metadata?.delta ?? item.points}</td>
-                                  <td className="px-4 py-3">{item.balanceBefore} / {item.balanceAfter}</td>
-                                  <td className="px-4 py-3 text-sm text-slate-600">{item.reason}</td>
-                                  <td className="px-4 py-3">{item.createdAt ? new Date(item.createdAt).toLocaleString('vi-VN') : '-'}</td>
-                                </tr>
-                              ))}
-                            </AdminTable>
-                          </AdminPanel>
-                        )}
-                        {(customerActiveSection === 'notes' || customerActiveSection === 'audit' || customerActiveSection === 'summary') && (
-                          <div className="grid gap-5 xl:grid-cols-2">
-                            <AdminPanel title="Ghi chú CSKH" action={canManageCustomerProfile ? <button type="button" onClick={() => void addCustomerNote()} className="rounded-md bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800">Thêm ghi chú</button> : undefined}>
-                              {canManageCustomerProfile && <textarea value={customerNoteDraft} onChange={(event) => setCustomerNoteDraft(event.target.value)} placeholder="Ghi lại ngữ cảnh CSKH, lưu ý xử lý, cam kết hỗ trợ..." className="mb-4 min-h-24 w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500" />}
-                              <div className="space-y-3">
-                                {customerNotes.length === 0 ? <EmptyState text="Chưa có ghi chú CSKH." /> : customerNotes.map((note) => (
-                                  <div key={note.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                      <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{note.authorName || note.authorId || 'Admin'}</span>
-                                      <span className="text-xs text-slate-500">{note.createdAt ? new Date(note.createdAt).toLocaleString('vi-VN') : '-'}</span>
-                                    </div>
-                                    <div className="mt-2 text-sm leading-6 text-slate-700">{note.content}</div>
-                                  </div>
-                                ))}
-                              </div>
-                            </AdminPanel>
-                            <AdminPanel title="Nhật ký thay đổi quyền và tác động">
-                              <div className="space-y-3">
-                                {customerAuditLogs.length === 0 ? <EmptyState text="Chưa có nhật ký liên quan khách hàng này." /> : customerAuditLogs.map((log) => (
-                                  <div key={log.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                      <span className="font-semibold text-slate-900">{log.eventType}</span>
-                                      <span className="text-xs text-slate-500">{log.createdAt ? new Date(log.createdAt).toLocaleString('vi-VN') : '-'}</span>
-                                    </div>
-                                    <div className="mt-2 text-xs text-slate-600">{JSON.stringify(log.metadata || {})}</div>
-                                  </div>
-                                ))}
-                              </div>
-                            </AdminPanel>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <Suspense fallback={<div className="rounded-lg border border-slate-200 bg-white px-4 py-8 text-center text-sm font-semibold text-slate-500">?ang t?i ph?n quy?n...</div>}>
+                <AdminPermissionsTab
+                  addCustomerNote={addCustomerNote}
+                  adjustCustomerPoints={adjustCustomerPoints}
+                  auditLogs={auditLogs}
+                  canManageCustomerAccess={canManageCustomerAccess}
+                  canManageCustomerProfile={canManageCustomerProfile}
+                  compactId={compactId}
+                  createStaffAccount={createStaffAccount}
+                  currency={currency}
+                  customerActiveSection={customerActiveSection}
+                  customerAuditLogs={customerAuditLogs}
+                  customerDetailBusy={customerDetailBusy}
+                  customerDetailOpen={customerDetailOpen}
+                  customerLoyaltyHistory={customerLoyaltyHistory}
+                  customerNoteDraft={customerNoteDraft}
+                  customerNotes={customerNotes}
+                  customerOrders={customerOrders}
+                  customerPointDelta={customerPointDelta}
+                  customerPointReason={customerPointReason}
+                  customerTagDraft={customerTagDraft}
+                  customerVoucherId={customerVoucherId}
+                  customerVoucherNote={customerVoucherNote}
+                  editingStaffAccessId={editingStaffAccessId}
+                  issueCustomerVoucher={issueCustomerVoucher}
+                  loadCustomerSection={loadCustomerSection}
+                  openStaffPermissionEditor={openStaffPermissionEditor}
+                  permissions={permissions}
+                  permissionsByModule={permissionsByModule}
+                  rolePermissionEditing={rolePermissionEditing}
+                  rolePermissionMap={rolePermissionMap}
+                  roles={roles}
+                  saveCustomerTags={saveCustomerTags}
+                  saveStaffPermissions={saveStaffPermissions}
+                  selectedCustomer={selectedCustomer}
+                  setCustomerActiveSection={setCustomerActiveSection}
+                  setCustomerDetailOpen={setCustomerDetailOpen}
+                  setCustomerNoteDraft={setCustomerNoteDraft}
+                  setCustomerPointDelta={setCustomerPointDelta}
+                  setCustomerPointReason={setCustomerPointReason}
+                  setCustomerTagDraft={setCustomerTagDraft}
+                  setCustomerVoucherId={setCustomerVoucherId}
+                  setCustomerVoucherNote={setCustomerVoucherNote}
+                  setEditingStaffAccessId={setEditingStaffAccessId}
+                  setRolePermissionEditing={setRolePermissionEditing}
+                  setStaffForm={setStaffForm}
+                  setStaffPermissionDraft={setStaffPermissionDraft}
+                  setStaffPermissionEditor={setStaffPermissionEditor}
+                  staffBasePermissionCodes={staffBasePermissionCodes}
+                  staffForm={staffForm}
+                  staffPermissionDraft={staffPermissionDraft}
+                  staffPermissionEditor={staffPermissionEditor}
+                  staffUsers={staffUsers}
+                  toggleRolePermission={toggleRolePermission}
+                  updateUserAccess={updateUserAccess}
+                  usePermission={usePermission}
+                  vouchers={vouchers}
+                />
+              </Suspense>
             )}
             {inventoryDraft && (
               <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
@@ -3914,401 +3405,3 @@ export default function AdminDashboard() {
     </div>
   );
 }
-
-function AdminTopBar({ onRefresh, query, setQuery, sidebarOpen, searchPlaceholder, onToggleSidebar }: { onRefresh: () => void; query: string; setQuery: (value: string) => void; sidebarOpen: boolean; searchPlaceholder: string; onToggleSidebar: () => void }) {
-  const navigate = useNavigate();
-  const [profileOpen, setProfileOpen] = useState(false);
-
-  async function handleSignOut() {
-    await signOut();
-    navigate('/admin/login');
-  }
-
-  return (
-    <header className="sticky top-0 z-40 mb-5 rounded-[24px] border border-rose-200/80 bg-rose-50/95 shadow-[0_18px_45px_rgba(127,29,29,0.08)] backdrop-blur">
-      <div className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <button type="button" onClick={onToggleSidebar} title={sidebarOpen ? 'Ẩn menu quản trị' : 'Hiện menu quản trị'} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 text-slate-700 transition hover:bg-slate-50 hover:text-slate-950">
-            <Menu className="h-5 w-5" />
-          </button>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-indigo-600"><ShieldCheck className="h-4 w-4" /> Admin Console</div>
-            <h1 className="truncate text-xl font-bold text-slate-950 sm:text-2xl">Quản lý cửa hàng</h1>
-            <p className="mt-1 text-sm text-slate-500">Bảng điều khiển sáng hơn, ưu tiên dữ liệu và thao tác quan trọng.</p>
-          </div>
-        </div>
-
-        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
-          <div className="min-w-0 flex-1">
-            <SearchBox value={query} onChange={setQuery} placeholder={searchPlaceholder} />
-          </div>
-          <Link to="/" className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-red-100 px-4 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-200">
-            <Home className="h-4 w-4" />
-            <span>Trang chủ</span>
-          </Link>
-          <button type="button" onClick={onRefresh} title="Làm mới dữ liệu" className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-            <RefreshCw className="h-4 w-4" />
-            <span className="hidden xl:inline">Làm mới</span>
-          </button>
-          <button type="button" title="Thông báo" className="relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-700 transition hover:bg-slate-50">
-            <Bell className="h-5 w-5" />
-            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-600"></span>
-          </button>
-          <div className="relative">
-            <button type="button" title="Hồ sơ admin" onClick={() => setProfileOpen((value) => !value)} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-700 transition hover:bg-white">
-              <UserCircle className="h-5 w-5" />
-              <span>Admin</span>
-            </button>
-            {profileOpen && (
-              <div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white p-1 shadow-xl">
-                <Link to="/change-password" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-950">
-                  <KeyRound className="h-4 w-4" />
-                  Đổi mật khẩu
-                </Link>
-                <button type="button" onClick={handleSignOut} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50">
-                  <LogOut className="h-4 w-4" />
-                  Đăng xuất
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </header>
-  );
-}
-
-function HeaderPanel({ onRefresh }: { onRefresh: () => void }) {
-  return (
-    <div className="mb-5 overflow-hidden rounded-lg border border-slate-200/80 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
-      <div className="flex flex-col gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-red-600"><ShieldCheck className="h-4 w-4" /> Admin Console</div>
-          <h1 className="mt-2 font-display text-3xl font-bold text-slate-950">Quản lý cửa hàng</h1>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">Điều phối danh mục, thương hiệu, đơn hàng, voucher, nội dung và tồn kho trong một bảng quản trị gọn, rõ, dễ thao tác.</p>
-        </div>
-        <button onClick={onRefresh} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"><RefreshCw className="h-4 w-4" />Làm mới dữ liệu</button>
-      </div>
-      <div className="grid gap-3 bg-slate-50/70 px-5 py-3 text-xs font-semibold text-slate-500 sm:grid-cols-3">
-        <span>Chuẩn dữ liệu: sản phẩm, biến thể, media</span>
-        <span>Vận hành: đơn hàng, tồn kho, voucher</span>
-        <span>Bảo mật: chỉ tài khoản admin truy cập</span>
-      </div>
-    </div>
-  );
-}
-
-type StatTone = 'emerald' | 'red' | 'sky' | 'amber';
-
-function StatCard({ label, value, caption, icon: Icon, tone }: { label: string; value: string | number; caption: string; icon: React.ElementType; tone: StatTone }) {
-  const tones: Record<StatTone, { shell: string; badge: string; trend: string }> = {
-    emerald: { shell: 'from-emerald-50 to-white', badge: 'bg-emerald-100 text-emerald-700 ring-emerald-200', trend: 'bg-emerald-100 text-emerald-700' },
-    red: { shell: 'from-rose-50 to-white', badge: 'bg-rose-100 text-rose-700 ring-rose-200', trend: 'bg-rose-100 text-rose-700' },
-    sky: { shell: 'from-sky-50 to-white', badge: 'bg-sky-100 text-sky-700 ring-sky-200', trend: 'bg-sky-100 text-sky-700' },
-    amber: { shell: 'from-amber-50 to-white', badge: 'bg-amber-100 text-amber-700 ring-amber-200', trend: 'bg-amber-100 text-amber-700' },
-  };
-  const currentTone = tones[tone];
-  return (
-    <div className={`rounded-[24px] border border-slate-200/80 bg-gradient-to-br ${currentTone.shell} p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md`}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <span className="text-sm font-semibold text-slate-500">{label}</span>
-          <div className="mt-2 text-3xl font-bold tracking-tight text-slate-950">{value}</div>
-          <span className={`mt-3 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${currentTone.trend}`}>
-            <TrendingUp className="mr-1 h-3.5 w-3.5" />
-            Theo dõi sát
-          </span>
-        </div>
-        <span className={`inline-flex h-12 w-12 items-center justify-center rounded-2xl ring-1 ${currentTone.badge}`}><Icon className="h-6 w-6" /></span>
-      </div>
-      <p className="mt-3 text-xs font-medium leading-5 text-slate-500">{caption}</p>
-    </div>
-  );
-}
-
-function MiniMetric({ label, value, helper }: { label: string; value: string | number; helper: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-100 bg-slate-50/90 p-5">
-      <div className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</div>
-      <div className="mt-2 text-3xl font-bold text-slate-950">{value}</div>
-      <div className="mt-1 text-xs font-medium text-slate-500">{helper}</div>
-    </div>
-  );
-}
-
-function MetricCard({ label, value, tone = 'slate' }: { label: string; value: string; tone?: 'emerald' | 'sky' | 'amber' | 'slate' }) {
-  const tones = {
-    emerald: 'border-emerald-100 bg-emerald-50 text-emerald-900',
-    sky: 'border-sky-100 bg-sky-50 text-sky-900',
-    amber: 'border-amber-100 bg-amber-50 text-amber-900',
-    slate: 'border-slate-200 bg-slate-50 text-slate-900',
-  };
-  return (
-    <div className={`rounded-md border p-4 ${tones[tone]}`}>
-      <div className="text-xs font-bold uppercase tracking-wide opacity-70">{label}</div>
-      <div className="mt-2 text-2xl font-bold">{value}</div>
-    </div>
-  );
-}
-
-function AlertRow({ label, value, detail }: { label: string; value: number; detail: string }) {
-  return (
-    <div className={`rounded-md border px-3 py-2 ${value > 0 ? 'border-amber-200 bg-amber-50' : 'border-emerald-100 bg-emerald-50'}`}>
-      <div className="flex items-center justify-between gap-3">
-        <span className={`text-sm font-bold ${value > 0 ? 'text-amber-900' : 'text-emerald-800'}`}>{label}</span>
-        <span className={`font-mono text-sm font-black ${value > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>{value}</span>
-      </div>
-      <div className={`mt-1 text-xs font-semibold ${value > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>{detail}</div>
-    </div>
-  );
-}
-
-function EmptyState({ text }: { text: string }) {
-  return <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm font-semibold text-slate-500">{text}</div>;
-}
-
-function CollapsibleSection({ title, description, children, defaultOpen = false, forceOpen = false, forceOpenKey, onClose }: { title: string; description?: string; children: React.ReactNode; defaultOpen?: boolean; forceOpen?: boolean; forceOpenKey?: string | null; onClose?: () => void }) {
-  const [open, setOpen] = useState(defaultOpen);
-
-  useEffect(() => {
-    if (forceOpen) setOpen(true);
-  }, [forceOpen, forceOpenKey]);
-
-  const closePopup = () => {
-    setOpen(false);
-    onClose?.();
-  };
-
-  return (
-    <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <div className="flex w-full flex-col gap-3 rounded-md bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <div className="text-sm font-bold text-slate-950">{title}</div>
-          {description && <div className="mt-1 text-xs font-medium leading-5 text-slate-500">{description}</div>}
-        </div>
-        <button type="button" onClick={() => setOpen(true)} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-rose-200 px-4 py-2 text-sm font-bold text-slate-800 shadow-sm shadow-rose-50 transition hover:bg-rose-300">
-          <Plus className="h-4 w-4" /> Thêm
-        </button>
-      </div>
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
-          <div className="w-full max-w-6xl overflow-hidden rounded-lg bg-white shadow-2xl">
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
-              <div>
-                <h3 className="text-lg font-bold text-slate-950">{title}</h3>
-                {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
-              </div>
-              <button type="button" onClick={closePopup} title="Đóng popup" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-950">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="max-h-[calc(100vh-150px)] overflow-y-auto p-5">{children}</div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AdminBadge({ children, tone = 'slate' }: { children: React.ReactNode; tone?: 'slate' | 'green' | 'red' | 'yellow' | 'blue' | 'amber' }) {
-  const tones = { slate: 'bg-slate-100 text-slate-700 ring-slate-200', green: 'bg-emerald-50 text-emerald-700 ring-emerald-100', red: 'bg-red-50 text-red-700 ring-red-100', yellow: 'bg-amber-50 text-amber-700 ring-amber-100', blue: 'bg-sky-50 text-sky-700 ring-sky-100', amber: 'bg-amber-50 text-amber-700 ring-amber-100' };
-  return <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-bold ring-1 ${tones[tone]}`}>{children}</span>;
-}
-
-function AdminPanel({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
-  return <div className="rounded-lg border border-slate-200/80 bg-white p-4 shadow-sm"><div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-lg font-bold text-slate-950">{title}</h2>{action}</div>{children}</div>;
-}
-
-function AdminTable({ headers, children }: { headers: string[]; children: React.ReactNode }) {
-  const rowCount = React.Children.count(children);
-  return <div className="overflow-hidden rounded-[20px] border border-rose-100 bg-white shadow-sm"><div className="overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="bg-rose-50 text-xs font-bold uppercase tracking-wide text-slate-500"><tr className="border-b border-rose-100">{headers.map((header) => <th key={header} className="whitespace-nowrap px-4 py-3.5">{header}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 bg-white text-slate-700 [&_tr:hover]:bg-rose-50/40">{children}</tbody></table></div><div className="flex flex-col gap-3 border-t border-rose-100 bg-rose-50/60 px-4 py-3 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between"><span>Đang xem {rowCount} dòng trong bảng hiện tại.</span><div className="flex items-center gap-2"><button type="button" disabled className="inline-flex h-9 items-center justify-center rounded-xl border border-rose-200 bg-white px-3 text-sm font-semibold text-slate-400">Trang trước</button><span className="rounded-lg bg-white px-3 py-1.5 font-semibold text-slate-600">Trang 1/1</span><button type="button" disabled className="inline-flex h-9 items-center justify-center rounded-xl border border-rose-200 bg-white px-3 text-sm font-semibold text-slate-400">Trang sau</button></div></div></div>;
-}
-
-function BrandLogo({ brand }: { brand: any }) {
-  const initial = String(brand.name || brand.code || '?').trim().charAt(0).toUpperCase() || '?';
-
-  if (brand.logoUrl) {
-    return (
-      <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white p-1 shadow-sm">
-        <img src={brand.logoUrl} alt={brand.logoAltText || (brand.name ? `${brand.name} logo` : 'Brand logo')} className="h-full w-full rounded-full object-contain" />
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-sm font-bold text-slate-700 ring-1 ring-slate-200">
-      {initial}
-    </span>
-  );
-}
-
-function VoucherConditions({ voucher }: { voucher: any }) {
-  const conditions = [
-    Number(voucher.minOrderValue || 0) > 0 ? `Tối thiểu ${currency.format(Number(voucher.minOrderValue || 0))}` : '',
-    Number(voucher.maxDiscount || 0) > 0 ? `Giảm tối đa ${currency.format(Number(voucher.maxDiscount || 0))}` : '',
-    voucher.stackable ? 'Cho cộng dồn' : 'Không cộng dồn',
-    Number(voucher.validityDaysAfterClaim || 0) > 0 ? `Hạn sau lưu: ${voucher.validityDaysAfterClaim} ngày` : '',
-    voucher.firstOrderOnly ? 'Chỉ đơn đầu tiên' : '',
-    voucher.abandonedCartOnly ? 'Chỉ giỏ bỏ quên' : '',
-    Number(voucher.perDeviceLimit || 0) > 0 ? `Thiết bị: ${voucher.perDeviceLimit}` : '',
-    Number(voucher.perIpLimit || 0) > 0 ? `IP: ${voucher.perIpLimit}` : '',
-    Array.isArray(voucher.eligibleTiers) && voucher.eligibleTiers.length ? `Hạng: ${voucher.eligibleTiers.join(', ')}` : '',
-    Array.isArray(voucher.includeProductIds) && voucher.includeProductIds.length ? `SP áp dụng: ${voucher.includeProductIds.length}` : '',
-    Array.isArray(voucher.excludeProductIds) && voucher.excludeProductIds.length ? `SP loại trừ: ${voucher.excludeProductIds.length}` : '',
-    Array.isArray(voucher.includeCategoryIds) && voucher.includeCategoryIds.length ? `DM áp dụng: ${voucher.includeCategoryIds.length}` : '',
-    Array.isArray(voucher.excludeCategoryIds) && voucher.excludeCategoryIds.length ? `DM loại trừ: ${voucher.excludeCategoryIds.length}` : '',
-    voucher.assignedUserId ? `User: ${String(voucher.assignedUserId).slice(0, 8)}` : '',
-    voucher.startsAt || voucher.endsAt ? `${voucher.startsAt ? new Date(voucher.startsAt).toLocaleDateString('vi-VN') : '...'} - ${voucher.endsAt ? new Date(voucher.endsAt).toLocaleDateString('vi-VN') : '...'}` : '',
-  ].filter(Boolean);
-
-  if (conditions.length === 0) return <span className="text-slate-400">Không ràng buộc</span>;
-  return <div className="max-w-xs space-y-1 text-xs font-semibold text-slate-600">{conditions.map((item) => <div key={item}>{item}</div>)}</div>;
-}
-
-function Input({ label, value, onChange, onBlur, type = 'text', required = false, disabled = false }: { label: string; value: string | number; onChange: (value: string) => void; onBlur?: () => void; type?: string; required?: boolean; disabled?: boolean }) {
-  return <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-500">{label}</span><input disabled={disabled} required={required} type={type} value={value} onBlur={onBlur} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" /></label>;
-}
-
-function Select({ label, value, onChange, options, disabled = false }: { label: string; value: string; onChange: (value: string) => void; options: [string, string][]; disabled?: boolean }) {
-  return <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-500">{label}</span><select disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400">{options.map(([optionValue, labelText]) => <option key={optionValue || labelText} value={optionValue}>{labelText}</option>)}</select></label>;
-}
-
-function Checkbox({ label, checked, onChange, disabled = false }: { label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
-  return <label className="mt-5 flex h-10 items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 accent-red-600 disabled:opacity-40" /> {label}</label>;
-}
-
-function FileInput({ label, accept, multiple = false, onFiles }: { label: string; accept: string; multiple?: boolean; onFiles: (files: FileList | null) => void }) {
-  return <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-500">{label}</span><span className="flex h-10 cursor-pointer items-center gap-2 rounded-md border border-dashed border-slate-300 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"><Upload className="h-4 w-4" /> Chọn file</span><input className="hidden" type="file" accept={accept} multiple={multiple} onChange={(event) => onFiles(event.target.files)} /></label>;
-}
-
-function RichTextEditor({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  const editorRef = React.useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value || '<p></p>';
-    }
-  }, [value]);
-
-  function apply(command: string, commandValue?: string) {
-    editorRef.current?.focus();
-    document.execCommand(command, false, commandValue);
-    onChange(editorRef.current?.innerHTML || '<p></p>');
-  }
-
-  return (
-    <div className="block">
-      <span className="mb-1.5 block text-xs font-bold text-slate-500">{label}</span>
-      <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
-        <div className="flex flex-wrap gap-2 border-b border-slate-200 bg-slate-50 p-2">
-          <button type="button" onClick={() => apply('bold')} className="rounded border border-slate-200 px-2 py-1 text-xs font-bold text-slate-700">Bold</button>
-          <button type="button" onClick={() => apply('italic')} className="rounded border border-slate-200 px-2 py-1 text-xs font-bold text-slate-700">Italic</button>
-          <button type="button" onClick={() => apply('formatBlock', 'h2')} className="rounded border border-slate-200 px-2 py-1 text-xs font-bold text-slate-700">H2</button>
-          <button type="button" onClick={() => apply('insertUnorderedList')} className="rounded border border-slate-200 px-2 py-1 text-xs font-bold text-slate-700">List</button>
-          <button type="button" onClick={() => { const link = window.prompt('Nhập URL liên kết'); if (link) apply('createLink', link); }} className="rounded border border-slate-200 px-2 py-1 text-xs font-bold text-slate-700">Link</button>
-        </div>
-        <div ref={editorRef} contentEditable suppressContentEditableWarning onInput={() => onChange(editorRef.current?.innerHTML || '<p></p>')} className="prose min-h-48 max-w-none px-4 py-3 text-sm outline-none" />
-      </div>
-    </div>
-  );
-}
-
-function MultiSelectBox({ label, options, values, onChange }: { label: string; options: { value: string; label: string }[]; values: string[]; onChange: (values: string[]) => void }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs font-bold text-slate-500">{label}</span>
-      <select multiple value={values} onChange={(event) => onChange(Array.from(event.target.selectedOptions).map((option) => option.value))} className="min-h-36 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100">
-        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
-    </label>
-  );
-}
-
-function SubmitButtons({ editing, onCancel }: { editing: boolean; onCancel: () => void }) {
-  return <div className="flex items-end gap-2"><button className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-rose-200 px-4 text-sm font-bold text-slate-800 shadow-sm shadow-rose-50 transition hover:bg-rose-300"><Plus className="h-4 w-4" /> {editing ? 'Lưu' : 'Thêm'}</button>{editing && <button type="button" onClick={onCancel} title="Hủy chỉnh sửa" className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"><X className="h-4 w-4" /></button>}</div>;
-}
-
-function SearchBox({ value, onChange, placeholder = 'Tìm kiếm nhanh' }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
-  return <label className="relative block w-full"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="h-11 w-full rounded-2xl border border-rose-200 bg-white/90 pl-9 pr-3 text-sm outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-100" /></label>;
-}
-
-function RowActions({ onEdit, onDelete, onRestore }: { onEdit: () => void; onDelete: () => void; onRestore?: () => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative flex items-center gap-2">
-      <button type="button" onClick={onEdit} title="Sửa" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-rose-200 bg-white/90 text-slate-600 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700">
-        <Edit2 className="h-4 w-4" />
-      </button>
-      <button type="button" onClick={() => setOpen((value) => !value)} title="Thao tác khác" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white/90 text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900">
-        <MoreHorizontal className="h-4 w-4" />
-      </button>
-      {open && (
-        <div className="absolute right-0 top-10 z-20 min-w-[150px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-          <button type="button" onClick={() => { setOpen(false); onDelete(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50">
-            <Trash2 className="h-4 w-4" /> Xóa / ẩn
-          </button>
-          {onRestore && (
-            <button type="button" onClick={() => { setOpen(false); onRestore(); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50">
-              <RotateCcw className="h-4 w-4" /> Bật lại
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CategoryTableRow({ category, level, onEdit, onDelete, onRestore, onReorder }: { category: any; level: number; onEdit: () => void; onDelete: () => void; onRestore?: () => void; onReorder: (draggedId: string, targetId: string) => void }) {
-  return (
-    <tr draggable onDragStart={(event) => event.dataTransfer.setData('categoryId', category.id)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => onReorder(event.dataTransfer.getData('categoryId'), category.id)}>
-      <td className="px-4 py-3 text-slate-400"><GripVertical className="h-4 w-4" /></td>
-      <td className="px-4 py-3">
-        {category.iconUrl ? <img src={category.iconUrl} alt="" className="h-10 w-10 rounded-md border border-slate-200 object-cover" /> : <span className="text-xs font-semibold text-slate-400">{category.icon || '-'}</span>}
-      </td>
-      <td className="px-4 py-3 font-semibold text-slate-900">
-        <div className="flex items-center gap-2" style={{ paddingLeft: level * 24 }}>
-          {level > 0 && <span className="h-px w-4 bg-slate-300" />}
-          <span>{category.name}</span>
-        </div>
-      </td>
-      <td className="px-4 py-3 font-mono text-xs">{category.slug}</td>
-      <td className="px-4 py-3">{category.parentId ? 'Danh mục con' : 'Danh mục cha'}</td>
-      <td className="px-4 py-3">{category.parentName || '-'}</td>
-      <td className="px-4 py-3">{category.specFields?.length || 0} trường / {category.filterConfig?.length || 0} lọc</td>
-      <td className="px-4 py-3">
-        <div className="flex flex-col items-start gap-1">
-          <AdminBadge tone={category.status === 'DRAFT' || category.status === 'PENDING_REVIEW' ? 'yellow' : category.isActive ? 'green' : category.status === 'REJECTED' ? 'red' : 'slate'}>{category.status || (category.isActive ? 'ACTIVE' : 'INACTIVE')}</AdminBadge>
-          {category.workflowStatus && <span className="text-xs font-semibold text-slate-500">Duyệt: {category.workflowStatus}</span>}
-          {category.hiddenByParent && <span className="text-xs font-semibold text-amber-600">Ẩn theo danh mục cha</span>}
-        </div>
-      </td>
-      <td className="px-4 py-3"><RowActions onEdit={onEdit} onDelete={onDelete} onRestore={onRestore} /></td>
-    </tr>
-  );
-}
-
-function MediaPreview({ title, items, onRemove }: { title: string; items: string[]; onRemove: (url: string) => void }) {
-  if (items.length === 0) return null;
-  return <div className="md:col-span-4"><div className="mb-2 text-xs font-bold text-slate-500">{title}</div><div className="flex flex-wrap gap-2">{items.map((item) => <div key={item} className="relative h-16 w-16 rounded-md border border-slate-200 bg-white p-1 shadow-sm"><img src={item} alt="" className="h-full w-full object-contain" /><button type="button" onClick={() => onRemove(item)} title="Xóa ảnh" className="absolute -right-2 -top-2 rounded-full bg-red-600 p-1 text-white shadow-sm"><X className="h-3 w-3" /></button></div>)}</div></div>;
-}
-
-function VideoPreview({ title, url, onRemove }: { title: string; url: string; onRemove: () => void }) {
-  return (
-    <div className="md:col-span-4">
-      <div className="mb-2 text-xs font-bold text-slate-500">{title}</div>
-      <div className="rounded-xl border border-slate-200 bg-slate-950 p-3 shadow-sm">
-        <video src={url} controls className="max-h-72 w-full rounded-lg bg-black" />
-        <div className="mt-3 flex justify-end">
-          <button type="button" onClick={onRemove} className="rounded-md bg-red-50 px-3 py-2 text-sm font-bold text-red-700">Xóa video đã chọn</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SimpleList({ title, icon: Icon, headers, rows, emptyText, action }: { title: string; icon: React.ElementType; headers: string[]; rows: (string | number)[][]; emptyText: string; action?: React.ReactNode }) {
-  return <AdminPanel title={title} action={<div className="flex flex-col gap-2 sm:flex-row sm:items-center"><Icon className="hidden h-5 w-5 text-red-600 sm:block" />{action}</div>}><AdminTable headers={headers}>{rows.length === 0 ? <tr><td colSpan={headers.length} className="px-4 py-8 text-center text-sm font-medium text-slate-500">{emptyText}</td></tr> : rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={`${index}-${cellIndex}`} className={`px-4 py-3 ${cellIndex === 0 ? 'font-semibold text-slate-900' : ''}`}>{cell}</td>)}</tr>)}</AdminTable></AdminPanel>;
-}
-
-
-
