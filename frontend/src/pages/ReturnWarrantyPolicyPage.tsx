@@ -318,9 +318,6 @@ export default function ReturnWarrantyPolicyPage() {
       icon: <RotateCcw className="h-5 w-5" />,
       content: (
         <div className="space-y-3 text-sm text-slate-600 leading-relaxed">
-          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
-            <img src="/images/policies/support.png" alt="Hỗ trợ kỹ thuật" className="w-full h-auto mix-blend-multiply" />
-          </div>
           <ol className="list-decimal pl-5 space-y-2">
             <li><strong className="text-slate-800">Tiếp nhận yêu cầu:</strong> Khách hàng liên hệ CSKH hoặc mang đến cửa hàng.</li>
             <li><strong className="text-slate-800">Kiểm tra giao dịch:</strong> Kiểm tra hóa đơn, thời hạn, phụ kiện.</li>
