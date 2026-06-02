@@ -7,11 +7,12 @@ export function SuggestedProducts({ currentProductId, category }: { currentProdu
   const [suggested, setSuggested] = useState<any[]>([]);
 
   useEffect(() => {
-    apiDb.listProducts()
-      .then(products => {
-      const qs = category ? products.filter((product: any) => product.categorySlug === category) : products;
-      
-      const data = qs.filter((p: any) => p.id !== currentProductId).slice(0, 4);
+    apiDb.listProducts({
+      category: category || undefined,
+      limit: currentProductId ? 5 : 4,
+    })
+      .then((products) => {
+      const data = products.filter((p: any) => p.id !== currentProductId).slice(0, 4);
       setSuggested(data);
       })
       .catch(err => {

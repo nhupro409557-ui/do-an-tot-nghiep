@@ -265,7 +265,7 @@ class AIAssistantUseCase:
                 SELECT p.id::text, p.slug, p.name, p.brand, p.price, p.sale_price AS "salePrice",
                        p.image_url AS "imageUrl", p.description, p.specifications,
                        c.name AS "categoryName", c.slug AS "categorySlug",
-                       p.rating, p.review_count AS "reviewCount"
+                       p.rating, p.review_count AS "reviewCount", p.favorite_count AS "favoriteCount"
                 FROM products p
                 LEFT JOIN categories c ON c.id = p.category_id
                 WHERE p.status = 'ACTIVE'
@@ -307,6 +307,7 @@ class AIAssistantUseCase:
             if min_price is not None or max_price is not None:
                 score += 20
             score += int(float(product.get("rating") or 0))
+            score += int(product.get("favoriteCount") or 0) * 2
 
             if score > 0 or min_price is not None or max_price is not None:
                 ranked.append((score, product))

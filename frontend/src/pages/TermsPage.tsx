@@ -96,9 +96,6 @@ export default function TermsPage() {
       icon: <Settings className="h-5 w-5" />,
       content: (
         <div className="space-y-3 text-sm text-slate-600 leading-relaxed">
-          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
-            <img src="/images/policies/terms.png" alt="Nguyên tắc hoạt động" className="w-full h-auto mix-blend-multiply" />
-          </div>
           <BulletList items={[
             'Hoạt động dựa trên nguyên tắc công khai, minh bạch, trung thực và tuân thủ pháp luật.',
             'Các thông tin về sản phẩm, giá bán, khuyến mãi, chính sách được công bố rõ ràng nhằm hỗ trợ khách hàng quyết định.',
@@ -314,9 +311,6 @@ export default function TermsPage() {
       icon: <MessageSquare className="h-5 w-5" />,
       content: (
         <div className="space-y-3 text-sm text-slate-600 leading-relaxed">
-          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
-            <img src="/images/policies/customer_review.png" alt="Đánh giá từ khách hàng" className="w-full h-auto mix-blend-multiply" />
-          </div>
           <p>Nội dung đăng tải phải trung thực, không vi phạm pháp luật. Cấm các nội dung:</p>
           <BulletList items={[
             'Xúc phạm, đe dọa, vu khống, phân biệt đối xử.',

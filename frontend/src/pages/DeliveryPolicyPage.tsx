@@ -1,7 +1,3 @@
-<div className="mb-4 mt-2 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
-            <img src="/images/policies/package.png" alt="Kiểm tra kiện hàng" className="w-full h-auto mix-blend-multiply" />
-          </div>
-
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -253,9 +249,6 @@ export default function DeliveryPolicyPage() {
       icon: <PackageX className="h-5 w-5" />,
       content: (
         <div className="space-y-3 text-sm text-slate-600 leading-relaxed">
-          <div className="mb-4 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
-            <img src="/images/policies/fast_delivery.png" alt="Giao hàng siêu tốc" className="w-full h-auto mix-blend-multiply" />
-          </div>
           <p>Giao hàng không thành công khi đơn vị vận chuyển không thể bàn giao sản phẩm cho khách hàng. Các nguyên nhân thường gặp:</p>
           <BulletList items={[
             'Không liên hệ được với khách hàng hoặc khách hàng không có mặt tại địa chỉ.',

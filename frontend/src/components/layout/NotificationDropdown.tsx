@@ -3,6 +3,7 @@ import { Bell, Package, Gift, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiDb } from '../../services/apiDb';
 import { useAuth } from '../../context/AuthContext';
+import { getAccessToken } from '../../services/authDb';
 
 interface Notification {
   id: string;
@@ -21,7 +22,7 @@ export function NotificationDropdown() {
 
   useEffect(() => {
     const fetchNotifications = async () => {
-      if (!user) {
+      if (!user || !getAccessToken()) {
         setNotifications([]);
         return;
       }
@@ -40,7 +41,10 @@ export function NotificationDropdown() {
           };
         }));
       } catch (err) {
-        console.error(err);
+        const message = err instanceof Error ? err.message : '';
+        if (!message.includes('Missing authenticated user context')) {
+          console.error(err);
+        }
         setNotifications([]);
       }
     };

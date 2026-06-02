@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiDb } from '../services/apiDb';
 import ProductDetail from '../components/product/ProductDetail';
+import { useViewTracker } from '../hooks/useViewTracker';
 
 export default function ProductPage() {
   const { id } = useParams<{ id: string }>();
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  useViewTracker(product?.id || id);
 
   useEffect(() => {
     if (!id) return;

@@ -1,11 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { LoyaltyBadge3D } from '../components/loyalty/LoyaltyBadge3D';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { apiDb } from '../services/apiDb';
 import { deleteCurrentUser, signOut, updateUserProfile } from '../services/authDb';
 import { DeleteAccountModal } from '../components/account/DeleteAccountModal';
+
+const LoyaltyBadge3D = lazy(() =>
+  import('../components/loyalty/LoyaltyBadge3D').then(module => ({ default: module.LoyaltyBadge3D })),
+);
 
 export default function LoyaltyRewardsPage() {
   const { user, userData } = useAuth();
@@ -100,7 +103,9 @@ export default function LoyaltyRewardsPage() {
           <div className="text-right flex flex-col items-end">
             <p className="text-sm opacity-80 mb-1">Hạng hiện tại</p>
             <div className="absolute inset-0 bg-blue-400 opacity-20 blur-3xl rounded-full"></div>
-            <LoyaltyBadge3D tier={currentTier as any} size={120} />
+            <Suspense fallback={<div className="h-[120px] w-[120px]" />}>
+              <LoyaltyBadge3D tier={currentTier as any} size={120} />
+            </Suspense>
             <p className="text-xl font-black uppercase italic tracking-widest relative z-10">{getTierDisplayName(currentTier)}</p>
           </div>
         </div>

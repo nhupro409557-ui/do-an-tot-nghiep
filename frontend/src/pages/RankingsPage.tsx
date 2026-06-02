@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Flame, Eye, Heart, Search, ShoppingBag, Star, Activity, BarChart2, Trophy, Filter, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowRight, Flame, Eye, Heart, Search, ShoppingBag, Star, Activity, BarChart2, Trophy, Filter, TrendingUp, TrendingDown, ChevronDown } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer, YAxis, XAxis, Tooltip } from 'recharts';
 import { ImageWithFallback } from '../components/ui/ImageWithFallback';
 import { apiDb } from '../services/apiDb';
@@ -26,6 +26,17 @@ const timeRangeOptions: { value: TimeRange; label: string }[] = [
   { value: '1y', label: '1 năm qua' },
 ];
 
+function rankingCategoryValue(category: any) {
+  return category?.slug || category?.id || category?.name || 'all';
+}
+
+function flattenRankingCategories(categories: any[]) {
+  return categories.flatMap((category) => [
+    { ...category, depth: 0 },
+    ...(category.children || []).map((child: any) => ({ ...child, depth: 1 })),
+  ]);
+}
+
 function salePrice(product: any) {
   return Number(product.discountPrice || product.salePrice || product.price || 0);
 }
@@ -41,31 +52,9 @@ function discountPercent(product: any) {
   return Math.round(((original - sale) / original) * 100);
 }
 
-// Deterministic pseudo-random number generator based on string
-function seededRandom(seedStr: string) {
-  let h = 0;
-  for (let i = 0; i < seedStr.length; i++) {
-    h = Math.imul(31, h) + seedStr.charCodeAt(i) | 0;
-  }
-  return function() {
-    h = Math.imul(h ^ (h >>> 16), 2246822507);
-    h = Math.imul(h ^ (h >>> 13), 3266489909);
-    return (h ^= h >>> 16) >>> 0;
-  };
-}
-
-function generateHistoryData(seed: string, pointsCount: number, baseValue: number, trend: 'up' | 'down' | 'flat') {
-  const rand = seededRandom(seed);
-  const data = [];
-  let current = baseValue;
-  for (let i = 0; i < pointsCount; i++) {
-    let change = (rand() % 20) - 10; // -10 to +9
-    if (trend === 'up') change += 3;
-    if (trend === 'down') change -= 3;
-    current = Math.max(10, current + change);
-    data.push(current);
-  }
-  return data;
+function metricByRange(product: any, base: string, timeRange: TimeRange) {
+  const suffix = timeRange === '24h' ? '24h' : timeRange;
+  return Number(product?.[`${base}${suffix}`] ?? 0);
 }
 
 // Recharts Sparkline Component
@@ -120,29 +109,6 @@ function Sparkline({ data, isPositive }: { data: number[]; isPositive: boolean }
   );
 }
 
-function enrichProductData(product: any, timeRange: TimeRange) {
-  const randStr = product.id + timeRange;
-  const rand = seededRandom(randStr);
-  
-  // Adjust multipliers based on time range
-  const timeMultiplier = timeRange === '24h' ? 1 : timeRange === '7d' ? 5 : timeRange === '30d' ? 15 : 100;
-  
-  const soldCount = (Number(product.soldCount) || (rand() % 500) + 10) * (timeMultiplier / 10);
-  const reviewCount = Number(product.reviewCount) || (rand() % 100) + 5;
-  const rating = Number(product.rating) || 4 + (rand() % 10) / 10; // 4.0 to 4.9
-  
-  return {
-    ...product,
-    soldCount: Math.round(Math.max(0, soldCount)),
-    reviewCount,
-    rating,
-    searchCount: Math.round(((rand() % 15000) + 500) * timeMultiplier),
-    viewCount: Math.round(((rand() % 50000) + 1000) * timeMultiplier),
-    likeCount: Math.round(((rand() % 2000) + 50) * timeMultiplier),
-    trendScore: (rand() % 100),
-  };
-}
-
 export default function RankingsPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -150,6 +116,7 @@ export default function RankingsPage() {
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [loading, setLoading] = useState(true);
+  const [isCatOpen, setIsCatOpen] = useState(false);
 
   useEffect(() => {
     apiDb.listCategories().then(setCategories).catch(() => {});
@@ -157,37 +124,14 @@ export default function RankingsPage() {
 
   useEffect(() => {
     setLoading(true);
-    apiDb.listProducts()
-      .then((items) => {
-        const activeItems = items.filter((item) => item.status !== 'INACTIVE');
-        const enrichedItems = activeItems.map(p => enrichProductData(p, timeRange));
-        setProducts(enrichedItems);
-      })
+    apiDb.listRankings({ period: timeRange, criteria, category: selectedCategory, limit: 20 })
+      .then(setProducts)
       .catch(() => setProducts([]))
       .finally(() => setLoading(false));
-  }, [timeRange]);
-
-  const rankedProducts = useMemo(() => {
-    let list = [...products];
-    
-    // Filter by category
-    if (selectedCategory !== 'all') {
-      const cat = categories.find(c => c.id === selectedCategory);
-      list = list.filter(p => p.categoryId === selectedCategory || (cat && p.category === cat.name));
-    }
-
-    switch (criteria) {
-      case 'trending': return list.sort((a, b) => b.trendScore - a.trendScore).slice(0, 20);
-      case 'search': return list.sort((a, b) => b.searchCount - a.searchCount).slice(0, 20);
-      case 'view': return list.sort((a, b) => b.viewCount - a.viewCount).slice(0, 20);
-      case 'like': return list.sort((a, b) => b.likeCount - a.likeCount).slice(0, 20);
-      case 'sold': return list.sort((a, b) => b.soldCount - a.soldCount).slice(0, 20);
-      case 'rating': return list.sort((a, b) => b.rating - a.rating).slice(0, 20);
-      default: return list;
-    }
-  }, [products, criteria, selectedCategory, categories]);
+  }, [criteria, selectedCategory, timeRange]);
 
   const activeCriteria = criteriaOptions.find((opt) => opt.value === criteria) || criteriaOptions[0];
+  const categoryOptions = flattenRankingCategories(categories);
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12">
@@ -212,55 +156,101 @@ export default function RankingsPage() {
       <div className="mx-auto mt-8 max-w-5xl px-4 sm:px-6 lg:px-8">
         
         {/* Controls: Time & Category */}
-        <div className="mb-6 flex flex-col sm:flex-row items-center justify-between gap-4 rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-          <div className="flex w-full sm:w-auto items-center gap-2 overflow-x-auto pb-2 sm:pb-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            <Filter className="h-5 w-5 text-slate-400 shrink-0" />
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="rounded-lg border-slate-200 text-sm font-medium focus:border-primary focus:ring-primary w-full sm:w-48"
+        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+          {/* Custom Category Dropdown */}
+          <div className="relative w-full sm:w-64">
+            <button
+              type="button"
+              onClick={() => setIsCatOpen(!isCatOpen)}
+              className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 hover:border-slate-300 focus:border-red-500 focus:ring-4 focus:ring-red-500/10"
             >
-              <option value="all">Tất cả danh mục</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+              <div className="flex items-center gap-2 min-w-0">
+                <Filter className="h-4.5 w-4.5 text-slate-400 shrink-0" />
+                <span className="truncate">
+                  {selectedCategory === 'all' 
+                    ? 'Tất cả danh mục' 
+                    : categoryOptions.find(c => rankingCategoryValue(c) === selectedCategory)?.name || 'Tất cả danh mục'}
+                </span>
+              </div>
+              <ChevronDown className={`h-4 w-4 text-slate-400 shrink-0 transition-transform duration-200 ${isCatOpen ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {isCatOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setIsCatOpen(false)} />
+                <div className="absolute left-0 right-0 z-20 mt-2 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-100 focus:outline-none">
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedCategory('all'); setIsCatOpen(false); }}
+                    className={`flex w-full items-center rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${selectedCategory === 'all' ? 'bg-red-50 text-red-600 font-bold' : 'text-slate-700 hover:bg-slate-50'}`}
+                  >
+                    Tất cả danh mục
+                  </button>
+                  {categoryOptions.map((c) => {
+                    const val = rankingCategoryValue(c);
+                    const isSelected = selectedCategory === val;
+                    return (
+                      <button
+                        key={c.id || c.slug || c.name}
+                        type="button"
+                        onClick={() => { setSelectedCategory(val); setIsCatOpen(false); }}
+                        className={`flex w-full items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors ${c.depth ? 'pl-6 text-slate-500' : 'text-slate-700'} ${isSelected ? 'bg-red-50 text-red-600 font-bold' : 'hover:bg-slate-50'}`}
+                      >
+                        {c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
 
-          <div className="flex bg-slate-100 p-1 rounded-lg w-full sm:w-auto overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            {timeRangeOptions.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setTimeRange(opt.value)}
-                className={`whitespace-nowrap rounded-md px-4 py-1.5 text-sm font-semibold transition-colors ${
-                  timeRange === opt.value
-                    ? 'bg-white text-primary shadow-sm'
-                    : 'text-slate-500 hover:text-slate-900'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+          {/* Time Range Tabs */}
+          <div className="flex bg-slate-100/80 p-1.5 rounded-xl w-full sm:w-auto">
+            {timeRangeOptions.map((opt) => {
+              const isActive = timeRange === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setTimeRange(opt.value)}
+                  className={`flex-1 sm:flex-none whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold transition-all duration-200 ${
+                    isActive
+                      ? 'bg-white text-red-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Filters: Criteria */}
-        <div className="mb-8 overflow-x-auto pb-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-          <div className="flex gap-3">
-            {criteriaOptions.map((option) => (
-              <button
-                key={option.value}
-                onClick={() => setCriteria(option.value)}
-                className={`flex shrink-0 items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold transition-all ${
-                  criteria === option.value
-                    ? `${option.bg} ${option.color} ring-1 ring-inset ring-black/5`
-                    : 'bg-white text-slate-600 shadow-sm ring-1 ring-inset ring-slate-200 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                {option.icon}
-                {option.label}
-              </button>
-            ))}
+        {/* Filters: Criteria (Grid layout to prevent layout overflow or loss of option) */}
+        <div className="mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            {criteriaOptions.map((option) => {
+              const isActive = criteria === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setCriteria(option.value)}
+                  className={`flex items-center gap-3 rounded-xl p-2.5 text-sm font-bold transition-all duration-300 border text-left group
+                    ${isActive
+                      ? `${option.bg} ${option.color} border-transparent shadow-sm shadow-slate-100 ring-2 ring-red-500/10`
+                      : 'bg-white text-slate-600 border-slate-100 hover:bg-slate-50/50 hover:text-slate-900 hover:border-slate-200 shadow-sm'
+                    }
+                  `}
+                >
+                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors ${isActive ? 'bg-white shadow-sm' : 'bg-slate-50 text-slate-400 group-hover:bg-slate-100 group-hover:text-slate-600'}`}>
+                    {option.icon}
+                  </div>
+                  <span className="leading-tight text-xs md:text-sm">{option.label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -269,7 +259,7 @@ export default function RankingsPage() {
           <div className="flex items-center justify-center rounded-2xl bg-white p-20 shadow-sm ring-1 ring-inset ring-slate-100">
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
           </div>
-        ) : rankedProducts.length === 0 ? (
+        ) : products.length === 0 ? (
           <EmptyState text="Không tìm thấy sản phẩm nào phù hợp với bộ lọc hiện tại." />
         ) : (
           <div className="rounded-2xl bg-white shadow-sm overflow-hidden ring-1 ring-inset ring-slate-100">
@@ -282,7 +272,7 @@ export default function RankingsPage() {
             </div>
             
             <div className="divide-y divide-slate-100">
-              {rankedProducts.map((product, index) => (
+              {products.map((product, index) => (
                 <RankingRow 
                   key={product.id} 
                   product={product} 
@@ -316,69 +306,90 @@ function RankingRow({ product, rank, criteria, timeRange, activeColor, activeBg 
 
   const getMetricDisplay = () => {
     switch (criteria) {
-      case 'search': return { label: 'Lượt tìm kiếm', value: product.searchCount.toLocaleString('vi-VN'), icon: <Search className="h-3.5 w-3.5" /> };
-      case 'view': return { label: 'Lượt xem', value: product.viewCount.toLocaleString('vi-VN'), icon: <Eye className="h-3.5 w-3.5" /> };
-      case 'like': return { label: 'Lượt thích', value: product.likeCount.toLocaleString('vi-VN'), icon: <Heart className="h-3.5 w-3.5" /> };
-      case 'sold': return { label: 'Đã bán', value: product.soldCount.toLocaleString('vi-VN'), icon: <ShoppingBag className="h-3.5 w-3.5" /> };
-      case 'rating': return { label: 'Đánh giá', value: `${product.rating.toFixed(1)} / 5.0`, icon: <Star className="h-3.5 w-3.5" /> };
-      case 'trending': default: return { label: 'Điểm xu hướng', value: product.trendScore.toString(), icon: <Flame className="h-3.5 w-3.5" /> };
+      case 'search': return { label: 'Lượt tìm kiếm', value: Number(product.searchCount || 0).toLocaleString('vi-VN'), icon: <Search className="h-3.5 w-3.5" /> };
+      case 'view': return { label: 'Lượt xem', value: Number(product.viewCount || 0).toLocaleString('vi-VN'), icon: <Eye className="h-3.5 w-3.5" /> };
+      case 'like': return { label: 'Lượt thích', value: metricByRange(product, 'like', timeRange).toLocaleString('vi-VN'), icon: <Heart className="h-3.5 w-3.5" /> };
+      case 'sold': return { label: 'Đã bán', value: Number(product.periodSoldCount ?? product.soldCount ?? 0).toLocaleString('vi-VN'), icon: <ShoppingBag className="h-3.5 w-3.5" /> };
+      case 'rating': return { label: 'Đánh giá', value: `${metricByRange(product, 'rating', timeRange).toFixed(1)} / 5.0`, icon: <Star className="h-3.5 w-3.5" /> };
+      case 'trending': default: return { label: 'Điểm xu hướng', value: Number(product.trendScore || 0).toLocaleString('vi-VN'), icon: <Flame className="h-3.5 w-3.5" /> };
     }
   };
 
   const metric = getMetricDisplay();
 
-  const rankColor = rank === 1 ? 'text-amber-500 bg-amber-50 ring-1 ring-amber-200' : 
-                    rank === 2 ? 'text-slate-500 bg-slate-100 ring-1 ring-slate-200' : 
-                    rank === 3 ? 'text-orange-600 bg-orange-100 ring-1 ring-orange-200' : 
-                    'text-slate-400 font-medium bg-white';
+  const rankColor = rank === 1 ? 'bg-gradient-to-br from-amber-400 to-yellow-500 text-white shadow-md shadow-yellow-500/25 ring-0' : 
+                    rank === 2 ? 'bg-gradient-to-br from-slate-300 to-slate-500 text-white shadow-md shadow-slate-400/30 ring-0' : 
+                    rank === 3 ? 'bg-gradient-to-br from-orange-400 to-amber-600 text-white shadow-md shadow-orange-500/25 ring-0' : 
+                    'text-slate-400 font-semibold bg-slate-50';
 
-  // Generate chart data based on criteria and product
-  const rand = seededRandom(product.id + criteria + timeRange);
-  const trendType = rand() % 100 > 60 ? 'up' : (rand() % 100 > 80 ? 'down' : 'flat');
-  const pointsCount = timeRange === '24h' ? 24 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 12;
-  const historyData = generateHistoryData(product.id + criteria + timeRange, pointsCount, 100, trendType);
-  
-  // Trend percentage
-  const lastVal = historyData[historyData.length - 1];
-  const firstVal = historyData[0] || 1;
-  const trendPercent = Math.round(((lastVal - firstVal) / firstVal) * 100);
+  const metricValue = Number(
+    criteria === 'search' ? product.searchCount :
+    criteria === 'view' ? product.viewCount :
+    criteria === 'like' ? metricByRange(product, 'like', timeRange) :
+    criteria === 'sold' ? (product.periodSoldCount ?? product.soldCount) :
+    criteria === 'rating' ? metricByRange(product, 'rating', timeRange) :
+    product.trendScore
+  ) || 0;
+  const previousValue = Number(
+    criteria === 'search' ? product.previousSearchCount :
+    criteria === 'view' ? product.previousViewCount :
+    criteria === 'sold' ? product.previousPeriodSoldCount :
+    criteria === 'trending' ? product.previousTrendScore :
+    criteria === 'rating' ? product.rating :
+    product.previousPeriodLikeCount
+  ) || 0;
+  const trendPercent = criteria === 'rating'
+    ? Math.round((metricValue / 5) * 100)
+    : previousValue > 0
+      ? Math.round(((metricValue - previousValue) / previousValue) * 100)
+      : (metricValue > 0 ? 100 : 0);
   const isUp = trendPercent >= 0;
+  const historyData = Array.isArray(product.history)
+    ? product.history.map((point: any) => Number(
+        criteria === 'search' ? point.searchCount :
+        criteria === 'view' ? point.viewCount :
+        criteria === 'like' ? point.likeCount :
+        criteria === 'sold' ? point.periodSoldCount :
+        criteria === 'trending' ? point.trendScore :
+        metricValue
+      ) || 0)
+    : [];
 
   return (
     <Link 
       to={`/product/${product.id || product.slug}`} 
-      className="group flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 sm:px-6 transition-colors hover:bg-slate-50 relative"
+      className="group flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 sm:px-6 transition-all duration-300 hover:bg-slate-50/80 relative before:absolute before:left-0 before:top-0 before:bottom-0 before:w-0 before:bg-red-500 before:transition-all before:duration-300 hover:before:w-1 overflow-hidden"
     >
       {/* Rank Number */}
       <div className="flex items-center gap-4 w-full sm:w-auto">
-        <div className={`flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-xl text-lg sm:text-xl font-black ${rankColor}`}>
+        <div className={`flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-xl text-lg sm:text-xl font-black transition-transform duration-300 group-hover:scale-105 ${rankColor}`}>
           {rank}
         </div>
         
         {/* Mobile Layout Title */}
         <div className="min-w-0 flex-1 sm:hidden">
-          <div className="truncate font-bold text-slate-900 group-hover:text-primary transition-colors">{product.name}</div>
+          <div className="truncate font-bold text-slate-900 group-hover:text-red-600 transition-colors">{product.name}</div>
           <div className="text-sm text-slate-500">{product.category || product.brand || 'Sản phẩm'}</div>
         </div>
       </div>
 
       {/* Image */}
-      <div className="flex h-20 w-20 sm:h-16 sm:w-16 shrink-0 items-center justify-center rounded-xl bg-white p-2 ring-1 ring-inset ring-slate-100 shadow-sm mx-auto sm:mx-0">
+      <div className="flex h-20 w-20 sm:h-16 sm:w-16 shrink-0 items-center justify-center rounded-xl bg-white p-2 border border-slate-100 shadow-sm mx-auto sm:mx-0 overflow-hidden">
         {image ? (
           <ImageWithFallback src={image} alt={product.name} className="h-full w-full object-contain group-hover:scale-110 transition-transform duration-300" />
         ) : (
-          <span className="text-xs font-bold text-slate-300">No img</span>
+          <span className="text-xs font-bold text-slate-350">No img</span>
         )}
       </div>
 
       {/* Info */}
       <div className="min-w-0 flex-1 w-full text-center sm:text-left">
-        <div className="hidden sm:block truncate font-bold text-lg text-slate-900 group-hover:text-primary transition-colors">{product.name}</div>
+        <div className="hidden sm:block truncate font-bold text-lg text-slate-900 group-hover:text-red-600 transition-colors">{product.name}</div>
         <div className="hidden sm:block mt-1 text-sm text-slate-500">{product.category || product.brand || 'Khác'}</div>
         
         {/* Metric Badge */}
         <div className="mt-3 flex flex-wrap items-center justify-center sm:justify-start gap-2">
-          <div className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-bold ${activeBg} ${activeColor}`}>
+          <div className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-bold shadow-sm ${activeBg} ${activeColor}`}>
             {metric.icon}
             {metric.value} {metric.label}
           </div>
@@ -403,7 +414,7 @@ function RankingRow({ product, rank, criteria, timeRange, activeColor, activeBg 
             <div className="text-sm font-medium text-slate-400 line-through">{currency.format(originalPrice(product))}</div>
           )}
         </div>
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-400 transition-colors group-hover:bg-primary group-hover:text-white">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-400 transition-all duration-300 group-hover:bg-red-600 group-hover:text-white group-hover:translate-x-1 shadow-sm">
           <ArrowRight className="h-5 w-5" />
         </div>
       </div>

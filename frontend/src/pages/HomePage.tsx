@@ -16,10 +16,11 @@ export default function HomePage() {
     const fetchProducts = async () => {
       try {
         setLoading(true);
-        let data = await apiDb.listProducts();
-        if (searchQuery) {
-          data = data.filter((p: any) => p.name.toLowerCase().includes(searchQuery.toLowerCase()));
-        }
+        const data = await apiDb.listProducts({
+          q: searchQuery || undefined,
+          featured: searchQuery ? undefined : true,
+          limit: 10,
+        });
         setProducts(data);
       } catch (err) {
         console.error("Failed to load products", err);

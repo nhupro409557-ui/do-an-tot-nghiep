@@ -1,13 +1,46 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Swiper, SwiperSlide } from 'swiper/react';
-import { Mousewheel } from 'swiper/modules';
-import { Check, Heart, MessageCircle, Send, Share2, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { Check, Heart, MessageCircle, Send, Share2, X, Play, Pause } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import 'swiper/css';
+import { apiDb } from '../../services/apiDb';
+import { ImageWithFallback } from '../ui/ImageWithFallback';
+
+interface Product {
+  id: string;
+  name: string;
+  url?: string;
+  price?: number;
+  discountPrice?: number;
+  favoriteCount?: number;
+}
+
+interface GalleryItem {
+  id: string;
+  url: string;
+  productId?: string;
+  productName?: string;
+  category?: string;
+  brand?: string;
+  favoriteCount?: number;
+  product?: Product;
+  displayId?: string;
+}
+
+interface CommentItem {
+  id: string;
+  userName?: string;
+  content?: string;
+  parentId?: string | null;
+  replyToUserName?: string | null;
+  isRetracted?: boolean;
+  isPending?: boolean;
+  isFailed?: boolean;
+  imageUrl?: string;
+  replies?: CommentItem[];
+}
 
 interface ImagesModalProps {
   isOpen: boolean;
-  playlist: any[];
+  playlist: GalleryItem[];
   initialIndex?: number;
   onClose: () => void;
 }
@@ -17,35 +50,206 @@ function priceOf(product: any) {
 }
 
 function likeCountOf(item: any, index: number) {
+  if (typeof item?.product?.favoriteCount === 'number') return item.product.favoriteCount;
+  if (typeof item?.favoriteCount === 'number') return item.favoriteCount;
   const seed = String(item.id || item.productName || index).split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return `${(1.2 + ((seed % 240) / 10)).toFixed(1)}K`;
+  return Math.floor(12 + (seed % 88));
 }
 
 export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClose }: ImagesModalProps) {
   const [showComments, setShowComments] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [activeIdx, setActiveIdx] = useState(initialIndex);
   const [commentText, setCommentText] = useState('');
+  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  
+  // Real database comments and local actions
+  const [imageComments, setImageComments] = useState<CommentItem[]>([]);
+  const [replyTarget, setReplyTarget] = useState<CommentItem | null>(null);
+  const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
+  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
 
-  const currentItem = playlist[activeIdx] || null;
-  const commentCount = 3 + ((activeIdx * 3) % 12);
+  // 360 Spin / 3D Carousel states
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [rotationY, setRotationY] = useState(0);
+  const [zoom, setZoom] = useState(-150);
+  const [startRotationY, setStartRotationY] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const animationRef = useRef<number | null>(null);
+
+  // Responsive Card Dimensions (Khung vuông để ảnh dọc ngang không bị cắt nhỏ)
+  const [cardDim, setCardDim] = useState({ w: 440, h: 440 });
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) setCardDim({ w: 440, h: 440 });
+      else if (window.innerWidth >= 640) setCardDim({ w: 340, h: 340 });
+      else setCardDim({ w: 280, h: 280 });
+    };
+    handleResize(); // initialize
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    const query = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    if (!query) return;
+    const updateReducedMotion = () => setReducedMotion(query.matches);
+    updateReducedMotion();
+    query.addEventListener?.('change', updateReducedMotion);
+    return () => query.removeEventListener?.('change', updateReducedMotion);
+  }, []);
+
+  // INERTIA STATE REFS
+  const lastXRef = useRef(0);
+  const lastTimeRef = useRef(0);
+  const velocityRef = useRef(0);
+
+  // ESC key to close
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  const isCarouselMode = playlist.length >= 3;
+  const singleImageIndex = Math.min(Math.max(initialIndex, 0), Math.max(playlist.length - 1, 0));
+
+  const displayPlaylist = useMemo(() => {
+    if (!isCarouselMode) return [];
+    if (playlist.length === 0) return [];
+    return playlist.map((item, idx) => ({ ...item, displayId: `${item.id}-${idx}` }));
+  }, [isCarouselMode, playlist]);
+
+  const N = displayPlaylist.length;
+  const radius = N <= 1 ? 0 : Math.round((cardDim.w / 2 + 60) / Math.tan(Math.PI / N));
+
+  const activeCardIndex = useMemo(() => {
+    if (N <= 1) return 0;
+    const anglePerCard = 360 / N;
+    let idx = Math.round(-rotationY / anglePerCard) % N;
+    if (idx < 0) idx += N;
+    return idx;
+  }, [rotationY, N]);
+
+  const activeIdx = activeCardIndex;
+  const currentItem = isCarouselMode ? displayPlaylist[activeIdx] || null : playlist[singleImageIndex] || null;
 
   useEffect(() => {
     if (!isOpen) return;
     setShowComments(false);
     setCopied(false);
-    setActiveIdx(initialIndex);
     setCommentText('');
-  }, [isOpen, initialIndex]);
+    setIsAutoPlaying(isCarouselMode && !reducedMotion);
+    setIsDragging(false);
+    
+    setZoom(isCarouselMode ? -radius : 0);
+    
+    const anglePerCard = N <= 1 ? 0 : 360 / N;
+    setRotationY(-initialIndex * anglePerCard);
+    setImageComments([]);
+    setReplyTarget(null);
+    setExpandedReplies(new Set());
+  }, [isOpen, initialIndex, N, radius, isCarouselMode, reducedMotion]);
 
   useEffect(() => {
-    if (!isOpen || playlist.length === 0) return;
-    const item = playlist[activeIdx];
-    if (!item?.id) return;
+    if (!isOpen || !currentItem?.productId) return;
+    apiDb.listProductImageComments(currentItem.productId)
+      .then((data) => setImageComments(data || []))
+      .catch(() => setImageComments([]));
+  }, [isOpen, currentItem?.productId]);
+
+  const comments = useMemo(() => {
+    return imageComments.filter((comment) => String(comment.content || '').trim() !== '');
+  }, [imageComments]);
+
+  const commentThreads = useMemo(() => {
+    const roots = comments.filter((comment) => !comment.parentId);
+    const replies = comments.filter((comment) => comment.parentId);
+    return roots.map((root) => ({
+      ...root,
+      replies: replies.filter((reply) => reply.parentId === root.id),
+    }));
+  }, [comments]);
+
+  const commentCount = comments.length;
+
+  const isLiked = currentItem?.productId ? likedIds.has(currentItem.productId) : false;
+
+  const handleToggleLike = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (!currentItem?.productId) return;
+    
+    const productId = currentItem.productId;
+    setLikedIds((prev) => {
+      const next = new Set(prev);
+      next.has(productId) ? next.delete(productId) : next.add(productId);
+      return next;
+    });
+
+    apiDb.toggleFavorite(productId).catch(() => {
+      setLikedIds((prev) => {
+        const next = new Set(prev);
+        next.has(productId) ? next.delete(productId) : next.add(productId);
+        return next;
+      });
+    });
+  }, [currentItem?.productId]);
+
+  const baseLikes = useMemo(() => {
+    if (!currentItem) return 0;
+    return Number(likeCountOf(currentItem, activeIdx) || 0);
+  }, [currentItem, activeIdx]);
+
+  const displayLikes = isLiked ? baseLikes + 1 : baseLikes;
+
+  useEffect(() => {
+    if (!isCarouselMode || !isAutoPlaying || isDragging || reducedMotion || N <= 1) return;
+
+    let lastTime = performance.now();
+    const animate = (time: number) => {
+      const delta = Math.min(50, time - lastTime);
+      lastTime = time;
+      setRotationY((prev) => prev - delta * 0.02);
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animationRef.current = requestAnimationFrame(animate);
+    return () => {
+      if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    };
+  }, [isCarouselMode, isAutoPlaying, isDragging, reducedMotion, N]);
+
+  useEffect(() => {
+    if (!isCarouselMode) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setZoom((prev) => {
+        const next = prev - e.deltaY * 0.4;
+        return Math.min(1000, Math.max(-5000, next));
+      });
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+    };
+  }, [isOpen, isCarouselMode]);
+
+  useEffect(() => {
+    if (!isOpen || !currentItem?.id) return;
     const url = new URL(window.location.href);
-    url.searchParams.set('view', item.id);
+    url.searchParams.set('view', currentItem.id);
     window.history.replaceState({}, '', url.toString());
-  }, [isOpen, activeIdx, playlist]);
+  }, [isOpen, currentItem?.id]);
 
   useEffect(() => {
     if (isOpen) return;
@@ -53,14 +257,6 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
     url.searchParams.delete('view');
     window.history.replaceState({}, '', url.toString());
   }, [isOpen]);
-
-  const comments = useMemo(() => {
-    if (!currentItem) return [];
-    return [
-      { userName: 'Minh Anh', content: 'Hình ảnh thực tế rất đẹp!' },
-      { userName: 'Khách hàng', content: 'Sản phẩm này còn hàng không shop?' }
-    ];
-  }, [currentItem]);
 
   const handleShare = useCallback(async () => {
     if (!currentItem) return;
@@ -74,141 +270,374 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
     setTimeout(() => setCopied(false), 1800);
   }, [currentItem]);
 
-  const handleSlideChange = useCallback((swiper: any) => {
-    setActiveIdx(swiper.activeIndex);
-    setShowComments(false);
-  }, []);
+  const handleStart = (clientX: number) => {
+    if (!isCarouselMode) return;
+    setIsDragging(true);
+    setStartX(clientX);
+    setStartRotationY(rotationY);
+    setIsAutoPlaying(false);
+    
+    lastXRef.current = clientX;
+    lastTimeRef.current = performance.now();
+    velocityRef.current = 0;
+  };
 
-  function handleSubmitComment(event: React.FormEvent) {
+  const handleMove = (clientX: number) => {
+    if (!isCarouselMode || !isDragging || N <= 1) return;
+    const deltaX = clientX - startX;
+    const speed = 0.5;
+    setRotationY(startRotationY + deltaX * speed);
+
+    const now = performance.now();
+    const dt = now - lastTimeRef.current;
+    if (dt > 1) {
+      velocityRef.current = (clientX - lastXRef.current) / dt;
+    }
+    lastXRef.current = clientX;
+    lastTimeRef.current = now;
+  };
+
+  const handleEnd = () => {
+    if (!isCarouselMode || !isDragging) return;
+    setIsDragging(false);
+
+    const projectedDeltaX = velocityRef.current * 150;
+    const projectedRotationY = rotationY + projectedDeltaX * 0.5;
+
+    const anglePerCard = 360 / N;
+    const targetRotation = Math.round(projectedRotationY / anglePerCard) * anglePerCard;
+    setRotationY(targetRotation);
+  };
+
+  async function handleSubmitComment(event: React.FormEvent) {
     event.preventDefault();
-    if (!commentText.trim()) return;
+    const content = commentText.trim();
+    if (!content || !currentItem?.productId) return;
+    const parentId = replyTarget?.parentId || replyTarget?.id || null;
+    const replyToUserName = replyTarget?.userName || null;
+    const tempId = `local-${Date.now()}`;
+    const optimisticComment: CommentItem = {
+      id: tempId,
+      userName: 'Bạn',
+      content,
+      parentId,
+      replyToUserName,
+      isPending: true,
+    };
+    setImageComments((prev) => [...prev, optimisticComment]);
     setCommentText('');
+    setReplyTarget(null);
+    try {
+      const created = await apiDb.createProductImageComment(currentItem.productId, {
+        body: content,
+        imageUrl: currentItem.url,
+        parentId,
+        replyToUserName,
+      });
+      if (created?.id) {
+        setImageComments((prev) =>
+          prev.map((comment) => comment.id === tempId ? created : comment)
+        );
+      }
+    } catch {
+      setImageComments((prev) =>
+        prev.map((comment) =>
+          comment.id === tempId
+            ? { ...comment, isPending: false, isFailed: true }
+            : comment
+        )
+      );
+    }
   }
 
   if (!isOpen || playlist.length === 0) return null;
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 px-3 py-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 px-3 py-4 backdrop-blur-md">
       <button
         onClick={onClose}
-        className="absolute right-4 top-4 z-[60] rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
+        className="absolute right-6 top-6 z-[60] rounded-full bg-zinc-900/60 border border-white/10 p-3 text-white transition-all duration-300 hover:bg-zinc-800/80 hover:scale-105 active:scale-95 shadow-lg backdrop-blur-md cursor-pointer"
         aria-label="Đóng"
       >
-        <X className="h-6 w-6" />
+        <X className="h-5 w-5" />
       </button>
 
-      <div className="relative h-[92vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-black shadow-2xl transition-[width,height] duration-300">
-        <Swiper
-          direction="vertical"
-          mousewheel
-          initialSlide={initialIndex}
-          modules={[Mousewheel]}
-          className="h-full w-full"
-          onSlideChange={handleSlideChange}
+      {isCarouselMode && (
+      <button
+        onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+        className="absolute left-6 top-6 z-[60] flex items-center gap-2 rounded-full bg-zinc-900/60 border border-white/10 px-4 py-2.5 text-xs font-bold text-white shadow-lg backdrop-blur-md transition-all duration-300 hover:bg-zinc-800/80 hover:scale-105 active:scale-95 cursor-pointer"
+      >
+        {isAutoPlaying ? <Pause className="h-4 w-4 text-red-500 animate-pulse" /> : <Play className="h-4 w-4 text-green-400" />}
+        <span className="text-white">{isAutoPlaying ? 'Tạm dừng 360' : 'Tự xoay 360'}</span>
+      </button>
+      )}
+
+      <div className="relative h-[92vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-zinc-950 border border-white/5 shadow-2xl">
+        <div 
+          className="relative h-full w-full touch-none select-none overflow-hidden cursor-grab active:cursor-grabbing"
+          onMouseDown={(e) => handleStart(e.clientX)}
+          onMouseMove={(e) => handleMove(e.clientX)}
+          onMouseUp={handleEnd}
+          onMouseLeave={handleEnd}
+          onTouchStart={(e) => handleStart(e.touches[0].clientX)}
+          onTouchMove={(e) => handleMove(e.touches[0].clientX)}
+          onTouchEnd={handleEnd}
         >
-          {playlist.map((item, index) => (
-            <SwiperSlide key={item.id} className="relative h-full w-full bg-zinc-950">
-              {/* Ambient Blurred Background for Letterboxing */}
-              <div
-                className="absolute inset-0 bg-cover bg-center opacity-40 blur-3xl saturate-150"
-                style={{ backgroundImage: `url(${item.url})` }}
-              />
+          {currentItem?.url && (
+            <div
+              className="absolute inset-0 bg-cover bg-center opacity-30 blur-3xl saturate-200 scale-110 pointer-events-none transition-all duration-700"
+              style={{ backgroundImage: `url(${currentItem.url})` }}
+            />
+          )}
+          
+          <div className="absolute inset-0 bg-black/40 pointer-events-none" />
 
-              <img
-                src={item.url}
-                alt={item.productName}
-                className="relative z-0 h-full w-full object-contain"
-              />
+          <div 
+            ref={containerRef}
+            className="absolute inset-0 flex items-center justify-center pb-24"
+            style={{ perspective: '1200px' }}
+          >
+            <div
+              className={`relative ${isCarouselMode ? '' : 'hidden'}`}
+              style={{
+                width: `${cardDim.w}px`,
+                height: `${cardDim.h}px`,
+                transformStyle: 'preserve-3d',
+                transform: `translateZ(${zoom}px) rotateY(${rotationY}deg)`,
+                transition: isDragging ? 'none' : 'transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1)',
+              }}
+            >
+              {displayPlaylist.map((item, cardIndex) => {
+                const cardAngle = cardIndex * (360 / N);
+                let globalAngle = (rotationY + cardAngle) % 360;
+                if (globalAngle < 0) globalAngle += 360;
+                let diffFromCenter = globalAngle;
+                if (diffFromCenter > 180) diffFromCenter = 360 - diffFromCenter;
 
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/15" />
+                const isCulled = diffFromCenter > 135;
+                
+                if (isCulled) {
+                  return (
+                    <div
+                      key={item.displayId || item.id}
+                      className="absolute top-0 left-0"
+                      style={{
+                        width: `${cardDim.w}px`,
+                        height: `${cardDim.h}px`,
+                        transform: `rotateY(${cardAngle}deg) translateZ(${radius}px)`,
+                        visibility: 'hidden', 
+                        pointerEvents: 'none'
+                      }}
+                    />
+                  );
+                }
+                
+                const blurDiff = Math.max(0, diffFromCenter - 80);
+                const blurRatio = Math.min(1, blurDiff / 55);
+                const blurAmount = blurRatio * 8; 
+                const opacAmount = 1 - (blurRatio * 0.8);
 
-              <div className="absolute inset-x-0 bottom-0 p-4">
-                <div className="flex items-end justify-between gap-4 rounded-2xl border border-white/15 bg-black/40 p-4 shadow-lg backdrop-blur-md">
-                  {/* Left: Title & Actions */}
-                  <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    <h3 className="line-clamp-2 text-base font-bold text-white drop-shadow-md sm:text-lg">
-                      {item.productName || 'Sản phẩm'}
-                    </h3>
-                    <div className="flex items-center gap-4 text-white">
-                      <button type="button" className="group flex items-center gap-1.5 transition hover:text-red-400">
-                        <Heart className="h-5 w-5 transition group-hover:scale-110" />
-                        <span className="text-sm font-semibold">{likeCountOf(item, index)}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setShowComments((value) => !value);
-                        }}
-                        className="group flex items-center gap-1.5 transition hover:text-blue-400"
-                      >
-                        <MessageCircle className="h-5 w-5 transition group-hover:scale-110" />
-                        <span className="text-sm font-semibold">{3 + ((index * 3) % 12)}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleShare();
-                        }}
-                        className="group flex items-center gap-1.5 transition hover:text-green-400"
-                      >
-                        {copied ? <Check className="h-5 w-5 text-green-400" /> : <Share2 className="h-5 w-5 transition group-hover:scale-110" />}
-                        <span className="text-sm font-semibold">{copied ? 'Copy' : 'Share'}</span>
-                      </button>
-                    </div>
+                return (
+                <div
+                  key={item.displayId || item.id}
+                  className={`absolute top-0 left-0 flex flex-col items-center justify-center transition-all duration-300 ${
+                    cardIndex === activeIdx
+                      ? 'scale-110 z-30'
+                      : 'scale-95 z-10'
+                  }`}
+                  style={{
+                    width: `${cardDim.w}px`,
+                    height: `${cardDim.h}px`,
+                    transform: `rotateY(${cardAngle}deg) translateZ(${radius}px)`,
+                    opacity: opacAmount,
+                    filter: `blur(${blurAmount}px)`,
+                    backfaceVisibility: 'hidden',
+                  }}
+                >
+                  <div className="h-full w-full relative transition-transform duration-300 flex items-center justify-center">
+                    <ImageWithFallback
+                      src={item.url}
+                      alt={item.productName || 'Hình ảnh'}
+                      className="max-h-full max-w-full object-contain"
+                      loading="lazy"
+                      draggable={false}
+                    />
                   </div>
+                </div>
+                );
+              })}
+            </div>
+            {!isCarouselMode && (
+              <div className="relative flex h-[min(62vh,560px)] w-full max-w-3xl items-center justify-center px-4">
+                <div className="absolute inset-0 rounded-[2rem] border border-white/10 bg-white/[0.03] shadow-2xl shadow-black/40" />
+                <ImageWithFallback
+                  src={currentItem?.url || ''}
+                  alt={currentItem?.productName || 'Hinh anh san pham'}
+                  className="relative z-10 max-h-full max-w-full rounded-3xl object-contain shadow-2xl"
+                  loading="eager"
+                  draggable={false}
+                />
+              </div>
+            )}
+          </div>
 
-                  {/* Right: Product Pill Tag */}
-                  {item.product && (
-                    <Link
-                      to={item.product.url || `/product/${item.product.id}`}
-                      className="flex shrink-0 items-center gap-2 rounded-full border border-white/20 bg-white/10 p-1.5 pr-3 shadow-inner transition hover:bg-white/20"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white">
-                        <img src={item.url} alt="" className="h-full w-full object-contain" />
-                      </span>
-                      <div className="flex flex-col">
-                        <span className="max-w-[120px] truncate text-xs font-bold text-white sm:max-w-[160px]">{item.product.name}</span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] font-black text-red-400">{priceOf(item.product)}đ</span>
-                          <span className="text-[9px] font-black uppercase text-white/80">Mua ngay ➔</span>
-                        </div>
-                      </div>
-                    </Link>
-                  )}
+          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1 pointer-events-none select-none">
+            <div className="hidden rounded-full bg-zinc-950/80 border border-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white/80 shadow-xl backdrop-blur-md">
+              KÉO ĐỂ XOAY 3D • CUỘN ĐỂ PHÓNG TO
+            </div>
+            <div className="rounded-full bg-zinc-950/80 border border-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white/80 shadow-xl backdrop-blur-md">
+              {isCarouselMode ? 'Keo de xoay 3D - cuon de phong to' : 'Che do xem anh san pham'}
+            </div>
+          </div>
+
+          <div className="pointer-events-none absolute inset-0 z-20 bg-gradient-to-t from-zinc-950/90 via-transparent to-transparent" />
+
+          {/* Bottom Bar */}
+          <div className="absolute inset-x-0 bottom-0 z-30 p-4 pointer-events-auto">
+            <div className="mx-auto max-w-4xl flex flex-col sm:flex-row items-center sm:items-center justify-between gap-4 rounded-2xl border border-white/10 bg-zinc-950/70 p-4 shadow-2xl backdrop-blur-xl">
+              <div className="flex flex-col gap-2.5 min-w-0 flex-1 w-full text-left">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-red-500">
+                  {currentItem?.category || currentItem?.brand || 'Premium Gallery'}
+                </span>
+                <h3 className="line-clamp-1 text-base font-black text-white sm:text-lg">
+                  {currentItem?.productName || 'Sản phẩm'}
+                </h3>
+                
+                <div className="flex items-center gap-3 text-white mt-0.5">
+                  <button 
+                    type="button" 
+                    onClick={handleToggleLike}
+                    className={`group flex items-center gap-2 px-3 py-1.5 rounded-full border text-white transition-all duration-300 cursor-pointer ${
+                      isLiked 
+                        ? 'bg-red-500/10 border-red-500/40 text-red-400' 
+                        : 'bg-white/5 border-white/10 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400'
+                    }`}
+                  >
+                    <Heart className={`h-4 w-4 transition group-hover:scale-110 ${isLiked ? 'fill-red-500 text-red-500' : ''}`} />
+                    <span className="text-xs font-bold">{displayLikes}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setShowComments((value) => !value);
+                    }}
+                    className="group flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-white transition-all duration-300 hover:bg-blue-500/10 hover:border-blue-500/30 hover:text-blue-400 cursor-pointer"
+                  >
+                    <MessageCircle className="h-4 w-4 transition group-hover:scale-110" />
+                    <span className="text-xs font-bold">{commentCount}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleShare();
+                    }}
+                    className="group flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-white transition-all duration-300 hover:bg-green-500/10 hover:border-green-500/30 hover:text-green-400 cursor-pointer"
+                  >
+                    {copied ? <Check className="h-4 w-4 text-green-400" /> : <Share2 className="h-4 w-4 transition group-hover:scale-110" />}
+                    <span className="text-xs font-bold">{copied ? 'Copied' : 'Share'}</span>
+                  </button>
                 </div>
               </div>
-            </SwiperSlide>
-          ))}
-        </Swiper>
 
+              {currentItem?.product && (
+                <Link
+                  to={currentItem.product.url || `/product/${currentItem.product.id}`}
+                  className="flex items-center gap-3 rounded-xl border border-white/10 bg-zinc-950/60 p-2 shadow-lg backdrop-blur-md transition duration-300 hover:bg-zinc-900/80 hover:border-red-500/40 group/prod w-full sm:w-auto shrink-0"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-white p-0.5 shadow-inner">
+                    <ImageWithFallback src={currentItem.url} alt="" className="h-full w-full object-contain" />
+                  </div>
+                  <div className="flex flex-col min-w-0 pr-2 text-left">
+                    <span className="truncate text-xs font-bold text-white group-hover/prod:text-red-400 transition-colors max-w-[120px] sm:max-w-[160px]">
+                      {currentItem.product.name}
+                    </span>
+                    <span className="text-[11px] font-black text-red-400 mt-0.5">
+                      {priceOf(currentItem.product)}đ
+                    </span>
+                  </div>
+                  <div className="shrink-0 rounded-full bg-red-600 px-3 py-1.5 text-[9px] font-black uppercase text-white shadow-md transition group-hover/prod:bg-red-500 ml-auto sm:ml-0">
+                    Mua ngay ➔
+                  </div>
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Comment Drawer Section */}
         <div
-          className={`absolute bottom-0 right-0 top-0 z-50 w-full max-w-sm bg-zinc-950/95 text-white shadow-2xl backdrop-blur transition-transform duration-300 ${
+          className={`absolute bottom-0 right-0 top-0 z-50 w-full max-w-sm bg-zinc-950/95 border-l border-white/10 text-white shadow-2xl backdrop-blur transition-transform duration-300 ${
             showComments ? 'translate-x-0' : 'translate-x-full'
           }`}
         >
           <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-              <h4 className="text-sm font-bold">Bình luận ({commentCount})</h4>
-              <button onClick={() => setShowComments(false)} className="rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white" aria-label="Đóng bình luận">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3.5">
+              <h4 className="text-sm font-black uppercase tracking-wider text-zinc-300">Bình luận ({commentCount})</h4>
+              <button 
+                onClick={() => setShowComments(false)} 
+                className="rounded-full p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white cursor-pointer" 
+                aria-label="Đóng bình luận"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4 py-4">
-              {comments.length > 0 ? (
+            <div className="flex-1 overflow-y-auto px-4 py-4 scrollbar-thin scrollbar-thumb-zinc-800">
+              {commentThreads.length > 0 ? (
                 <div className="space-y-4">
-                  {comments.map((comment: any, commentIndex: number) => (
-                    <div key={comment.id || commentIndex} className="flex gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold">
-                        {(comment.userName || 'K')[0].toUpperCase()}
+                  {commentThreads.map((comment: CommentItem) => (
+                    <div key={comment.id} className="space-y-2">
+                      <div className={`flex gap-3 items-start bg-white/5 border border-white/5 p-3 rounded-xl ${comment.isPending ? 'opacity-50' : ''}`}>
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-600 text-xs font-bold text-white shadow-sm">
+                          {(comment.isRetracted ? '!' : (comment.userName || 'K')[0]).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-black text-zinc-300">{comment.isRetracted ? 'Hệ thống' : comment.userName || 'Khách hàng'}</p>
+                          <p className={`mt-1 text-xs leading-normal ${comment.isRetracted ? 'italic text-zinc-500' : 'text-zinc-400'}`}>{comment.content}</p>
+                          {comment.isFailed && <p className="text-[10px] text-red-500 mt-1">Lỗi khi gửi</p>}
+                          {!comment.isRetracted && !comment.isPending && (
+                            <button type="button" onClick={() => setReplyTarget(comment)} className="mt-2 text-[11px] font-bold text-red-300 hover:text-red-200 cursor-pointer">
+                              Trả lời
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold">{comment.userName || 'Khách hàng'}</p>
-                        <p className="mt-1 text-sm leading-5 text-white/75">{comment.content}</p>
-                      </div>
+                      {comment.replies && comment.replies.length > 0 && (
+                        <div className="ml-8 space-y-2 border-l border-white/10 pl-3">
+                          {(expandedReplies.has(comment.id) ? comment.replies : comment.replies.slice(0, 2)).map((reply: CommentItem) => (
+                            <div key={reply.id} className={`rounded-xl bg-white/[0.03] px-3 py-2 ${reply.isPending ? 'opacity-50' : ''}`}>
+                              <p className="text-xs font-black text-zinc-300">{reply.isRetracted ? 'Hệ thống' : reply.userName || 'Khách hàng'}</p>
+                              <p className={`mt-1 text-xs leading-normal ${reply.isRetracted ? 'italic text-zinc-500' : 'text-zinc-400'}`}>
+                                {reply.replyToUserName && !reply.isRetracted && <span className="font-bold text-red-300">@{reply.replyToUserName} </span>}
+                                {reply.content}
+                              </p>
+                              {reply.isFailed && <p className="text-[10px] text-red-500 mt-1">Lỗi khi gửi</p>}
+                              {!reply.isRetracted && !reply.isPending && (
+                                <button type="button" onClick={() => setReplyTarget(reply)} className="mt-1 text-[11px] font-bold text-red-300 hover:text-red-200 cursor-pointer">
+                                  Trả lời
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          {comment.replies.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedReplies((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(comment.id)) next.delete(comment.id);
+                                else next.add(comment.id);
+                                return next;
+                              })}
+                              className="text-[11px] font-bold text-white/60 hover:text-white cursor-pointer"
+                            >
+                              {expandedReplies.has(comment.id) ? 'Thu gọn câu trả lời' : `Xem ${comment.replies.length - 2} câu trả lời`}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -217,16 +646,28 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
               )}
             </div>
 
-            <form onSubmit={handleSubmitComment} className="flex items-center gap-2 border-t border-white/10 p-4">
-              <input
-                value={commentText}
-                onChange={(event) => setCommentText(event.target.value)}
-                placeholder="Viết bình luận..."
-                className="h-10 flex-1 rounded-full border border-white/10 bg-white/5 px-4 text-sm text-white outline-none placeholder:text-white/40 focus:border-white/30"
-              />
-              <button type="submit" disabled={!commentText.trim()} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white transition hover:bg-red-700 disabled:opacity-40">
-                <Send className="h-4 w-4" />
-              </button>
+            <form onSubmit={handleSubmitComment} className="border-t border-white/10 p-4 bg-zinc-950">
+              {replyTarget && (
+                <div className="mb-2 flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-xs text-zinc-300">
+                  <span>Đang trả lời {replyTarget.userName || 'khách hàng'}</span>
+                  <button type="button" onClick={() => setReplyTarget(null)} className="font-bold text-red-300 hover:text-red-200 cursor-pointer">Hủy</button>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <input
+                  value={commentText}
+                  onChange={(event) => setCommentText(event.target.value)}
+                  placeholder={replyTarget ? `Trả lời ${replyTarget.userName || 'khách hàng'}...` : 'Viết bình luận...'}
+                  className="h-11 flex-1 rounded-full border border-white/5 bg-white/5 px-4 text-xs text-white outline-none placeholder:text-zinc-500 focus:border-red-500/40 focus:ring-1 focus:ring-red-500/20 transition-all duration-300"
+                />
+                <button 
+                  type="submit" 
+                  disabled={!commentText.trim()} 
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-500 disabled:opacity-40 cursor-pointer shadow-lg shadow-red-600/10 hover:shadow-red-600/20"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
             </form>
           </div>
         </div>

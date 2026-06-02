@@ -97,9 +97,9 @@ class Product(Base):
     __tablename__ = "products"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    sku: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    slug: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False)
     brand: Mapped[str] = mapped_column(String(100), nullable=False)
     category_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("categories.id"))
@@ -111,6 +111,7 @@ class Product(Base):
     sale_price: Mapped[float | None] = mapped_column(NUMERIC(14, 2))
     stock_quantity: Mapped[int] = mapped_column(default=0, nullable=False)
     image_url: Mapped[str | None] = mapped_column(Text)
+    images: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     video_url: Mapped[str | None] = mapped_column(Text)
     images: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     colors: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
@@ -119,11 +120,14 @@ class Product(Base):
     badge: Mapped[str | None] = mapped_column(String(80))
     rating: Mapped[float | None] = mapped_column(NUMERIC(3, 2))
     review_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    favorite_count: Mapped[int] = mapped_column(default=0, nullable=False)
     is_featured: Mapped[bool] = mapped_column(default=False, nullable=False)
     is_flash_sale: Mapped[bool] = mapped_column(default=False, nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="ACTIVE", nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    options: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
 
 
 class ProductVariant(Base):
@@ -131,7 +135,7 @@ class ProductVariant(Base):
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     product_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("products.id"), nullable=False)
-    sku: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    sku: Mapped[str] = mapped_column(String(120), nullable=False)
     color_name: Mapped[str | None] = mapped_column(String(100))
     color_code: Mapped[str | None] = mapped_column(String(30))
     storage: Mapped[str | None] = mapped_column(String(80))
@@ -145,6 +149,12 @@ class ProductVariant(Base):
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    is_default: Mapped[bool] = mapped_column(default=False, nullable=False)
+    compare_at_price: Mapped[float | None] = mapped_column(NUMERIC(14, 2))
+    status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)
+    attributes: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    parent_variant_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("product_variants.id"))
 
     __table_args__ = (
         CheckConstraint("price >= 0"),
@@ -232,6 +242,7 @@ class OrderItem(Base):
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
     order_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("orders.id"), nullable=False)
     product_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("products.id"))
+    variant_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("product_variants.id"))
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)
     quantity: Mapped[int] = mapped_column(nullable=False)
     unit_price: Mapped[float] = mapped_column(NUMERIC(14, 2), nullable=False)
@@ -329,6 +340,31 @@ class UserVoucher(Base):
 
     __table_args__ = (
         CheckConstraint("status IN ('AVAILABLE', 'RESERVED', 'USED', 'EXPIRED', 'REVOKED')"),
+    )
+
+
+class UserFavorite(Base):
+    __tablename__ = "user_favorites"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class UserFavoriteEvent(Base):
+    __tablename__ = "user_favorite_events"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("action IN ('LIKE', 'UNLIKE')"),
     )
 
 

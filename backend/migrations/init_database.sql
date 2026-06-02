@@ -594,10 +594,13 @@ ALTER TABLE videos ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE videos ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_source VARCHAR(30) NOT NULL DEFAULT 'UPLOAD';
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_category VARCHAR(60) NOT NULL DEFAULT 'PRODUCT';
 CREATE INDEX IF NOT EXISTS idx_videos_content_type ON videos(content_type);
 CREATE INDEX IF NOT EXISTS idx_videos_sort_order ON videos(sort_order DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_videos_scheduled_at ON videos(scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_videos_deleted_at ON videos(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_videos_video_category ON videos(video_category);
 CREATE INDEX IF NOT EXISTS idx_videos_storefront_feed
     ON videos(is_active, deleted_at, published_at, sort_order DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_videos_admin_search
@@ -638,6 +641,10 @@ CREATE TABLE IF NOT EXISTS content_comments (
     body TEXT NOT NULL,
     parent_id UUID REFERENCES content_comments(id) ON DELETE CASCADE,
     is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
+    reply_to_user_name VARCHAR(120),
+    moderation_reason VARCHAR(255),
+    is_retracted BOOLEAN NOT NULL DEFAULT FALSE,
+    retracted_at TIMESTAMPTZ,
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -649,6 +656,17 @@ CREATE INDEX IF NOT EXISTS idx_content_comments_content_id
     ON content_comments(content_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_content_comments_parent_id
     ON content_comments(parent_id);
+
+CREATE TABLE IF NOT EXISTS video_likes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(video_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_likes_video_id ON video_likes(video_id);
+CREATE INDEX IF NOT EXISTS idx_video_likes_user_id ON video_likes(user_id);
 
 
 -- ==========================================
@@ -669,6 +687,7 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT;
 
 ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS specs JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS images JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 
 -- ==========================================
@@ -1136,8 +1155,16 @@ CREATE TABLE IF NOT EXISTS role_permissions (
     PRIMARY KEY (role_id, permission_id)
 );
 
+CREATE TABLE IF NOT EXISTS user_permissions (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    granted_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (user_id, permission_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_permissions_module ON permissions(module);
 CREATE INDEX IF NOT EXISTS idx_role_permissions_permission_id ON role_permissions(permission_id);
+CREATE INDEX IF NOT EXISTS idx_user_permissions_permission_id ON user_permissions(permission_id);
 
 INSERT INTO permissions (code, module, description)
 VALUES
@@ -1196,24 +1223,13 @@ FROM roles r
 JOIN permissions p ON p.code IN (
     'overview:read',
     'product:read',
-    'product:create',
-    'product:update',
     'category:read',
-    'category:create',
-    'category:update',
     'brand:read',
-    'brand:create',
-    'brand:update',
     'order:read',
-    'order:update',
     'customer:read',
     'inventory:read',
-    'inventory:adjust',
     'review:read',
-    'review:update',
-    'content:read',
-    'content:create',
-    'content:update'
+    'content:read'
 )
 WHERE r.code = 'STAFF_ADMIN'
 ON CONFLICT DO NOTHING;

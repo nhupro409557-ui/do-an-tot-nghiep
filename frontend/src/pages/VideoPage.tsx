@@ -6,9 +6,22 @@ import ReelsModal from '../components/video/ReelsModal';
 
 type SortMode = 'newest' | 'liked' | 'title';
 
-const topicTabs = ['Tất cả', 'Tuyển chọn', 'Điện thoại', 'Laptop', 'Phụ kiện', 'Đồng hồ', 'Camera', 'Mẹo sử dụng', 'Chính sách'];
+const topicTabs = ['Tất cả', 'Liên quan sản phẩm', 'Tin tức', 'Mẹo hay', 'Dịch vụ', 'Đánh giá / trải nghiệm', 'Khác'];
+const videoCategoryLabels: Record<string, string> = {
+  PRODUCT: 'Liên quan sản phẩm',
+  NEWS: 'Tin tức',
+  TIPS: 'Mẹo hay',
+  SERVICE: 'Dịch vụ',
+  REVIEW: 'Đánh giá / trải nghiệm',
+  OTHER: 'Khác',
+};
 function videoImage(video: any) {
-  return video.thumbnailUrl || video.cover || video.coverUrl || '';
+  return video.thumbnailUrl || (isYouTubeVideo(video) ? video.youtubeThumbnailUrl : '') || video.cover || video.coverUrl || '';
+}
+
+function isYouTubeVideo(video: any) {
+  const url = String(video.videoUrl || video.embedUrl || '');
+  return video.videoSource === 'YOUTUBE' || url.includes('youtube.com') || url.includes('youtu.be');
 }
 
 function textOf(video: any) {
@@ -16,6 +29,7 @@ function textOf(video: any) {
 }
 
 function inferCategory(video: any) {
+  if (video.videoCategory && videoCategoryLabels[video.videoCategory]) return videoCategoryLabels[video.videoCategory];
   const text = textOf(video);
   if (text.includes('iphone') || text.includes('samsung') || text.includes('oppo') || text.includes('điện thoại')) return 'Điện thoại';
   if (text.includes('laptop') || text.includes('macbook') || text.includes('asus') || text.includes('it')) return 'Laptop';
@@ -31,10 +45,14 @@ function videoKey(video: any) {
   return `video_like_${video.id}`;
 }
 
-function demoDuration(video: any, index: number) {
-  const seed = String(video.id || video.title || index).split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  const seconds = 14 + (seed % 48);
-  return `00:${String(seconds).padStart(2, '0')}`;
+function formatDuration(seconds?: number) {
+  if (!seconds || !Number.isFinite(seconds)) return '';
+  const rounded = Math.floor(seconds);
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainSeconds = rounded % 60;
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(remainSeconds).padStart(2, '0')}`;
+  return `${minutes}:${String(remainSeconds).padStart(2, '0')}`;
 }
 
 function demoLikeCount(video: any, index: number) {
@@ -43,6 +61,9 @@ function demoLikeCount(video: any, index: number) {
 }
 
 function findRelatedProduct(video: any, products: any[]) {
+  if (Array.isArray(video.products) && video.products.length > 0) return video.products[0];
+  if (!Array.isArray(video.productIds) || video.productIds.length === 0) return null;
+  return products.find((product) => video.productIds.includes(product.id)) || null;
   const text = textOf(video);
   const direct = products.find((product) => {
     const name = String(product.name || '').toLowerCase();
@@ -104,6 +125,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
   const previewRef = React.useRef<HTMLVideoElement | null>(null);
   const image = videoImage(video);
   const h = heightForTile(index);
+  const [durationLabel, setDurationLabel] = useState(video.duration || '');
   const [touched, setTouched] = useState(false);
   const [hovered, setHovered] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -154,7 +176,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
       aria-label={video.title || 'Video sản phẩm'}
     >
       <div className="absolute inset-0">
-        {video.videoUrl ? (
+        {video.videoUrl && !isYouTubeVideo(video) ? (
           <video
             ref={previewRef}
             src={video.videoUrl}
@@ -163,6 +185,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
             loop
             playsInline
             preload="metadata"
+            onLoadedMetadata={(event) => setDurationLabel(formatDuration(event.currentTarget.duration))}
             className={`h-full w-full object-cover transition-all duration-500 ${isActive ? 'scale-[1.03] blur-[2px]' : ''}`}
           />
         ) : image ? (
@@ -185,7 +208,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
 
       <div className={`absolute left-3 right-3 top-3 z-20 flex items-start justify-between transition-opacity duration-300 ${isActive ? 'opacity-0' : 'opacity-100'}`}>
         <span className="rounded-full bg-white/95 px-2.5 py-1 text-xs font-bold text-primary shadow-sm">{inferCategory(video)}</span>
-        <span className="rounded-full bg-black/70 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-md">{demoDuration(video, index)}</span>
+        {(durationLabel || isYouTubeVideo(video)) && <span className="rounded-full bg-black/70 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-md">{durationLabel || 'YouTube'}</span>}
       </div>
 
       <div className={`absolute inset-x-0 bottom-0 z-20 transition-transform duration-300 ease-out ${isActive ? 'translate-y-0' : 'translate-y-full'}`}>
@@ -239,7 +262,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
       </div>
 
       <span className="sr-only">
-        {video.title}. {inferCategory(video)}. {demoDuration(video, index)}. {video.commentCount} bình luận. {demoLikeCount(video, index)} lượt thích.
+        {video.title}. {inferCategory(video)}. {durationLabel}. {video.commentCount} bình luận. {demoLikeCount(video, index)} lượt thích.
       </span>
     </article>
   );
@@ -294,25 +317,39 @@ export default function VideoPage() {
   const [videos, setVideos] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [videoPage, setVideoPage] = useState(1);
+  const [hasMoreVideos, setHasMoreVideos] = useState(false);
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
+  const dismissedWatchRef = useRef<string | null>(null);
 
   useEffect(() => {
+    let mounted = true;
     Promise.all([
-      apiDb.listVideos().catch(() => []),
+      apiDb.listVideosPage({ page: 1, limit: 24 }).catch(() => ({ items: [], page: 1, hasMore: false })),
       apiDb.listProducts().catch(() => []),
     ])
       .then(([videoData, productData]) => {
-        setVideos(videoData);
+        if (!mounted) return;
+        const items = Array.isArray(videoData) ? videoData : videoData.items || [];
+        setVideos(items);
+        setVideoPage(Number(videoData.page || 1));
+        setHasMoreVideos(Boolean(videoData.hasMore));
         setProducts(productData);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
     setLikedIds(new Set(videos.filter((video) => localStorage.getItem(videoKey(video)) === '1').map((video) => video.id)));
   }, [videos]);
 
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const availableTabs = useMemo(() => {
     const realTabs = new Set<string>(videos.map(inferCategory));
@@ -344,7 +381,11 @@ export default function VideoPage() {
 
   useEffect(() => {
     const watchId = searchParams.get('watch');
-    if (!watchId || loading || displayVideos.length === 0) return;
+    if (!watchId) {
+      dismissedWatchRef.current = null;
+      return;
+    }
+    if (watchId === dismissedWatchRef.current || loading || displayVideos.length === 0) return;
     const idx = displayVideos.findIndex((v: any) => v.id === watchId);
     if (idx >= 0 && !isModalOpen) {
       setActiveIndex(idx);
@@ -357,9 +398,20 @@ export default function VideoPage() {
     setIsModalOpen(true);
   }
 
-  function toggleLike(video: any) {
+  function closeVideoModal() {
+    dismissedWatchRef.current = searchParams.get('watch');
+    setIsModalOpen(false);
+    setSearchParams((params) => {
+      const next = new URLSearchParams(params);
+      next.delete('watch');
+      return next;
+    }, { replace: true });
+  }
+
+  async function toggleLike(video: any) {
+    const wasLiked = likedIds.has(video.id);
     const next = new Set(likedIds);
-    if (next.has(video.id)) {
+    if (wasLiked) {
       next.delete(video.id);
       localStorage.removeItem(videoKey(video));
     } else {
@@ -367,6 +419,28 @@ export default function VideoPage() {
       localStorage.setItem(videoKey(video), '1');
     }
     setLikedIds(next);
+    setVideos((items) => items.map((item) => {
+      if (item.id !== video.id || typeof item.likeCount !== 'number') return item;
+      return { ...item, likeCount: Math.max(0, item.likeCount + (wasLiked ? -1 : 1)) };
+    }));
+    apiDb.toggleVideoLike(video.id).then((result) => {
+      if (typeof result?.liked === 'boolean') {
+        setLikedIds((current) => {
+          const synced = new Set(current);
+          if (result.liked) {
+            synced.add(video.id);
+            localStorage.setItem(videoKey(video), '1');
+          } else {
+            synced.delete(video.id);
+            localStorage.removeItem(videoKey(video));
+          }
+          return synced;
+        });
+      }
+      if (typeof result?.likeCount === 'number') {
+        setVideos((items) => items.map((item) => item.id === video.id ? { ...item, likeCount: result.likeCount } : item));
+      }
+    }).catch(() => undefined);
   }
 
   async function shareVideo(video: any) {
@@ -376,6 +450,24 @@ export default function VideoPage() {
       return;
     }
     await navigator.clipboard?.writeText(url);
+  }
+
+  async function loadMoreVideos() {
+    if (loadingMore || !hasMoreVideos) return;
+    setLoadingMore(true);
+    const nextPage = videoPage + 1;
+    try {
+      const data = await apiDb.listVideosPage({ page: nextPage, limit: 24 });
+      const items = Array.isArray(data) ? data : data.items || [];
+      setVideos((current) => {
+        const seen = new Set(current.map((item) => item.id));
+        return [...current, ...items.filter((item: any) => !seen.has(item.id))];
+      });
+      setVideoPage(Number(data.page || nextPage));
+      setHasMoreVideos(Boolean(data.hasMore));
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   return (
@@ -439,16 +531,37 @@ export default function VideoPage() {
             Chưa có video phù hợp để hiển thị.
           </div>
         ) : (
-          <MasonryGrid
-            videos={displayVideos}
-            likedIds={likedIds}
-            onOpen={openVideo}
-            onLike={toggleLike}
-            onShare={shareVideo}
-          />
+          <>
+            <MasonryGrid
+              videos={displayVideos}
+              likedIds={likedIds}
+              onOpen={openVideo}
+              onLike={toggleLike}
+              onShare={shareVideo}
+            />
+            {hasMoreVideos && activeTab === 'Tất cả' && !query.trim() && (
+              <div className="mt-2 flex justify-center pb-8">
+                <button
+                  type="button"
+                  onClick={loadMoreVideos}
+                  disabled={loadingMore}
+                  className="h-11 rounded-md bg-primary px-5 text-sm font-bold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-wait disabled:opacity-70"
+                >
+                  {loadingMore ? 'Đang tải...' : 'Xem thêm video'}
+                </button>
+              </div>
+            )}
+          </>
         )}
 
-        <ReelsModal isOpen={isModalOpen} playlist={displayVideos} initialIndex={activeIndex} onClose={() => setIsModalOpen(false)} />
+        <ReelsModal
+          isOpen={isModalOpen}
+          playlist={displayVideos}
+          initialIndex={activeIndex}
+          onClose={closeVideoModal}
+          likedIds={likedIds}
+          onToggleLike={toggleLike}
+        />
       </div>
     </div>
   );

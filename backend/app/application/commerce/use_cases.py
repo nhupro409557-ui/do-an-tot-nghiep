@@ -845,6 +845,7 @@ class CreateOrderUseCase:
                         id=uuid4(),
                         order_id=order.id,
                         product_id=item.product_id,
+                        variant_id=item.variant_id,
                         product_name=item.product_name,
                         quantity=item.quantity,
                         unit_price=item.unit_price,
@@ -1128,6 +1129,7 @@ class CompleteOrderUseCase:
                 SELECT
                     oi.id,
                     oi.product_id,
+                    oi.variant_id AS order_variant_id,
                     oi.product_name,
                     oi.quantity,
                     logs.variant_id
@@ -1148,7 +1150,7 @@ class CompleteOrderUseCase:
         )
         for item in item_rows.mappings().all():
             quantity = int(item["quantity"] or 0)
-            variant_id = item["variant_id"]
+            variant_id = item["order_variant_id"] or item["variant_id"]
             if variant_id:
                 inventory_row = (
                     await self._session.execute(

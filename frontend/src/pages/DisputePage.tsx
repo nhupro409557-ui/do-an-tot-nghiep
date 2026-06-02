@@ -1,7 +1,3 @@
-<div className="mb-4 mt-2 rounded-xl overflow-hidden border border-slate-100 shadow-sm max-w-md mx-auto bg-slate-50">
-            <img src="/images/policies/dispute.png" alt="Thương lượng tranh chấp" className="w-full h-auto mix-blend-multiply" />
-          </div>
-
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {

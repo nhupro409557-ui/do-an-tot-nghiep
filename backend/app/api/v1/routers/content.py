@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -28,6 +28,10 @@ from app.shared.reviews import (
 
 router = APIRouter(tags=["Content"])
 
+SENSITIVE_COMMENT_TERMS = {
+    "chửi", "địt", "đụ", "cặc", "lồn", "đéo", "dm", "đm", "fuck", "shit", "scam", "lừa đảo"
+}
+
 
 def content_cache_key(page: int, limit: int) -> str:
     return f"storefront:content:videos:page:{page}:limit:{limit}"
@@ -45,6 +49,60 @@ class ReviewUpdateRequest(BaseModel):
     rating: int = Field(ge=1, le=5)
     comment: str = Field(min_length=1, max_length=2000)
     mediaUrls: list[str] = Field(default_factory=list, max_length=6)
+
+
+class VideoCommentRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=1000)
+    parentId: UUID | None = None
+    replyToUserName: str | None = Field(default=None, max_length=120)
+
+
+class ProductImageCommentRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=1000)
+    imageUrl: str | None = None
+    parentId: UUID | None = None
+    replyToUserName: str | None = Field(default=None, max_length=120)
+
+
+class VideoViewHeartbeatRequest(BaseModel):
+    watchedSeconds: int = Field(ge=1, le=30)
+    positionSeconds: float | None = Field(default=None, ge=0)
+    visible: bool = True
+
+
+def youtube_embed_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    text_value = str(value).strip()
+    if "youtube.com/embed/" in text_value:
+        return text_value
+    if "youtu.be/" in text_value:
+        video_id = text_value.split("youtu.be/", 1)[1].split("?", 1)[0].split("/", 1)[0]
+        return f"https://www.youtube.com/embed/{video_id}"
+    if "youtube.com/shorts/" in text_value:
+        video_id = text_value.split("youtube.com/shorts/", 1)[1].split("?", 1)[0].split("/", 1)[0]
+        return f"https://www.youtube.com/embed/{video_id}"
+    if "youtube.com/watch" in text_value and "v=" in text_value:
+        video_id = text_value.split("v=", 1)[1].split("&", 1)[0]
+        return f"https://www.youtube.com/embed/{video_id}"
+    return None
+
+
+def youtube_thumbnail_url(value: str | None) -> str | None:
+    embed = youtube_embed_url(value)
+    if not embed:
+        return None
+    video_id = embed.rstrip("/").split("/")[-1].split("?")[0]
+    return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg" if video_id else None
+
+
+def detect_sensitive_comment(value: str) -> str | None:
+    lowered = value.lower()
+    for term in SENSITIVE_COMMENT_TERMS:
+        if term in lowered:
+            return f"Tự động ẩn do chứa từ nhạy cảm: {term}"
+    spam_reason = detect_spam_reason(value, [])
+    return spam_reason
 
 
 async def get_existing_review(*, product_id: UUID, user_id: UUID, session: AsyncSession) -> dict | None:
@@ -452,11 +510,14 @@ async def list_videos(
                 v.title,
                 v.description,
                 v.content_type AS "contentType",
+                v.video_source AS "videoSource",
+                v.video_category AS "videoCategory",
                 v.status,
                 v.video_url AS "videoUrl",
+                CASE WHEN v.video_source = 'YOUTUBE' THEN v.video_url ELSE NULL END AS "youtubeUrl",
                 v.thumbnail_url AS "thumbnailUrl",
                 v.banner_image_url AS "bannerImageUrl",
-                v.like_count AS "likeCount",
+                COALESCE((SELECT COUNT(*) FROM video_likes vl WHERE vl.video_id = v.id), 0)::int AS "likeCount",
                 v.view_count AS "viewCount",
                 v.sort_order AS "sortOrder",
                 v.published_at AS "publishedAt",
@@ -471,6 +532,27 @@ async def list_videos(
                 ) AS "productIds",
                 COALESCE(
                     (
+                        SELECT json_agg(
+                            json_build_object(
+                                'id', p.id::text,
+                                'name', p.name,
+                                'imageUrl', p.image_url,
+                                'price', p.price,
+                                'discountPrice', p.sale_price,
+                                'brand', b.name,
+                                'categoryId', p.category_id::text
+                            )
+                            ORDER BY p.name ASC
+                        )
+                        FROM content_product_relations cpr
+                        JOIN products p ON p.id = cpr.product_id
+                        LEFT JOIN brands b ON b.id = p.brand_id
+                        WHERE cpr.content_id = v.id
+                    ),
+                    '[]'::json
+                ) AS products,
+                COALESCE(
+                    (
                         SELECT json_agg(ccr.category_id::text)
                         FROM content_category_relations ccr
                         WHERE ccr.content_id = v.id
@@ -483,9 +565,11 @@ async def list_videos(
                             json_build_object(
                                 'id', cc.id::text,
                                 'userName', cc.user_name,
-                                'content', cc.body,
+                                'content', CASE WHEN cc.is_retracted THEN 'Bình luận này đã bị thu hồi' ELSE cc.body END,
                                 'parentId', cc.parent_id::text,
+                                'replyToUserName', cc.reply_to_user_name,
                                 'isHidden', cc.is_hidden,
+                                'isRetracted', cc.is_retracted,
                                 'createdAt', cc.created_at
                             )
                             ORDER BY cc.created_at ASC
@@ -510,6 +594,9 @@ async def list_videos(
         {"limit": limit, "offset": offset},
     )
     items = [dict(row._mapping) for row in result]
+    for item in items:
+        item["embedUrl"] = youtube_embed_url(item.get("videoUrl")) if item.get("videoSource") == "YOUTUBE" else None
+        item["youtubeThumbnailUrl"] = youtube_thumbnail_url(item.get("videoUrl")) if item.get("videoSource") == "YOUTUBE" else None
     total = await session.scalar(
         text(
             """
@@ -518,6 +605,7 @@ async def list_videos(
             WHERE is_active = TRUE
               AND deleted_at IS NULL
               AND content_type = 'VIDEO'
+              AND status = 'PUBLISHED'
               AND (scheduled_at IS NULL OR scheduled_at <= NOW())
             """
         )
@@ -536,3 +624,346 @@ async def list_videos(
     except Exception:
         pass
     return payload
+
+
+@router.post("/videos/{video_id}/view")
+async def record_video_view(
+    video_id: UUID,
+    payload: VideoViewHeartbeatRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    x_device_id: str | None = Header(default=None),
+) -> dict:
+    exists = await session.scalar(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM videos
+            WHERE id = :video_id
+              AND content_type = 'VIDEO'
+              AND deleted_at IS NULL
+              AND is_active = TRUE
+              AND status = 'PUBLISHED'
+            """
+        ),
+        {"video_id": video_id},
+    )
+    if not exists:
+        raise HTTPException(status_code=404, detail="Video not found.")
+    if not payload.visible:
+        return {"counted": False}
+
+    fingerprint = x_device_id or f"{request.client.host if request.client else 'unknown'}:{request.headers.get('user-agent', '')[:120]}"
+    base_key = f"video:view:{video_id}:{fingerprint}"
+    counted_key = f"{base_key}:counted"
+    try:
+      if await redis.get(counted_key):
+          return {"counted": False}
+      watched = await redis.incrby(base_key, payload.watchedSeconds)
+      await redis.expire(base_key, 60 * 60)
+      if watched < 30:
+          return {"counted": False, "watchedSeconds": int(watched)}
+      await redis.setex(counted_key, 24 * 60 * 60, "1")
+      await redis.delete(base_key)
+    except Exception:
+      # Fallback keeps local/dev usable even if Redis is unavailable.
+      pass
+
+    result = await session.execute(
+        text(
+            """
+            UPDATE videos
+            SET view_count = view_count + 1, updated_at = NOW()
+            WHERE id = :video_id
+              AND content_type = 'VIDEO'
+              AND deleted_at IS NULL
+              AND is_active = TRUE
+              AND status = 'PUBLISHED'
+            RETURNING view_count
+            """
+        ),
+        {"video_id": video_id},
+    )
+    view_count = result.scalar_one_or_none()
+    if view_count is None:
+        raise HTTPException(status_code=404, detail="Video not found.")
+    await session.commit()
+    return {"counted": True, "viewCount": int(view_count)}
+
+
+@router.post("/videos/{video_id}/like")
+async def toggle_video_like(
+    video_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    exists = await session.scalar(
+        text("SELECT COUNT(*) FROM videos WHERE id = :video_id AND content_type = 'VIDEO' AND deleted_at IS NULL"),
+        {"video_id": video_id},
+    )
+    if not exists:
+        raise HTTPException(status_code=404, detail="Video not found.")
+    liked = await session.scalar(
+        text("SELECT COUNT(*) FROM video_likes WHERE video_id = :video_id AND user_id = :user_id"),
+        {"video_id": video_id, "user_id": current_user_id},
+    )
+    if liked:
+        await session.execute(
+            text("DELETE FROM video_likes WHERE video_id = :video_id AND user_id = :user_id"),
+            {"video_id": video_id, "user_id": current_user_id},
+        )
+        is_liked = False
+    else:
+        await session.execute(
+            text(
+                """
+                INSERT INTO video_likes (video_id, user_id)
+                VALUES (:video_id, :user_id)
+                ON CONFLICT (video_id, user_id) DO NOTHING
+                """
+            ),
+            {"video_id": video_id, "user_id": current_user_id},
+        )
+        is_liked = True
+    like_count = await session.scalar(text("SELECT COUNT(*) FROM video_likes WHERE video_id = :video_id"), {"video_id": video_id}) or 0
+    await session.commit()
+    return {"liked": is_liked, "likeCount": int(like_count)}
+
+
+@router.post("/videos/{video_id}/comments", status_code=status.HTTP_201_CREATED)
+async def create_video_comment(
+    video_id: UUID,
+    payload: VideoCommentRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    video_exists = await session.scalar(
+        text("SELECT COUNT(*) FROM videos WHERE id = :video_id AND content_type = 'VIDEO' AND deleted_at IS NULL AND is_active = TRUE AND status = 'PUBLISHED'"),
+        {"video_id": video_id},
+    )
+    if not video_exists:
+        raise HTTPException(status_code=404, detail="Video not found.")
+
+    parent_id = payload.parentId
+    reply_to_user_name = payload.replyToUserName
+    if parent_id:
+        parent = (
+            await session.execute(
+                text(
+                    """
+                    SELECT id, parent_id, user_name
+                    FROM content_comments
+                    WHERE id = :parent_id
+                      AND content_id = :video_id
+                      AND deleted_at IS NULL
+                    """
+                ),
+                {"parent_id": parent_id, "video_id": video_id},
+            )
+        ).mappings().first()
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent comment not found.")
+        if parent["parent_id"]:
+            parent_id = parent["parent_id"]
+        reply_to_user_name = reply_to_user_name or parent["user_name"]
+
+    user = (
+        await session.execute(
+            text("SELECT full_name FROM users WHERE id = :user_id"),
+            {"user_id": current_user_id},
+        )
+    ).mappings().first()
+    user_name = user["full_name"] if user else "Khách hàng"
+    clean_body = sanitize_review_text(payload.body).strip()
+    moderation_reason = detect_sensitive_comment(clean_body)
+    comment_id = uuid4()
+    await session.execute(
+        text(
+            """
+            INSERT INTO content_comments (
+                id, content_id, user_id, user_name, body, parent_id, reply_to_user_name,
+                is_hidden, moderation_reason, created_by, updated_by, created_at, updated_at
+            )
+            VALUES (
+                :id, :video_id, :user_id, :user_name, :body, :parent_id, :reply_to_user_name,
+                :is_hidden, :moderation_reason, :user_id, :user_id, NOW(), NOW()
+            )
+            """
+        ),
+        {
+            "id": comment_id,
+            "video_id": video_id,
+            "user_id": current_user_id,
+            "user_name": user_name,
+            "body": clean_body,
+            "parent_id": parent_id,
+            "reply_to_user_name": reply_to_user_name,
+            "is_hidden": bool(moderation_reason),
+            "moderation_reason": moderation_reason,
+        },
+    )
+    await session.commit()
+    return {
+        "id": str(comment_id),
+        "userName": user_name,
+        "content": clean_body,
+        "parentId": str(parent_id) if parent_id else None,
+        "replyToUserName": reply_to_user_name,
+        "isHidden": bool(moderation_reason),
+        "moderationReason": moderation_reason,
+    }
+
+
+@router.delete("/videos/{video_id}/comments/{comment_id}")
+async def retract_video_comment(
+    video_id: UUID,
+    comment_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    result = await session.execute(
+        text(
+            """
+            UPDATE content_comments
+            SET is_retracted = TRUE,
+                retracted_at = NOW(),
+                updated_by = :user_id,
+                updated_at = NOW()
+            WHERE id = :comment_id
+              AND content_id = :video_id
+              AND user_id = :user_id
+              AND deleted_at IS NULL
+              AND is_retracted = FALSE
+            """
+        ),
+        {"comment_id": comment_id, "video_id": video_id, "user_id": current_user_id},
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Comment not found.")
+    await session.commit()
+    return {"ok": True}
+
+
+@router.get("/products/{product_id}/image-comments")
+async def list_product_image_comments(product_id: UUID, session: AsyncSession = Depends(get_session)) -> list[dict]:
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                id::text,
+                user_name AS "userName",
+                CASE WHEN is_retracted THEN 'Bình luận này đã bị thu hồi' ELSE body END AS content,
+                parent_id::text AS "parentId",
+                reply_to_user_name AS "replyToUserName",
+                is_hidden AS "isHidden",
+                is_retracted AS "isRetracted",
+                created_at AS "createdAt"
+            FROM product_image_comments
+            WHERE product_id = :product_id
+              AND is_hidden = FALSE
+            ORDER BY created_at ASC
+            """
+        ),
+        {"product_id": product_id},
+    )
+    return [dict(row._mapping) for row in result]
+
+
+@router.post("/products/{product_id}/image-comments", status_code=status.HTTP_201_CREATED)
+async def create_product_image_comment(
+    product_id: UUID,
+    payload: ProductImageCommentRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    exists = await session.scalar(text("SELECT COUNT(*) FROM products WHERE id = :product_id"), {"product_id": product_id})
+    if not exists:
+        raise HTTPException(status_code=404, detail="Product not found.")
+    parent_id = payload.parentId
+    reply_to_user_name = payload.replyToUserName
+    if parent_id:
+        parent = (
+            await session.execute(
+                text(
+                    """
+                    SELECT id, parent_id, user_name
+                    FROM product_image_comments
+                    WHERE id = :parent_id AND product_id = :product_id AND is_hidden = FALSE
+                    """
+                ),
+                {"parent_id": parent_id, "product_id": product_id},
+            )
+        ).mappings().first()
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent comment not found.")
+        if parent["parent_id"]:
+            parent_id = parent["parent_id"]
+            reply_to_user_name = reply_to_user_name or parent["user_name"]
+    user_name = (
+        await session.execute(text("SELECT full_name FROM users WHERE id = :id"), {"id": current_user_id})
+    ).scalar_one_or_none() or "Khách hàng"
+    clean_body = sanitize_review_text(payload.body).strip()
+    moderation_reason = detect_sensitive_comment(clean_body)
+    comment_id = uuid4()
+    await session.execute(
+        text(
+            """
+            INSERT INTO product_image_comments (
+                id, product_id, image_url, user_id, user_name, body, parent_id, reply_to_user_name,
+                is_hidden, is_retracted, moderation_reason, created_at, updated_at
+            )
+            VALUES (
+                :id, :product_id, :image_url, :user_id, :user_name, :body, :parent_id, :reply_to_user_name,
+                :is_hidden, FALSE, :moderation_reason, NOW(), NOW()
+            )
+            """
+        ),
+        {
+            "id": comment_id,
+            "product_id": product_id,
+            "image_url": payload.imageUrl,
+            "user_id": current_user_id,
+            "user_name": user_name,
+            "body": clean_body,
+            "parent_id": parent_id,
+            "reply_to_user_name": reply_to_user_name,
+            "is_hidden": bool(moderation_reason),
+            "moderation_reason": moderation_reason,
+        },
+    )
+    await session.commit()
+    return {
+        "id": str(comment_id),
+        "userName": user_name,
+        "content": clean_body if not moderation_reason else "Bình luận đang chờ kiểm duyệt.",
+        "parentId": str(parent_id) if parent_id else None,
+        "replyToUserName": reply_to_user_name,
+        "isHidden": bool(moderation_reason),
+        "isRetracted": False,
+    }
+
+
+@router.delete("/products/{product_id}/image-comments/{comment_id}")
+async def retract_product_image_comment(
+    product_id: UUID,
+    comment_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    result = await session.execute(
+        text(
+            """
+            UPDATE product_image_comments
+            SET is_retracted = TRUE, body = '', updated_at = NOW()
+            WHERE id = :comment_id
+              AND product_id = :product_id
+              AND user_id = :user_id
+            """
+        ),
+        {"comment_id": comment_id, "product_id": product_id, "user_id": current_user_id},
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Comment not found.")
+    await session.commit()
+    return {"ok": True}

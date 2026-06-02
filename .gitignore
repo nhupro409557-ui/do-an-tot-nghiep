@@ -2,10 +2,49 @@
 
 # Local/generated development artifacts
 .codegraph/
+**/.venv/
+**/venv/
+**/site-packages/
+**/node_modules/
+**/dist/
+**/.logs/
+**/__pycache__/
 frontend/dist/
+frontend/node_modules/
+frontend/.logs/
 frontend-run.log
+frontend-run.out.log
+frontend-run.err.log
+frontend-dev.log
+frontend-dev.err.log
+frontend-live.out.log
+frontend-live.err.log
+frontend/vite.out.log
+frontend/vite.err.log
 backend/.logs/
 backend/.venv/
 backend/venv/
-**/__pycache__/
+backend/uploads/
+backend/var/
+backend/server.out.log
+backend/server.err.log
+backend-*.log
+backend-dev.log
+backend-dev.err.log
+backend-live.out.log
+backend-live.err.log
+backend-run.log
+backend-run.err.log
 *.pyc
+*.log
+
+# Temporary extraction / patch helper files
+extracted*.txt
+extracted*.jsonl
+final_extracted.txt
+orig_lines.txt
+fix*.py
+patch_*.py
+
+# Local visual verification screenshots
+*-check.png

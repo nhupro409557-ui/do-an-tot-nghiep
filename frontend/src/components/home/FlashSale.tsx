@@ -13,8 +13,8 @@ export const FlashSale = () => {
   const [flashSaleProducts, setFlashSaleProducts] = useState<any[]>([]);
 
   useEffect(() => {
-    apiDb.listProducts()
-      .then(products => setFlashSaleProducts(products.filter((product: any) => product.isFlashSale).slice(0, 12)))
+    apiDb.listProducts({ flashSale: true, limit: 12 })
+      .then(setFlashSaleProducts)
       .catch(err => {
         console.error(err);
         setFlashSaleProducts([]);

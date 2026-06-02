@@ -8,7 +8,7 @@ import time
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response, status
-from jose import jwt
+from jose import JWTError, jwt
 from passlib.context import CryptContext
 import pyotp
 from pydantic import BaseModel, EmailStr, Field
@@ -578,14 +578,24 @@ async def list_permissions_for_user(session: AsyncSession, user_id: UUID) -> lis
     result = await session.execute(
         text(
             """
-            SELECT p.code
-            FROM users u
-            JOIN roles r ON r.id = u.role_id
-            JOIN role_permissions rp ON rp.role_id = r.id
-            JOIN permissions p ON p.id = rp.permission_id
-            WHERE u.id = :user_id
-              AND u.status = 'ACTIVE'
-            ORDER BY p.code
+            SELECT DISTINCT code
+            FROM (
+                SELECT p.code
+                FROM users u
+                JOIN roles r ON r.id = u.role_id
+                JOIN role_permissions rp ON rp.role_id = r.id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE u.id = :user_id
+                  AND u.status = 'ACTIVE'
+                UNION
+                SELECT p.code
+                FROM users u
+                JOIN user_permissions up ON up.user_id = u.id
+                JOIN permissions p ON p.id = up.permission_id
+                WHERE u.id = :user_id
+                  AND u.status = 'ACTIVE'
+            ) effective_permissions
+            ORDER BY code
             """
         ),
         {"user_id": user_id},

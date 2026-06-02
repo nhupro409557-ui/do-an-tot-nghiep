@@ -11,6 +11,15 @@ SQL_FILES = [
     "038_review_management_upgrade.sql",
     "039_review_resilience_and_user_controls.sql",
     "040_catalog_inventory_services_foundation.sql",
+    "041_product_favorites.sql",
+    "042_staff_user_permissions.sql",
+    "043_video_management_split.sql",
+    "044_product_image_comments.sql",
+    "045_product_analytics_events.sql",
+    "046_product_flat_variants.sql",
+    "047_enterprise_product_revision_merge.sql",
+    "048_exclude_revision_variants_from_unique_sku.sql",
+    "049_product_variant_images.sql",
 ]
 
 def split_sql_statements(sql_text):
@@ -104,20 +113,20 @@ async def main():
     db_url = settings.database_url
     if db_url.startswith("postgresql+asyncpg://"):
         db_url = db_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-    
-    conn = await asyncpg.connect(db_url)
-    try:
-        for filename in SQL_FILES:
-            filepath = os.path.join(migrations_dir, filename)
-            if not os.path.exists(filepath):
-                print(f"Migration file not found: {filepath}")
-                continue
+
+    for filename in SQL_FILES:
+        filepath = os.path.join(migrations_dir, filename)
+        if not os.path.exists(filepath):
+            print(f"Migration file not found: {filepath}")
+            continue
+        conn = await asyncpg.connect(db_url)
+        try:
             try:
                 await run_migration_file(conn, filepath)
             except Exception as e:
                 print(f"Failed to apply migration file {filename}: {e}")
-    finally:
-        await conn.close()
+        finally:
+            await conn.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -133,3 +133,46 @@ This file records the non-obvious decisions added while hardening category manag
 - Migration lien quan: `backend/migrations/040_catalog_inventory_services_foundation.sql`.
 - Product form da nap mac dinh bao hanh tu danh muc cha/con khi san pham bat "theo danh muc"; danh muc con duoc uu tien, tru khi con bat `inheritWarrantyPolicy`.
 - Product form co the override `warrantyMonths`, `allowOneForOne`, `oneForOneDays` de xu ly truong hop san pham khac mac dinh danh muc.
+
+## Update 2026-05-30 frontend refactor
+
+- Da tach phan logic va state quan ly danh muc ra khoi `useAdminLogic.ts` sang hook rieng biet `useAdminCategoriesLogic.ts` de lam sach va modul hoa frontend code.
+
+
+## Update 2026-06-01 admin form completion feedback
+
+- Sau khi thêm hoặc chỉnh sửa danh mục thành công, popup danh mục tự đóng bằng `closeSignal`.
+- Admin nhận thông báo thành công rõ ràng sau khi thêm hoặc lưu thay đổi danh mục.
+- Việc reset form vẫn được giữ nguyên, nhưng chỉ diễn ra sau khi popup đã được yêu cầu đóng để tránh cảm giác popup chỉnh sửa chuyển thành popup thêm mới.
+
+## Update 2026-06-01 storefront specs alignment
+
+- Mo rong `spec_fields` cho cac danh muc Dien thoai, May tinh bang, Laptop, Phu kien, Dong ho, Camera va May anh de bao phu cac key thong so chi tiet dang co trong san pham.
+- Cac field moi dung label tieng Viet tren storefront, vi du: Loai man hinh, Tinh nang camera sau, Wi-Fi, Bluetooth, Chong on, Codec am thanh, Ngam ong kinh.
+- Bo sung du lieu thong so mau cho cac san pham truoc do dang rong nhu AirPods Pro 2 USB-C, Anker GaN 100W, Apple Watch Ultra 2, Garmin Fenix 7 Pro, DJI Pocket 3, Ezviz C6N, Sony Alpha A7 IV va OPPO Find N3.
+- Chuan hoa key cu `screenSize` sang `screen_size` de khop voi danh muc.
+
+## Update 2026-06-02 storefront category brand menu
+
+- Thanh danh mục storefront chỉ hiển thị thương hiệu theo sản phẩm thực tế thuộc danh mục cha/con hoặc thương hiệu được gắn rõ với danh mục đó.
+- Không còn đưa các thương hiệu chưa gắn danh mục vào mọi danh mục, tránh trường hợp Điện thoại hiển thị lẫn Acer, Dell, Canon, DJI.
+- `frontend/src/hooks/useCatalog.ts` đã tính cả `subcategoryId`/`subcategorySlug` khi gom sản phẩm cho danh mục cha, nên hãng của danh mục con vẫn xuất hiện đúng trong menu danh mục cha.
+
+## Update 2026-06-02 storefront category ranking suggestions
+
+- `frontend/src/hooks/useCatalog.ts` nay lấy danh sách "Sản phẩm nổi bật" trong mega menu từ `GET /catalog/rankings` theo từng danh mục.
+- Nguồn xếp hạng dùng `criteria=trending`, `period=7d`, `limit=10` để ưu tiên sản phẩm đang có hạng trong danh mục đó.
+- Nếu ranking trống hoặc API lỗi, menu fallback về danh sách sản phẩm active đã khớp với danh mục để khu đề xuất không bị rỗng.
+
+## Update 2026-06-02 storefront category mega menu layout
+
+- `frontend/src/components/layout/CategoryMegaMenu.tsx` đổi panel danh mục sang layout nhiều cột dạng danh sách gọn hơn, tham khảo CellphoneS.
+- Panel và thanh danh mục có `max-height` theo viewport và cuộn riêng bên trong, tránh che mất nội dung phía dưới khi có nhiều hãng, phân khúc hoặc sản phẩm đề xuất.
+- Nhóm "Danh mục con" trong mega menu được đổi cách hiển thị thành "Theo nhu cầu" khi render storefront.
+- Bổ sung các nhóm phân khúc phù hợp theo danh mục: giá, nhu cầu sử dụng, dòng máy/chip, kích thước màn hình, tính năng nổi bật.
+
+## Update 2026-06-02 storefront category price filter links
+
+- Các mục "Phân khúc giá" trong mega menu nay trỏ về trang sản phẩm của danh mục với query `min_price`/`max_price`, thay vì tìm kiếm theo chữ.
+- `frontend/src/pages/ProductListPage.tsx` hỗ trợ đọc `min_price`/`max_price` trực tiếp từ URL và truyền vào API lọc sản phẩm.
+- Khi vào từ mega menu bằng khoảng giá tùy chỉnh, bộ lọc giá hiển thị nhãn khoảng giá đang áp dụng.

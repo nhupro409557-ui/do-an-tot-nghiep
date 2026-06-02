@@ -125,6 +125,22 @@
 - Ban hien tai van giu `contentBody` trong payload edit de khong vo UX popup sua co san.
 
 ## Ghi chu tiep theo
+- 2026-05-28: Video da duoc tach thanh module admin rieng qua `/admin/videos`.
+  - Van dung bang vat ly `videos`, nhung video admin chi thao tac `content_type = 'VIDEO'`.
+  - Them `video_source` (`UPLOAD`, `YOUTUBE`) va `video_category` (`PRODUCT`, `NEWS`, `TIPS`, `SERVICE`, `REVIEW`, `OTHER`).
+  - Admin khong nhap tay `like_count`/`view_count`; like doc tu bang `video_likes`, view tang qua endpoint storefront.
+  - Xoa video qua `/admin/videos/{id}` la hard delete; comment/like/relations xoa cascade.
+  - Comment video gioi han 2 cap: comment goc va reply; reply vao reply van gan ve comment goc va luu `reply_to_user_name`.
+  - Comment co tu nhay cam duoc tu dong `is_hidden = TRUE` va luu `moderation_reason`.
+  - Admin co the doc comment, tra loi comment, va an/hien comment trong man hinh quan ly video.
 - Neu can banner carousel/slot theo vi tri, bo sung `placement_code` va `audience_rules`.
 - Neu can tracking view/like thuc te, tao endpoint storefront rieng thay vi nhap tay so lieu trong admin.
 - Neu traffic video lon hon nua, chuyen pagination sang cursor-based va tach feed recommendation rieng.
+
+## Update 2026-06-02 storefront video like modal
+- Trang `/video` gom trạng thái tim về `VideoPage` để thẻ video và modal Reels dùng chung `likedIds`.
+- Khi bấm tim trong modal hoặc lưới video, giao diện cập nhật số lượt tim lạc quan ngay, sau đó đồng bộ lại theo `likeCount`/`liked` từ endpoint `/videos/{id}/like`.
+- Nút tim trong Reels dùng đúng video của từng slide thay vì phụ thuộc state `currentVideo`, tránh lệch khi Swiper giữ nhiều slide trong DOM.
+- Reels không reset `activeIdx`/trạng thái phát chỉ vì `playlist` đổi sau khi cập nhật lượt tim; effect reset chỉ chạy khi mở modal hoặc đổi `initialIndex`.
+- Reels lưu lựa chọn bật/tắt tiếng trong `localStorage` bằng key `video_reels_muted`; sau khi người dùng bật tiếng, lần mở modal tiếp theo giữ nguyên bật tiếng thay vì tự mute lại.
+- Khi vào bằng URL `?watch=...` rồi bấm đóng modal, trang ghi nhớ video vừa đóng để tránh effect đọc query cũ mở modal lại, khắc phục tình trạng phải bấm nút X hai lần.

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
+import { Heart, Scale } from "lucide-react";
 import { ImageWithFallback } from "../ui/ImageWithFallback";
 import { motion } from "motion/react";
 
@@ -15,23 +16,24 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-50px" }}
       transition={{ duration: 0.5, delay: index * 0.1, ease: "easeOut" }}
-      className="bg-white p-3 md:p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col h-full group hover:shadow-xl hover:border-red-100 transition-all duration-300 relative"
+      className="group relative flex h-full flex-col rounded-xl border border-slate-100 bg-white p-3 shadow-sm transition-all duration-300 hover:border-red-100 hover:shadow-xl md:p-4"
     >
       {p.badge && (
-        <div className="absolute top-2 left-2 z-10 px-2 py-1 bg-red-500 text-white text-[10px] font-bold rounded-lg uppercase shadow-sm">
+        <div className="absolute left-2 top-2 z-10 rounded-lg bg-red-500 px-2 py-1 text-[10px] font-bold uppercase text-white shadow-sm">
           {p.badge}
         </div>
       )}
-      <div className="relative group/image">
-        <Link to={`/product/${p.id}`} className="bg-white h-40 rounded-lg mb-2 flex items-center justify-center p-2 relative overflow-hidden block">
+
+      <div className="group/image relative">
+        <Link to={`/product/${p.id}`} className="relative mb-2 flex h-40 items-center justify-center overflow-hidden rounded-lg bg-white p-2">
           {displayImage ? (
-            <ImageWithFallback src={displayImage} alt={p.name} className="w-full h-full object-contain transition-transform duration-300 group-hover/image:scale-105" />
+            <ImageWithFallback src={displayImage} alt={p.name} className="h-full w-full object-contain transition-transform duration-300 group-hover/image:scale-105" />
           ) : (
-            <span className="text-slate-300 font-bold">Chưa có ảnh</span>
+            <span className="font-bold text-slate-300">Chưa có ảnh</span>
           )}
         </Link>
         {images.length > 1 && (
-          <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
+          <div className="absolute bottom-4 left-0 right-0 z-20 flex justify-center gap-1.5 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
             {images.map((_: any, idx: number) => (
               <button
                 key={idx}
@@ -41,8 +43,8 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
                   e.preventDefault();
                   setMainImageIdx(idx);
                 }}
-                className={`w-6 h-1 rounded-full cursor-pointer transition-colors ${mainImageIdx === idx ? "bg-primary" : hoverImageIdx === idx ? "bg-slate-400" : "bg-slate-300"}`}
-                aria-label={`Select image ${idx + 1}`}
+                className={`h-1 w-6 cursor-pointer rounded-full transition-colors ${mainImageIdx === idx ? "bg-primary" : hoverImageIdx === idx ? "bg-slate-400" : "bg-slate-300"}`}
+                aria-label={`Chọn ảnh ${idx + 1}`}
               />
             ))}
           </div>
@@ -50,11 +52,11 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
       </div>
 
       <Link to={`/product/${p.id}`} className="flex flex-col">
-        <h4 className="font-bold text-[13px] md:text-sm mb-2 line-clamp-2 text-slate-800 group-hover:text-primary transition-colors h-[40px]">
+        <h4 className="mb-2 h-[40px] text-[13px] font-bold text-slate-800 line-clamp-2 transition-colors group-hover:text-primary md:text-sm">
           {p.name}
         </h4>
         {p.specs && (
-          <div className="bg-gray-50 rounded-lg p-2 mb-3 text-[10px] md:text-[11px] text-gray-600 grid grid-cols-2 gap-y-1 gap-x-2 border border-gray-100">
+          <div className="mb-3 grid grid-cols-2 gap-x-2 gap-y-1 rounded-lg border border-gray-100 bg-gray-50 p-2 text-[10px] text-gray-600 md:text-[11px]">
             {p.specs.processor && <span className="truncate">CPU: {p.specs.processor}</span>}
             {p.specs.ram && <span className="truncate">RAM: {p.specs.ram}</span>}
             {p.specs.screenSize && <span className="col-span-2 truncate">Màn hình: {p.specs.screenSize}</span>}
@@ -62,38 +64,42 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
         )}
       </Link>
 
-      {/* KẾT CẤU MT-AUTO ĐỂ ĐẨY FOOTER XUỐNG ĐÁY */}
       <div className="mt-auto flex flex-col justify-end pt-2">
-        <Link to={`/product/${p.id}`} className="flex items-baseline gap-2 mb-2">
-          <span className="text-primary font-bold text-sm md:text-base">{p.price?.toLocaleString("vi-VN") || 0}₫</span>
+        <Link to={`/product/${p.id}`} className="mb-2 flex items-baseline gap-2">
+          <span className="text-sm font-bold text-primary md:text-base">{p.price?.toLocaleString("vi-VN") || 0}đ</span>
           {p.discountPrice && p.discountPrice > p.price && (
-            <span className="text-[11px] md:text-xs text-gray-400 line-through">{p.discountPrice.toLocaleString("vi-VN")}₫</span>
+            <span className="text-[11px] text-gray-400 line-through md:text-xs">{p.discountPrice.toLocaleString("vi-VN")}đ</span>
           )}
         </Link>
 
         {p.memberDeal && (
-          <div className="mb-2 flex gap-2 flex-wrap items-center">
-            <div className="bg-red-50 text-primary text-[10px] px-2 py-1 rounded-[4px] font-semibold flex items-center gap-1 border border-red-100/50">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 rounded-[4px] border border-red-100/50 bg-red-50 px-2 py-1 text-[10px] font-semibold text-primary">
               {p.memberDeal}
             </div>
           </div>
         )}
 
-        <div className="flex justify-between items-center text-[10px] md:text-[11px] text-gray-500 border-t border-gray-100 pt-3 mt-1">
+        <div className="mt-1 flex items-center justify-between border-t border-gray-100 pt-3 text-[10px] text-gray-500 md:text-[11px]">
           <div className="flex items-center gap-1">
-            <span className="text-yellow-400">⭐</span>
-            <span>{p.rating ? `${p.rating} (${p.reviewCount || 0} đánh giá)` : 'Chưa có đánh giá'}</span>
+            <span className="text-yellow-400">★</span>
+            <span>{p.rating ? `${p.rating} (${p.reviewCount || 0} đánh giá)` : "Chưa có đánh giá"}</span>
           </div>
-          <button className="hover:text-red-600 transition-colors flex items-center gap-1">❤️ Yêu thích</button>
+          <button className="flex items-center gap-1 transition-colors hover:text-red-600" type="button">
+            <Heart className="h-3.5 w-3.5" />
+            Yêu thích
+          </button>
         </div>
 
-        <div className="lg:hidden mt-3 pt-2 border-t border-slate-100">
-          <Link to={`/compare?product=${p.id}`} className="w-full text-center py-1.5 block bg-gray-50 text-primary border border-red-100 rounded text-xs font-bold">+ So sánh</Link>
+        <div className="mt-3 border-t border-slate-100 pt-2">
+          <Link
+            to={`/compare?product=${p.id}`}
+            className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-red-100 bg-red-50 text-xs font-bold text-primary transition-colors hover:border-primary hover:bg-primary hover:text-white"
+          >
+            <Scale className="h-4 w-4" />
+            So sánh
+          </Link>
         </div>
-      </div>
-
-      <div className="hidden lg:flex absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-white via-white to-transparent opacity-0 translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 items-center justify-center gap-2 pb-4">
-        <Link to={`/compare?product=${p.id}`} className="flex-1 text-center py-2 bg-primary text-white text-xs font-bold rounded shadow-md hover:bg-red-700 transition-colors">So sánh</Link>
       </div>
     </motion.div>
   );

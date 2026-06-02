@@ -9,6 +9,7 @@ import {
   Eye,
   EyeOff,
   Gift,
+  Heart,
   Home,
   KeyRound,
   LogOut,
@@ -35,7 +36,7 @@ import { DeleteAccountModal } from '../components/account/DeleteAccountModal';
 import { LocationPicker } from '../components/LocationPicker';
 import { VietnamAddressSelector, AddressData } from '../components/VietnamAddressSelector';
 
-type AccountTab = 'overview' | 'orders' | 'membership' | 'addresses' | 'settings';
+type AccountTab = 'overview' | 'orders' | 'membership' | 'addresses' | 'settings' | 'favorites';
 
 type Address = {
   id: string;
@@ -73,6 +74,19 @@ type AuthSession = {
   expiresAt: string;
 };
 
+function formatFavoriteTime(value?: string | null) {
+  if (!value) return 'Chưa có thời gian';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Chưa có thời gian';
+  return date.toLocaleString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
 const emptyAddress = {
   receiverName: '',
   receiverPhone: '',
@@ -98,6 +112,7 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<AccountTab>('overview');
   const [orders, setOrders] = useState<any[]>([]);
+  const [favorites, setFavorites] = useState<any[]>([]);
   const [authSessions, setAuthSessions] = useState<AuthSession[]>([]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -146,6 +161,10 @@ export default function DashboardPage() {
     apiDb.listOrders(user.uid)
       .then(data => setOrders(data.sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))))
       .catch(e => console.log('Error loading orders', e));
+      
+    apiDb.listFavorites()
+      .then(data => setFavorites(data))
+      .catch(e => console.log('Error loading favorites', e));
   }, [user]);
 
   useEffect(() => {
@@ -346,6 +365,7 @@ export default function DashboardPage() {
   const navItems = [
     { id: 'overview', label: 'Tổng quan', icon: Home },
     { id: 'orders', label: 'Lịch sử mua hàng', icon: ClipboardList },
+    { id: 'favorites', label: 'Sản phẩm yêu thích', icon: Heart },
     { id: 'membership', label: 'Hạng thành viên', icon: Diamond },
     { id: 'addresses', label: 'Địa chỉ', icon: MapPin },
     { id: 'settings', label: 'Cài đặt tài khoản', icon: Settings },
@@ -430,7 +450,7 @@ export default function DashboardPage() {
           </ul>
         </aside>
 
-        <div className="flex-1 flex flex-col gap-6">
+        <div className="flex-1 flex flex-col gap-6 min-w-0">
           {activeTab === 'overview' && (
             <>
               <div className="bg-blue-50 text-blue-900 px-6 py-4 rounded-xl flex items-center gap-3 text-sm border border-blue-100">
@@ -612,7 +632,7 @@ export default function DashboardPage() {
           )}
 
           {activeTab === 'settings' && (
-            <div className="space-y-6">
+            <>
               <section className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
                   <div className="flex items-center gap-3">
@@ -752,7 +772,45 @@ export default function DashboardPage() {
                   <button onClick={() => setShowDeleteModal(true)} className="px-4 py-3 rounded-lg border border-red-600 text-red-600 font-bold hover:bg-red-600 hover:text-white transition-colors">Xóa tài khoản</button>
                 </div>
               </section>
-            </div>
+            </>
+          )}
+
+          {activeTab === 'favorites' && (
+            <section className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+              <div className="flex items-center gap-3 mb-5">
+                <Heart className="w-6 h-6 text-[#d70018]" />
+                <h3 className="font-bold text-gray-800">Sản phẩm yêu thích</h3>
+              </div>
+              {favorites.length === 0 ? (
+                <p className="text-sm text-gray-500">Bạn chưa có sản phẩm yêu thích nào.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {favorites.map(product => (
+                    <div key={product.id} className="border border-gray-100 rounded-lg p-4 flex flex-col cursor-pointer hover:shadow-md transition-shadow relative" onClick={() => navigate(`/product/${product.slug || product.id}`)}>
+                      <div className="aspect-square mb-3 relative flex items-center justify-center p-2">
+                        <img src={product.imageUrl} alt={product.name} className="w-full h-full object-contain" />
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            apiDb.toggleFavorite(product.id).then((res) => {
+                              if (!res.favorited) {
+                                setFavorites(prev => prev.filter(p => p.id !== product.id));
+                              }
+                            });
+                          }}
+                          className="absolute top-2 right-2 p-1.5 bg-white/80 backdrop-blur-sm shadow-sm rounded-full text-[#d70018] hover:scale-110 transition-transform"
+                        >
+                          <Heart className="w-5 h-5 fill-[#d70018]" />
+                        </button>
+                      </div>
+                      <h4 className="text-sm font-semibold text-gray-800 line-clamp-2 mt-auto">{product.name}</h4>
+                      <p className="text-[#d70018] font-bold mt-2">{(product.discountPrice || product.price).toLocaleString('vi-VN')} đ</p>
+                      <p className="mt-1 text-xs font-medium text-slate-500">Đã yêu thích lúc {formatFavoriteTime(product.favoritedAt)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           )}
         </div>
       </div>

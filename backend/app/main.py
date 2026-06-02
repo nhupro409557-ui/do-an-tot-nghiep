@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from sqlalchemy import text
 
@@ -52,6 +53,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount("/uploads", StaticFiles(directory="uploads", check_dir=False), name="uploads")
 
 
 SENSITIVE_AUDIT_KEYS = {"password", "token", "secret", "mfa_secret", "authorization", "refresh_token"}

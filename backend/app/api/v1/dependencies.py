@@ -136,14 +136,24 @@ async def get_user_permissions(
     result = await session.execute(
         text(
             """
-            SELECT p.code
-            FROM users u
-            JOIN roles r ON r.id = u.role_id
-            JOIN role_permissions rp ON rp.role_id = r.id
-            JOIN permissions p ON p.id = rp.permission_id
-            WHERE u.id = :user_id
-              AND u.status = 'ACTIVE'
-            ORDER BY p.code
+            SELECT DISTINCT code
+            FROM (
+                SELECT p.code
+                FROM users u
+                JOIN roles r ON r.id = u.role_id
+                JOIN role_permissions rp ON rp.role_id = r.id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE u.id = :user_id
+                  AND u.status = 'ACTIVE'
+                UNION
+                SELECT p.code
+                FROM users u
+                JOIN user_permissions up ON up.user_id = u.id
+                JOIN permissions p ON p.id = up.permission_id
+                WHERE u.id = :user_id
+                  AND u.status = 'ACTIVE'
+            ) effective_permissions
+            ORDER BY code
             """
         ),
         {"user_id": current_user_id},
