@@ -1,4 +1,4 @@
-import re
+﻿import re
 import unicodedata
 from uuid import UUID, uuid4
 
@@ -9,7 +9,8 @@ DATA_URL_PATTERN = re.compile(r"^data:", re.IGNORECASE)
 
 
 def slugify(value: str) -> str:
-    normalized = unicodedata.normalize("NFD", value.strip()).replace("Ä‘", "d").replace("Ä", "D")
+    normalized = value.strip().replace("\u0111", "d").replace("\u0110", "D")
+    normalized = unicodedata.normalize("NFD", normalized)
     normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
     slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in normalized)
     return "-".join(part for part in slug.split("-") if part) or uuid4().hex[:8]
@@ -83,15 +84,15 @@ def stock_state(quantity: int | None) -> str:
 
 def display_status(status_value: str | None, quantity: int | None) -> str:
     if status_value == "ACTIVE" and stock_state(quantity) == "OUT_OF_STOCK":
-        return "Háº¿t hÃ ng"
+        return "HÃ¡ÂºÂ¿t hÃƒÂ ng"
     labels = {
-        "DRAFT": "NhÃ¡p",
-        "PENDING": "Chá» duyá»‡t",
-        "ACTIVE": "Äang bÃ¡n",
-        "INACTIVE": "Táº¡m áº©n",
-        "ARCHIVED": "LÆ°u trá»¯",
+        "DRAFT": "NhÃƒÂ¡p",
+        "PENDING": "ChÃ¡Â»Â duyÃ¡Â»â€¡t",
+        "ACTIVE": "Ã„Âang bÃƒÂ¡n",
+        "INACTIVE": "TÃ¡ÂºÂ¡m Ã¡ÂºÂ©n",
+        "ARCHIVED": "LÃ†Â°u trÃ¡Â»Â¯",
     }
-    return labels.get(status_value or "", status_value or "NhÃ¡p")
+    return labels.get(status_value or "", status_value or "NhÃƒÂ¡p")
 
 
 def split_relation_tokens(value: object) -> list[str]:

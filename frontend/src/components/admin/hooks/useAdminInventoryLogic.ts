@@ -2,6 +2,9 @@ import { useState, type FormEvent } from 'react';
 import { apiDb } from '../../../services/apiDb';
 import { getInventorySettings } from '../AdminDashboardConfig';
 
+const DEFAULT_LOCATION_CODE = 'MAIN';
+const DEFAULT_LOCATION_NAME = 'Kho chính';
+
 type InventoryDraft = {
   product: any;
   variant?: any;
@@ -42,8 +45,8 @@ export function useAdminInventoryLogic({ query, reloadCurrentTab }: UseAdminInve
       note: '',
       supplierName: '',
       unitCost: 0,
-      locationCode: detail.preferredLocationCode || inventorySettings.preferredLocationCode || '',
-      locationName: detail.preferredLocationName || inventorySettings.preferredLocationName || '',
+      locationCode: DEFAULT_LOCATION_CODE,
+      locationName: DEFAULT_LOCATION_NAME,
       imeis: '',
       minimumStock: detail.minimumStock ?? inventorySettings.minimumStock,
       blockSaleWhenOutOfStock: detail.blockSaleWhenOutOfStock ?? inventorySettings.blockSaleWhenOutOfStock,
@@ -66,8 +69,6 @@ export function useAdminInventoryLogic({ query, reloadCurrentTab }: UseAdminInve
     await apiDb.adminUpdateInventorySettings(inventoryDraft.product.id, {
       minimumStock: inventoryDraft.minimumStock,
       blockSaleWhenOutOfStock: inventoryDraft.blockSaleWhenOutOfStock,
-      preferredLocationCode: inventoryDraft.locationCode.trim(),
-      preferredLocationName: inventoryDraft.locationName.trim(),
       cycleCountDays: inventoryDraft.cycleCountDays,
     });
     await apiDb.adminAdjustInventory(inventoryDraft.product.id, {
@@ -79,8 +80,8 @@ export function useAdminInventoryLogic({ query, reloadCurrentTab }: UseAdminInve
       note: inventoryDraft.note || null,
       supplierName: inventoryDraft.supplierName.trim() || null,
       unitCost: Number.isFinite(inventoryDraft.unitCost) && inventoryDraft.unitCost > 0 ? inventoryDraft.unitCost : null,
-      locationCode: inventoryDraft.locationCode.trim() || null,
-      locationName: inventoryDraft.locationName.trim() || null,
+      locationCode: DEFAULT_LOCATION_CODE,
+      locationName: DEFAULT_LOCATION_NAME,
       imeis: inventoryDraft.imeis.split(/[\n,]/).map((item) => item.trim()).filter(Boolean),
     });
     setInventoryDraft(null);

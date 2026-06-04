@@ -32,7 +32,7 @@ export default function BrandLandingPage() {
 
   useEffect(() => {
     if (!brand) return;
-    const title = brand.seoTitle || brand.landingTitle || `Sản phẩm ${brand.name}`;
+    const title = brand.landingTitle || `Sản phẩm ${brand.name}`;
     document.title = `${title} | ElectroMart VietNam`;
     let description = document.querySelector('meta[name="description"]');
     if (!description) {
@@ -40,7 +40,7 @@ export default function BrandLandingPage() {
       description.setAttribute('name', 'description');
       document.head.appendChild(description);
     }
-    description.setAttribute('content', brand.seoDescription || `Khám phá sản phẩm chính hãng từ ${brand.name} tại ElectroMart VietNam.`);
+    description.setAttribute('content', `Khám phá sản phẩm chính hãng từ ${brand.name} tại ElectroMart VietNam.`);
   }, [brand]);
 
   if (loading) {
@@ -65,7 +65,7 @@ export default function BrandLandingPage() {
         <div>
           <p className="text-sm font-semibold uppercase text-red-600">{brand.code}</p>
           <h1 className="mt-2 text-3xl font-bold text-slate-950">{brand.landingTitle || `Sản phẩm ${brand.name}`}</h1>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{brand.seoDescription || `Danh sách sản phẩm ${brand.name} đang kinh doanh, được cập nhật theo danh mục và tình trạng bán hiện tại.`}</p>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{`Danh sách sản phẩm ${brand.name} đang kinh doanh, được cập nhật theo danh mục và tình trạng bán hiện tại.`}</p>
         </div>
       </section>
 

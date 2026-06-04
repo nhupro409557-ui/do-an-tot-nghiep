@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 export interface AddressData {
   provinceId: string;
@@ -32,7 +32,6 @@ const NEW_ADDRESS_DATA_URL = 'https://raw.githubusercontent.com/phucanhle/vn-xap
 
 export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
   const [provinces, setProvinces] = useState<NewProvince[]>([]);
-  const [wards, setWards] = useState<NewWard[]>([]);
   const [wardSearch, setWardSearch] = useState('');
   const [isWardOpen, setIsWardOpen] = useState(false);
   const wardDropdownRef = useRef<HTMLDivElement>(null);
@@ -46,14 +45,10 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
       .catch(console.error);
   }, []);
 
-  useEffect(() => {
-    if (!value.provinceId) {
-      setWards([]);
-      return;
-    }
-
+  const wards = useMemo(() => {
+    if (!value.provinceId) return [];
     const province = provinces.find(item => String(item.matinhBNV ?? item.matinhTMS) === value.provinceId);
-    setWards(province?.phuongxa || []);
+    return province?.phuongxa || [];
   }, [provinces, value.provinceId]);
 
   useEffect(() => {
@@ -115,7 +110,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
           }}
           className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500"
         >
-          <option value="">Tinh/Thanh pho</option>
+          <option value="">T?nh/Th?nh ph?</option>
           {provinces.map(province => {
             const id = String(province.matinhBNV ?? province.matinhTMS);
             return <option key={id} value={id}>{province.tentinhmoi}</option>;
@@ -133,7 +128,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
             className="w-full px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500 text-left flex items-center justify-between gap-3"
           >
             <span className={value.wardName ? 'text-gray-900' : 'text-gray-500'}>
-              {value.wardName || 'Phuong/Xa'}
+              {value.wardName || 'Ph?ng/X?'}
             </span>
             <span className="text-gray-400 text-xs">▼</span>
           </button>
@@ -145,7 +140,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
                   autoFocus
                   value={wardSearch}
                   onChange={(event) => setWardSearch(event.target.value)}
-                  placeholder="Tim nhanh phuong/xa"
+                  placeholder="T?m nhanh ph?ng/x?"
                   className="w-full px-3 py-2 border border-gray-200 rounded-md outline-none focus:border-[#d70018] text-sm"
                 />
               </div>
@@ -166,7 +161,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
                     </button>
                   ))
                 ) : (
-                  <div className="px-4 py-3 text-sm text-gray-500">Khong tim thay phuong/xa phu hop.</div>
+                  <div className="px-4 py-3 text-sm text-gray-500">Kh?ng t?m th?y ph?ng/x? ph? h?p.</div>
                 )}
               </div>
             </div>
@@ -179,7 +174,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
         required
         value={value.street}
         onChange={(event) => update('street', event.target.value)}
-        placeholder="So nha, ten duong (vi du: 123 Le Loi)"
+        placeholder="S? nh?, t?n ??ng (v? d?: 123 L? L?i)"
         className="w-full px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500"
       />
     </div>

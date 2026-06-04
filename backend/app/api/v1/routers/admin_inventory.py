@@ -79,8 +79,6 @@ async def get_product_inventory(product_id: UUID, session: AsyncSession = Depend
         {
             "minimumStock": minimum_stock,
             "blockSaleWhenOutOfStock": bool(sales_config.get("blockSaleWhenOutOfStock", True)),
-            "preferredLocationCode": sales_config.get("preferredLocationCode", "") or "",
-            "preferredLocationName": sales_config.get("preferredLocationName", "") or "",
             "cycleCountDays": int(sales_config.get("cycleCountDays") or 30),
             "stockAlert": "LOW" if int(product_data.get("stockQuantity") or 0) <= minimum_stock else "OK",
         }
@@ -108,8 +106,6 @@ async def update_product_inventory_settings(
             **sales_config,
             "minimumStock": payload.minimumStock,
             "blockSaleWhenOutOfStock": payload.blockSaleWhenOutOfStock,
-            "preferredLocationCode": payload.preferredLocationCode or "",
-            "preferredLocationName": payload.preferredLocationName or "",
             "cycleCountDays": payload.cycleCountDays or sales_config.get("cycleCountDays") or 30,
         }
     )
@@ -168,8 +164,6 @@ async def export_inventory_snapshot(
             "stockAlert",
             "productStatus",
             "blockSaleWhenOutOfStock",
-            "preferredLocationCode",
-            "preferredLocationName",
         ],
     )
     writer.writeheader()
@@ -191,8 +185,6 @@ async def export_inventory_snapshot(
                 "stockAlert": "Cần nhập thêm" if stock_quantity <= minimum_stock else "Ổn định",
                 "productStatus": row.get("productStatus"),
                 "blockSaleWhenOutOfStock": "Có" if sales_config.get("blockSaleWhenOutOfStock", True) else "Không",
-                "preferredLocationCode": sales_config.get("preferredLocationCode", "") or "",
-                "preferredLocationName": sales_config.get("preferredLocationName", "") or "",
             }
         )
     return Response(

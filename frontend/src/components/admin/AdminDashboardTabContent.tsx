@@ -8,10 +8,12 @@ import {
 } from './AdminDashboardConfig';
 
 const AdminAuditTab = React.lazy(() => import('./tabs/AdminAuditTab'));
+const AdminBannersTab = React.lazy(() => import('./tabs/AdminBannersTab'));
 const AdminBrandsTab = React.lazy(() => import('./tabs/AdminBrandsTab'));
 const AdminCategoriesTab = React.lazy(() => import('./tabs/AdminCategoriesTab'));
 const AdminContentTab = React.lazy(() => import('./tabs/AdminContentTab'));
 const AdminCustomersTab = React.lazy(() => import('./tabs/AdminCustomersTab'));
+const AdminFlashSalesTab = React.lazy(() => import('./tabs/AdminFlashSalesTab'));
 const AdminInventoryTab = React.lazy(() => import('./tabs/AdminInventoryTab'));
 const AdminOrdersTab = React.lazy(() => import('./tabs/AdminOrdersTab'));
 const AdminOverviewTab = React.lazy(() => import('./tabs/AdminOverviewTab'));
@@ -91,6 +93,8 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
       );
     case 'products':
       return <AdminProductsTab {...sharedProps} />;
+    case 'flashSales':
+      return <AdminFlashSalesTab {...sharedProps} />;
     case 'categories':
       return <AdminCategoriesTab {...sharedProps} />;
     case 'brands':
@@ -109,6 +113,8 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
       return <AdminReviewsTab {...sharedProps} />;
     case 'content':
       return <AdminContentTab {...sharedProps} />;
+    case 'banners':
+      return <AdminBannersTab {...sharedProps} />;
     case 'audit':
       return <AdminAuditTab {...sharedProps} />;
     case 'permissions':

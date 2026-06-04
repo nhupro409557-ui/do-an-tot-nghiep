@@ -18,6 +18,10 @@ interface Review {
 
 export function ProductReviews({ productId }: { productId: string }) {
   const { user } = useAuth();
+  return <ProductReviewsContent key={`${productId}-${user?.uid || 'guest'}`} productId={productId} user={user} />;
+}
+
+function ProductReviewsContent({ productId, user }: { productId: string; user: any }) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [newReview, setNewReview] = useState('');
   const [mediaInput, setMediaInput] = useState('');
@@ -29,10 +33,20 @@ export function ProductReviews({ productId }: { productId: string }) {
   const [submitSuccess, setSubmitSuccess] = useState('');
   const [editingReviewId, setEditingReviewId] = useState<string | null>(null);
 
+  const applyExistingReview = (existingReview: any) => {
+    if (!existingReview) return;
+    setEditingReviewId(existingReview.id || null);
+    setNewReview(existingReview.comment || '');
+    setRating(Number(existingReview.rating || 5));
+    setMediaInput(Array.isArray(existingReview.mediaUrls) ? existingReview.mediaUrls.join('\n') : '');
+  };
+
   useEffect(() => {
+    let isActive = true;
     const fetchReviews = async () => {
       try {
         const items = await apiDb.listReviews(productId);
+        if (!isActive) return;
         items.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setReviews(items.map((data: any) => ({
           id: data.id,
@@ -46,36 +60,41 @@ export function ProductReviews({ productId }: { productId: string }) {
           orderOutcome: data.orderOutcome || '',
         })));
       } catch (err) {
+        if (!isActive) return;
         console.error(err);
         setReviews([]);
       } finally {
+        if (!isActive) return;
         setLoading(false);
       }
     };
     fetchReviews();
-  }, [productId]);
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
-    if (!user) {
-      setEligibility(null);
-      return;
-    }
+    if (!user) return;
+    let isActive = true;
     apiDb.reviewEligibility(productId)
-      .then(setEligibility)
-      .catch(() => setEligibility({
-        canReview: false,
-        message: 'Không thể kiểm tra quyền đánh giá lúc này.',
-      }));
-  }, [productId, user]);
+      .then((data) => {
+        if (!isActive) return;
+        setEligibility(data);
+        applyExistingReview(data?.existingReview);
+      })
+      .catch(() => {
+        if (!isActive) return;
+        setEligibility({
+          canReview: false,
+          message: 'Kh?ng th? ki?m tra quy?n ??nh gi? l?c n?y.',
+        });
+      });
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
-  useEffect(() => {
-    if (!eligibility?.existingReview) return;
-    const own = eligibility.existingReview;
-    setEditingReviewId(own.id || null);
-    setNewReview(own.comment || '');
-    setRating(Number(own.rating || 5));
-    setMediaInput(Array.isArray(own.mediaUrls) ? own.mediaUrls.join('\n') : '');
-  }, [eligibility?.existingReview?.id]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

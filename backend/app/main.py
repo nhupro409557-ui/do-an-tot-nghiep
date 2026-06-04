@@ -1,10 +1,12 @@
 import json
 import asyncio
+import logging
 import contextlib
 from uuid import UUID
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 from sqlalchemy import text
@@ -22,6 +24,11 @@ from app.api.v1.routers.users import router as users_router
 from app.application.commerce.use_cases import CompleteOrderUseCase
 from app.config import settings
 from app.infrastructure.database.session import AsyncSessionFactory
+
+
+# Khởi tạo Logger chuẩn
+logger = logging.getLogger("ecommerce_app")
+logging.basicConfig(level=logging.INFO)
 
 
 @contextlib.asynccontextmanager
@@ -44,14 +51,6 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 app.mount("/uploads", StaticFiles(directory="uploads", check_dir=False), name="uploads")
@@ -96,14 +95,43 @@ async def run_order_maintenance_loop() -> None:
                     online_timeout_minutes=settings.order_pending_online_timeout_minutes,
                     cod_timeout_hours=settings.order_pending_cod_timeout_hours,
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Error in order maintenance loop: {str(e)}", exc_info=True)
         await asyncio.sleep(max(60, int(settings.order_maintenance_interval_seconds)))
+
+
+async def save_audit_log_async(actor_id: UUID | None, method: str, ip_address: str, user_agent: str | None, metadata: dict) -> None:
+    try:
+        async with AsyncSessionFactory() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO security_audit_logs 
+                        (user_id, event_type, ip_address, user_agent, metadata)
+                    VALUES 
+                        (:user_id, :event_type, :ip_address, :user_agent, CAST(:metadata AS jsonb))
+                    """
+                ),
+                {
+                    "user_id": actor_id,
+                    "event_type": f"admin_{method.lower()}",
+                    "ip_address": ip_address,
+                    "user_agent": user_agent,
+                    "metadata": json.dumps(metadata, ensure_ascii=False),
+                },
+            )
+            await session.commit()
+    except Exception as e:
+        logger.error(f"Failed to save admin audit log to DB: {str(e)}", exc_info=True)
 
 
 @app.middleware("http")
 async def admin_audit_middleware(request, call_next):
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        logger.error("Unhandled request error: %s %s", request.method, request.url.path, exc_info=True)
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
     if request.url.path.startswith("/api/v1/admin/") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         resource, resource_id = resource_from_path(request.url.path)
         actor_id = audit_actor_id(request)
@@ -120,26 +148,31 @@ async def admin_audit_middleware(request, call_next):
             "resource_id": resource_id,
             "headers": headers,
         }
-        async with AsyncSessionFactory() as session:
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO security_audit_logs
-                        (user_id, event_type, ip_address, user_agent, metadata)
-                    VALUES
-                        (:user_id, :event_type, :ip_address, :user_agent, CAST(:metadata AS jsonb))
-                    """
-                ),
-                {
-                    "user_id": actor_id,
-                    "event_type": f"admin_{request.method.lower()}",
-                    "ip_address": audit_request_ip(request),
-                    "user_agent": request.headers.get("user-agent"),
-                    "metadata": json.dumps(metadata),
-                },
+        asyncio.create_task(
+            save_audit_log_async(
+                actor_id=actor_id,
+                method=request.method,
+                ip_address=audit_request_ip(request),
+                user_agent=request.headers.get("user-agent"),
+                metadata=metadata
             )
-            await session.commit()
+        )
     return response
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        settings.frontend_url.rstrip("/"),
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health", tags=["System"])

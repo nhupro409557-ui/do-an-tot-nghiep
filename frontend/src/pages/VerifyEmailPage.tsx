@@ -9,22 +9,32 @@ export default function VerifyEmailPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    let redirectTimer: ReturnType<typeof setTimeout> | null = null;
+    let isActive = true;
     const token = searchParams.get('token') || '';
+
     if (!token) {
       setError('Link xác nhận không hợp lệ.');
       setStatus('');
-      return;
+      return () => {};
     }
 
     confirmRegistrationByToken(token)
       .then(() => {
+        if (!isActive) return;
         setStatus('Xác nhận thành công. Bạn sẽ được chuyển về trang chủ.');
-        setTimeout(() => navigate('/'), 1200);
+        redirectTimer = setTimeout(() => navigate('/'), 1200);
       })
       .catch((err: any) => {
+        if (!isActive) return;
         setError(getAuthErrorMessage(err.code, err.message || 'Không thể xác nhận tài khoản.'));
         setStatus('');
       });
+
+    return () => {
+      isActive = false;
+      if (redirectTimer) clearTimeout(redirectTimer);
+    };
   }, [navigate, searchParams]);
 
   return (

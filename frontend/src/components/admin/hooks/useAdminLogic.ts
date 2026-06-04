@@ -1,10 +1,15 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { apiDb } from '../../../services/apiDb';
+import { brandApi } from '../../../services/brandApi';
+import { categoryApi } from '../../../services/categoryApi';
+import { productApi } from '../../../services/productApi';
 import { getAccessToken } from '../../../services/authDb';
 import { useAdminBrandsLogic } from './useAdminBrandsLogic';
+import { useAdminBannersLogic } from './useAdminBannersLogic';
 import { useAdminContentLogic } from './useAdminContentLogic';
 import { useAdminCustomersLogic } from './useAdminCustomersLogic';
+import { useAdminFlashSalesLogic } from './useAdminFlashSalesLogic';
 import { useAdminInventoryLogic } from './useAdminInventoryLogic';
 import { useAdminOrdersLogic } from './useAdminOrdersLogic';
 import { useAdminPermissionsLogic } from './useAdminPermissionsLogic';
@@ -43,6 +48,7 @@ export function useAdminLogic() {
   const [brandPage, setBrandPage] = useState(1);
   const [brandTotal, setBrandTotal] = useState(0);
   const [vouchers, setVouchers] = useState<any[]>([]);
+  const [flashSales, setFlashSales] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [customerPage, setCustomerPage] = useState(1);
   const [customerTotal, setCustomerTotal] = useState(0);
@@ -52,6 +58,7 @@ export function useAdminLogic() {
   const [reviewStatusFilter, setReviewStatusFilter] = useState('all');
   const [reviewStarFilter, setReviewStarFilter] = useState('all');
   const [contentItems, setContentItems] = useState<any[]>([]);
+  const [banners, setBanners] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
 
   const orderLogic = useAdminOrdersLogic({ setOrders });
@@ -65,6 +72,12 @@ export function useAdminLogic() {
   const voucherLogic = useAdminVouchersLogic({
     reloadCurrentTab: () => loadData(tab, { force: true }),
   });
+  const flashSaleLogic = useAdminFlashSalesLogic({
+    flashSales,
+    products,
+    query,
+    reloadCurrentTab: () => loadData(tab, { force: true }),
+  });
   const inventoryLogic = useAdminInventoryLogic({
     query,
     reloadCurrentTab: () => loadData(tab, { force: true }),
@@ -75,6 +88,11 @@ export function useAdminLogic() {
   const contentLogic = useAdminContentLogic({
     contentItems,
     products,
+    query,
+    reloadCurrentTab: () => loadData(tab, { force: true }),
+  });
+  const bannerLogic = useAdminBannersLogic({
+    banners,
     query,
     reloadCurrentTab: () => loadData(tab, { force: true }),
   });
@@ -91,6 +109,8 @@ export function useAdminLogic() {
     setProductCategoryFilter,
     productBrandFilter,
     setProductBrandFilter,
+    setProductStatusFilter,
+    setProductPage,
   });
 
   const categoryLogic = useAdminCategoriesLogic({
@@ -256,24 +276,51 @@ export function useAdminLogic() {
     retracted: imageComments.filter((item) => item.isRetracted).length,
   }), [imageComments]);
   const revenue = useMemo(() => orders.reduce((sum, order) => sum + Number(order.totalAmount || order.total_amount || 0), 0), [orders]);
-  const tabPermissions: Record<AdminTab, string[]> = {
-    overview: ['overview:read'],
-    products: ['product:read'],
-    categories: ['category:read'],
-    brands: ['brand:read'],
-    services: ['product:read'],
-    orders: ['order:read'],
-    vouchers: ['voucher:read'],
-    customers: ['customer:read'],
-    inventory: ['inventory:read'],
-    reviews: ['review:read'],
-    content: ['content:read'],
-    audit: ['audit:read'],
-    permissions: ['sys:manage_roles'],
-  };
-  const availableTabs = useMemo(() => adminTabs.filter((item) => useAnyPermission(tabPermissions[item.id])), [useAnyPermission]);
   const canManageCustomerAccess = usePermission('sys:manage_users');
   const canManageCustomerProfile = useAnyPermission(['customer:update', 'customer:loyalty_adjust', 'customer:issue_voucher', 'sys:manage_users']);
+  const canReadOverview = useAnyPermission(['overview:read']);
+  const canReadProducts = useAnyPermission(['product:read']);
+  const canReadCategories = useAnyPermission(['category:read']);
+  const canReadBrands = useAnyPermission(['brand:read']);
+  const canReadOrders = useAnyPermission(['order:read']);
+  const canReadVouchers = useAnyPermission(['voucher:read']);
+  const canReadCustomers = useAnyPermission(['customer:read']);
+  const canReadInventory = useAnyPermission(['inventory:read']);
+  const canReadReviews = useAnyPermission(['review:read']);
+  const canReadContent = useAnyPermission(['content:read']);
+  const canReadAudit = useAnyPermission(['audit:read']);
+  const canManageRoles = useAnyPermission(['sys:manage_roles']);
+  const tabAccess = useMemo<Record<AdminTab, boolean>>(() => ({
+    overview: canReadOverview,
+    products: canReadProducts,
+    categories: canReadCategories,
+    brands: canReadBrands,
+    services: canReadProducts,
+    orders: canReadOrders,
+    vouchers: canReadVouchers,
+    flashSales: canReadProducts,
+    customers: canReadCustomers,
+    inventory: canReadInventory,
+    reviews: canReadReviews,
+    content: canReadContent,
+    banners: canReadContent,
+    audit: canReadAudit,
+    permissions: canManageRoles,
+  }), [
+    canManageRoles,
+    canReadAudit,
+    canReadBrands,
+    canReadCategories,
+    canReadContent,
+    canReadCustomers,
+    canReadInventory,
+    canReadOrders,
+    canReadOverview,
+    canReadProducts,
+    canReadReviews,
+    canReadVouchers,
+  ]);
+  const availableTabs = useMemo(() => adminTabs.filter((item) => tabAccess[item.id]), [tabAccess]);
   const permissionLogic = useAdminPermissionsLogic({
     customers,
     canManageCustomerAccess,
@@ -341,7 +388,6 @@ export function useAdminLogic() {
   }, [query, productCategoryFilter, productBrandFilter, productStatusFilter, tab]);
 
   useEffect(() => {
-    console.log("DEBUG: useEffect productCategoryFilter changed:", { productCategoryFilter, productBrandFilter, productStatusFilter });
     if (canAccessAdmin && tab === 'products') {
       void loadData('products', { force: true });
     }
@@ -360,7 +406,7 @@ export function useAdminLogic() {
   useEffect(() => {
     if (!activeBrandImportJob || ['COMPLETED', 'FAILED'].includes(activeBrandImportJob.status)) return;
     const timer = window.setInterval(async () => {
-      const nextJob = await apiDb.adminGetBrandImportJob(activeBrandImportJob.id).catch(() => null);
+      const nextJob = await brandApi.adminGetBrandImportJob(activeBrandImportJob.id).catch(() => null);
       if (!nextJob) return;
       setActiveBrandImportJob(nextJob);
       if (['COMPLETED', 'FAILED'].includes(nextJob.status)) {
@@ -408,19 +454,12 @@ export function useAdminLogic() {
       };
       const loadProducts = async () => {
         const isProductListTab = targetTab === 'products';
-        console.log("DEBUG: loadProducts params:", {
-          productPage,
-          query: query.trim(),
-          productStatusFilter,
-          productCategoryFilter,
-          productBrandFilter
-        });
         const productResourceKey = isProductListTab
           ? `products:${productPage}:${query.trim()}:${productStatusFilter}:${productCategoryFilter}:${productBrandFilter}`
           : 'products:all';
         await runResource(productResourceKey, async () => {
           const productData = isProductListTab
-            ? await apiDb.adminListProducts({
+            ? await productApi.adminListProducts({
               page: productPage,
               limit: 20,
               search: query.trim(),
@@ -428,7 +467,7 @@ export function useAdminLogic() {
               categoryId: productCategoryFilter || undefined,
               brandId: productBrandFilter || undefined,
             })
-            : await apiDb.adminListProducts().catch(() => apiDb.listProducts());
+            : await productApi.adminListProducts().catch(() => apiDb.listProducts());
           if (Array.isArray(productData)) {
             setProducts(productData);
             setProductTotal(productData.length);
@@ -442,7 +481,7 @@ export function useAdminLogic() {
       };
       const loadCategories = async () => {
         await runResource('categories', async () => {
-          const categoryData = await apiDb.adminListCategories().catch(() => apiDb.listCategories());
+          const categoryData = await categoryApi.adminListCategories().catch(() => categoryApi.listCategories());
           setCategories(categoryData);
         });
       };
@@ -452,14 +491,14 @@ export function useAdminLogic() {
           : 'brands:all';
         await runResource(brandResourceKey, async () => {
           const brandData = targetTab === 'brands'
-            ? await apiDb.adminListBrands({ page: brandPage, limit: 10, search: query, status: brandStatusFilter }).catch(() => apiDb.listBrands().then((items) => ({ items, total: items.length, page: 1, limit: items.length || 10 })))
-            : await apiDb.adminListBrands({ page: 1, limit: 1000, status: 'all' }).catch(() => apiDb.listBrands().then((items) => ({ items, total: items.length, page: 1, limit: items.length || 1000 })));
+            ? await brandApi.adminListBrands({ page: brandPage, limit: 10, search: query, status: brandStatusFilter }).catch(() => apiDb.listBrands().then((items) => ({ items, total: items.length, page: 1, limit: items.length || 10 })))
+            : await brandApi.adminListBrands({ page: 1, limit: 1000, status: 'all' }).catch(() => apiDb.listBrands().then((items) => ({ items, total: items.length, page: 1, limit: items.length || 1000 })));
           setBrands(Array.isArray(brandData) ? brandData : brandData.items || []);
           setBrandTotal(Array.isArray(brandData) ? brandData.length : brandData.total || 0);
         });
         if (targetTab === 'brands') {
           await runResource('brand-import-jobs', async () => {
-            setBrandImportJobs(await apiDb.adminListBrandImportJobs().catch(() => []));
+            setBrandImportJobs(await brandApi.adminListBrandImportJobs().catch(() => []));
           });
         }
       };
@@ -476,6 +515,10 @@ export function useAdminLogic() {
       const loadVouchers = async () => {
         const voucherData = await apiDb.adminListVouchers().catch(() => []);
         setVouchers(voucherData);
+      };
+      const loadFlashSales = async () => {
+        const saleData = await apiDb.adminListFlashSales().catch(() => []);
+        setFlashSales(saleData);
       };
       const loadCustomers = async () => {
         const customerData = await apiDb.adminListCustomers({ search: query, page: customerPage, limit: 20 }).catch(() => ({ items: [], total: 0, page: 1, limit: 20 }));
@@ -495,6 +538,10 @@ export function useAdminLogic() {
       const loadContent = async () => {
         const contentData = await apiDb.adminListVideos().catch(() => []);
         setContentItems(contentData);
+      };
+      const loadBanners = async () => {
+        const bannerData = await apiDb.adminListBanners().catch(() => []);
+        setBanners(bannerData);
       };
       const loadAudit = async () => {
         const auditData = await apiDb.adminListAuditLogs({ limit: 100 }).catch(() => []);
@@ -523,6 +570,13 @@ export function useAdminLogic() {
         }
         if (targetTab === 'categories') loadedAdminResourcesRef.current.delete('categories');
         if (targetTab === 'services') loadedAdminResourcesRef.current.delete('attached-services');
+        if (targetTab === 'banners') loadedAdminResourcesRef.current.delete('banners');
+        if (targetTab === 'flashSales') {
+          loadedAdminResourcesRef.current.delete('flash-sales');
+          [...loadedAdminResourcesRef.current]
+            .filter((key) => key.startsWith('products:') || key === 'products')
+            .forEach((key) => loadedAdminResourcesRef.current.delete(key));
+        }
         if (targetTab === 'brands') {
           [...loadedAdminResourcesRef.current]
             .filter((key) => key.startsWith('brands:') || key === 'brand-import-jobs')
@@ -545,6 +599,8 @@ export function useAdminLogic() {
         await loadOrders();
       } else if (targetTab === 'vouchers') {
         await Promise.all([loadVouchers(), loadProducts(), loadCategories()]);
+      } else if (targetTab === 'flashSales') {
+        await Promise.all([loadFlashSales(), loadProducts()]);
       } else if (targetTab === 'customers') {
         await Promise.all([loadCustomers(), loadVouchers()]);
       } else if (targetTab === 'inventory') {
@@ -553,6 +609,8 @@ export function useAdminLogic() {
         await loadReviews();
       } else if (targetTab === 'content') {
         await Promise.all([loadContent(), loadProducts(), loadCategories(), loadBrands()]);
+      } else if (targetTab === 'banners') {
+        await Promise.all([loadBanners(), loadProducts(), loadCategories()]);
       } else if (targetTab === 'audit') {
         await loadAudit();
       } else if (targetTab === 'permissions') {
@@ -658,6 +716,9 @@ export function useAdminLogic() {
     setBrandTotal,
     vouchers,
     setVouchers,
+    flashSales,
+    setFlashSales,
+    ...flashSaleLogic,
     customers,
     setCustomers,
     customerPage,
@@ -677,6 +738,9 @@ export function useAdminLogic() {
     setReviewStarFilter,
     contentItems,
     setContentItems,
+    banners,
+    setBanners,
+    ...bannerLogic,
     ...contentLogic,
     auditLogs,
     setAuditLogs,

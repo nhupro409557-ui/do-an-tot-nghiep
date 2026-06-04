@@ -62,6 +62,8 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
     usePermission,
     vouchers,
   } = props;
+  const canAdjustCustomerLoyalty = usePermission('customer:loyalty_adjust');
+  const canIssueCustomerVoucher = usePermission('customer:issue_voucher');
   return (
     <>
       <AdminPanel title="Ma trận phân quyền theo vai trò" action={<RefreshCw className="h-5 w-5 text-red-600" />}>
@@ -326,7 +328,7 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                             )}
                           </div>
                         </div>
-                        {usePermission('customer:loyalty_adjust') && (
+                        {canAdjustCustomerLoyalty && (
                           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
                             <div className="text-sm font-bold text-amber-900">Cộng / trừ điểm thủ công</div>
                             <div className="mt-3 grid gap-3 md:grid-cols-[160px_1fr_auto]">
@@ -338,7 +340,7 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                             </div>
                           </div>
                         )}
-                        {usePermission('customer:issue_voucher') && (
+                        {canIssueCustomerVoucher && (
                           <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
                             <div className="text-sm font-bold text-emerald-900">Gửi voucher riêng</div>
                             <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_auto]">

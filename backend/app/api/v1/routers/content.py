@@ -37,6 +37,10 @@ def content_cache_key(page: int, limit: int) -> str:
     return f"storefront:content:videos:page:{page}:limit:{limit}"
 
 
+def banner_cache_key(limit: int) -> str:
+    return f"storefront:content:banners:limit:{limit}"
+
+
 class ReviewRequest(BaseModel):
     userName: str = Field(min_length=1, max_length=255)
     rating: int = Field(ge=1, le=5)
@@ -483,6 +487,96 @@ async def list_rewards(session: AsyncSession = Depends(get_session)) -> list[dic
         )
     )
     return [dict(row._mapping) for row in result]
+
+
+@router.get("/banners")
+async def list_banners(
+    limit: int = Query(default=8, ge=1, le=12),
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+) -> list[dict]:
+    cache_key = banner_cache_key(limit)
+    cached = None
+    try:
+        cached = await redis.get(cache_key)
+    except Exception:
+      cached = None
+    if cached:
+        return json.loads(cached)
+
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                v.id::text,
+                v.title,
+                v.description,
+                COALESCE(v.banner_image_url, v.thumbnail_url) AS "imageUrl",
+                v.sort_order AS "sortOrder",
+                COALESCE(
+                    (
+                        SELECT json_build_object(
+                            'id', p.id::text,
+                            'slug', p.slug,
+                            'name', p.name
+                        )
+                        FROM content_product_relations cpr
+                        JOIN products p ON p.id = cpr.product_id
+                        WHERE cpr.content_id = v.id
+                          AND p.status = 'ACTIVE'
+                          AND p.deleted_at IS NULL
+                        ORDER BY p.name ASC
+                        LIMIT 1
+                    ),
+                    NULL
+                ) AS product,
+                COALESCE(
+                    (
+                        SELECT json_build_object(
+                            'id', c.id::text,
+                            'slug', c.slug,
+                            'name', c.name
+                        )
+                        FROM content_category_relations ccr
+                        JOIN categories c ON c.id = ccr.category_id
+                        WHERE ccr.content_id = v.id
+                          AND c.deleted_at IS NULL
+                        ORDER BY c.name ASC
+                        LIMIT 1
+                    ),
+                    NULL
+                ) AS category
+            FROM videos v
+            WHERE v.is_active = TRUE
+              AND v.deleted_at IS NULL
+              AND v.content_type = 'BANNER'
+              AND v.status = 'PUBLISHED'
+              AND (v.scheduled_at IS NULL OR v.scheduled_at <= NOW())
+            ORDER BY v.sort_order DESC, COALESCE(v.published_at, v.created_at) DESC, v.created_at DESC
+            LIMIT :limit
+            """
+        ),
+        {"limit": limit},
+    )
+    items = []
+    for row in result:
+        item = dict(row._mapping)
+        product = item.get("product") or {}
+        category = item.get("category") or {}
+        if product.get("id"):
+            item["href"] = f"/product/{product.get('slug') or product.get('id')}"
+        elif category.get("id") or category.get("slug"):
+            item["href"] = f"/products/{category.get('slug') or category.get('id')}"
+        else:
+            item["href"] = "/products"
+        items.append(item)
+    try:
+        await redis.setex(cache_key, 300, json.dumps(items, ensure_ascii=False, default=str))
+        await redis.sadd("storefront:content:videos:keys", cache_key)
+        await redis.expire("storefront:content:videos:keys", 24 * 60 * 60)
+    except Exception:
+        pass
+    return items
 
 
 @router.get("/videos")

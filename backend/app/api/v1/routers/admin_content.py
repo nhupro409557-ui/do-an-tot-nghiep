@@ -1,7 +1,7 @@
 import json
 import re
-from datetime import datetime
-from uuid import UUID
+from datetime import datetime, timedelta, timezone
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from redis.asyncio import Redis
@@ -10,12 +10,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user_id, require_permission
 from app.api.v1.routers.admin_schemas import *
+from app.api.v1.routers.admin_utils import ensure_not_data_url
 from app.infrastructure.cache import get_redis
 from app.infrastructure.database.session import get_session
-from app.shared.reviews import sync_product_review_stats
+from app.shared.reviews import sanitize_review_text, sync_product_review_stats
 
 
 router = APIRouter()
+
+
+async def audit_admin_event(
+    session: AsyncSession,
+    *,
+    actor_id: UUID,
+    event_type: str,
+    resource: str,
+    metadata: dict | None = None,
+) -> None:
+    await session.execute(
+        text(
+            """
+            INSERT INTO security_audit_logs (user_id, event_type, metadata)
+            VALUES (:actor_id, :event_type, CAST(:metadata AS jsonb))
+            """
+        ),
+        {
+            "actor_id": actor_id,
+            "event_type": event_type,
+            "metadata": json.dumps(
+                {"resource": resource, **(metadata or {})},
+                ensure_ascii=False,
+                default=str,
+            ),
+        },
+    )
 
 def normalize_content_type(value: str | None) -> str:
     candidate = (value or "VIDEO").strip().upper()
@@ -446,6 +474,58 @@ async def delete_content(
     return {"ok": True}
 
 
+def prepare_banner_payload(payload: ContentPayload) -> ContentPayload:
+    if not payload.categoryIds:
+        raise HTTPException(status_code=422, detail="Banner phải chọn ít nhất một danh mục.")
+    payload.contentType = "BANNER"
+    payload.videoUrl = None
+    payload.thumbnailUrl = payload.thumbnailUrl or payload.bannerImageUrl
+    payload.bannerImageUrl = payload.bannerImageUrl or payload.thumbnailUrl
+    payload.videoSource = "UPLOAD"
+    payload.videoCategory = "OTHER"
+    payload.comments = []
+    if payload.productIds:
+        payload.productIds = payload.productIds[:1]
+    return payload
+
+
+@router.get("/banners", dependencies=[Depends(require_permission("content:read"))])
+async def list_admin_banners(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    items = await list_admin_content(session)
+    return [item for item in items if item.get("contentType") == "BANNER"]
+
+
+@router.post("/banners", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("content:create"))])
+async def create_banner(
+    payload: ContentPayload,
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await create_content(prepare_banner_payload(payload), session, redis, actor_id)
+
+
+@router.patch("/banners/{banner_id}", dependencies=[Depends(require_permission("content:update"))])
+async def update_banner(
+    banner_id: UUID,
+    payload: ContentPayload,
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await update_content(banner_id, prepare_banner_payload(payload), session, redis, actor_id)
+
+
+@router.delete("/banners/{banner_id}", dependencies=[Depends(require_permission("content:delete"))])
+async def delete_banner(
+    banner_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    redis: Redis = Depends(get_redis),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await delete_content(banner_id, session, redis, actor_id)
+
+
 @router.get("/videos", dependencies=[Depends(require_permission("content:read"))])
 async def list_admin_videos(session: AsyncSession = Depends(get_session)) -> list[dict]:
     items = await list_admin_content(session)
@@ -483,15 +563,28 @@ async def delete_admin_video(
     actor_id: UUID = Depends(get_current_user_id),
 ) -> dict:
     result = await session.execute(
-        text("DELETE FROM videos WHERE id = :id AND content_type = 'VIDEO'"),
-        {"id": video_id},
+        text(
+            """
+            UPDATE videos
+            SET deleted_at = NOW(),
+                is_active = FALSE,
+                status = 'ARCHIVED',
+                version = version + 1,
+                updated_by = :actor_id,
+                updated_at = NOW()
+            WHERE id = :id
+              AND content_type = 'VIDEO'
+              AND deleted_at IS NULL
+            """
+        ),
+        {"id": video_id, "actor_id": actor_id},
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Video not found.")
-    await audit_admin_event(session, actor_id=actor_id, event_type="video_deleted", resource="content", metadata={"videoId": str(video_id), "mode": "hard_delete"})
+    await audit_admin_event(session, actor_id=actor_id, event_type="video_deleted", resource="content", metadata={"videoId": str(video_id), "mode": "soft_delete"})
     await session.commit()
     await invalidate_content_storefront_cache(redis)
-    return {"ok": True, "action": "deleted"}
+    return {"ok": True, "action": "archived"}
 
 
 @router.post("/videos/{video_id}/comments/{comment_id}/reply", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("content:update"))])

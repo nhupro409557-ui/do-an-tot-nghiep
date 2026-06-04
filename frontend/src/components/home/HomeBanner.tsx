@@ -1,76 +1,110 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Swiper, SwiperSlide } from 'swiper/react';
-import { Autoplay, Pagination, Navigation } from 'swiper/modules';
+import type { Swiper as SwiperType } from 'swiper';
+import { Autoplay } from 'swiper/modules';
 import { CategoryMegaMenu } from '../layout/CategoryMegaMenu';
+import { ImageWithFallback } from '../ui/ImageWithFallback';
+import { apiDb } from '../../services/apiDb';
 
 import 'swiper/css';
-import 'swiper/css/pagination';
-import 'swiper/css/navigation';
+
+const fallbackBanners = [
+  {
+    id: 'fallback-phone',
+    title: 'ĐIỆN THOẠI NỔI BẬT',
+    description: 'Ưu đãi đang mở',
+    imageUrl: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=1400&auto=format&fit=crop',
+    href: '/products',
+  },
+  {
+    id: 'fallback-laptop',
+    title: 'LAPTOP LÀM VIỆC',
+    description: 'Mỏng nhẹ, hiệu năng cao',
+    imageUrl: 'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=1400&auto=format&fit=crop',
+    href: '/products',
+  },
+  {
+    id: 'fallback-audio',
+    title: 'PHỤ KIỆN CHÍNH HÃNG',
+    description: 'Giá tốt mỗi ngày',
+    imageUrl: 'https://images.unsplash.com/photo-1600294037681-c80b4cb5b434?w=1400&auto=format&fit=crop',
+    href: '/products',
+  },
+];
 
 export const HomeBanner = () => {
-  const banners = [
-    { id: 1, title: 'Sản phẩm nổi bật', bg: 'bg-gradient-to-r from-gray-900 to-gray-700' },
-    { id: 2, title: 'Ưu đãi laptop và PC', bg: 'bg-gradient-to-r from-blue-700 to-blue-500' },
-    { id: 3, title: 'Phụ kiện chính hãng', bg: 'bg-gradient-to-r from-red-600 to-orange-500' },
-  ];
+  const [banners, setBanners] = useState<any[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [swiper, setSwiper] = useState<SwiperType | null>(null);
+
+  useEffect(() => {
+    apiDb.listBanners()
+      .then((items) => setBanners(items.filter((item: any) => item.imageUrl)))
+      .catch(() => setBanners([]));
+  }, []);
+
+  const displayBanners = useMemo(() => (banners.length ? banners : fallbackBanners), [banners]);
+  const activeBanner = displayBanners[activeIndex] || displayBanners[0];
 
   return (
-    <div className="grid grid-cols-12 gap-4 my-4">
-      <div className="hidden lg:block lg:col-span-3 relative z-30">
+    <div className="my-4 grid gap-3 lg:grid-cols-[274px_minmax(0,1fr)]">
+      <div className="relative z-30 hidden lg:block">
         <CategoryMegaMenu compact />
       </div>
 
-      <div className="col-span-12 lg:col-span-9 rounded-xl overflow-hidden shadow-sm relative group">
-        <Swiper
-          spaceBetween={0}
-          centeredSlides={true}
-          autoplay={{
-            delay: 4000,
-            disableOnInteraction: false,
-          }}
-          pagination={{
-            clickable: true,
-            dynamicBullets: true,
-          }}
-          navigation={true}
-          modules={[Autoplay, Pagination, Navigation]}
-          className="h-[200px] md:h-[350px] w-full rounded-xl"
-        >
-          {banners.map((banner) => (
-            <SwiperSlide key={banner.id}>
-              <div className={`w-full h-full flex flex-col items-center justify-center text-white ${banner.bg}`}>
-                <h2 className="text-2xl md:text-4xl font-bold mb-4 px-4 text-center">{banner.title}</h2>
-                <Link to="/products" className="bg-white text-black px-6 py-2 rounded-full font-semibold hover:scale-105 transition-transform text-sm md:text-base">
-                  Xem ngay
-                </Link>
-              </div>
-            </SwiperSlide>
+      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+        <div className="grid grid-cols-2 overflow-hidden rounded-t-2xl bg-white text-center md:grid-cols-4">
+          {displayBanners.slice(0, 4).map((banner, index) => (
+            <button
+              key={banner.id}
+              type="button"
+              onClick={() => {
+                setActiveIndex(index);
+                swiper?.slideTo(index);
+              }}
+              className={`min-h-[64px] border-b px-2 py-2 transition ${activeIndex === index ? 'rounded-b-3xl bg-slate-100 text-red-600' : 'border-slate-100 text-slate-600 hover:bg-slate-50'}`}
+            >
+              <div className="line-clamp-1 text-sm font-black uppercase md:text-base">{banner.title}</div>
+              <div className="mt-0.5 line-clamp-1 text-xs font-medium text-slate-500 md:text-sm">{banner.description || 'Ưu đãi hôm nay'}</div>
+            </button>
           ))}
-        </Swiper>
+        </div>
 
-        <style>{`
-          .swiper-button-next, .swiper-button-prev {
-            color: #4b5563;
-            background-color: rgba(255, 255, 255, 0.8);
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            opacity: 0;
-            transition: opacity 0.3s;
-          }
-          .swiper-button-next:after, .swiper-button-prev:after {
-            font-size: 16px;
-            font-weight: bold;
-          }
-          .group:hover .swiper-button-next, .group:hover .swiper-button-prev {
-            opacity: 1;
-          }
-          .swiper-pagination-bullet-active {
-            background-color: #D70018 !important;
-          }
-        `}</style>
+        <div className="relative">
+          <Swiper
+            modules={[Autoplay]}
+            onSwiper={setSwiper}
+            onSlideChange={(instance) => setActiveIndex(instance.realIndex)}
+            autoplay={{ delay: 4500, disableOnInteraction: false }}
+            loop={displayBanners.length > 1}
+            className="h-[210px] w-full sm:h-[280px] lg:h-[390px]"
+          >
+            {displayBanners.map((banner) => (
+              <SwiperSlide key={banner.id}>
+                <Link to={banner.href || '/products'} className="relative block h-full w-full overflow-hidden bg-slate-100">
+                  <ImageWithFallback
+                    src={banner.imageUrl}
+                    alt={banner.title}
+                    className="h-full w-full object-cover"
+                    loading="eager"
+                  />
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/35 to-transparent" />
+                  <div className="pointer-events-none absolute bottom-4 left-4 hidden text-white drop-shadow sm:block">
+                    <div className="text-xl font-black uppercase">{banner.title}</div>
+                    {banner.description && <div className="mt-1 text-sm font-semibold">{banner.description}</div>}
+                  </div>
+                </Link>
+              </SwiperSlide>
+            ))}
+          </Swiper>
+
+          {activeBanner && (
+            <div className="absolute bottom-3 right-3 rounded-full bg-white/90 px-3 py-1 text-xs font-bold text-slate-700 shadow-sm">
+              {activeIndex + 1}/{displayBanners.length}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

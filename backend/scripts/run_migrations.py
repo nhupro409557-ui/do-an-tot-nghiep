@@ -20,6 +20,10 @@ SQL_FILES = [
     "047_enterprise_product_revision_merge.sql",
     "048_exclude_revision_variants_from_unique_sku.sql",
     "049_product_variant_images.sql",
+    "050_product_favorite_events.sql",
+    "051_flash_sales.sql",
+    "052_remove_category_seo_metadata.sql",
+    "053_remove_brand_seo_metadata.sql",
 ]
 
 def split_sql_statements(sql_text):

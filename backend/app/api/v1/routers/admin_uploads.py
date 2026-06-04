@@ -5,7 +5,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.api.v1.dependencies import require_permission
+from app.api.v1.dependencies import get_user_permissions
 from app.config import settings
 
 
@@ -16,6 +16,12 @@ ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": 
 ALLOWED_VIDEO_TYPES = {"video/mp4": ".mp4", "video/webm": ".webm"}
 MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_VIDEO_UPLOAD_BYTES = 200 * 1024 * 1024
+UPLOAD_FOLDER_PERMISSIONS = {
+    "products": "product:create",
+    "brands": "brand:create",
+    "categories": "category:create",
+    "content": "content:create",
+}
 
 
 class PresignedUploadPayload(BaseModel):
@@ -24,10 +30,21 @@ class PresignedUploadPayload(BaseModel):
     size: int = Field(gt=0)
 
 
-@router.post("/presigned-url", dependencies=[Depends(require_permission("product:create"))])
-async def create_presigned_upload(payload: PresignedUploadPayload, request: Request) -> dict:
+def require_upload_permission(folder: str, permissions: set[str]) -> None:
+    required_permission = UPLOAD_FOLDER_PERMISSIONS.get(folder)
+    if not required_permission or required_permission not in permissions:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền tải file cho khu vực này.")
+
+
+@router.post("/presigned-url")
+async def create_presigned_upload(
+    payload: PresignedUploadPayload,
+    request: Request,
+    permissions: set[str] = Depends(get_user_permissions),
+) -> dict:
     if payload.folder not in ALLOWED_UPLOAD_FOLDERS:
         raise HTTPException(status_code=400, detail="Invalid upload folder.")
+    require_upload_permission(payload.folder, permissions)
     allowed_types = {**ALLOWED_IMAGE_TYPES, **ALLOWED_VIDEO_TYPES}
     extension = allowed_types.get(payload.contentType)
     if not extension:
@@ -77,10 +94,16 @@ async def create_presigned_upload(payload: PresignedUploadPayload, request: Requ
     }
 
 
-@router.put("/local/{folder}/{filename}", dependencies=[Depends(require_permission("product:create"))])
-async def upload_local_file(folder: str, filename: str, request: Request) -> dict:
+@router.put("/local/{folder}/{filename}")
+async def upload_local_file(
+    folder: str,
+    filename: str,
+    request: Request,
+    permissions: set[str] = Depends(get_user_permissions),
+) -> dict:
     if folder not in ALLOWED_UPLOAD_FOLDERS:
         raise HTTPException(status_code=400, detail="Invalid upload folder.")
+    require_upload_permission(folder, permissions)
     safe_filename = Path(filename).name
     if safe_filename != filename or not re.fullmatch(r"[a-f0-9]{32}\.(jpg|png|webp|gif|mp4|webm)", safe_filename):
         raise HTTPException(status_code=400, detail="Invalid upload filename.")

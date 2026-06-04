@@ -91,8 +91,6 @@ async def list_admin_brands(
                 b.logo_url AS "logoUrl",
                 b.logo_alt_text AS "logoAltText",
                 b.landing_title AS "landingTitle",
-                b.seo_title AS "seoTitle",
-                b.seo_description AS "seoDescription",
                 b.sort_order AS "order",
                 b.is_active AS "isActive",
                 b.created_at AS "createdAt",
@@ -148,7 +146,7 @@ async def ensure_brand_code_available(session: AsyncSession, code: str, exclude_
                 SELECT id
                 FROM brands
                 WHERE lower(code) = lower(:code)
-                  AND (:exclude_id IS NULL OR id != :exclude_id)
+                  AND id != COALESCE(:exclude_id, '00000000-0000-0000-0000-000000000000'::uuid)
                 """
             ),
             {"code": code.strip(), "exclude_id": exclude_id},
@@ -166,7 +164,7 @@ async def ensure_brand_slug_available(session: AsyncSession, slug: str, exclude_
                 SELECT id
                 FROM brands
                 WHERE lower(slug) = lower(:slug)
-                  AND (:exclude_id IS NULL OR id != :exclude_id)
+                  AND id != COALESCE(:exclude_id, '00000000-0000-0000-0000-000000000000'::uuid)
                 """
             ),
             {"slug": slug.strip(), "exclude_id": exclude_id},
@@ -221,17 +219,22 @@ async def upsert_brand_redirect(session: AsyncSession, brand_id: UUID, old_slug:
 
 @router.post("/brands/check-code", dependencies=[Depends(require_permission("brand:read"))])
 async def check_brand_code(payload: BrandCodeCheckPayload, session: AsyncSession = Depends(get_session)) -> dict:
+    params: dict = {"code": payload.code.strip()}
+    exclude_clause = ""
+    if payload.excludeId is not None:
+        exclude_clause = "AND id != :exclude_id"
+        params["exclude_id"] = payload.excludeId
     row = (
         await session.execute(
             text(
-                """
+                f"""
                 SELECT 1
                 FROM brands
                 WHERE lower(code) = lower(:code)
-                  AND (:exclude_id IS NULL OR id != :exclude_id)
+                  {exclude_clause}
                 """
             ),
-            {"code": payload.code.strip(), "exclude_id": payload.excludeId},
+            params,
         )
     ).first()
     return {"available": row is None}
@@ -253,10 +256,10 @@ async def create_brand(
         text(
             """
             INSERT INTO brands (
-                id, code, slug, name, logo_url, logo_alt_text, landing_title, seo_title, seo_description, sort_order, is_active
+                id, code, slug, name, logo_url, logo_alt_text, landing_title, sort_order, is_active
             )
             VALUES (
-                :id, :code, :slug, :name, :logo_url, :logo_alt_text, :landing_title, :seo_title, :seo_description, :sort_order, :is_active
+                :id, :code, :slug, :name, :logo_url, :logo_alt_text, :landing_title, :sort_order, :is_active
             )
             """
         ),
@@ -268,8 +271,6 @@ async def create_brand(
             "logo_url": payload.logoUrl,
             "logo_alt_text": payload.logoAltText,
             "landing_title": payload.landingTitle,
-            "seo_title": payload.seoTitle,
-            "seo_description": payload.seoDescription,
             "sort_order": payload.order,
             "is_active": payload.isActive,
         },
@@ -303,7 +304,7 @@ async def update_brand(
             """
             UPDATE brands
                 SET code = :code, slug = :slug, name = :name, logo_url = :logo_url, logo_alt_text = :logo_alt_text,
-                landing_title = :landing_title, seo_title = :seo_title, seo_description = :seo_description,
+                landing_title = :landing_title,
                 sort_order = :sort_order, is_active = :is_active, updated_at = NOW()
             WHERE id = :id
             """
@@ -316,8 +317,6 @@ async def update_brand(
             "logo_url": payload.logoUrl,
             "logo_alt_text": payload.logoAltText,
             "landing_title": payload.landingTitle,
-            "seo_title": payload.seoTitle,
-            "seo_description": payload.seoDescription,
             "sort_order": payload.order,
             "is_active": payload.isActive,
         },

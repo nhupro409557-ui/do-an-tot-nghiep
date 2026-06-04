@@ -1,8 +1,8 @@
+import unicodedata
 from uuid import UUID
-
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
 
 def persisted_sales_config(sales_config: dict) -> dict:
     normalized_accessory_offers: list[dict] = []
@@ -36,8 +36,6 @@ def persisted_sales_config(sales_config: dict) -> dict:
         "attachedServices": normalized_attached_services,
         "minimumStock": max(0, int(sales_config.get("minimumStock") or 0)),
         "blockSaleWhenOutOfStock": bool(sales_config.get("blockSaleWhenOutOfStock", True)),
-        "preferredLocationCode": sales_config.get("preferredLocationCode", "") or "",
-        "preferredLocationName": sales_config.get("preferredLocationName", "") or "",
         "cycleCountDays": int(sales_config.get("cycleCountDays") or 30),
     }
 
@@ -83,3 +81,104 @@ async def sync_parent_price_from_variants(session: AsyncSession, product_id: UUI
                 "is_price_out_of_stock": row["min_in_stock_price"] is None,
             },
         )
+
+
+async def sync_parent_price_if_variants_exist(session: AsyncSession, product_id: UUID) -> None:
+    has_variants = await session.scalar(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM product_variants
+                WHERE product_id = :product_id
+                  AND is_active = TRUE
+                  AND deleted_at IS NULL
+            )
+            """
+        ),
+        {"product_id": product_id},
+    )
+    if has_variants:
+        await sync_parent_price_from_variants(session, product_id)
+
+
+def normalized_option_key(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "").strip().lower())
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
+
+
+def normalize_product_options(options: list[dict]) -> list[dict]:
+    normalized: list[dict] = []
+    seen_names: set[str] = set()
+    for option in options or []:
+        name = str(option.get("name") or "").strip()
+        values = [str(value).strip() for value in option.get("values") or [] if str(value).strip()]
+        if not name and not values:
+            continue
+        if not name or not values:
+            raise HTTPException(status_code=400, detail="Mỗi thuộc tính sản phẩm phải có tên và ít nhất một giá trị.")
+        name_key = name.lower()
+        if name_key in seen_names:
+            raise HTTPException(status_code=400, detail=f"Thuộc tính '{name}' bị trùng.")
+        seen_names.add(name_key)
+        deduped_values = list(dict.fromkeys(values))
+        normalized.append({"name": name, "values": deduped_values})
+    return normalized
+
+
+def extract_product_metadata(specifications: dict) -> tuple[dict, dict, dict]:
+    clean_specs = {}
+    seo_metadata = {}
+    sales_config = {}
+    for k, v in (specifications or {}).items():
+        if k.startswith("_seo") or k.lower().startswith("seo"):
+            seo_key = k[4:] if k.startswith("_seo") else k
+            if seo_key:
+                seo_key = seo_key[0].lower() + seo_key[1:]
+            seo_metadata[seo_key] = v
+        elif k in {"_accessoryOffers", "accessoryOffers"}:
+            sales_config["accessoryOffers"] = v
+        elif k in {"_attachedServices", "attachedServices"}:
+            sales_config["attachedServices"] = v
+        elif k in {"_warrantyPolicy", "warrantyPolicy"}:
+            sales_config["warrantyPolicy"] = v
+        elif k in {"_variantSpecKeys", "variantSpecKeys"}:
+            sales_config["variantSpecKeys"] = v
+            clean_specs[k] = v
+        elif k.startswith("_sales") or k.lower().startswith("sales") or k in {"minimumStock", "blockSaleWhenOutOfStock", "cycleCountDays"}:
+            sales_config[k.lstrip("_")] = v
+        else:
+            clean_specs[k] = v
+    return clean_specs, seo_metadata, sales_config
+
+
+def validate_optimized_media(payload: "ProductPayload") -> None:
+    if len(payload.images) > 20:
+        raise HTTPException(status_code=400, detail="Không thể tải lên quá 20 ảnh.")
+    for img in payload.images:
+        if img and not (img.startswith("http") or img.startswith("/images/") or img.startswith("data:")):
+            raise HTTPException(status_code=400, detail=f"Định dạng URL ảnh không hợp lệ: {img}")
+
+
+async def resolve_catalog_labels(session: AsyncSession, payload: "ProductPayload") -> tuple[str, str]:
+    category = payload.category or "ACCESSORY"
+    brand = payload.brand or "Khac"
+    if payload.categoryId:
+        category_row = (
+            await session.execute(
+                text("SELECT name FROM categories WHERE id = :id"),
+                {"id": payload.categoryId}
+            )
+        ).mappings().first()
+        if category_row:
+            category = category_row["name"]
+    if payload.brandId:
+        brand_row = (
+            await session.execute(
+                text("SELECT name FROM brands WHERE id = :id"),
+                {"id": payload.brandId}
+            )
+        ).mappings().first()
+        if brand_row:
+            brand = brand_row["name"]
+    return category, brand

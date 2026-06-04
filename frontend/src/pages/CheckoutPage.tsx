@@ -22,19 +22,6 @@ export default function CheckoutPage() {
   });
   const [shippingError, setShippingError] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'vnpay' | 'momo'>('cash');
-
-  if (items.length === 0) {
-    return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center px-4 py-20">
-        <p className="mb-2 text-2xl font-bold text-gray-800 font-display">Giỏ hàng trống</p>
-        <p className="mb-8 text-sm text-gray-500">Hãy thêm sản phẩm vào giỏ hàng trước khi thanh toán.</p>
-        <button onClick={() => navigate('/')} className="w-full max-w-sm rounded-xl bg-[#d70018] px-8 py-3.5 text-center font-bold text-white shadow-md transition-colors hover:bg-[#c00015]">
-          Quay lại mua sắm
-        </button>
-      </div>
-    );
-  }
-
   const finalPrice = Math.max(0, totalPrice - discount + shippingFee);
 
   useEffect(() => {
@@ -59,6 +46,18 @@ export default function CheckoutPage() {
     }, 300);
     return () => window.clearTimeout(timer);
   }, [shippingDetails.address, totalPrice, items]);
+
+  if (items.length === 0) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center px-4 py-20">
+        <p className="mb-2 text-2xl font-bold text-gray-800 font-display">Giỏ hàng trống</p>
+        <p className="mb-8 text-sm text-gray-500">Hãy thêm sản phẩm vào giỏ hàng trước khi thanh toán.</p>
+        <button onClick={() => navigate('/')} className="w-full max-w-sm rounded-xl bg-[#d70018] px-8 py-3.5 text-center font-bold text-white shadow-md transition-colors hover:bg-[#c00015]">
+          Quay lại mua sắm
+        </button>
+      </div>
+    );
+  }
 
   const applyVoucher = async () => {
     if (!voucherCode) return;

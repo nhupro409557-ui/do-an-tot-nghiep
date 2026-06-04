@@ -42,7 +42,7 @@ export default function AdminOverviewTab({
 }: AdminOverviewTabProps) {
 
   // Minimalist clean tooltips for charts
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const renderTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
         <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm text-xs">
@@ -56,7 +56,7 @@ export default function AdminOverviewTab({
     return null;
   };
 
-  const CustomBarTooltip = ({ active, payload, label }: any) => {
+  const renderBarTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
         <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm text-xs">
@@ -269,7 +269,7 @@ export default function AdminOverviewTab({
                   tickLine={false} 
                   axisLine={false} 
                 />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={renderTooltip} />
                 <Area type="monotone" dataKey="total" stroke="#4f46e5" strokeWidth={2} fill="url(#adminRevenueLight)" />
               </AreaChart>
             </ResponsiveContainer>
@@ -297,7 +297,7 @@ export default function AdminOverviewTab({
                   tickLine={false} 
                   axisLine={false} 
                 />
-                <Tooltip content={<CustomBarTooltip />} />
+                <Tooltip content={renderBarTooltip} />
                 <Bar dataKey="total" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={28} />
               </BarChart>
             </ResponsiveContainer>

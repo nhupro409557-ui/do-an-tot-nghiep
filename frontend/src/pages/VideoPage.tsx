@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Clock, Heart, Play, Search, Share2, Video } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Eye, Heart, Search, Share2, Video } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiDb } from '../services/apiDb';
 import ReelsModal from '../components/video/ReelsModal';
 
-type SortMode = 'newest' | 'liked' | 'title';
+type SortMode = 'newest' | 'views' | 'likes' | 'liked' | 'title';
 
 const topicTabs = ['Tất cả', 'Liên quan sản phẩm', 'Tin tức', 'Mẹo hay', 'Dịch vụ', 'Đánh giá / trải nghiệm', 'Khác'];
 const videoCategoryLabels: Record<string, string> = {
@@ -58,6 +58,15 @@ function formatDuration(seconds?: number) {
 function demoLikeCount(video: any, index: number) {
   if (typeof video.likeCount === 'number') return video.likeCount.toLocaleString('vi-VN');
   return '0';
+}
+
+function numericCount(value: unknown) {
+  const count = Number(value || 0);
+  return Number.isFinite(count) ? count : 0;
+}
+
+function formatCount(value: unknown) {
+  return numericCount(value).toLocaleString('vi-VN');
 }
 
 function findRelatedProduct(video: any, products: any[]) {
@@ -236,8 +245,9 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
             </div>
           </div>
 
-          <div className="-mt-0.5 flex gap-3 text-[11px] font-medium text-gray-400">
+          <div className="-mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-medium text-gray-400">
             <span>{video.commentCount} bình luận</span>
+            <span className="inline-flex items-center gap-1"><Eye className="h-3 w-3" />{formatCount(video.viewCount)} lượt xem</span>
             <span>{demoLikeCount(video, index)} lượt thích</span>
           </div>
 
@@ -262,7 +272,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
       </div>
 
       <span className="sr-only">
-        {video.title}. {inferCategory(video)}. {durationLabel}. {video.commentCount} bình luận. {demoLikeCount(video, index)} lượt thích.
+        {video.title}. {inferCategory(video)}. {durationLabel}. {video.commentCount} bình luận. {formatCount(video.viewCount)} lượt xem. {demoLikeCount(video, index)} lượt thích.
       </span>
     </article>
   );
@@ -362,6 +372,8 @@ export default function VideoPage() {
       .filter((video) => activeTab === 'Tất cả' || inferCategory(video) === activeTab)
       .filter((video) => !keyword || [video.title, video.description, inferCategory(video)].filter(Boolean).join(' ').toLowerCase().includes(keyword))
       .sort((a, b) => {
+        if (sort === 'views') return numericCount(b.viewCount) - numericCount(a.viewCount);
+        if (sort === 'likes') return numericCount(b.likeCount) - numericCount(a.likeCount);
         if (sort === 'liked') return Number(likedIds.has(b.id)) - Number(likedIds.has(a.id));
         if (sort === 'title') return String(a.title || '').localeCompare(String(b.title || ''), 'vi');
         return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
@@ -495,6 +507,8 @@ export default function VideoPage() {
               </label>
               <select value={sort} onChange={(event) => setSort(event.target.value as SortMode)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-primary">
                 <option value="newest">Mới nhất</option>
+                <option value="views">Xem nhiều</option>
+                <option value="likes">Thích nhiều</option>
                 <option value="liked">Đã thích</option>
                 <option value="title">Tên A-Z</option>
               </select>

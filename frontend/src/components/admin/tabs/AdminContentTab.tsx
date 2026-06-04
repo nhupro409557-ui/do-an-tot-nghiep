@@ -8,7 +8,6 @@ type AdminContentTabProps = Record<string, any>;
 export default function AdminContentTab(props: AdminContentTabProps) {
   const {
     activeVideoCommentsItem,
-    apiDb,
     brands,
     canDeleteContent,
     canCreateContent,
@@ -21,6 +20,7 @@ export default function AdminContentTab(props: AdminContentTabProps) {
     contentSaving,
     contentStatusFilter,
     contentTypeFilter,
+    deleteContentVideo,
     editContent,
     editingContentId,
     filteredContentItems,
@@ -66,7 +66,7 @@ export default function AdminContentTab(props: AdminContentTabProps) {
       )}
       {(canCreateContent || canUpdateContent) && <CollapsibleSection
         title={editingContentId ? 'Đang chỉnh sửa nội dung' : 'Thêm video, banner hoặc trang marketing'}
-        description="Quản trị nội dung tập trung cho video, banner và bài marketing. Có thể gắn sản phẩm, danh mục, hẹn lịch đăng và nhập sẵn bình luận mẫu để kiểm duyệt."
+        description="Quản trị nội dung tập trung cho video, banner và bài marketing. Có thể gán sản phẩm, danh mục, hẹn lịch đăng và nhập sẵn bình luận mẫu để kiểm duyệt."
         defaultOpen={false}
         forceOpen={Boolean(editingContentId)}
         forceOpenKey={editingContentId}
@@ -82,6 +82,7 @@ export default function AdminContentTab(props: AdminContentTabProps) {
           <Input label="Tiêu đề" value={contentForm.title} required onChange={(value) => setContentForm({ ...contentForm, title: value })} />
           <Select label="Nguồn video" value={contentForm.videoSource} onChange={(value) => setContentForm({ ...contentForm, videoSource: value, videoUrl: '' })} options={videoSourceOptions} />
           <Select label="Nhóm nội dung" value={contentForm.videoCategory} onChange={(value) => setContentForm({ ...contentForm, videoCategory: value })} options={videoCategoryOptions} />
+          <Select label="Trạng thái" value={contentForm.status} onChange={(value) => setContentForm({ ...contentForm, status: value })} options={contentStatusOptions} />
           <Input label="Thứ tự hiển thị" type="number" value={contentForm.sortOrder} onChange={(value) => setContentForm({ ...contentForm, sortOrder: Number(value || 0) })} />
           <Checkbox label="Đang hiển thị" checked={contentForm.isActive} onChange={(checked) => setContentForm({ ...contentForm, isActive: checked })} />
           <div className="md:col-span-4">
@@ -146,7 +147,7 @@ export default function AdminContentTab(props: AdminContentTabProps) {
                   <div className="flex h-14 w-20 items-center justify-center rounded-md border border-dashed border-slate-200 text-[10px] font-bold text-slate-400">NO MEDIA</div>
                 )}
                 {item.videoUrl && (
-                  <a href={item.videoUrl} target="_blank" rel="noreferrer" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700" title="Mở video">
+                  <a href={item.videoUrl} target="_blank" rel="noreferrer" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700" title="M? video">
                     <Eye className="h-4 w-4" />
                   </a>
                 )}
@@ -157,8 +158,8 @@ export default function AdminContentTab(props: AdminContentTabProps) {
               <div className="mt-1 text-xs text-slate-500">{item.videoSource === 'YOUTUBE' ? 'YouTube' : 'Upload'}</div>
             </td>
             <td className="px-4 py-3 text-xs text-slate-600">
-              <div>{Array.isArray(item.products) && item.products.length ? `${item.products.length} sản phẩm` : 'Chưa gắn sản phẩm'}</div>
-              <div>{Array.isArray(item.categories) && item.categories.length ? `${item.categories.length} danh mục` : 'Chưa gắn danh mục'}</div>
+              <div>{Array.isArray(item.products) && item.products.length ? `${item.products.length} sản phẩm` : 'Chưa gán sản phẩm'}</div>
+              <div>{Array.isArray(item.categories) && item.categories.length ? `${item.categories.length} danh mục` : 'Chưa gán danh mục'}</div>
             </td>
             <td className="px-4 py-3 text-xs text-slate-600">
               <div>Thứ tự: {item.sortOrder || 0}</div>
@@ -190,11 +191,11 @@ export default function AdminContentTab(props: AdminContentTabProps) {
                   </button>
                 )}
                 {canDeleteContent && (
-                  <button type="button" onClick={() => void confirmDelete(item.title, () => apiDb.adminDeleteVideo(item.id))} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700">
+                  <button type="button" onClick={() => void confirmDelete(item.title, () => deleteContentVideo(item.id))} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 )}
-                {!canUpdateContent && !canDeleteContent && <span className="text-xs text-slate-400">Chỉ xem</span>}
+                {!canUpdateContent && !canDeleteContent && <span className="text-xs text-slate-400">Ch? xem</span>}
               </div>
             </td>
           </tr>

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, Flame } from 'lucide-react';
+import { ChevronRight, Flame, ShieldCheck, Truck, Zap } from 'lucide-react';
 import { CatalogGroup } from '../../data/categories';
 import { useCatalog } from '../../hooks/useCatalog';
 
@@ -174,33 +174,58 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
     <div
       onMouseLeave={() => setActiveId(null)}
       className={`relative flex overflow-visible text-slate-900 ${
-        compact ? 'w-[274px]' : 'w-full'
+        compact ? 'h-full w-[274px]' : 'w-full'
       }`}
     >
-      <nav className="max-h-[min(640px,calc(100vh-96px))] w-[274px] shrink-0 overflow-y-auto rounded-xl border border-slate-100 bg-white py-2 shadow-xl">
-        {categories.map((category) => {
-          const Icon = category.icon;
-          const isActive = activeCategory?.id === category.id;
+      <nav className={`${compact ? 'h-full' : 'max-h-[min(640px,calc(100vh-96px))]'} flex w-[274px] shrink-0 flex-col overflow-hidden rounded-xl border border-slate-100 bg-white py-2 shadow-xl`}>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {categories.map((category) => {
+            const Icon = category.icon;
+            const isActive = activeCategory?.id === category.id;
 
-          return (
-            <Link
-              key={category.id}
-              to={`/products/${category.slug}`}
-              onMouseEnter={() => setActiveId(category.id)}
-              onFocus={() => setActiveId(category.id)}
-              onClick={onNavigate}
-              className={`flex h-11 items-center justify-between px-5 text-[15px] font-semibold transition ${
-                isActive ? 'bg-red-50 text-primary' : 'text-slate-800 hover:bg-slate-50 hover:text-primary'
-              }`}
-            >
-              <span className="flex min-w-0 items-center gap-4">
-                <Icon className="h-5 w-5 shrink-0 text-primary" />
-                <span className="truncate">{category.name}</span>
-              </span>
-              <ChevronRight className={`h-5 w-5 shrink-0 ${isActive ? 'text-primary' : 'text-slate-400'}`} />
-            </Link>
-          );
-        })}
+            return (
+              <Link
+                key={category.id}
+                to={`/products/${category.slug}`}
+                onMouseEnter={() => setActiveId(category.id)}
+                onFocus={() => setActiveId(category.id)}
+                onClick={onNavigate}
+                className={`flex h-11 items-center justify-between px-5 text-[15px] font-semibold transition ${
+                  isActive ? 'bg-red-50 text-primary' : 'text-slate-800 hover:bg-slate-50 hover:text-primary'
+                }`}
+              >
+                <span className="flex min-w-0 items-center gap-4">
+                  <Icon className="h-5 w-5 shrink-0 text-primary" />
+                  <span className="truncate">{category.name}</span>
+                </span>
+                <ChevronRight className={`h-5 w-5 shrink-0 ${isActive ? 'text-primary' : 'text-slate-400'}`} />
+              </Link>
+            );
+          })}
+        </div>
+
+        {compact && (
+          <div className="mx-3 mt-2 grid gap-2 border-t border-slate-100 pt-3">
+            {[
+              { icon: Zap, title: 'Flash sale', text: 'Giá tốt hôm nay', href: '/search?flash_sale=true' },
+              { icon: Truck, title: 'Giao nhanh', text: 'Nội thành 2 giờ', href: '/delivery-policy' },
+              { icon: ShieldCheck, title: 'Bảo hành', text: 'Chính hãng rõ ràng', href: '/warranty' },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link key={item.title} to={item.href} className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 transition hover:bg-red-50">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-primary shadow-sm">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold text-slate-800">{item.title}</span>
+                    <span className="block truncate text-xs font-medium text-slate-500">{item.text}</span>
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </nav>
 
       {activeCategory && (

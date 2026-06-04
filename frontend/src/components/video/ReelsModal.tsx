@@ -83,6 +83,21 @@ function youtubePlayerUrl(video: any, active: boolean, muted: boolean) {
 }
 
 export default function ReelsModal({ isOpen, playlist, initialIndex = 0, onClose, likedIds, onToggleLike }: ReelsModalProps) {
+  if (!isOpen || playlist.length === 0) return null;
+  const modalKey = `${initialIndex}-${playlist.map((item) => item.id).join('|')}`;
+  return (
+    <ReelsModalContent
+      key={modalKey}
+      playlist={playlist}
+      initialIndex={initialIndex}
+      onClose={onClose}
+      likedIds={likedIds}
+      onToggleLike={onToggleLike}
+    />
+  );
+}
+
+function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onToggleLike }: Omit<ReelsModalProps, 'isOpen'>) {
   const [muted, setMuted] = useState(initialMutedPreference);
   const [paused, setPaused] = useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -118,18 +133,7 @@ export default function ReelsModal({ isOpen, playlist, initialIndex = 0, onClose
   }
 
   useEffect(() => {
-    if (!isOpen) return;
-    setPaused(false);
-    setShowComments(false);
-    setCopied(false);
-    setActiveIdx(initialIndex);
-    setCommentText('');
-    setReplyTarget(null);
-    setProgress(0);
-  }, [isOpen, initialIndex]);
-
-  useEffect(() => {
-    if (!isOpen || !currentVideo?.id) return;
+    if (!currentVideo?.id) return;
     let id = sessionStorage.getItem('video_device_id');
     if (!id) {
       id = crypto.randomUUID?.() || String(Date.now());
@@ -143,14 +147,22 @@ export default function ReelsModal({ isOpen, playlist, initialIndex = 0, onClose
       apiDb.recordVideoView(currentVideo.id, { watchedSeconds: 10, positionSeconds, visible }, id).catch(() => undefined);
     }, 10000);
     return () => window.clearInterval(timer);
-  }, [activeIdx, currentVideo?.id, isOpen, paused]);
+  }, [activeIdx, currentVideo?.id, paused]);
 
   useEffect(() => {
-    if (!isOpen || !currentVideo?.id) return;
+    if (!currentVideo?.id) return;
     const url = new URL(window.location.href);
     url.searchParams.set('watch', currentVideo.id);
     window.history.replaceState({}, '', url.toString());
-  }, [isOpen, activeIdx, currentVideo?.id]);
+  }, [activeIdx, currentVideo?.id]);
+
+  useEffect(() => {
+    return () => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('watch');
+      window.history.replaceState({}, '', url.toString());
+    };
+  }, []);
 
   const comments = useMemo(() => {
     if (!currentVideo || !Array.isArray(currentVideo.comments)) return [];
@@ -223,8 +235,6 @@ export default function ReelsModal({ isOpen, playlist, initialIndex = 0, onClose
     setCommentText('');
     setReplyTarget(null);
   }
-
-  if (!isOpen || playlist.length === 0) return null;
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 px-3 py-4 backdrop-blur-sm">

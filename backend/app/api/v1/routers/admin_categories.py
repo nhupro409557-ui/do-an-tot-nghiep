@@ -14,7 +14,12 @@ from app.api.v1.routers.admin_utils import (
     category_path_label,
     category_root_id_from_path,
     category_workflow_status,
+    ensure_not_data_url,
     slugify,
+)
+from app.api.v1.routers.admin_customers import (
+    enqueue_category_cache_refresh,
+    process_category_migration_job,
 )
 from app.infrastructure.cache import get_redis
 from app.infrastructure.database.session import AsyncSessionFactory, get_session
@@ -102,32 +107,28 @@ async def ensure_no_category_cycle(session: AsyncSession, category_id: UUID | No
 async def ensure_category_depth(session: AsyncSession, category_id: UUID | None, parent_id: UUID | None, max_depth: int = 5) -> None:
     parent_depth = 0
     if parent_id:
-        parent_depth = int(
-            await session.execute(
-                text("SELECT COALESCE(nlevel(path), 1) FROM categories WHERE id = :parent_id AND COALESCE(is_deleted, FALSE) = FALSE"),
-                {"parent_id": parent_id},
-            ).scalar()
-            or 0
+        exec_res = await session.execute(
+            text("SELECT COALESCE(nlevel(path), 1) FROM categories WHERE id = :parent_id AND COALESCE(is_deleted, FALSE) = FALSE"),
+            {"parent_id": parent_id},
         )
+        parent_depth = int(exec_res.scalar() or 0)
         if parent_depth == 0:
             raise HTTPException(status_code=422, detail="Parent category not found.")
     subtree_depth = 1
     if category_id:
-        subtree_depth = int(
-            await session.execute(
-                text(
-                    """
-                    SELECT COALESCE(MAX(nlevel(child.path) - nlevel(parent.path) + 1), 1)
-                    FROM categories parent
-                    LEFT JOIN categories child ON child.path <@ parent.path
-                    WHERE parent.id = :category_id
-                      AND COALESCE(child.is_deleted, FALSE) = FALSE
-                    """
-                ),
-                {"category_id": category_id},
-            ).scalar()
-            or 1
+        exec_res = await session.execute(
+            text(
+                """
+                SELECT COALESCE(MAX(nlevel(child.path) - nlevel(parent.path) + 1), 1)
+                FROM categories parent
+                LEFT JOIN categories child ON child.path <@ parent.path
+                WHERE parent.id = :category_id
+                  AND COALESCE(child.is_deleted, FALSE) = FALSE
+                """
+            ),
+            {"category_id": category_id},
         )
+        subtree_depth = int(exec_res.scalar() or 1)
     if parent_depth + subtree_depth > max_depth:
         raise HTTPException(status_code=422, detail=f"Category tree cannot exceed {max_depth} levels.")
 
@@ -153,7 +154,7 @@ async def ensure_spec_inheritance_safe(session: AsyncSession, category_id: UUID 
                 )
                 SELECT spec_fields
                 FROM ancestors
-                WHERE (:category_id IS NULL OR id <> :category_id)
+                WHERE (CAST(:category_id AS UUID) IS NULL OR id <> CAST(:category_id AS UUID))
                 """
             ),
             {"parent_id": parent_id, "category_id": category_id},
@@ -177,20 +178,18 @@ async def ensure_spec_inheritance_safe(session: AsyncSession, category_id: UUID 
 async def count_products_using_spec_keys(session: AsyncSession, category_id: UUID, keys: list[str]) -> int:
     if not keys:
         return 0
-    return int(
-        await session.execute(
-            text(
-                """
-                SELECT COUNT(*)
-                FROM products p
-                WHERE (p.category_id = :category_id OR p.subcategory_id = :category_id)
-                  AND p.specifications ?| CAST(:keys AS text[])
-                """
-            ),
-            {"category_id": category_id, "keys": keys},
-        ).scalar()
-        or 0
+    exec_res = await session.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM products p
+            WHERE (p.category_id = :category_id OR p.subcategory_id = :category_id)
+              AND p.specifications ?| CAST(:keys AS text[])
+            """
+        ),
+        {"category_id": category_id, "keys": keys},
     )
+    return int(exec_res.scalar() or 0)
 
 
 async def ensure_categories_not_migrating(session: AsyncSession, category_ids: list[UUID | None]) -> None:
@@ -345,9 +344,6 @@ async def fetch_visible_category_branch(session: AsyncSession, root_id: UUID) ->
                     c.icon,
                     c.icon_url AS "iconUrl",
                     c.banner_url AS "bannerUrl",
-                    c.seo_title AS "seoTitle",
-                    c.seo_description AS "seoDescription",
-                    c.seo_keywords AS "seoKeywords",
                     COALESCE(c.spec_fields, '[]'::jsonb) AS "specFields",
                     c.filter_config AS "filterConfig",
                     c.sort_order AS "order",
@@ -626,9 +622,6 @@ async def list_admin_categories(session: AsyncSession = Depends(get_session)) ->
                 c.icon,
                 c.icon_url AS "iconUrl",
                 c.banner_url AS "bannerUrl",
-                c.seo_title AS "seoTitle",
-                c.seo_description AS "seoDescription",
-                c.seo_keywords AS "seoKeywords",
                 c.spec_fields AS "ownSpecFields",
                 COALESCE(parent.spec_fields, '[]'::jsonb) || c.spec_fields AS "specFields",
                 c.filter_config AS "ownFilterConfig",
@@ -661,7 +654,7 @@ async def list_admin_categories(session: AsyncSession = Depends(get_session)) ->
 
 @router.post("/categories/check-slug", dependencies=[Depends(require_permission("category:read"))])
 async def check_category_slug(payload: CategorySlugCheckPayload, session: AsyncSession = Depends(get_session)) -> dict:
-    params = {"slug": payload.slug, "exclude_id": payload.excludeId}
+    params = {"slug": slugify(payload.slug), "exclude_id": payload.excludeId}
     row = (
         await session.execute(
             text(
@@ -670,7 +663,7 @@ async def check_category_slug(payload: CategorySlugCheckPayload, session: AsyncS
                 FROM categories
                 WHERE slug = :slug
                   AND COALESCE(is_deleted, FALSE) = FALSE
-                  AND (:exclude_id IS NULL OR id <> :exclude_id)
+                  AND (CAST(:exclude_id AS UUID) IS NULL OR id <> CAST(:exclude_id AS UUID))
                 """
             ),
             params,
@@ -690,16 +683,29 @@ async def create_category(
     actor_id: UUID = Depends(get_current_user_id),
 ) -> dict:
     category_id = uuid4()
-    slug = payload.slug or f"{slugify(payload.name)}-{category_id.hex[:5]}"
+    slug = slugify(payload.slug) if payload.slug else f"{slugify(payload.name)}-{category_id.hex[:5]}"
     code = payload.code or slug
     category_status = payload.status
     is_active = category_is_active(category_status, payload.isActive)
     filter_config = category_filter_config(payload.specFields, payload.filterConfig)
     duplicate = (
-        await session.execute(text("SELECT 1 FROM categories WHERE (slug = :slug OR code = :code) AND COALESCE(is_deleted, FALSE) = FALSE"), {"slug": slug, "code": code})
-    ).first()
+        await session.execute(
+            text(
+                """
+                SELECT slug = :slug AS slug_match, code = :code AS code_match
+                FROM categories
+                WHERE (slug = :slug OR code = :code)
+                  AND COALESCE(is_deleted, FALSE) = FALSE
+                LIMIT 1
+                """
+            ),
+            {"slug": slug, "code": code},
+        )
+    ).mappings().first()
     if duplicate:
-        raise HTTPException(status_code=409, detail="Slug hoặc mã danh mục đã tồn tại.")
+        if duplicate["slug_match"]:
+            raise HTTPException(status_code=409, detail="Slug danh mục đã tồn tại.")
+        raise HTTPException(status_code=409, detail="Mã danh mục đã tồn tại.")
     await ensure_categories_not_migrating(session, [payload.parentId])
     await ensure_category_depth(session, None, payload.parentId)
     await ensure_spec_inheritance_safe(session, None, payload.parentId, payload.specFields)
@@ -710,17 +716,17 @@ async def create_category(
             """
             INSERT INTO categories (
                 id, parent_id, code, slug, name, icon, icon_url, banner_url,
-                seo_title, seo_description, seo_keywords, spec_fields, filter_config,
+                spec_fields, filter_config,
                 inventory_policy, warranty_policy, sort_order, status, workflow_status, is_active, path
             )
             VALUES (
                 :id, :parent_id, :code, :slug, :name, :icon, :icon_url, :banner_url,
-                :seo_title, :seo_description, :seo_keywords, CAST(:spec_fields AS jsonb),
+                CAST(:spec_fields AS jsonb),
                 CAST(:filter_config AS jsonb), CAST(:inventory_policy AS jsonb), CAST(:warranty_policy AS jsonb),
                 :sort_order, :status, :workflow_status, :is_active,
                 CASE
-                    WHEN :parent_id IS NULL THEN CAST(:path_label AS ltree)
-                    ELSE (SELECT path FROM categories WHERE id = :parent_id) || CAST(:path_label AS ltree)
+                    WHEN CAST(:parent_id AS uuid) IS NULL THEN CAST(:path_label AS ltree)
+                    ELSE (SELECT path FROM categories WHERE id = CAST(:parent_id AS uuid)) || CAST(:path_label AS ltree)
                 END
             )
             """
@@ -734,9 +740,6 @@ async def create_category(
             "icon": payload.icon,
             "icon_url": payload.iconUrl,
             "banner_url": payload.bannerUrl,
-            "seo_title": payload.seoTitle,
-            "seo_description": payload.seoDescription,
-            "seo_keywords": payload.seoKeywords,
             "spec_fields": json.dumps(payload.specFields),
             "filter_config": json.dumps(filter_config),
             "inventory_policy": json.dumps(payload.inventoryPolicy),
@@ -852,7 +855,7 @@ async def update_category(
     redis: Redis = Depends(get_redis),
     actor_id: UUID = Depends(get_current_user_id),
 ) -> dict:
-    slug = payload.slug or f"{slugify(payload.name)}-{str(category_id)[:5]}"
+    slug = slugify(payload.slug) if payload.slug else f"{slugify(payload.name)}-{str(category_id)[:5]}"
     code = payload.code or slug
     category_status = payload.status
     is_active = category_is_active(category_status, payload.isActive)
@@ -912,12 +915,23 @@ async def update_category(
         )
     duplicate = (
         await session.execute(
-            text("SELECT 1 FROM categories WHERE id <> :id AND (slug = :slug OR code = :code) AND COALESCE(is_deleted, FALSE) = FALSE"),
+            text(
+                """
+                SELECT slug = :slug AS slug_match, code = :code AS code_match
+                FROM categories
+                WHERE id <> :id
+                  AND (slug = :slug OR code = :code)
+                  AND COALESCE(is_deleted, FALSE) = FALSE
+                LIMIT 1
+                """
+            ),
             {"id": category_id, "slug": slug, "code": code},
         )
-    ).first()
+    ).mappings().first()
     if duplicate:
-        raise HTTPException(status_code=409, detail="Slug hoặc mã danh mục đã tồn tại.")
+        if duplicate["slug_match"]:
+            raise HTTPException(status_code=409, detail="Slug danh mục đã tồn tại.")
+        raise HTTPException(status_code=409, detail="Mã danh mục đã tồn tại.")
     ensure_not_data_url(payload.iconUrl, "iconUrl")
     ensure_not_data_url(payload.bannerUrl, "bannerUrl")
     result = await session.execute(
@@ -931,9 +945,6 @@ async def update_category(
                 icon = :icon,
                 icon_url = :icon_url,
                 banner_url = :banner_url,
-                seo_title = :seo_title,
-                seo_description = :seo_description,
-                seo_keywords = :seo_keywords,
                 spec_fields = CAST(:spec_fields AS jsonb),
                 filter_config = CAST(:filter_config AS jsonb),
                 inventory_policy = CAST(:inventory_policy AS jsonb),
@@ -945,8 +956,8 @@ async def update_category(
                 spec_schema_version = spec_schema_version + :spec_version_delta,
                 version = version + 1,
                 path = CASE
-                    WHEN :parent_id IS NULL THEN CAST(:path_label AS ltree)
-                    ELSE (SELECT parent.path FROM categories parent WHERE parent.id = :parent_id) || CAST(:path_label AS ltree)
+                    WHEN CAST(:parent_id AS uuid) IS NULL THEN CAST(:path_label AS ltree)
+                    ELSE (SELECT parent.path FROM categories parent WHERE parent.id = CAST(:parent_id AS uuid)) || CAST(:path_label AS ltree)
                 END,
                 hidden_by_parent = CASE WHEN :is_active THEN FALSE ELSE hidden_by_parent END,
                 updated_at = NOW()
@@ -962,9 +973,6 @@ async def update_category(
             "icon": payload.icon,
             "icon_url": payload.iconUrl,
             "banner_url": payload.bannerUrl,
-            "seo_title": payload.seoTitle,
-            "seo_description": payload.seoDescription,
-            "seo_keywords": payload.seoKeywords,
             "spec_fields": json.dumps(spec_fields),
             "filter_config": json.dumps(filter_config),
             "inventory_policy": json.dumps(payload.inventoryPolicy),
@@ -1265,5 +1273,3 @@ async def category_operational_metrics(session: AsyncSession = Depends(get_sessi
         "emptyActiveCategories": int(business_metrics["empty_active_categories"] or 0),
         "averageProductsPerActiveCategory": float(business_metrics["avg_products_per_active_category"] or 0),
     }
-
-

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiDb } from '../services/apiDb';
 import {
   CatalogCategory,
@@ -33,10 +33,12 @@ type UseCatalogOptions = {
 };
 
 export function useCatalog(options: UseCatalogOptions = {}) {
+  const includeRankedFeaturedRef = useRef(Boolean(options.includeRankedFeatured));
   const [categories, setCategories] = useState<CatalogCategory[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isActive = true;
     const loadCatalog = async () => {
       setLoading(true);
       const [categoryDocs, brandDocs, productDocs] = await Promise.all([
@@ -130,10 +132,11 @@ export function useCatalog(options: UseCatalogOptions = {}) {
         });
 
       const sortedBaseCategories = baseCategories.sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+      if (!isActive) return;
       setCategories(sortedBaseCategories);
       setLoading(false);
 
-      if (!options.includeRankedFeatured) return;
+      if (!includeRankedFeaturedRef.current) return;
 
       const rankedCategories = await Promise.all(
         baseCategories.map(async (category: CatalogCategory & { order?: number }) => {
@@ -149,14 +152,19 @@ export function useCatalog(options: UseCatalogOptions = {}) {
         })
       );
 
+      if (!isActive) return;
       setCategories(rankedCategories.sort((a: any, b: any) => (a.order || 0) - (b.order || 0)));
     };
     loadCatalog().catch(error => {
+      if (!isActive) return;
       console.error(error);
       setCategories([]);
       setLoading(false);
     });
-  }, [options.includeRankedFeatured]);
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   return useMemo(() => ({
     categories,

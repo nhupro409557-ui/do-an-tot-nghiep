@@ -1,5 +1,91 @@
 # Product Management Notes
 
+## Update 2026-06-03 React Doctor safe frontend fixes
+
+- Chạy React Doctor ở chế độ tạm thời, không cài package vào project và không thêm hook/config.
+- Sửa lỗi hook/runtime không đổi giao diện trong storefront/admin:
+  - `ProductDetail.tsx`: đưa effect phím tắt media viewer lên trước nhánh return sớm, thêm cleanup cho timer thông báo thêm vào giỏ và khôi phục overflow khi unmount.
+  - `VerifyEmailPage.tsx`: cleanup timer chuyển hướng sau xác nhận email, tránh cập nhật state sau khi rời trang.
+  - `CheckoutPage.tsx`: chuyển nhánh giỏ hàng trống xuống sau hook tính phí giao hàng để giữ thứ tự hook ổn định; đồng thời phục hồi chữ tiếng Việt bị lỗi mã hóa trong file.
+  - Các tab admin khách hàng/phân quyền/dashboard: đưa các lời gọi quyền ra biến top-level hoặc hàm render thường để tránh gọi hook/component trong JSX/callback.
+- Sau sửa, `npm run lint` pass và React Doctor giảm Bugs errors từ 29 xuống 20; phần còn lại là nhóm cảnh báo lớn về state sync trong luồng catalog/data loading, cần refactor riêng để tránh thay đổi hành vi tải dữ liệu ngoài ý muốn.
+
+## Update 2026-06-03 React Doctor Bugs errors cleanup
+
+- Tiếp tục xử lý các lỗi nhóm Bugs còn lại mà không đổi layout/giao diện:
+  - `useCatalog.ts`: chốt option ranked featured ở lần mount đầu, thêm cleanup cho async load catalog.
+  - `ImagesModal.tsx` và `ReelsModal.tsx`: tách outer/inner modal để remount nội dung khi mở, thay vì reset nhiều state trong effect; thêm cleanup URL query khi đóng modal.
+  - `ProductReviews.tsx`: remount theo `productId + user`, thêm cleanup async và đưa prefill review hiện có vào callback eligibility thay vì sync form bằng effect riêng.
+  - `VietnamAddressSelector.tsx`: bỏ state `wards`, derive danh sách phường/xã từ `provinces + provinceId` bằng `useMemo`; sửa một số nhãn tiếng Việt có dấu.
+  - `ProductDetail.tsx`: chuyển reset lựa chọn sản phẩm/media sang cập nhật có điều kiện theo `product.id`/`activeVariant.id`; effect Swiper chỉ còn điều khiển slide, không set state React.
+- Verification: `npm run lint` pass; React Doctor báo Bugs còn `0 errors`, chỉ còn optional warnings.
+
+## Update 2026-06-03 revision variant specs persistence
+
+- Sửa lỗi khi chỉnh sửa sản phẩm đang bán để tạo `REVISION_DRAFT`: backend `upsert_product_variants` nay lưu `product_variants.specs` từ `var.specs` do frontend gửi lên, thay vì ghi đè bằng `attributes`. Nhờ vậy các thông số kỹ thuật được chọn làm biến thể như RAM/ROM/cấu hình giữ đúng thay đổi trong bản nháp chỉnh sửa.
+- `attributes` vẫn được dùng riêng cho hợp đồng `options` và validate lựa chọn biến thể; `specs` giữ key kỹ thuật của form admin để khi mở lại bản nháp không bị đọc nhầm về dữ liệu cũ hoặc nhãn hiển thị.
+
+## Update 2026-06-03 admin product form controlled popup close
+
+- Popup thêm/sửa sản phẩm trên admin nay có trạng thái mở/đóng riêng (`productFormOpen`) thay vì chỉ dựa vào `closeSignal`; sau khi thêm hoặc lưu thành công, popup được đóng ngay trước khi reset form để tránh hiện tượng modal vẫn mở nhưng nội dung bị nhảy về form thêm mới/trống.
+- `CollapsibleSection` hỗ trợ thêm chế độ controlled qua `open` và `onOpenChange`, trong khi vẫn giữ tương thích với các popup khác đang dùng trạng thái nội bộ và `closeSignal`.
+
+## Update 2026-06-03 admin merged revision action guard
+
+- Bản chỉnh sửa sản phẩm sau khi duyệt và merge vào sản phẩm gốc có trạng thái `MERGED`; đây là bản lịch sử/audit, không được gửi duyệt, sửa, xóa hoặc khôi phục lại.
+- Bảng quản trị sản phẩm nay chỉ hiển thị nhãn "Đã áp dụng vào sản phẩm gốc" cho dòng `MERGED`, thay vì các nút thao tác vận hành.
+- Các thao tác gửi duyệt, duyệt, khôi phục và lưu trữ trong `useAdminProductsLogic.ts` được bọc lỗi để admin nhận thông báo rõ ràng, không còn lỗi promise chưa bắt trên console.
+- Backend `PATCH /api/v1/admin/products/{id}` và `DELETE /api/v1/admin/products/{id}` từ chối cập nhật/xóa trực tiếp bản `MERGED`; backend cũng từ chối khôi phục trực tiếp sản phẩm `ARCHIVED` sang `ACTIVE`.
+- Khi tạo `REVISION_DRAFT`, `upsert_product_variants` không còn đồng bộ `products.sku` của bản revision theo SKU biến thể mặc định, tránh lỗi trùng unique SKU với sản phẩm/biến thể đang active.
+- Sau khi chỉnh sửa sản phẩm đang bán, frontend thông báo rõ là đã tạo bản chỉnh sửa cần duyệt, tự chuyển bộ lọc danh sách sang `REVISION_DRAFT` và đóng form trước khi reset để không còn cảm giác popup bị đổi sang form thêm mới.
+- Backend `extract_product_metadata` nay nhận đúng các key frontend gửi trong `specifications`: `_variantSpecKeys`, `_accessoryOffers`, `_attachedServices`, `_warrantyPolicy`, rồi lưu vào `sales_config` chuẩn. Frontend cũng fallback đọc các key cũ này từ `specifications` khi mở bản nháp chỉnh sửa đã tạo trước đó.
+- Sửa thứ tự đóng popup sản phẩm: `closeSignal` dùng layout effect và `handleProductSubmit` chờ một frame trước khi reset form, tránh modal còn mở nhưng nội dung đã nhảy sang form thêm mới.
+- Sửa lưu/mở lại ROM biến thể trong bản chỉnh sửa: frontend chuẩn hóa key biến thể từ label tiếng Việt như `Bộ nhớ trong` về key `storage`, backend validate option/attribute bằng Unicode normalized và fallback map `Bộ nhớ trong`/`ROM` vào cột `product_variants.storage`. Đã test tạo revision tạm với ROM `999GB`, DB lưu đúng `storage = 999GB`, rồi xóa revision test.
+
+## Update 2026-06-03 iPhone 17 Pro Max uses iPhone 17 Pro images
+
+- Theo y?u c?u, d?ng `iPhone 17 Pro Max` d?ng chung b? ?nh t? `iPhone 17 Pro` t?i `frontend/public/images/products/iphone-17-pro`.
+- Th?m script `backend/scripts/update_iphone_17_pro_max_images_from_pro.py` ?? c?p nh?t `products.image_url`, `products.images`, `product_variants.image_url`, `product_variants.images` cho d?ng `iPhone 17 Pro Max`.
+- ?? ch?y script tr?n DB local cho SKU ch?nh `IP17PM` v? b?n l?u tr? `REV-D3490FAAC5`.
+- C?c m?u ???c g?n t??ng ?ng: B?c d?ng `silver`, Cam V? Tr? d?ng `cosmic-orange`, Xanh S?u d?ng `deep-blue`; c?c bi?n th? Pro Max thi?u m?u ???c chuy?n v? Cam V? Tr? ?? kh?ng c?n d?ng ?nh placeholder.
+
+## Update 2026-06-03 storefront shared product video
+
+- Trang chi tiết sản phẩm nay ưu tiên hiển thị video dùng chung ở đầu gallery nếu sản phẩm có `videoUrl`, giống cách CellphoneS đặt thumbnail "Video" làm media đầu tiên.
+- Khi gallery mở bằng video, ảnh dùng cho giỏ hàng vẫn fallback sang ảnh sản phẩm hoặc ảnh biến thể đầu tiên để không lưu URL video làm ảnh sản phẩm trong cart.
+
+## Update 2026-06-03 iPhone 17 Pro image gallery
+
+- ?? copy ?nh ng??i d?ng cung c?p t? th? m?c `iphone 17 pro` v?o `frontend/public/images/products/iphone-17-pro`.
+- ?nh ???c chia theo m?u:
+  - `silver`: B?c, g?m ?nh ??i di?n v? 7 ?nh gallery.
+  - `cosmic-orange`: Cam V? Tr?, g?m ?nh ??i di?n v? 7 ?nh gallery.
+  - `deep-blue`: Xanh S?u, g?m ?nh ??i di?n v? 4 ?nh gallery.
+  - `common`: 7 ?nh d?ng chung cho trang chi ti?t s?n ph?m.
+- Th?m script `backend/scripts/update_iphone_17_pro_images.py` ?? c?p nh?t ?nh s?n ph?m v? ?nh bi?n th? cho d?ng `iPhone 17 Pro`.
+- ?? ch?y script tr?n DB local cho SKU ch?nh `IP17P` v? hai b?n l?u tr? `REV-*`; kh?ng c?p nh?t `iPhone 17` th??ng ho?c `iPhone 17 Pro Max`.
+
+## Update 2026-06-03 iPhone 17 image gallery
+
+- ?? copy ?nh ng??i d?ng cung c?p t? th? m?c `iphone 17` v?o `frontend/public/images/products/iphone-17`.
+- ?nh ???c chia theo m?u:
+  - `black`: ?en, g?m ?nh ??i di?n v? 2 ?nh gallery.
+  - `white`: Tr?ng, g?m ?nh ??i di?n.
+  - `mist-blue`: Xanh S??ng M?, g?m ?nh ??i di?n v? 1 ?nh gallery.
+  - `common`: 9 ?nh d?ng chung cho trang chi ti?t s?n ph?m.
+- Th?m script `backend/scripts/update_iphone_17_images.py` ?? c?p nh?t `products.image_url`, `products.images`, `product_variants.image_url`, `product_variants.images`.
+- ?? ch?y script tr?n DB local cho hai b?n `iPhone 17` ?ang t?n t?i: SKU ch?nh `IP17` v? b?n nh?p ch?nh s?a `IP17-BK-256GB`; kh?ng c?p nh?t c?c d?ng `iPhone 17 Pro` ho?c `iPhone 17 Pro Max`.
+
+## Update 2026-06-03 Revert image card UI
+
+- Đã trả lại giao diện thẻ ảnh sản phẩm trên `frontend/src/pages/ImagesPage.tsx` về kiểu cũ theo yêu cầu: khung ảnh gradient, nhãn nổi, khu thông tin dưới ảnh và nút mua nhỏ hiện theo hover.
+
+## Update 2026-06-03 Product image card UI
+
+- Chỉnh lại thẻ ảnh sản phẩm trên trang thư viện ảnh (`frontend/src/pages/ImagesPage.tsx`) để ảnh sản phẩm hiển thị thoáng hơn, giảm khoảng trắng xấu quanh ảnh cao/dọc.
+- Làm phần thông tin dưới ảnh gọn hơn: tên sản phẩm, giá, lượt xem/lượt thích và nút "Xem sản phẩm" hiển thị cố định thay vì ẩn khi hover.
+- Nhãn danh mục và số lượng ảnh được thu gọn để không lấn vào ảnh sản phẩm.
+
 ## Update 2026-05-22
 
 - Giu lai cac thong tin chinh cua san pham nhu cu.
@@ -265,3 +351,163 @@
 - Trang danh sách sản phẩm đổi bộ lọc Danh mục và Hãng từ danh sách nút/chip sang danh sách sổ xuống để gọn hơn khi dữ liệu nhiều.
 - Bộ lọc giá trên storefront dùng một thanh trượt khoảng giá chung và hai ô nhập thủ công cho giá tối thiểu/tối đa đến 100 triệu; giá tùy chỉnh tiếp tục ghi vào query `min_price`/`max_price` để dùng chung luồng lọc catalog hiện có.
 - Thẻ sản phẩm storefront bỏ nút So sánh dạng overlay chỉ hiện khi rê chuột trên desktop; nút So sánh nay hiển thị cố định trong chân thẻ để người dùng dễ chọn hơn.
+
+## Update 2026-06-03 smartphone product specifications update
+
+- Thực hiện cập nhật đầy đủ thông số kỹ thuật (specifications) cho toàn bộ sản phẩm thuộc danh mục điện thoại (smartphones).
+- Cập nhật trực tiếp file SQL seed `backend/migrations/init_database.sql` cho 5 mẫu điện thoại flagship: iPhone 16 Pro Max (`IP16PM`), Samsung Galaxy S24 Ultra (`S24U`), Samsung Galaxy Z Fold6 (`ZFOLD6`), Xiaomi 14 Ultra (`X14U`), và OPPO Find N3 (`OPPFN3`) với đầy đủ 42 trường specifications theo chuẩn của danh mục.
+- Chạy script Python `update_smartphone_specs.py` để bổ sung và chuẩn hóa dữ liệu thực tế bằng tiếng Việt có dấu cho các trường còn thiếu (bao gồm `brightness`, `video_recording`, `connectivity`...) cho toàn bộ 38 sản phẩm điện thoại đang tồn tại trong cơ sở dữ liệu.
+- Đảm bảo 100% trường specifications được điền giá trị chuẩn và hiển thị đồng bộ trên storefront.
+## Update 2026-06-03 flash sale management
+
+- Thêm migration `051_flash_sales.sql` tạo bảng `flash_sales` tách riêng khỏi bảng `products`.
+- Admin có module riêng:
+  - Backend: `backend/app/api/v1/routers/admin_flash_sales.py`.
+  - Frontend hook: `frontend/src/components/admin/hooks/useAdminFlashSalesLogic.ts`.
+  - Frontend tab: `frontend/src/components/admin/tabs/AdminFlashSalesTab.tsx`.
+- File chính chỉ đăng ký router/tab/API để giữ đúng nguyên tắc không nhồi logic flash sale vào module quản lý sản phẩm.
+- Flash sale hỗ trợ chọn sản phẩm, giảm theo phần trăm hoặc số tiền, thời gian bắt đầu, thời gian kết thúc hoặc không có thời hạn, thêm, sửa, xóa và bật/tắt trạng thái.
+- Backend kiểm tra giá flash sale phải lớn hơn 0 và nhỏ hơn giá bán hiện tại của sản phẩm trước khi lưu.
+- Catalog API tính giá flash sale động khi sale đang hiệu lực, không ghi đè `products.price` hoặc `products.sale_price`.
+- Storefront product card và trang chi tiết sản phẩm ưu tiên hiển thị giá flash sale, giá gốc bị gạch và nhãn/bảng thông báo flash sale đang diễn ra.
+## Update 2026-06-03 storefront product detail real metrics
+
+- Trang chi tiết sản phẩm không còn dùng số liệu ảo cho đánh giá và đã bán:
+  - Không fallback rating về `4.8`.
+  - Không fallback đã bán về `128`.
+  - Khi chưa có dữ liệu, rating hiển thị "Chưa có đánh giá", số đánh giá và đã bán hiển thị `0`.
+- Frontend không còn thay ảnh sản phẩm theo bảng ảnh demo trong `apiDb.ts`; ảnh sản phẩm lấy từ dữ liệu backend/database và chỉ được chuẩn hóa URL.
+- API chi tiết sản phẩm tính `rating`, `reviewCount`, `favoriteCount` trực tiếp từ `product_reviews` và `user_favorites`; `soldCount` tiếp tục tính từ `order_items` của đơn `COMPLETED`.
+
+## Update 2026-06-03 storefront product detail variant configuration
+
+- Trang chi tiết sản phẩm đổi khu chọn "Phiên bản" thành "Cấu hình" để người mua biết rõ biến thể đang chọn theo thông số nào.
+- Frontend dựng nhãn cấu hình từ dữ liệu biến thể thật, ưu tiên `ram`, `storage`/ROM và `configuration`; ví dụ `RAM 8GB / ROM 256GB`.
+- Mỗi nút cấu hình hiển thị thêm chip thông số nhỏ như `RAM: 8GB`, `ROM: 256GB` và giá của biến thể tương ứng, ưu tiên đúng màu đang chọn nếu sản phẩm có nhiều màu.
+- Catalog API chi tiết sản phẩm trả thêm `options` để storefront có đủ dữ liệu cấu hình biến thể từ database.
+
+## Update 2026-06-03 storefront color-scoped variant configuration
+
+- Khu chọn cấu hình trên trang chi tiết sản phẩm nay lọc theo màu đang chọn: nếu màu đó có 3 biến thể thì chỉ hiển thị 3 lựa chọn cấu hình của màu đó.
+- Nhãn cấu hình được rút gọn để tránh lặp `ROM 512GB / Cấu hình 512GB`; khi chỉ có bộ nhớ thì hiển thị `512GB`, khi có RAM và ROM thì hiển thị dạng `8GB / 512GB`.
+- Khi đổi màu, nếu cấu hình đang chọn không tồn tại ở màu mới, storefront tự chuyển sang cấu hình đầu tiên có sẵn của màu đó để giá và biến thể active luôn khớp dữ liệu thật.
+
+## Update 2026-06-03 storefront split RAM ROM selection
+
+- Trang chi tiết sản phẩm không còn chỉ chọn cấu hình gộp; storefront tách nhóm chọn theo từng thông số biến thể riêng như `RAM`, `ROM` và cấu hình phụ nếu có.
+- Danh sách RAM/ROM được dựng từ các biến thể thật của màu đang chọn; nếu màu đó chỉ có một biến thể thì vẫn hiển thị cấu hình duy nhất để người mua biết rõ đang chọn gì.
+- Giá bán lấy từ biến thể khớp với màu + RAM + ROM đang chọn. Khi đổi RAM, hệ thống giữ ROM hiện tại nếu còn hợp lệ; nếu không, tự chọn ROM đầu tiên có trong RAM mới.
+- Nút chọn màu không hiển thị giá riêng nữa để tránh hiểu nhầm màu có giá cố định; giá chỉ hiện ở khu giá chính và các lựa chọn cấu hình có ảnh hưởng trực tiếp tới biến thể.
+- Thông số kỹ thuật trên trang chi tiết nay merge thông số của biến thể đang chọn vào thông số sản phẩm trước khi hiển thị, nên RAM/ROM và các specs biến thể tự đổi theo cấu hình active thay vì hiện giá trị tổng hợp như `256 GB / 512 GB`.
+- Tên sản phẩm trên H1 của trang chi tiết gộp luôn cấu hình dạng `Tên sản phẩm - RAM / ROM`, ví dụ `HONOR 400 Pro - 12GB / 512GB`. Nếu biến thể thiếu RAM hoặc ROM riêng, storefront fallback sang thông số chung của sản phẩm để người mua vẫn thấy cấu hình đầy đủ.
+
+## Update 2026-06-03 storefront specs modal overflow fix
+
+- Sửa popup "Thông số kỹ thuật" trên trang chi tiết sản phẩm để thanh chọn nhóm thông số không bị che hoặc cắt bởi vùng nội dung.
+- Header và thanh chọn nhóm được giữ ở vùng riêng, phần bảng thông số chỉ cuộn dọc và không tạo cuộn ngang cho toàn modal.
+- Nội dung label/value trong bảng thông số tự xuống dòng để tránh kéo rộng modal khi thông số dài.
+- Thanh chọn nhóm thông số trong popup nay là điều hướng cuộn tới nhóm tương ứng, không còn lọc ẩn các nhóm thông số khác.
+- Khi bấm nhóm thông số, modal chừa khoảng đệm phía trên section đích để tiêu đề và dòng đầu không bị thanh chọn nhóm che mất; scrollbar ngang của thanh nhóm cũng được ẩn để giao diện sạch hơn.
+- Mô tả sản phẩm trên trang chi tiết được làm sạch HTML trước khi hiển thị, tránh lỗi các thẻ như `<p>` xuất hiện trong "Đặc điểm nổi bật" và "Thông tin chi tiết".
+- Breadcrumb trang chi tiết sản phẩm hiển thị theo thứ tự `Trang chủ > Danh mục cha > Danh mục con nếu có > Thương hiệu > Tên sản phẩm`; Catalog API trả thêm `subcategory` để frontend có tên danh mục con.
+
+## Update 2026-06-03 HONOR Magic V5 variant RAM correction
+
+- Sửa lỗi các biến thể (variants) của `HONOR Magic V5` (`HN-MGV5`) bị thiếu trường `ram` (giá trị bằng `NULL`/`None`), dẫn đến việc hiển thị không đúng/không đầy đủ tùy chọn RAM bên cạnh tùy chọn ROM/dung lượng trên trang chi tiết sản phẩm.
+- Cập nhật trực tiếp cột `options` trong bảng `products` của `HN-MGV5` để thiết lập đúng hợp đồng options (Màu sắc, Dung lượng, RAM).
+- Chạy script Python `update_magic_v5_variants.py` cập nhật trực tiếp cho toàn bộ 8 biến thể của dòng máy này:
+  - Thiết lập cột `ram = '12GB'`, `specs` = `{"storage": "512GB", "ram": "12GB"}` và `attributes` tương ứng cho các biến thể 512GB.
+  - Thiết lập cột `ram = '16GB'`, `specs` = `{"storage": "1TB", "ram": "16GB"}` và `attributes` tương ứng cho các biến thể 1TB.
+- Giúp storefront hiển thị chuẩn xác các tùy chọn RAM/ROM tách biệt (như `12GB / 512GB` và `16GB / 1TB`) cho người dùng khi chọn cấu hình sản phẩm.
+
+## Update 2026-06-03 HONOR Magic V5 color deletion
+
+- Thực hiện xóa 2 màu sắc cấu hình "Nâu Lụa" và "Đen Titanium" khỏi dòng máy `HONOR Magic V5` (`HN-MGV5`) theo yêu cầu.
+
+## Update 2026-06-03 HONOR Magic V5 image gallery
+
+- Đã copy ảnh người dùng cung cấp từ thư mục `HONOR Magic V5` vào `frontend/public/images/products/honor-magic-v5`.
+- Ảnh được chia theo màu:
+  - `white`: Trắng Ngà, gồm ảnh đại diện và 11 ảnh gallery.
+  - `gold`: Vàng Bình Minh, gồm ảnh đại diện và 13 ảnh gallery.
+  - `common`: 5 ảnh dùng chung.
+- Thêm script `backend/scripts/update_magic_v5_images.py` để cập nhật `products.image_url`, `products.images`, `product_variants.image_url`, `product_variants.images` cho SKU `HN-MGV5`.
+- Đã chạy script trên DB local: 2 biến thể Trắng Ngà và 2 biến thể Vàng Bình Minh đã trỏ tới đúng ảnh theo màu; product dùng ảnh đại diện Trắng Ngà và gallery chung.
+- Quy ước ảnh HONOR Magic V5: file có chữ "ảnh đại diện" được dùng cho `image_url`; các file còn lại trong thư mục màu là gallery của biến thể đó và được lưu vào `product_variants.images`. Vì vậy `product_variants.images` không chứa lại ảnh đại diện.
+- Trang chi tiết sản phẩm nay dựng gallery theo biến thể đang chọn trước, sau đó mới nối ảnh chung của sản phẩm. Khi người dùng đổi màu/cấu hình, ảnh chính tự nhảy về ảnh đầu của biến thể active và không còn gom ảnh của các màu khác vào đầu gallery.
+- Sửa form admin sản phẩm: khi mở chỉnh sửa, hook `useAdminProductsLogic.ts` nay map `item.images` vào từng biến thể để preview "Bộ ảnh biến thể" hiển thị đúng ảnh đang lưu trong DB và không bị mất khi lưu lại.
+- Storefront có fallback ảnh biến thể theo màu: nếu biến thể active chưa có `imageUrl/images`, trang chi tiết tự tìm biến thể khác cùng `colorName` có ảnh để dùng, rồi vẫn nối thêm ảnh chung của sản phẩm.
+- Form admin sản phẩm có thêm thao tác "Lấy ảnh cùng màu" và menu "Lấy ảnh từ biến thể khác" để copy `imageUrl/images` từ biến thể đã có ảnh sang biến thể mới hoặc biến thể cùng màu, giảm việc nhập ảnh lặp lại cho từng RAM/ROM.
+- Thẻ sản phẩm ngoài danh sách chỉ dùng ảnh đại diện sản phẩm và ảnh đại diện biến thể; không dùng `product.images` vì bộ ảnh chung chỉ dành cho gallery bên trong trang chi tiết sản phẩm.
+- Catalog API chi tiết sản phẩm trả thêm `images` cho từng biến thể để gallery chi tiết có thể nối `variant.imageUrl` + `variant.images` + `product.images`.
+- Cập nhật trực tiếp trường `colors` và `options` (Màu sắc) của sản phẩm trong bảng `products` để loại bỏ 2 màu này, chỉ giữ lại "Trắng Ngà" và "Vàng Bình Minh".
+- Thực hiện soft-delete (đặt `deleted_at = NOW()`, `status = 'deleted'`, `is_active = FALSE`) cho 4 biến thể tương ứng của 2 màu sắc này trong bảng `product_variants` (gồm `HN-MGV5-BK-512GB`, `HN-MGV5-BK-1TB`, `HN-MGV5-BR-512GB`, `HN-MGV5-BR-1TB`), đảm bảo đồng bộ dữ liệu trên storefront.
+- Cập nhật tập lệnh `backend/scripts/update_magic_v5_variants.py` để loại bỏ hai màu này khỏi mảng options được cấu hình lại, tránh việc chạy lại script khôi phục nhầm các màu đã xóa.
+
+## Update 2026-06-03 HONOR 400 5G color deletion & option setup
+
+- Thực hiện xóa 2 màu sắc cấu hình "Xám Mặt Trăng" và "Đen Bóng Đêm" khỏi dòng máy `HONOR 400 5G` (`HN-400`) theo yêu cầu.
+- Cập nhật trực tiếp trường `colors` và `options` (Màu sắc, Dung lượng, RAM) của sản phẩm `HN-400` trong bảng `products` để loại bỏ 2 màu này, chỉ giữ lại "Vàng Sa Mạc", đồng thời đồng bộ cấu hình RAM của phiên bản 256GB là 8GB và 512GB là 12GB.
+- Thực hiện soft-delete (đặt `deleted_at = NOW()`, `status = 'deleted'`, `is_active = FALSE`) cho 4 biến thể tương ứng của 2 màu sắc này trong bảng `product_variants` (gồm `HN-400-GR-256GB`, `HN-400-GR-512GB`, `HN-400-BK-256GB`, `HN-400-BK-512GB`).
+
+## Update 2026-06-03 HONOR 400 series image gallery
+
+- Đã copy ảnh người dùng cung cấp:
+  - `HONOR 400 5G` vào `frontend/public/images/products/honor-400-5g`.
+  - `Honor 400 pro` vào `frontend/public/images/products/honor-400-pro`.
+- Thêm script `backend/scripts/update_honor_400_images.py` để cập nhật ảnh cho SKU `HN-400` và `HN-400P`.
+- Đã chạy script trên DB local:
+  - `HN-400`: product dùng ảnh đại diện Vàng Sa Mạc, có 5 ảnh chung; 2 biến thể Vàng Sa Mạc có ảnh đại diện và 5 ảnh gallery biến thể.
+  - `HN-400P`: product dùng ảnh đại diện Đen Bóng Đêm; 2 biến thể Đen Bóng Đêm có 5 ảnh gallery, 2 biến thể Xám Mặt Trăng có 3 ảnh gallery.
+- `HN-400P` màu Xanh Thủy Triều chưa có bộ ảnh được cung cấp nên hiện vẫn giữ ảnh placeholder cũ cho biến thể màu xanh.
+- Đồng bộ thông tin RAM (`ram = '8GB'` hoặc `'12GB'`), specifications (`specs`) và thuộc tính (`attributes`) cho tất cả 6 biến thể (bao gồm cả các biến thể đã soft-deleted) tương thích với cấu hình 8GB RAM / 256GB ROM và 12GB RAM / 512GB ROM để dữ liệu đồng bộ nhất quán trên storefront.
+- Tạo script `backend/scripts/update_honor_400_5g.py` để thực hiện cập nhật này một cách tự động và lưu trữ dự phòng.
+
+## Update 2026-06-03 Global Laptops & Tablets RAM/Option Standardization
+
+- Thực hiện rà soát toàn bộ sản phẩm trên hệ thống, phát hiện và sửa đổi hoàn chỉnh lỗi thiếu cấu hình tùy chọn (`options`), thiếu RAM trong biến thể hoặc chưa đồng bộ `attributes` và `specs` cho **20 sản phẩm** thuộc danh mục `laptops` và `tablets`.
+- Tạo và chạy tập lệnh [repair_products.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/scripts/repair_products.py) tự động thực hiện:
+  - Đồng bộ hóa mảng `options` của sản phẩm chứa cấu trúc tiếng Việt chuẩn: Màu sắc, Dung lượng, RAM.
+  - Điền giá trị RAM chuẩn vào cột `ram` của biến thể.
+  - Đồng bộ `specs` và `attributes` đầy đủ bằng tiếng Việt tương ứng cho từng biến thể để storefront hiển thị tùy chọn chính xác nhất.
+- Chạy lại script rà soát xác nhận số lượng sản phẩm có cấu hình lỗi đã giảm về 0, đồng thời chạy bộ kiểm thử rules của variant thành công 100%.
+
+## Update 2026-06-03 Smartphones RAM Separation & Option Standardization
+
+- Thực hiện chuẩn hóa cấu hình RAM và bộ nhớ cho toàn bộ danh mục Điện thoại (Smartphones) trên hệ thống.
+- Giải quyết triệt để lỗi RAM/ROM gộp trong trường `storage` của biến thể (dạng `"RAM 8GB - 256GB"`) bằng cách tách thành:
+  - Cột `storage` là giá trị dung lượng sạch (ví dụ: `"256GB"`).
+  - Cột `ram` là mức RAM tương ứng (ví dụ: `"8GB"`).
+- Đối với các dòng điện thoại sử dụng dung lượng sạch nhưng chưa được gán RAM ở biến thể, tự động phân tích và gán giá trị RAM chuẩn tương ứng theo thông số kỹ thuật và phân khúc giá (ví dụ: dòng S26 Ultra 1TB có 16GB RAM, các dòng khác có 12GB RAM; Redmi Note 14 Pro+ bản 256GB có 8GB RAM, bản 512GB có 12GB RAM).
+- Đồng bộ mảng `options` cấp sản phẩm với cấu trúc đầy đủ bằng tiếng Việt (Màu sắc, Dung lượng, RAM).
+- Đồng bộ `specs` và `attributes` đầy đủ bằng tiếng Việt tương ứng cho từng biến thể. Các biến thể khác nhau về RAM/ROM vẫn giữ nguyên mức giá chênh lệch đã được thiết lập trước đó trong cơ sở dữ liệu.
+- Tạo và chạy tập lệnh [repair_smartphones.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/scripts/repair_smartphones.py) tự động thực hiện và lưu trữ dự phòng.
+
+## Update 2026-06-03 HONOR X9d 5G Color Deletion
+
+- Thực hiện xóa 2 màu sắc cấu hình "Nâu Đỏ" và "Xanh Rừng" khỏi dòng máy `HONOR X9d 5G` (`HN-X9D`) theo yêu cầu.
+- Cập nhật trường `colors` và `options` (Màu sắc) của sản phẩm trong bảng `products` để loại bỏ 2 màu này, chỉ giữ lại "Vàng Bình Minh" và "Đen Bóng Đêm".
+- Thực hiện soft-delete (đặt `deleted_at = NOW()`, `status = 'deleted'`, `is_active = FALSE`) cho 4 biến thể tương ứng của 2 màu sắc này trong bảng `product_variants` (gồm `HN-X9D-BR-256GB`, `HN-X9D-BR-512GB`, `HN-X9D-GR-256GB`, `HN-X9D-GR-512GB`), đảm bảo đồng bộ dữ liệu trên storefront.
+- Tạo và chạy tập lệnh [delete_honor_x9d_colors.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/scripts/delete_honor_x9d_colors.py) tự động thực hiện và lưu trữ dự phòng.
+
+## Update 2026-06-03 HONOR X9d 5G image gallery
+
+- Đã copy ảnh người dùng cung cấp từ thư mục `honor x9d` vào `frontend/public/images/products/honor-x9d`.
+- Ảnh được chia theo màu:
+  - `black`: Đen Bóng Đêm, gồm ảnh đại diện và 8 ảnh gallery.
+  - `gold`: Vàng Bình Minh, gồm ảnh đại diện và 11 ảnh gallery.
+  - `common`: 5 ảnh dùng chung cho trang chi tiết sản phẩm.
+- Thêm script `backend/scripts/update_honor_x9d_images.py` để cập nhật `products.image_url`, `products.images`, `product_variants.image_url`, `product_variants.images` cho SKU `HN-X9D`.
+- Đã chạy script trên DB local: 2 biến thể Đen Bóng Đêm và 2 biến thể Vàng Bình Minh đã trỏ đúng ảnh theo màu; product dùng ảnh đại diện Đen Bóng Đêm và gallery chung.
+- Quy ước ảnh HONOR X9d 5G: file có chữ "ảnh đại diện" hoặc "ảnh địa diện" được dùng cho `image_url`; các file còn lại trong thư mục màu là gallery của biến thể đó và được lưu vào `product_variants.images`.
+
+## Update 2026-06-04 Admin product simple-product variant rule
+
+- Sản phẩm không có biến thể nay được xem là sản phẩm đơn giản hợp lệ; giá, giá bán, tồn kho, ảnh và thông tin chung lấy trực tiếp từ bảng `products`.
+- Chỉ sản phẩm có danh sách biến thể mới bắt buộc có đúng một biến thể mặc định. Khi danh sách biến thể rỗng, backend không tự tạo biến thể mặc định nữa và cho phép xóa biến thể cuối cùng bằng soft-delete.
+- Form admin thêm trường `Tồn kho chung`, gửi kèm `brand` và `category` để thương hiệu nhập tay không bị rơi về `Khác`, đồng thời không gửi cấu hình option/variant khi sản phẩm không có biến thể.
+- Khi sửa sản phẩm, frontend map lại đúng `stockQuantity` và `salePrice` của biến thể để tránh mất tồn kho hoặc giá bán sau khi lưu.
+- Backend chỉ đồng bộ giá/tồn kho cha từ biến thể khi sản phẩm thật sự còn biến thể; sản phẩm đơn giản giữ nguyên giá và tồn kho chung.
+- Sửa thêm lỗi lọc `status=all` trong danh sách admin và lỗi nhân bản sản phẩm do PostgreSQL không suy luận được kiểu của hậu tố SKU.
+- Tách frontend API sản phẩm: thêm `frontend/src/services/productApi.ts` cho các endpoint admin product, chuyển `useAdminProductsLogic.ts`, `AdminProductsTab.tsx` và phần load product trong `useAdminLogic.ts` sang service này. Các endpoint admin product đã chuyển được gỡ khỏi `apiDb`; các endpoint tồn kho liên quan sản phẩm vẫn giữ tạm để tách sang `inventoryApi` sau.
+- Sau khi tách thêm hook product/variant, `useAdminProductVariants.ts` trả thêm `colorOptionName` để `useAdminProductsLogic.ts` map lại màu biến thể khi mở form chỉnh sửa. Sửa import thiếu `youtubeEmbedUrl` và `ImageWithFallback` ở `ProductDetail.tsx` sau khi tách helper media.

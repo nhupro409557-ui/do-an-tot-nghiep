@@ -24,7 +24,7 @@ export const FlashSale = () => {
   if (flashSaleProducts.length === 0) return null;
 
   return (
-    <div className="mt-8 bg-white rounded-xl overflow-hidden border border-primary shadow-sm">
+    <div className="mt-4 bg-white rounded-xl overflow-hidden border border-primary shadow-sm">
       <div className="bg-primary px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h2 className="text-xl md:text-2xl font-bold italic text-white flex items-center gap-2 font-display tracking-widest">

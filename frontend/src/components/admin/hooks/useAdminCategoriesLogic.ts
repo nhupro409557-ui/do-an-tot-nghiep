@@ -1,5 +1,5 @@
 import { useState, useMemo, type FormEvent } from 'react';
-import { apiDb } from '../../../services/apiDb';
+import { categoryApi } from '../../../services/categoryApi';
 import {
   type CategoryFilterField,
   type SpecField,
@@ -27,9 +27,6 @@ export function useAdminCategoriesLogic({
     order: 0,
     isActive: true,
     status: 'ACTIVE',
-    seoTitle: '',
-    seoDescription: '',
-    seoKeywords: '',
     specFields: [] as SpecField[],
     filterConfig: [] as CategoryFilterField[],
     inventoryPolicy: { inheritImeiPolicy: true, trackImei: false },
@@ -93,12 +90,26 @@ export function useAdminCategoriesLogic({
     setCategorySlugStatus('idle');
     setCategoryAuditLogs([]);
     setCategoryMigrationJobs([]);
-    setCategoryForm({ name: '', slug: '', icon: 'phone', iconUrl: '', bannerUrl: '', parentId: '', order: 0, isActive: true, status: 'ACTIVE', seoTitle: '', seoDescription: '', seoKeywords: '', specFields: [], filterConfig: [], inventoryPolicy: { inheritImeiPolicy: true, trackImei: false }, warrantyPolicy: { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 }, version: null });
+    setCategoryForm({ name: '', slug: '', icon: 'phone', iconUrl: '', bannerUrl: '', parentId: '', order: 0, isActive: true, status: 'ACTIVE', specFields: [], filterConfig: [], inventoryPolicy: { inheritImeiPolicy: true, trackImei: false }, warrantyPolicy: { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 }, version: null });
   }
 
   function isConcurrentUpdateError(error: unknown) {
     const message = error instanceof Error ? error.message : '';
     return message.includes('Reload before saving') || message.includes('updated by another admin') || message.includes('409');
+  }
+
+  function categorySubmitErrorMessage(error: unknown): string {
+    const fallback = 'Không thể lưu danh mục. Vui lòng kiểm tra dữ liệu và thử lại.';
+    if (!(error instanceof Error) || !error.message) return fallback;
+    try {
+      const parsed = JSON.parse(error.message);
+      if (parsed && typeof parsed === 'object') {
+        return parsed.message || parsed.detail || fallback;
+      }
+    } catch {
+      // API errors are usually plain Vietnamese messages; keep them as-is.
+    }
+    return error.message;
   }
 
   async function handleCategorySubmit(event: FormEvent) {
@@ -117,29 +128,31 @@ export function useAdminCategoriesLogic({
       version: editingCategoryId ? categoryForm.version : null,
     };
     try {
-      if (editingCategoryId) await apiDb.adminUpdateCategory(editingCategoryId, payload);
-      else await apiDb.adminCreateCategory(payload);
+      if (editingCategoryId) await categoryApi.adminUpdateCategory(editingCategoryId, payload);
+      else await categoryApi.adminCreateCategory(payload);
     } catch (error: any) {
       const message = error instanceof Error ? error.message : '';
       if (message.includes('SPEC_TYPE_CHANGE_REQUIRES_CONFIRMATION') || message.includes('Thay đổi kiểu thông số')) {
         if (!window.confirm('Thay đổi kiểu dữ liệu thông số có thể ảnh hưởng dữ liệu sản phẩm hiện tại. Tiếp tục và tạo phiên bản thông số mới?')) return;
         try {
-          if (editingCategoryId) await apiDb.adminUpdateCategory(editingCategoryId, { ...payload, allowSpecTypeMigration: true });
-          else await apiDb.adminCreateCategory({ ...payload, allowSpecTypeMigration: true });
+          if (editingCategoryId) await categoryApi.adminUpdateCategory(editingCategoryId, { ...payload, allowSpecTypeMigration: true });
+          else await categoryApi.adminCreateCategory({ ...payload, allowSpecTypeMigration: true });
         } catch (retryError) {
           if (isConcurrentUpdateError(retryError)) {
             window.alert('Dữ liệu danh mục đã được cập nhật bởi một người khác. Vui lòng tải lại trang rồi thử lại.');
             await refreshCategoryWorkspace(editingCategoryId);
             return;
           }
-          throw retryError;
+          window.alert(`Không thể ${currentEditingCategoryId ? 'lưu thay đổi' : 'thêm danh mục'}:\n${categorySubmitErrorMessage(retryError)}`);
+          return;
         }
       } else if (isConcurrentUpdateError(error)) {
         window.alert('Dữ liệu danh mục đã được cập nhật bởi một người khác. Vui lòng tải lại trang rồi thử lại.');
         await refreshCategoryWorkspace(editingCategoryId);
         return;
       } else {
-        throw error;
+        window.alert(`Không thể ${currentEditingCategoryId ? 'lưu thay đổi' : 'thêm danh mục'}:\n${categorySubmitErrorMessage(error)}`);
+        return;
       }
     }
     resetCategoryForm();
@@ -161,9 +174,6 @@ export function useAdminCategoriesLogic({
       order: Number(category.order || 0),
       isActive: category.isActive !== false,
       status: category.status || (category.isActive === false ? 'INACTIVE' : 'ACTIVE'),
-      seoTitle: category.seoTitle || '',
-      seoDescription: category.seoDescription || '',
-      seoKeywords: category.seoKeywords || '',
       specFields: category.ownSpecFields || category.specFields || [],
       filterConfig: category.ownFilterConfig || category.filterConfig || [],
       inventoryPolicy: category.inventoryPolicy || { inheritImeiPolicy: true, trackImei: false },
@@ -173,7 +183,7 @@ export function useAdminCategoriesLogic({
   }
 
   async function reactivateCategory(category: any) {
-    await apiDb.adminRestoreCategory(category.id);
+    await categoryApi.adminRestoreCategory(category.id);
     await refreshCategoryWorkspace(category.id);
     window.alert('Danh mục đã được khôi phục. Các sản phẩm thuộc danh mục này vẫn đang ở trạng thái ẩn. Vui lòng vào Quản lý sản phẩm để kích hoạt lại nếu cần.');
   }
@@ -190,7 +200,7 @@ export function useAdminCategoriesLogic({
       const index = nextSiblings.findIndex((sibling) => sibling.id === item.id);
       return index >= 0 ? { ...item, order: index + 1 } : item;
     }));
-    await apiDb.adminReorderCategories(nextSiblings.map((item, index) => ({
+    await categoryApi.adminReorderCategories(nextSiblings.map((item, index) => ({
       id: item.id,
       parentId: item.parentId || null,
       order: index + 1,
@@ -207,7 +217,7 @@ export function useAdminCategoriesLogic({
     }
     setCategorySlugStatus('checking');
     try {
-      await apiDb.adminCheckCategorySlug({ slug, excludeId: editingCategoryId });
+      await categoryApi.adminCheckCategorySlug({ slug, excludeId: editingCategoryId });
       setCategorySlugStatus('available');
     } catch {
       setCategorySlugStatus('taken');
@@ -218,10 +228,10 @@ export function useAdminCategoriesLogic({
     setCategoryPanelBusy(true);
     try {
       const [categoryData, metricsData, auditData, migrationData] = await Promise.all([
-        apiDb.adminListCategories().catch(() => apiDb.listCategories()),
-        apiDb.adminCategoryMetrics().catch(() => ({})),
-        categoryId ? apiDb.adminCategoryAuditLogs(categoryId).catch(() => []) : Promise.resolve([]),
-        categoryId ? apiDb.adminCategoryMigrationJobs(categoryId).catch(() => []) : Promise.resolve([]),
+        categoryApi.adminListCategories().catch(() => categoryApi.listCategories()),
+        categoryApi.adminCategoryMetrics().catch(() => ({})),
+        categoryId ? categoryApi.adminCategoryAuditLogs(categoryId).catch(() => []) : Promise.resolve([]),
+        categoryId ? categoryApi.adminCategoryMigrationJobs(categoryId).catch(() => []) : Promise.resolve([]),
       ]);
       setCategories(categoryData);
       setCategoryMetrics(metricsData);

@@ -15,9 +15,6 @@ class CategoryPayload(BaseModel):
     order: int = Field(default=0, ge=0)
     isActive: bool = True
     status: str = Field(default="ACTIVE", pattern="^(DRAFT|PENDING_REVIEW|APPROVED|ACTIVE|INACTIVE|REJECTED)$")
-    seoTitle: str | None = Field(default=None, max_length=255)
-    seoDescription: str | None = None
-    seoKeywords: str | None = None
     specFields: list[dict] = Field(default_factory=list)
     filterConfig: list[dict] = Field(default_factory=list)
     inventoryPolicy: dict = Field(default_factory=dict)
@@ -57,8 +54,6 @@ class BrandPayload(BaseModel):
     logoUrl: str | None = None
     logoAltText: str | None = Field(default=None, max_length=255)
     landingTitle: str | None = Field(default=None, max_length=255)
-    seoTitle: str | None = Field(default=None, max_length=255)
-    seoDescription: str | None = None
 
 
 class BrandCodeCheckPayload(BaseModel):
@@ -281,8 +276,6 @@ class InventoryAdjustmentPayload(BaseModel):
 class InventorySettingsPayload(BaseModel):
     minimumStock: int = Field(default=0, ge=0)
     blockSaleWhenOutOfStock: bool = True
-    preferredLocationCode: str | None = Field(default=None, max_length=60)
-    preferredLocationName: str | None = Field(default=None, max_length=160)
     cycleCountDays: int | None = Field(default=None, ge=1, le=365)
 
 

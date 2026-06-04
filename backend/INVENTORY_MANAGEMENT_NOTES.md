@@ -270,3 +270,10 @@
 
 - Sau khi thêm hoặc chỉnh sửa dịch vụ đi kèm thành công, popup dịch vụ được đóng như cũ và nay có thêm thông báo thành công rõ ràng.
 - Thay đổi này giữ nhất quán với các form quản trị khác sau khi lưu xong, tránh để admin phải tự suy đoán thao tác đã hoàn tất hay chưa.
+
+## 21. Update 2026-06-04 nhập kho một chi nhánh
+
+- Màn nhập kho admin đã bỏ hai ô `Mã kho / chi nhánh` và `Tên kho / chi nhánh` vì cửa hàng đang vận hành một chi nhánh.
+- Frontend không còn lưu cấu hình `preferredLocationCode` và `preferredLocationName` trong phần cài đặt tồn kho của sản phẩm.
+- Backend không còn nhận/trả hai trường kho ưu tiên trong payload cấu hình tồn kho và file xuất CSV tồn kho.
+- Các cột `location_code` và `location_name` trong lịch sử điều chỉnh kho vẫn được giữ lại để ghi nhận mặc định `MAIN` / `Kho chính` cho giao dịch nhập/xuất, tránh mất khả năng truy vết dữ liệu cũ.

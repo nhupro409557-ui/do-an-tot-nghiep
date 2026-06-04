@@ -84,8 +84,6 @@ class Brand(Base):
     logo_url: Mapped[str | None] = mapped_column(Text)
     logo_alt_text: Mapped[str | None] = mapped_column(String(255))
     landing_title: Mapped[str | None] = mapped_column(String(255))
-    seo_title: Mapped[str | None] = mapped_column(String(255))
-    seo_description: Mapped[str | None] = mapped_column(Text)
     cache_version: Mapped[int] = mapped_column(default=1, nullable=False)
     sort_order: Mapped[int] = mapped_column(default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)

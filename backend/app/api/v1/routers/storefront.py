@@ -52,8 +52,6 @@ async def get_brand_landing(
                 logo_url AS "logoUrl",
                 logo_alt_text AS "logoAltText",
                 landing_title AS "landingTitle",
-                seo_title AS "seoTitle",
-                seo_description AS "seoDescription",
                 cache_version AS "cacheVersion",
                 sort_order AS "order"
             FROM brands

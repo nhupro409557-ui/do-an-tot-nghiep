@@ -1,13 +1,14 @@
 import React from 'react';
-import { AdminBadge, AdminPagination, AdminPanel, AdminTable, BrandLogo, CollapsibleSection, FileInput, Input, RowActions, SearchBox, Select, SubmitButtons } from '../AdminDashboardParts';
+import { AdminBadge, AdminPanel, AdminTable, BrandLogo, CollapsibleSection, FileInput, Input, RowActions, SearchBox, Select, SubmitButtons } from '../AdminDashboardParts';
 import { slugifyText } from '../../../pages/AdminDashboardConfig';
+import { resolveImageUrl } from '../../../services/apiDb';
+import { brandApi } from '../../../services/brandApi';
 
 type AdminBrandsTabProps = Record<string, any>;
 
 export default function AdminBrandsTab(props: AdminBrandsTabProps) {
   const {
     activeBrandImportJob,
-    apiDb,
     brandCodeStatus,
     brandCloseSignal,
     brandForm,
@@ -39,9 +40,11 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
     uploadFiles,
   } = props;
 
+  const logoPreviewUrl = resolveImageUrl(brandForm.logoUrl);
+
   return (
-    <AdminPanel 
-      title="Quản lý thương hiệu và logo" 
+    <AdminPanel
+      title="Quản lý thương hiệu và logo"
       filters={
         <>
           <Select noLabel={true} label="Trạng thái" value={brandStatusFilter} onChange={setBrandStatusFilter} options={[['all', 'Tất cả'], ['active', 'Đang hiển thị'], ['inactive', 'Đã ẩn']]} />
@@ -55,11 +58,28 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
           <Input label="Mã thương hiệu" value={brandForm.code} required onBlur={checkBrandCodeOnBlur} onChange={(value) => { setBrandCodeStatus('idle'); setBrandForm({ ...brandForm, code: value }); }} />
           <Input label="Slug landing" value={brandForm.slug} onChange={(value) => setBrandForm({ ...brandForm, slug: value })} />
           <Input label="Thứ tự" type="number" value={brandForm.order} onChange={(value) => setBrandForm({ ...brandForm, order: Number(value) })} />
-          <FileInput label="Logo từ máy tính" accept="image/*" onFiles={async (files) => setBrandForm({ ...brandForm, logoUrl: (await uploadFiles(files, 'brands'))[0] || brandForm.logoUrl })} />
+          <FileInput label="Logo từ máy tính" accept="image/*" onFiles={async (files) => {
+            const urls = await uploadFiles(files, 'brands');
+            setBrandForm({ ...brandForm, logoUrl: urls[0] || brandForm.logoUrl });
+          }} />
           <Input label="Alt text logo" value={brandForm.logoAltText} onChange={(value) => setBrandForm({ ...brandForm, logoAltText: value })} />
+          {logoPreviewUrl && (
+            <div className="md:col-span-6">
+              <div className="mb-2 text-xs font-bold text-slate-500">Xem trước logo</div>
+              <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center">
+                <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 p-2">
+                  <img src={logoPreviewUrl} alt={brandForm.logoAltText || brandForm.name || 'Logo thương hiệu'} className="max-h-full max-w-full object-contain" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-semibold text-slate-500">{brandForm.logoUrl}</div>
+                  <button type="button" onClick={() => setBrandForm({ ...brandForm, logoUrl: '' })} className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+                    Xóa logo đã chọn
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <Input label="Tiêu đề landing" value={brandForm.landingTitle} onChange={(value) => setBrandForm({ ...brandForm, landingTitle: value })} />
-          <Input label="SEO title" value={brandForm.seoTitle} onChange={(value) => setBrandForm({ ...brandForm, seoTitle: value })} />
-          <textarea className="min-h-16 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500 md:col-span-3" placeholder="SEO description" value={brandForm.seoDescription} onChange={(event) => setBrandForm({ ...brandForm, seoDescription: event.target.value })} />
           <div className="text-xs font-semibold text-slate-500 md:col-span-2">{brandCodeStatus === 'checking' ? 'Đang kiểm tra mã...' : brandCodeStatus === 'available' ? 'Mã có thể dùng' : brandCodeStatus === 'taken' ? 'Mã đã tồn tại' : ''}</div>
           <SubmitButtons editing={Boolean(editingBrandId)} onCancel={resetBrandForm} />
         </form>
@@ -105,7 +125,7 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
         </div>
       </CollapsibleSection>
       {selectedBrandIds.length > 0 && <div className="mb-3 flex gap-2"><button type="button" onClick={() => bulkUpdateBrandStatus(false)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Ẩn đã chọn</button><button type="button" onClick={() => bulkUpdateBrandStatus(true)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Khôi phục đã chọn</button></div>}
-      <AdminTable 
+      <AdminTable
         headers={['', 'Logo', 'Thương hiệu', 'Mã', 'Landing', 'Sản phẩm', 'Số danh mục', 'Thứ tự', 'Cập nhật', 'Trạng thái', 'Thao tác']}
         currentPage={brandPage}
         totalPages={Math.max(1, Math.ceil(brandTotal / 10))}
@@ -125,7 +145,7 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
             <td className="px-4 py-3">{brand.order || 0}</td>
             <td className="px-4 py-3 text-xs">{brand.updatedAt ? new Date(brand.updatedAt).toLocaleString('vi-VN') : '-'}</td>
             <td className="px-4 py-3"><AdminBadge tone={brand.isActive ? 'green' : 'slate'}>{brand.isActive ? 'ACTIVE' : 'INACTIVE'}</AdminBadge></td>
-            <td className="px-4 py-3"><RowActions onEdit={() => editBrand(brand)} onDelete={() => brand.isActive ? hideBrand(brand) : confirmDelete(brand.name, () => apiDb.adminDeleteBrand(brand.id))} onRestore={brand.isActive ? undefined : () => reactivateBrand(brand)} /></td>
+            <td className="px-4 py-3"><RowActions onEdit={() => editBrand(brand)} onDelete={() => brand.isActive ? hideBrand(brand) : confirmDelete(brand.name, () => brandApi.adminDeleteBrand(brand.id))} onRestore={brand.isActive ? undefined : () => reactivateBrand(brand)} /></td>
           </tr>
         ))}
       </AdminTable>

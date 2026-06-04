@@ -33,8 +33,6 @@ export default function InventoryDialog(props: InventoryDialogProps) {
           <Input label="Lý do" value={inventoryDraft.reason} required onChange={(value) => setInventoryDraft({ ...inventoryDraft, reason: value })} />
           <Input label="Nhà cung cấp" value={inventoryDraft.supplierName} onChange={(value) => setInventoryDraft({ ...inventoryDraft, supplierName: value })} />
           <Input label="Giá nhập" type="number" value={inventoryDraft.unitCost} onChange={(value) => setInventoryDraft({ ...inventoryDraft, unitCost: Number(value) })} />
-          <Input label="Mã kho / chi nhánh" value={inventoryDraft.locationCode} onChange={(value) => setInventoryDraft({ ...inventoryDraft, locationCode: value })} />
-          <Input label="Tên kho / chi nhánh" value={inventoryDraft.locationName} onChange={(value) => setInventoryDraft({ ...inventoryDraft, locationName: value })} />
           <Input label="Tồn kho tối thiểu" type="number" value={inventoryDraft.minimumStock} onChange={(value) => setInventoryDraft({ ...inventoryDraft, minimumStock: Math.max(0, Number(value)) })} />
           <Input label="Chu kỳ kiểm kê (ngày)" type="number" value={inventoryDraft.cycleCountDays} onChange={(value) => setInventoryDraft({ ...inventoryDraft, cycleCountDays: Math.max(1, Number(value)) })} />
           <label className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 md:col-span-2">

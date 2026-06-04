@@ -22,6 +22,39 @@ Nếu cần index lại, tránh để CodeGraph quét các thư mục sinh tự 
 - `.codegraph`
 - `*.log`
 
+## Coding Discipline
+
+Các nguyên tắc này được chắt lọc từ bộ hướng dẫn `andrej-karpathy-skills` để giảm lỗi thường gặp khi agent sửa code.
+
+### Nghĩ trước khi code
+
+- Không tự âm thầm chọn một cách hiểu nếu yêu cầu còn mơ hồ.
+- Nêu rõ giả định quan trọng trước khi triển khai.
+- Nếu có nhiều cách hiểu hợp lý, trình bày ngắn gọn các hướng và hỏi lại khi lựa chọn đó ảnh hưởng lớn đến kết quả.
+- Nếu phát hiện yêu cầu có rủi ro, mâu thuẫn hoặc có cách đơn giản hơn rõ ràng, nói thẳng và đề xuất hướng tốt hơn.
+
+### Ưu tiên đơn giản
+
+- Viết lượng code tối thiểu đủ giải quyết đúng yêu cầu.
+- Không thêm tính năng, cấu hình, framework, abstraction hoặc xử lý ngoại lệ ngoài phạm vi cần thiết.
+- Không tạo abstraction cho code chỉ dùng một lần.
+- Nếu một thay đổi có thể làm bằng cách nhỏ, rõ, dễ kiểm tra thì ưu tiên cách đó.
+
+### Sửa đúng phạm vi
+
+- Chỉ sửa những dòng/file liên quan trực tiếp đến yêu cầu.
+- Không refactor, đổi format, đổi comment hoặc “dọn dẹp” code lân cận nếu không cần để hoàn thành việc chính.
+- Giữ phong cách code hiện có của project, kể cả khi có thể viết theo style khác.
+- Nếu thay đổi của mình làm phát sinh import/biến/hàm không dùng nữa thì dọn phần đó.
+- Nếu thấy code chết hoặc vấn đề không liên quan, chỉ ghi nhận hoặc báo lại, không tự xóa khi chưa được yêu cầu.
+
+### Có tiêu chí hoàn tất
+
+- Với bug, cố gắng tái hiện lỗi hoặc xác định điều kiện lỗi trước khi sửa.
+- Với logic quan trọng, xác định cách kiểm tra cụ thể rồi mới báo hoàn tất.
+- Sau khi sửa, chạy kiểm tra phù hợp với phạm vi thay đổi nếu môi trường cho phép.
+- Không báo xong chỉ vì đã sửa file; phải biết thay đổi đã được kiểm tra bằng cách nào hoặc nói rõ vì sao chưa kiểm tra được.
+
 ## Maintenance Notes
 
 - Trước khi sửa product/category/inventory/service, đọc các file:

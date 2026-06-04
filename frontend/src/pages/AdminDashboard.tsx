@@ -3,6 +3,7 @@ import React, { Suspense } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ShieldCheck } from 'lucide-react';
 import { signOut } from '../services/authDb';
+import { apiDb } from '../services/apiDb';
 import { AdminEnterpriseShell } from '../components/admin/AdminEnterpriseShell';
 import AdminDashboardTabContent from '../components/admin/AdminDashboardTabContent';
 import { useAdminLogic } from '../components/admin/hooks/useAdminLogic';
@@ -16,7 +17,7 @@ export default function AdminDashboard() {
   const admin = useAdminLogic();
   const activeTone = adminConfig.tabTone[admin.tab] || adminConfig.tabTone.overview;
   const activeTab = admin.availableTabs.find((item: any) => item.id === admin.tab);
-  const sharedProps = { ...adminConfig, ...admin };
+  const sharedProps = { ...adminConfig, ...admin, apiDb };
 
   async function handleSignOut() {
     await signOut();

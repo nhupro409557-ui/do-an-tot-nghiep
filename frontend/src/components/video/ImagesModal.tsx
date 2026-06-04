@@ -23,6 +23,9 @@ interface GalleryItem {
   favoriteCount?: number;
   product?: Product;
   displayId?: string;
+  variantColorName?: string;
+  variantColorCode?: string;
+  variantConfiguration?: string;
 }
 
 interface CommentItem {
@@ -57,10 +60,16 @@ function likeCountOf(item: any, index: number) {
 }
 
 export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClose }: ImagesModalProps) {
+  if (!isOpen || playlist.length === 0) return null;
+  const modalKey = `${initialIndex}-${playlist.map((item) => item.id).join('|')}`;
+  return <ImagesModalContent key={modalKey} playlist={playlist} initialIndex={initialIndex} onClose={onClose} />;
+}
+
+function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<ImagesModalProps, 'isOpen'>) {
   const [showComments, setShowComments] = useState(false);
   const [copied, setCopied] = useState(false);
   const [commentText, setCommentText] = useState('');
-  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   
   // Real database comments and local actions
@@ -73,19 +82,19 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
   const [isDragging, setIsDragging] = useState(false);
   const [startX, setStartX] = useState(0);
   const [rotationY, setRotationY] = useState(0);
-  const [zoom, setZoom] = useState(-150);
+  const [zoom, setZoom] = useState<number | null>(null);
   const [startRotationY, setStartRotationY] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
 
   // Responsive Card Dimensions (Khung vuông để ảnh dọc ngang không bị cắt nhỏ)
-  const [cardDim, setCardDim] = useState({ w: 440, h: 440 });
+  const [cardDim, setCardDim] = useState({ w: 360, h: 360 });
 
   useEffect(() => {
     const handleResize = () => {
-      if (window.innerWidth >= 1024) setCardDim({ w: 440, h: 440 });
-      else if (window.innerWidth >= 640) setCardDim({ w: 340, h: 340 });
-      else setCardDim({ w: 280, h: 280 });
+      if (window.innerWidth >= 1024) setCardDim({ w: 360, h: 360 });
+      else if (window.innerWidth >= 640) setCardDim({ w: 300, h: 300 });
+      else setCardDim({ w: 230, h: 230 });
     };
     handleResize(); // initialize
     window.addEventListener('resize', handleResize);
@@ -108,13 +117,12 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
 
   // ESC key to close
   useEffect(() => {
-    if (!isOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [onClose]);
 
   const isCarouselMode = playlist.length >= 3;
   const singleImageIndex = Math.min(Math.max(initialIndex, 0), Math.max(playlist.length - 1, 0));
@@ -127,41 +135,27 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
 
   const N = displayPlaylist.length;
   const radius = N <= 1 ? 0 : Math.round((cardDim.w / 2 + 60) / Math.tan(Math.PI / N));
+  const initialRotationOffset = N <= 1 ? 0 : -initialIndex * (360 / N);
+  const effectiveRotationY = rotationY + initialRotationOffset;
+  const effectiveZoom = zoom ?? (isCarouselMode ? -radius : 0);
 
   const activeCardIndex = useMemo(() => {
     if (N <= 1) return 0;
     const anglePerCard = 360 / N;
-    let idx = Math.round(-rotationY / anglePerCard) % N;
+    let idx = Math.round(-effectiveRotationY / anglePerCard) % N;
     if (idx < 0) idx += N;
     return idx;
-  }, [rotationY, N]);
+  }, [effectiveRotationY, N]);
 
   const activeIdx = activeCardIndex;
   const currentItem = isCarouselMode ? displayPlaylist[activeIdx] || null : playlist[singleImageIndex] || null;
 
   useEffect(() => {
-    if (!isOpen) return;
-    setShowComments(false);
-    setCopied(false);
-    setCommentText('');
-    setIsAutoPlaying(isCarouselMode && !reducedMotion);
-    setIsDragging(false);
-    
-    setZoom(isCarouselMode ? -radius : 0);
-    
-    const anglePerCard = N <= 1 ? 0 : 360 / N;
-    setRotationY(-initialIndex * anglePerCard);
-    setImageComments([]);
-    setReplyTarget(null);
-    setExpandedReplies(new Set());
-  }, [isOpen, initialIndex, N, radius, isCarouselMode, reducedMotion]);
-
-  useEffect(() => {
-    if (!isOpen || !currentItem?.productId) return;
+    if (!currentItem?.productId) return;
     apiDb.listProductImageComments(currentItem.productId)
       .then((data) => setImageComments(data || []))
       .catch(() => setImageComments([]));
-  }, [isOpen, currentItem?.productId]);
+  }, [currentItem?.productId]);
 
   const comments = useMemo(() => {
     return imageComments.filter((comment) => String(comment.content || '').trim() !== '');
@@ -208,13 +202,13 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
   const displayLikes = isLiked ? baseLikes + 1 : baseLikes;
 
   useEffect(() => {
-    if (!isCarouselMode || !isAutoPlaying || isDragging || reducedMotion || N <= 1) return;
+    if (!isCarouselMode || !isAutoPlaying || isDragging || N <= 1) return;
 
     let lastTime = performance.now();
     const animate = (time: number) => {
       const delta = Math.min(50, time - lastTime);
       lastTime = time;
-      setRotationY((prev) => prev - delta * 0.02);
+      setRotationY((prev) => prev - delta * 0.006);
       animationRef.current = requestAnimationFrame(animate);
     };
 
@@ -223,7 +217,7 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
       if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
       animationRef.current = null;
     };
-  }, [isCarouselMode, isAutoPlaying, isDragging, reducedMotion, N]);
+  }, [isCarouselMode, isAutoPlaying, isDragging, N]);
 
   useEffect(() => {
     if (!isCarouselMode) return;
@@ -233,8 +227,8 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       setZoom((prev) => {
-        const next = prev - e.deltaY * 0.4;
-        return Math.min(1000, Math.max(-5000, next));
+        const next = (prev ?? effectiveZoom) - e.deltaY * 0.16;
+        return Math.min(450, Math.max(-2200, next));
       });
     };
 
@@ -242,21 +236,22 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
     return () => {
       el.removeEventListener('wheel', handleWheel);
     };
-  }, [isOpen, isCarouselMode]);
+  }, [effectiveZoom, isCarouselMode]);
 
   useEffect(() => {
-    if (!isOpen || !currentItem?.id) return;
+    if (!currentItem?.id) return;
     const url = new URL(window.location.href);
     url.searchParams.set('view', currentItem.id);
     window.history.replaceState({}, '', url.toString());
-  }, [isOpen, currentItem?.id]);
+  }, [currentItem?.id]);
 
   useEffect(() => {
-    if (isOpen) return;
-    const url = new URL(window.location.href);
-    url.searchParams.delete('view');
-    window.history.replaceState({}, '', url.toString());
-  }, [isOpen]);
+    return () => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('view');
+      window.history.replaceState({}, '', url.toString());
+    };
+  }, []);
 
   const handleShare = useCallback(async () => {
     if (!currentItem) return;
@@ -285,7 +280,7 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
   const handleMove = (clientX: number) => {
     if (!isCarouselMode || !isDragging || N <= 1) return;
     const deltaX = clientX - startX;
-    const speed = 0.5;
+    const speed = 0.18;
     setRotationY(startRotationY + deltaX * speed);
 
     const now = performance.now();
@@ -301,8 +296,8 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
     if (!isCarouselMode || !isDragging) return;
     setIsDragging(false);
 
-    const projectedDeltaX = velocityRef.current * 150;
-    const projectedRotationY = rotationY + projectedDeltaX * 0.5;
+    const projectedDeltaX = velocityRef.current * 70;
+    const projectedRotationY = rotationY + projectedDeltaX * 0.18;
 
     const anglePerCard = 360 / N;
     const targetRotation = Math.round(projectedRotationY / anglePerCard) * anglePerCard;
@@ -350,8 +345,6 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
     }
   }
 
-  if (!isOpen || playlist.length === 0) return null;
-
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 px-3 py-4 backdrop-blur-md">
       <button
@@ -364,6 +357,7 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
 
       {isCarouselMode && (
       <button
+        type="button"
         onClick={() => setIsAutoPlaying(!isAutoPlaying)}
         className="absolute left-6 top-6 z-[60] flex items-center gap-2 rounded-full bg-zinc-900/60 border border-white/10 px-4 py-2.5 text-xs font-bold text-white shadow-lg backdrop-blur-md transition-all duration-300 hover:bg-zinc-800/80 hover:scale-105 active:scale-95 cursor-pointer"
       >
@@ -403,13 +397,13 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
                 width: `${cardDim.w}px`,
                 height: `${cardDim.h}px`,
                 transformStyle: 'preserve-3d',
-                transform: `translateZ(${zoom}px) rotateY(${rotationY}deg)`,
-                transition: isDragging ? 'none' : 'transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1)',
+                transform: `translateZ(${effectiveZoom}px) rotateY(${effectiveRotationY}deg)`,
+                transition: isDragging || isAutoPlaying ? 'none' : 'transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1)',
               }}
             >
               {displayPlaylist.map((item, cardIndex) => {
                 const cardAngle = cardIndex * (360 / N);
-                let globalAngle = (rotationY + cardAngle) % 360;
+                let globalAngle = (effectiveRotationY + cardAngle) % 360;
                 if (globalAngle < 0) globalAngle += 360;
                 let diffFromCenter = globalAngle;
                 if (diffFromCenter > 180) diffFromCenter = 360 - diffFromCenter;
@@ -442,7 +436,7 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
                   key={item.displayId || item.id}
                   className={`absolute top-0 left-0 flex flex-col items-center justify-center transition-all duration-300 ${
                     cardIndex === activeIdx
-                      ? 'scale-110 z-30'
+                      ? 'scale-100 z-30'
                       : 'scale-95 z-10'
                   }`}
                   style={{
@@ -458,7 +452,7 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
                     <ImageWithFallback
                       src={item.url}
                       alt={item.productName || 'Hình ảnh'}
-                      className="max-h-full max-w-full object-contain"
+                      className="max-h-[92%] max-w-[92%] object-contain"
                       loading="lazy"
                       draggable={false}
                     />
@@ -468,12 +462,12 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
               })}
             </div>
             {!isCarouselMode && (
-              <div className="relative flex h-[min(62vh,560px)] w-full max-w-3xl items-center justify-center px-4">
+              <div className="relative flex h-[min(58vh,480px)] w-full max-w-2xl items-center justify-center px-4">
                 <div className="absolute inset-0 rounded-[2rem] border border-white/10 bg-white/[0.03] shadow-2xl shadow-black/40" />
                 <ImageWithFallback
                   src={currentItem?.url || ''}
                   alt={currentItem?.productName || 'Hinh anh san pham'}
-                  className="relative z-10 max-h-full max-w-full rounded-3xl object-contain shadow-2xl"
+                  className="relative z-10 max-h-[92%] max-w-[92%] rounded-3xl object-contain shadow-2xl"
                   loading="eager"
                   draggable={false}
                 />
@@ -481,7 +475,7 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
             )}
           </div>
 
-          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1 pointer-events-none select-none">
+          <div className="hidden">
             <div className="hidden rounded-full bg-zinc-950/80 border border-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white/80 shadow-xl backdrop-blur-md">
               KÉO ĐỂ XOAY 3D • CUỘN ĐỂ PHÓNG TO
             </div>
@@ -502,7 +496,27 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
                 <h3 className="line-clamp-1 text-base font-black text-white sm:text-lg">
                   {currentItem?.productName || 'Sản phẩm'}
                 </h3>
-                
+                {(currentItem?.variantColorName || currentItem?.variantConfiguration) && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-white/80">
+                    {currentItem?.variantColorName && (
+                      <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
+                        {currentItem.variantColorCode && (
+                          <span
+                            className="h-3 w-3 rounded-full border border-white/60"
+                            style={{ backgroundColor: currentItem.variantColorCode }}
+                          />
+                        )}
+                        Màu: {currentItem.variantColorName}
+                      </span>
+                    )}
+                    {currentItem?.variantConfiguration && (
+                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
+                        {currentItem.variantConfiguration}
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex items-center gap-3 text-white mt-0.5">
                   <button 
                     type="button" 

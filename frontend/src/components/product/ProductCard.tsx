@@ -5,10 +5,17 @@ import { ImageWithFallback } from "../ui/ImageWithFallback";
 import { motion } from "motion/react";
 
 export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
-  const images = p.images && p.images.length > 0 ? p.images : p.imageUrl ? [p.imageUrl] : [];
+  const primaryImages = [
+    p.imageUrl,
+    ...(Array.isArray(p.variants) ? p.variants.map((variant: any) => variant.imageUrl).filter(Boolean) : []),
+  ];
+  const images = Array.from(new Set(primaryImages.filter(Boolean)));
   const [hoverImageIdx, setHoverImageIdx] = useState<number | null>(null);
   const [mainImageIdx, setMainImageIdx] = useState<number>(0);
   const displayImage = hoverImageIdx !== null && images[hoverImageIdx] ? images[hoverImageIdx] : images[mainImageIdx];
+  const displayPrice = Number(p.salePrice || p.discountPrice || p.price || 0);
+  const originalPrice = Number(p.originalPrice || p.price || 0);
+  const hasSale = originalPrice > displayPrice;
 
   return (
     <motion.div
@@ -18,9 +25,14 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
       transition={{ duration: 0.5, delay: index * 0.1, ease: "easeOut" }}
       className="group relative flex h-full flex-col rounded-xl border border-slate-100 bg-white p-3 shadow-sm transition-all duration-300 hover:border-red-100 hover:shadow-xl md:p-4"
     >
-      {p.badge && (
+      {p.badge && !p.flashSale && (
         <div className="absolute left-2 top-2 z-10 rounded-lg bg-red-500 px-2 py-1 text-[10px] font-bold uppercase text-white shadow-sm">
           {p.badge}
+        </div>
+      )}
+      {p.flashSale && (
+        <div className="absolute left-2 top-2 z-10 rounded-lg bg-red-600 px-2 py-1 text-[10px] font-bold uppercase text-white shadow-sm">
+          HOT
         </div>
       )}
 
@@ -66,9 +78,9 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
 
       <div className="mt-auto flex flex-col justify-end pt-2">
         <Link to={`/product/${p.id}`} className="mb-2 flex items-baseline gap-2">
-          <span className="text-sm font-bold text-primary md:text-base">{p.price?.toLocaleString("vi-VN") || 0}đ</span>
-          {p.discountPrice && p.discountPrice > p.price && (
-            <span className="text-[11px] text-gray-400 line-through md:text-xs">{p.discountPrice.toLocaleString("vi-VN")}đ</span>
+          <span className="text-sm font-bold text-primary md:text-base">{displayPrice.toLocaleString("vi-VN")}đ</span>
+          {hasSale && (
+            <span className="text-[11px] text-gray-400 line-through md:text-xs">{originalPrice.toLocaleString("vi-VN")}đ</span>
           )}
         </Link>
 

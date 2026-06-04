@@ -1,5 +1,5 @@
 import React from 'react';
-import { AdminPagination, AdminPanel, AdminTable, SearchBox } from '../AdminDashboardParts';
+import { AdminPanel, AdminTable, SearchBox } from '../AdminDashboardParts';
 import { Eye } from 'lucide-react';
 
 type AdminCustomersTabProps = Record<string, any>;
@@ -23,10 +23,11 @@ export default function AdminCustomersTab(props: AdminCustomersTabProps) {
     updateUserAccess,
     usePermission,
   } = props;
+  const canManageUsers = usePermission('sys:manage_users');
 
   return (
-    <AdminPanel 
-      title={usePermission('sys:manage_users') ? 'Quản lý khách hàng và phân quyền' : 'Tra cứu khách hàng'} 
+    <AdminPanel
+      title={canManageUsers ? 'Quản lý khách hàng và phân quyền' : 'Tra cứu khách hàng'}
       filters={<SearchBox value={query} onChange={setQuery} placeholder="Tìm khách hàng, email, hạng" />}
     >
       {(canManageCustomerAccess || canManageCustomerProfile) && (
@@ -36,7 +37,7 @@ export default function AdminCustomersTab(props: AdminCustomersTabProps) {
           <span className="text-xs font-semibold text-slate-500">Đã chọn: {selectedCustomerIds.length} / Tổng: {customerTotal}</span>
         </div>
       )}
-      <AdminTable 
+      <AdminTable
         headers={['Chọn', 'Khách hàng', 'Email', 'Vai trò/Hạng', 'Điểm', 'Số đơn', 'Đã chi tiêu', 'Trạng thái', 'Chi tiết']}
         currentPage={customerPage}
         totalPages={Math.max(1, Math.ceil(customerTotal / 20))}

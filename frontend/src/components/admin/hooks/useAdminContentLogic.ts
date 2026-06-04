@@ -64,7 +64,6 @@ export function useAdminContentLogic({ contentItems, products, query, reloadCurr
         return {
           id: `draft-${index + 1}`,
           userName: (content ? userName : 'Khách hàng').trim() || 'Khách hàng',
-          content: (content || userName).trim(),
           isHidden: false,
         };
       });
@@ -93,13 +92,11 @@ export function useAdminContentLogic({ contentItems, products, query, reloadCurr
     };
     try {
       if (editingContentId) await apiDb.adminUpdateVideo(editingContentId, payload);
-      else await apiDb.adminCreateVideo(payload);
       setContentNotice({ type: 'success', text: editingContentId ? 'Đã lưu video thành công.' : 'Đã thêm video thành công.' });
       resetContentForm();
       setContentCloseSignal((value) => value + 1);
       await reloadCurrentTab();
     } catch (error) {
-      setContentSaving(false);
       setContentNotice({ type: 'error', text: error instanceof Error ? error.message : 'Không thể lưu video. Vui lòng kiểm tra lại thông tin.' });
     }
   }
@@ -152,6 +149,11 @@ export function useAdminContentLogic({ contentItems, products, query, reloadCurr
     await reloadCurrentTab();
   }
 
+  async function deleteContentVideo(videoId: string) {
+    await apiDb.adminDeleteVideo(videoId);
+    await reloadCurrentTab();
+  }
+
   return {
     contentTypeFilter,
     setContentTypeFilter,
@@ -187,5 +189,6 @@ export function useAdminContentLogic({ contentItems, products, query, reloadCurr
     setVideoProductSelected,
     replyVideoComment,
     toggleVideoCommentHidden,
+    deleteContentVideo,
   };
 }

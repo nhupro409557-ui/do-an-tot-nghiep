@@ -1,5 +1,6 @@
 import React from 'react';
 import { Download, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { categoryApi } from '../../../services/categoryApi';
 import { AdminBadge, AdminPanel, AdminTable, CategoryTableRow, Checkbox, CollapsibleSection, FileInput, Input, MetricCard, RowActions, SearchBox, Select, SubmitButtons } from '../AdminDashboardParts';
 
 type AdminCategoriesTabProps = Record<string, any>;
@@ -8,7 +9,6 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
   const {
     addCategoryFilter,
     addSpecField,
-    apiDb,
     categoryAuditLogs,
     categoryForm,
     categoryMetrics = {},
@@ -75,14 +75,6 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
                         {categoryForm.bannerUrl && <img src={categoryForm.bannerUrl} alt="" className="h-24 w-full rounded-md border border-slate-200 object-cover" />}
                       </div>
                     )}
-                    <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-5">
-                      <div className="mb-3 text-sm font-bold text-slate-700">SEO Metadata</div>
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <Input label="Meta Title" value={categoryForm.seoTitle} onChange={(value) => setCategoryForm({ ...categoryForm, seoTitle: value })} />
-                        <Input label="Keywords" value={categoryForm.seoKeywords} onChange={(value) => setCategoryForm({ ...categoryForm, seoKeywords: value })} />
-                        <textarea className="min-h-16 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500 md:col-span-3" placeholder="Meta Description" value={categoryForm.seoDescription} onChange={(event) => setCategoryForm({ ...categoryForm, seoDescription: event.target.value })} />
-                      </div>
-                    </div>
                     <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-5">
                       <div className="mb-3 text-sm font-bold text-slate-700">Tồn kho và bảo hành mặc định</div>
                       <div className="grid gap-3 md:grid-cols-5">
@@ -239,7 +231,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
                       category={category}
                       level={category.parentId ? 1 : 0}
                       onEdit={() => editCategory(category)}
-                      onDelete={() => confirmDelete(category.name, () => apiDb.adminDeleteCategory(category.id))}
+                      onDelete={() => confirmDelete(category.name, () => categoryApi.adminDeleteCategory(category.id))}
                       onRestore={category.isActive ? undefined : () => reactivateCategory(category)}
                       onReorder={reorderCategory}
                     />

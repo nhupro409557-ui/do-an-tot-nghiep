@@ -1,5 +1,7 @@
 import { useState, useMemo, type FormEvent } from 'react';
-import { apiDb } from '../../../services/apiDb';
+import { productApi } from '../../../services/productApi';
+import { useAdminProductVariants } from './useAdminProductVariants';
+import { useAdminProductOffers } from './useAdminProductOffers';
 import {
   type AccessoryOfferForm,
   type AttachedServiceForm,
@@ -28,6 +30,8 @@ type UseAdminProductsLogicParams = {
   setProductCategoryFilter: (value: string) => void;
   productBrandFilter: string;
   setProductBrandFilter: (value: string) => void;
+  setProductStatusFilter: (value: string) => void;
+  setProductPage: (value: number) => void;
 };
 
 export function useAdminProductsLogic({
@@ -42,6 +46,8 @@ export function useAdminProductsLogic({
   setProductCategoryFilter,
   productBrandFilter,
   setProductBrandFilter,
+  setProductStatusFilter,
+  setProductPage,
 }: UseAdminProductsLogicParams) {
   const [productForm, setProductForm] = useState(emptyProduct);
   const [accessorySearch, setAccessorySearch] = useState('');
@@ -53,6 +59,7 @@ export function useAdminProductsLogic({
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [previewProduct, setPreviewProduct] = useState<any | null>(null);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [productFormOpen, setProductFormOpen] = useState(false);
   const [productCloseSignal, setProductCloseSignal] = useState(0);
 
   const selectedCategory = useMemo(() => categories.find((item) => item.id === productForm.categoryId), [categories, productForm.categoryId]);
@@ -92,83 +99,52 @@ export function useAdminProductsLogic({
     });
   }, [products, query, productCategoryFilter, productBrandFilter, brands]);
 
-  const accessoryProductChoices = useMemo(() => {
-    const selectedCategory = categories.find((category) => sameId(category.id, accessoryCategoryFilter));
-    const childCategoryIds = new Set(categories.filter((category) => sameId(category.parentId, accessoryCategoryFilter)).map((category) => String(category.id)));
-    return products
-      .filter((product) => !sameId(product.id, editingProductId))
-      .filter((product) => !productForm.accessoryOffers.some((offer) => sameId(offer.productId, product.id)))
-      .filter((product) => {
-        if (!accessoryCategoryFilter) return true;
-        return sameId(product.categoryId, accessoryCategoryFilter)
-          || sameId(product.subcategoryId, accessoryCategoryFilter)
-          || childCategoryIds.has(String(product.categoryId || ''))
-          || childCategoryIds.has(String(product.subcategoryId || ''))
-          || (!!selectedCategory && [product.category, product.categoryName, product.subcategoryName].some((value) => String(value || '').toLowerCase() === String(selectedCategory.name || selectedCategory.code || selectedCategory.slug || '').toLowerCase()));
-      })
-      .filter((product) => !accessoryBrandFilter || sameId(product.brandId, accessoryBrandFilter) || sameId(product.brand, brands.find((brand) => sameId(brand.id, accessoryBrandFilter))?.name))
-      .filter((product) => matchesSearch(product, accessorySearch, ['name', 'sku', 'brand', 'brandName', 'categoryName', 'category']))
-      .slice(0, 50);
-  }, [accessoryBrandFilter, accessoryCategoryFilter, accessorySearch, brands, categories, editingProductId, productForm.accessoryOffers, products]);
+  const {
+    colorOptionName,
+    normalizeOptionKey,
+    activeVariantOptionName,
+    variantSpecValue,
+    resolveVariantSpecKey,
+    buildVariantAttributes,
+    deriveOptionsFromVariants,
+    addVariant,
+    patchVariant,
+    toggleVariantSpecField,
+  } = useAdminProductVariants({
+    productForm,
+    setProductForm,
+    variantFields,
+    activeVariantFields,
+  });
 
-  const productAttachedServiceChoices = useMemo(() => {
-    const keyword = attachedServiceSearch.trim().toLowerCase();
-    return attachedServices
-      .filter((service) => service.isActive !== false)
-      .filter((service) => !productForm.attachedServices.some((item) => item.serviceId === service.id))
-      .filter((service) => !attachedServiceTypeFilter || service.serviceType === attachedServiceTypeFilter)
-      .filter((service) => !attachedServiceGroupFilter || service.attributeGroup === attachedServiceGroupFilter)
-      .filter((service) => {
-        if (!keyword) return true;
-        return [service.name, service.code, service.attributeGroup, service.serviceType]
-          .some((value) => String(value || '').toLowerCase().includes(keyword));
-      });
-  }, [attachedServiceGroupFilter, attachedServiceSearch, attachedServiceTypeFilter, attachedServices, productForm.attachedServices]);
-
-  const serviceGroupOptions = useMemo(() => {
-    const groups = new Set<string>();
-    attachedServices.forEach((service) => {
-      const group = String(service.attributeGroup || '').trim();
-      if (group) groups.add(group);
-    });
-    return Array.from(groups).sort((left, right) => left.localeCompare(right));
-  }, [attachedServices]);
-
-  const colorOptionName = 'Màu sắc';
-
-  function activeVariantOptionName(key: string) {
-    return activeVariantFields.find((field) => field.key === key)?.label || key;
-  }
-
-  function buildVariantAttributes(variant: VariantForm): Record<string, string> {
-    const attributes: Record<string, string> = {};
-    const colorValue = String(variant.colorName || variant.attributes?.[colorOptionName] || variant.attributes?.Color || '').trim();
-    if (colorValue) {
-      attributes[colorOptionName] = colorValue;
-    }
-    productForm.variantSpecKeys.forEach((key) => {
-      const optionName = activeVariantOptionName(key);
-      const value = String(variant.specs?.[key] || variant.attributes?.[optionName] || '').trim();
-      if (value) {
-        attributes[optionName] = value;
-      }
-    });
-    return attributes;
-  }
-
-  function deriveOptionsFromVariants(variants: VariantForm[]) {
-    const optionValues = new Map<string, string[]>();
-    variants.forEach((variant) => {
-      Object.entries(buildVariantAttributes(variant)).forEach(([name, value]) => {
-        if (!optionValues.has(name)) optionValues.set(name, []);
-        const values = optionValues.get(name)!;
-        if (!values.includes(value)) values.push(value);
-      });
-    });
-    return Array.from(optionValues.entries()).map(([name, values]) => ({ name, values }));
-  }
+  const {
+    accessoryProductChoices,
+    productAttachedServiceChoices,
+    serviceGroupOptions,
+    addAccessoryOffer,
+    patchAccessoryOffer,
+    removeAccessoryOffer,
+    addAttachedService,
+    removeAttachedService,
+  } = useAdminProductOffers({
+    productForm,
+    setProductForm,
+    categories,
+    products,
+    brands,
+    attachedServices,
+    editingProductId,
+    accessorySearch,
+    setAccessorySearch,
+    accessoryCategoryFilter,
+    accessoryBrandFilter,
+    attachedServiceTypeFilter,
+    attachedServiceGroupFilter,
+    attachedServiceSearch,
+  });
 
   function resetProductForm() {
+    setProductFormOpen(false);
     setEditingProductId(null);
     setProductForm({ ...emptyProduct, images: [], specifications: {}, variants: [] });
     setAccessorySearch('');
@@ -177,9 +153,10 @@ export function useAdminProductsLogic({
   }
 
   function productPayload() {
+    const hasVariants = productForm.variants.length > 0;
     const specifications = {
       ...productForm.specifications,
-      _variantSpecKeys: productForm.variantSpecKeys,
+      _variantSpecKeys: hasVariants ? productForm.variantSpecKeys : [],
       _accessoryOffers: productForm.accessoryOffers.map((item) => ({
         productId: item.productId,
         discountType: item.discountType,
@@ -197,10 +174,13 @@ export function useAdminProductsLogic({
       if (leftColor !== rightColor) return leftColor.localeCompare(rightColor);
       return JSON.stringify(left.specs || {}).localeCompare(JSON.stringify(right.specs || {}));
     });
-    const derivedOptions = deriveOptionsFromVariants(sortedVariants);
+    const derivedOptions = hasVariants ? deriveOptionsFromVariants(sortedVariants) : [];
     return {
       name: productForm.name,
       price: productForm.price,
+      brand: productForm.brand,
+      category: productForm.category,
+      stock: Number(productForm.stock || 0),
       imageUrl: productForm.imageUrl || null,
       images: productForm.images || [],
       description: productForm.description || null,
@@ -216,9 +196,9 @@ export function useAdminProductsLogic({
       variants: sortedVariants.map((item) => ({
         ...item,
         sku: item.sku || buildVariantSku(productForm.name, item.colorName, sortedVariants.indexOf(item)),
-        storage: '',
-        ram: '',
-        configuration: '',
+        storage: String(variantSpecValue(item, 'storage', 'Bộ nhớ trong') || item.storage || ''),
+        ram: String(variantSpecValue(item, 'ram', 'RAM') || item.ram || ''),
+        configuration: String(variantSpecValue(item, 'configuration', 'Cấu hình') || item.configuration || ''),
         salePrice: item.salePrice || null,
         compareAtPrice: item.compareAtPrice || null,
         isDefault: item.isDefault || false,
@@ -246,9 +226,6 @@ export function useAdminProductsLogic({
       .filter((option: any) => option.name && option.values.length > 0);
 
     const variants = productForm.variants || [];
-    if ((productForm.variantSpecKeys.length > 0 || variants.some((variant) => String(variant.colorName || '').trim())) && variants.length === 0) {
-      return 'Sản phẩm có thuộc tính phải có ít nhất một biến thể.';
-    }
 
     const normalizedSkus = variants
       .map((variant, index) => (variant.sku || buildVariantSku(productForm.name, variant.colorName, index)).trim().toLowerCase())
@@ -313,35 +290,56 @@ export function useAdminProductsLogic({
       return;
     }
     const currentEditingProductId = editingProductId;
+    let result: any;
     try {
       if (currentEditingProductId) {
-        await apiDb.adminUpdateProduct(currentEditingProductId, productPayload());
+        result = await productApi.adminUpdateProduct(currentEditingProductId, productPayload());
       } else {
-        await apiDb.adminCreateProduct(productPayload());
+        result = await productApi.adminCreateProduct(productPayload());
       }
     } catch (error) {
       const action = currentEditingProductId ? 'lưu thay đổi' : 'thêm sản phẩm';
       window.alert(`Không thể ${action}:\n${productSubmitErrorMessage(error)}`);
       return;
     }
-    resetProductForm();
+    setProductFormOpen(false);
     setProductCloseSignal((value) => value + 1);
+    window.setTimeout(resetProductForm, 250);
+    if (result?.status === 'REVISION_DRAFT') {
+      setProductPage(1);
+      setProductStatusFilter('REVISION_DRAFT');
+      await loadData(tab, { force: true });
+      window.setTimeout(() => {
+        window.alert('Đã lưu thành bản chỉnh sửa. Bản này cần được gửi duyệt và duyệt trước khi áp dụng vào sản phẩm đang bán.');
+      }, 0);
+      return;
+    }
     await loadData(tab, { force: true });
-    window.alert(currentEditingProductId ? 'Đã lưu thay đổi sản phẩm thành công.' : 'Đã thêm sản phẩm thành công.');
+    window.setTimeout(() => {
+      window.alert(currentEditingProductId ? 'Đã lưu thay đổi sản phẩm thành công.' : 'Đã thêm sản phẩm thành công.');
+    }, 0);
   }
 
   function editProduct(product: any) {
+    setProductFormOpen(true);
     setEditingProductId(product.id);
-    const savedVariantSpecKeys = Array.isArray(product.specifications?._variantSpecKeys)
+    const rawVariantSpecKeys = Array.isArray(product.salesConfig?.variantSpecKeys)
+      ? product.salesConfig.variantSpecKeys
+      : Array.isArray(product.specifications?._variantSpecKeys)
       ? product.specifications._variantSpecKeys
       : Array.from(new Set((product.variants || []).flatMap((item: any) => Object.keys(item.specs || {}))));
+    const savedVariantSpecKeys = Array.from(new Set((rawVariantSpecKeys as string[]).map((key) => resolveVariantSpecKey(key))));
     const cleanSpecifications = { ...(product.specifications || {}) };
+    const accessoryOffers = product.salesConfig?.accessoryOffers || product.specifications?._accessoryOffers || [];
+    const attachedServices = product.salesConfig?.attachedServices || product.specifications?._attachedServices || [];
+    const warrantyPolicy = product.salesConfig?.warrantyPolicy || product.specifications?._warrantyPolicy || defaultWarrantyPolicy;
     productExtraKeys.forEach((key) => delete cleanSpecifications[key]);
     setProductForm({
       ...emptyProduct,
       name: product.name || '',
       price: Number(product.price || 0),
       discountPrice: Number(product.discountPrice || 0),
+      stock: Number(product.stockQuantity ?? product.stock ?? 0),
       brand: product.brand || '',
       category: product.category || 'ACCESSORY',
       categoryId: product.categoryId || '',
@@ -355,7 +353,7 @@ export function useAdminProductsLogic({
       seoTitle: product.seoMetadata?.title || product.specifications?._seoTitle || '',
       seoDescription: product.seoMetadata?.description || product.specifications?._seoDescription || '',
       seoSlug: product.seoMetadata?.slug || product.specifications?._seoSlug || product.slug || '',
-      accessoryOffers: (product.salesConfig?.accessoryOffers || []).map((item: any) => ({
+      accessoryOffers: accessoryOffers.map((item: any) => ({
         productId: item.productId || '',
         productName: item.productName || '',
         productSku: item.productSku || '',
@@ -365,7 +363,7 @@ export function useAdminProductsLogic({
         discountValue: Number(item.discountValue || 0),
         maxQuantity: Number(item.maxQuantity || 1),
       })),
-      attachedServices: (product.salesConfig?.attachedServices || []).map((item: any) => ({
+      attachedServices: attachedServices.map((item: any) => ({
         serviceId: item.serviceId || '',
         name: item.name || '',
         code: item.code || '',
@@ -376,29 +374,41 @@ export function useAdminProductsLogic({
         fixedPrice: Number(item.fixedPrice || 0),
         percentValue: Number(item.percentValue || 0),
       })),
-      warrantyPolicy: normalizeWarrantyPolicy(product.salesConfig?.warrantyPolicy || product.specifications?._warrantyPolicy || defaultWarrantyPolicy),
+      warrantyPolicy: normalizeWarrantyPolicy(warrantyPolicy),
       updatedAt: product.updatedAt || '',
       version: Number(product.version || 1),
       variantSpecKeys: savedVariantSpecKeys,
-      variants: (product.variants || []).map((item: any) => ({
-        ...emptyVariant,
-        id: item.id,
-        sku: item.sku || '',
-        colorName: item.colorName || '',
-        colorCode: item.colorCode || '#111827',
-        storage: item.storage || '',
-        ram: item.ram || '',
-        configuration: item.configuration || '',
-        specs: item.specs || {},
-        imageUrl: item.imageUrl || '',
-        price: Number(item.price || 0),
-        salePrice: Number(item.salePrice || 0),
-        isActive: item.isActive !== false,
-        compareAtPrice: Number(item.compareAtPrice || 0),
-        isDefault: Boolean(item.isDefault),
-        status: item.status || 'active',
-        attributes: item.attributes || {},
-      })),
+      variants: (product.variants || []).map((item: any) => {
+        const attributes = item.attributes || {};
+        const rawSpecs = item.specs || {};
+        const normalizedSpecs = { ...rawSpecs };
+        savedVariantSpecKeys.forEach((key: string) => {
+          const optionName = variantFields.find((field) => field.key === key)?.label || key;
+          const value = variantSpecValue(item, key, optionName);
+          if (value) normalizedSpecs[key] = value;
+        });
+        return {
+          ...emptyVariant,
+          id: item.id,
+          sku: item.sku || '',
+          colorName: item.colorName || String(variantSpecValue(item, 'color', colorOptionName) || ''),
+          colorCode: item.colorCode || '#111827',
+          storage: item.storage || String(variantSpecValue(item, 'storage', 'Bộ nhớ trong') || ''),
+          ram: item.ram || String(variantSpecValue(item, 'ram', 'RAM') || ''),
+          configuration: item.configuration || String(variantSpecValue(item, 'configuration', 'Cấu hình') || ''),
+          specs: normalizedSpecs,
+          imageUrl: item.imageUrl || '',
+          images: item.images || [],
+          price: Number(item.price || 0),
+          salePrice: Number(item.salePrice ?? item.discountPrice ?? item.price ?? 0),
+          stockQuantity: Number(item.stockQuantity ?? item.stock ?? 0),
+          isActive: item.isActive !== false,
+          compareAtPrice: Number(item.compareAtPrice || 0),
+          isDefault: Boolean(item.isDefault),
+          status: item.status || 'active',
+          attributes,
+        };
+      }),
       options: product.options || [],
       status: product.status || 'ACTIVE',
       isFeatured: Boolean(product.isFeatured),
@@ -407,22 +417,42 @@ export function useAdminProductsLogic({
   }
 
   async function reactivateProduct(product: any) {
-    await apiDb.adminUpdateProduct(product.id, { ...product, status: 'ACTIVE', discountPrice: product.discountPrice || null });
-    await loadData(tab, { force: true });
+    if (product.status !== 'INACTIVE') {
+      window.alert('Chỉ sản phẩm đang tạm ẩn mới được khôi phục.');
+      return;
+    }
+    try {
+      await productApi.adminUpdateProduct(product.id, { ...product, status: 'ACTIVE', discountPrice: product.discountPrice || null });
+      await loadData(tab, { force: true });
+    } catch (error) {
+      window.alert(`Không thể khôi phục sản phẩm:\n${productSubmitErrorMessage(error)}`);
+    }
   }
 
   async function submitProduct(product: any) {
-    await apiDb.adminSubmitProduct(product.id);
-    await loadData(tab, { force: true });
+    if (!['DRAFT', 'REVISION_DRAFT'].includes(product.status)) {
+      window.alert('Chỉ bản nháp hoặc bản chỉnh sửa đang soạn mới được gửi duyệt.');
+      return;
+    }
+    try {
+      await productApi.adminSubmitProduct(product.id);
+      await loadData(tab, { force: true });
+    } catch (error) {
+      window.alert(`Không thể gửi duyệt sản phẩm:\n${productSubmitErrorMessage(error)}`);
+    }
   }
 
   async function approveProduct(product: any) {
-    await apiDb.adminApproveProduct(product.id);
-    await loadData(tab, { force: true });
+    try {
+      await productApi.adminApproveProduct(product.id);
+      await loadData(tab, { force: true });
+    } catch (error) {
+      window.alert(`Không thể duyệt sản phẩm:\n${productSubmitErrorMessage(error)}`);
+    }
   }
 
   async function duplicateProduct(product: any) {
-    const result = await apiDb.adminDuplicateProduct(product.id);
+    const result = await productApi.adminDuplicateProduct(product.id);
     await loadData(tab, { force: true });
     window.alert(`Đã sao chép sản phẩm sang bản nháp mới: ${result.id}`);
   }
@@ -437,14 +467,14 @@ export function useAdminProductsLogic({
       window.alert('Chọn ít nhất một sản phẩm đang chờ duyệt.');
       return;
     }
-    const result = await apiDb.adminBulkApproveProducts(ids);
+    const result = await productApi.adminBulkApproveProducts(ids);
     setSelectedProductIds([]);
     await loadData(tab, { force: true });
     window.alert(`Đã duyệt ${result.updated} sản phẩm. Bỏ qua: ${result.skipped.length}.`);
   }
 
   async function exportProducts() {
-    const result = await apiDb.adminExportProducts({ search: query });
+    const result = await productApi.adminExportProducts({ search: query });
     window.alert(`Đã đưa yêu cầu xuất file vào hàng đợi. Mã job: ${result.jobId}`);
   }
 
@@ -455,86 +485,22 @@ export function useAdminProductsLogic({
       window.alert('Vui lòng chọn file CSV.');
       return;
     }
-    const result = await apiDb.adminImportProducts(file);
+    const result = await productApi.adminImportProducts(file);
     window.alert(`Đã đưa file vào hàng đợi import. Mã job: ${result.jobId}`);
     window.setTimeout(() => void loadData(tab, { force: true }), 1500);
   }
 
   async function archiveProduct(product: any) {
-    await apiDb.adminArchiveProduct(product.id);
-    await loadData(tab, { force: true });
-  }
-
-  function addVariant() {
-    setProductForm((prev) => ({ ...prev, variants: [...prev.variants, { ...emptyVariant, price: prev.price, salePrice: prev.discountPrice }] }));
-  }
-
-  function patchVariant(index: number, patch: Partial<VariantForm>) {
-    setProductForm((prev) => ({ ...prev, variants: prev.variants.map((item, i) => (i === index ? { ...item, ...patch } : item)) }));
-  }
-
-  function addAccessoryOffer(item: any) {
-    setProductForm((prev) => ({
-      ...prev,
-      accessoryOffers: [
-        ...prev.accessoryOffers,
-        {
-          productId: item.id,
-          productName: item.name || '',
-          productSku: item.sku || '',
-          imageUrl: item.imageUrl || '',
-          discountType: 'PERCENT',
-          discountValue: 25,
-          maxQuantity: 1,
-        },
-      ],
-    }));
-    setAccessorySearch('');
-  }
-
-  function patchAccessoryOffer(productId: string, patch: Partial<AccessoryOfferForm>) {
-    setProductForm((prev) => ({
-      ...prev,
-      accessoryOffers: prev.accessoryOffers.map((item) => (item.productId === productId ? { ...item, ...patch } : item)),
-    }));
-  }
-
-  function removeAccessoryOffer(productId: string) {
-    setProductForm((prev) => ({
-      ...prev,
-      accessoryOffers: prev.accessoryOffers.filter((item) => item.productId !== productId),
-    }));
-  }
-
-  function addAttachedService(service: any) {
-    const group = String(service.attributeGroup || '').trim();
-    if (group && productForm.attachedServices.some((item) => item.serviceType === service.serviceType && item.attributeGroup === group)) {
-      window.alert('Mỗi nhóm thuộc tính của dịch vụ chỉ được chọn một lựa chọn. Hãy bỏ lựa chọn cũ trước khi chọn lựa chọn mới.');
+    if (!['DRAFT', 'REVISION_DRAFT', 'INACTIVE'].includes(product.status)) {
+      window.alert('Chỉ bản nháp, bản chỉnh sửa đang soạn hoặc sản phẩm đang tạm ẩn mới được lưu trữ.');
       return;
     }
-    setProductForm((prev) => prev.attachedServices.some((item) => item.serviceId === service.id)
-      ? prev
-      : {
-        ...prev,
-        attachedServices: [
-          ...prev.attachedServices,
-          {
-            serviceId: service.id,
-            name: service.name || '',
-            code: service.code || '',
-            serviceType: service.serviceType || 'SUPPORT_SERVICE',
-            attributeGroup: service.attributeGroup || '',
-            durationMonths: Number(service.durationMonths || 0),
-            priceMode: service.priceMode || 'FIXED',
-            fixedPrice: Number(service.fixedPrice || 0),
-            percentValue: Number(service.percentValue || 0),
-          },
-        ],
-      });
-  }
-
-  function removeAttachedService(serviceId: string) {
-    setProductForm((prev) => ({ ...prev, attachedServices: prev.attachedServices.filter((item) => item.serviceId !== serviceId) }));
+    try {
+      await productApi.adminArchiveProduct(product.id);
+      await loadData(tab, { force: true });
+    } catch (error) {
+      window.alert(`Không thể lưu trữ sản phẩm:\n${productSubmitErrorMessage(error)}`);
+    }
   }
 
   function slugifyText(text: string): string {
@@ -545,20 +511,6 @@ export function useAdminProductsLogic({
       .replace(/đ/g, 'd')
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)+/g, '');
-  }
-
-  function toggleVariantSpecField(key: string, checked: boolean) {
-    setProductForm((prev) => ({
-      ...prev,
-      variantSpecKeys: checked ? [...new Set([...prev.variantSpecKeys, key])] : prev.variantSpecKeys.filter((item) => item !== key),
-      variants: checked
-        ? prev.variants
-        : prev.variants.map((variant) => {
-          const specs = { ...variant.specs };
-          delete specs[key];
-          return { ...variant, specs };
-        }),
-    }));
   }
 
   async function confirmDelete(label: string, action: () => Promise<unknown>) {
@@ -603,6 +555,8 @@ export function useAdminProductsLogic({
     setPreviewProduct,
     editingProductId,
     setEditingProductId,
+    productFormOpen,
+    setProductFormOpen,
     productCloseSignal,
     setProductCloseSignal,
     selectedCategory,

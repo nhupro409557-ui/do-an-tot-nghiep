@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Image as ImageIcon, Layers, Search, SlidersHorizontal, Sparkles, X } from 'lucide-react';
+import { Eye, Heart, Image as ImageIcon, Layers, Search, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import { apiDb } from '../services/apiDb';
 import { ImageWithFallback } from '../components/ui/ImageWithFallback';
 import ImagesModal from '../components/video/ImagesModal';
@@ -14,6 +14,9 @@ interface Product {
   images?: string[];
   price?: number;
   discountPrice?: number;
+  favoriteCount?: number;
+  viewCount?: number;
+  trendScore?: number;
 }
 
 interface ImageItem {
@@ -23,6 +26,8 @@ interface ImageItem {
   productName: string;
   brand?: string;
   category?: string;
+  favoriteCount?: number;
+  viewCount?: number;
   product: Product;
 }
 
@@ -35,11 +40,29 @@ interface ProductCard {
   category?: string;
   product: Product;
   imageCount: number;
+  favoriteCount?: number;
+  viewCount?: number;
+  trendScore?: number;
   images: ImageItem[];
 }
 
+type SortMode = 'trending' | 'views' | 'likes' | 'name';
+
 function priceOf(product: Product) {
   return Number(product?.discountPrice || product?.price || 0).toLocaleString('vi-VN');
+}
+
+function numericCount(value: unknown) {
+  const count = Number(value || 0);
+  return Number.isFinite(count) ? count : 0;
+}
+
+function productMetric(item: ProductCard, key: 'favoriteCount' | 'viewCount' | 'trendScore') {
+  return numericCount(item[key] ?? item.product?.[key]);
+}
+
+function formatCount(value: unknown) {
+  return numericCount(value).toLocaleString('vi-VN');
 }
 
 function SkeletonTile() {
@@ -108,7 +131,7 @@ function ImageTile({ item, index, onOpen }: { item: ProductCard; index: number; 
         <ImageWithFallback
           src={item.mainUrl}
           alt={item.productName}
-          className={`h-full w-full object-cover transition-all duration-700 ease-out ${hovered ? 'scale-110 brightness-105' : 'scale-100'}`}
+          className={`h-full w-full object-contain p-3 transition-all duration-700 ease-out ${hovered ? 'scale-105 brightness-105' : 'scale-100'}`}
           loading="lazy"
           draggable={false}
         />
@@ -127,7 +150,7 @@ function ImageTile({ item, index, onOpen }: { item: ProductCard; index: number; 
         )}
       </div>
 
-      <div className={`absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1.5 p-4 transition-all duration-500 ease-out ${hovered ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-90'}`}>
+      <div className={`absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1.5 p-4 transition-all duration-500 ease-out ${hovered ? 'translate-y-0 opacity-100' : 'translate-y-16 opacity-95'}`}>
         <h3 className="line-clamp-2 text-sm font-bold leading-snug text-white drop-shadow-lg transition-colors duration-300 group-hover:text-red-300">
           {item.productName}
         </h3>
@@ -135,6 +158,11 @@ function ImageTile({ item, index, onOpen }: { item: ProductCard; index: number; 
         <span className="text-xs font-black text-red-300 drop-shadow-md">
           {priceOf(item.product)}đ
         </span>
+
+        <div className={`flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-semibold text-white/75 transition-all duration-500 ${hovered ? 'opacity-100' : 'opacity-0'}`}>
+          <span className="inline-flex items-center gap-1"><Eye className="h-3 w-3" />{formatCount(productMetric(item, 'viewCount'))} lượt xem</span>
+          <span className="inline-flex items-center gap-1"><Heart className="h-3 w-3" />{formatCount(productMetric(item, 'favoriteCount'))} lượt thích</span>
+        </div>
 
         <Link
           to={`/product/${item.productId}`}
@@ -163,6 +191,7 @@ export default function ImagesPage() {
   const [categories, setCategories] = useState<{ label: string; count: number }[]>([]);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [sort, setSort] = useState<SortMode>('trending');
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
@@ -216,7 +245,14 @@ export default function ImagesPage() {
     () => productCards.find((card) => card.id === activeCardId) || (resolvedCard?.id === activeCardId ? resolvedCard : null),
     [productCards, resolvedCard, activeCardId],
   );
-  const filteredCards = productCards;
+  const filteredCards = useMemo(() => {
+    return [...productCards].sort((a, b) => {
+      if (sort === 'views') return productMetric(b, 'viewCount') - productMetric(a, 'viewCount');
+      if (sort === 'likes') return productMetric(b, 'favoriteCount') - productMetric(a, 'favoriteCount');
+      if (sort === 'name') return String(a.productName || '').localeCompare(String(b.productName || ''), 'vi');
+      return productMetric(b, 'trendScore') - productMetric(a, 'trendScore');
+    });
+  }, [productCards, sort]);
   const lastViewId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -298,7 +334,7 @@ export default function ImagesPage() {
                   <ImageIcon className="h-6 w-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-3xl font-black tracking-tight text-gray-900">Thư Viện Ảnh 3D</h1>
+                  <h1 className="text-3xl font-black tracking-tight text-gray-900">Thư viện ảnh 3D</h1>
                   <p className="mt-0.5 text-sm font-medium text-gray-500">Trải nghiệm xem sản phẩm 360° chất lượng cao</p>
                 </div>
               </div>
@@ -317,7 +353,7 @@ export default function ImagesPage() {
               )}
             </div>
 
-            <div className="w-full max-w-md">
+            <div className="grid w-full max-w-xl gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
               <label className="group relative block">
                 <Search className="absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-400 transition-colors group-focus-within:text-red-500" />
                 <input
@@ -332,6 +368,16 @@ export default function ImagesPage() {
                   </button>
                 )}
               </label>
+              <select
+                value={sort}
+                onChange={(event) => setSort(event.target.value as SortMode)}
+                className="h-12 rounded-2xl border border-gray-200 bg-white px-4 text-sm font-bold text-gray-700 shadow-sm outline-none transition-all hover:border-gray-300 focus:border-red-400 focus:ring-2 focus:ring-red-100"
+              >
+                <option value="trending">Nổi bật</option>
+                <option value="views">Xem nhiều</option>
+                <option value="likes">Thích nhiều</option>
+                <option value="name">Tên A-Z</option>
+              </select>
             </div>
           </div>
         </div>

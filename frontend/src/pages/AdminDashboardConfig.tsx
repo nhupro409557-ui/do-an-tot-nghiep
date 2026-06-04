@@ -5,6 +5,7 @@ import {
   Building2,
   ClipboardList,
   FolderTree,
+  Image,
   KeyRound,
   LayoutDashboard,
   Megaphone,
@@ -13,9 +14,10 @@ import {
   ShieldCheck,
   Star,
   Users,
+  Zap,
 } from 'lucide-react';
 
-export type AdminTab = 'overview' | 'products' | 'categories' | 'brands' | 'services' | 'orders' | 'vouchers' | 'customers' | 'inventory' | 'reviews' | 'content' | 'audit' | 'permissions';
+export type AdminTab = 'overview' | 'products' | 'flashSales' | 'categories' | 'brands' | 'services' | 'orders' | 'vouchers' | 'customers' | 'inventory' | 'reviews' | 'content' | 'banners' | 'audit' | 'permissions';
 export type AdminTabGroup = 'Tổng quan' | 'Kinh doanh' | 'Catalog' | 'Vận hành' | 'Khách hàng' | 'Hệ thống';
 export type SpecField = { key: string; label: string; group?: string; type: string; required: boolean; variant: boolean; isFilterable?: boolean; filterType?: string; filterEnabled?: boolean };
 export type CategoryFilterField = { key: string; label: string; type: string; enabled: boolean; source?: string };
@@ -132,8 +134,6 @@ export const getInventorySettings = (product: any) => {
   return {
     minimumStock: toNumber(salesConfig.minimumStock),
     blockSaleWhenOutOfStock: salesConfig.blockSaleWhenOutOfStock !== false,
-    preferredLocationCode: String(salesConfig.preferredLocationCode || ''),
-    preferredLocationName: String(salesConfig.preferredLocationName || ''),
     cycleCountDays: toNumber(salesConfig.cycleCountDays || 30),
   };
 };
@@ -144,6 +144,8 @@ export const getVoucherBudgetUsage = (voucher: any) => {
   return cap > 0 ? used / cap : 0;
 };
 export const slugifyText = (value: string) => value
+  .replace(/\u0111/g, 'd')
+  .replace(/\u0110/g, 'D')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
   .toLowerCase()
@@ -179,6 +181,7 @@ export function categoryWarrantyPolicy(category: any, parent?: any): WarrantyPol
 export const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Tổng quan', icon: LayoutDashboard },
   { id: 'products', label: 'Sản phẩm', icon: Package },
+  { id: 'flashSales', label: 'Flash sale', icon: Zap },
   { id: 'categories', label: 'Danh mục', icon: FolderTree },
   { id: 'brands', label: 'Thương hiệu', icon: Building2 },
   { id: 'services', label: 'Dịch vụ', icon: ShieldCheck },
@@ -188,6 +191,7 @@ export const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = 
   { id: 'inventory', label: 'Tồn kho', icon: Boxes },
   { id: 'reviews', label: 'Đánh giá', icon: Star },
   { id: 'content', label: 'Video & nội dung', icon: Megaphone },
+  { id: 'banners', label: 'Banner', icon: Image },
   { id: 'audit', label: 'Nhật ký', icon: ScrollText },
   { id: 'permissions', label: 'Phân quyền', icon: KeyRound },
 ];
@@ -210,6 +214,15 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
     label: 'Quản lý',
     title: 'Quản lý sản phẩm',
     description: 'Khu vực cập nhật dữ liệu sản phẩm, media, biến thể và giá bán.',
+  },
+  flashSales: {
+    active: 'bg-red-600 text-white shadow-sm shadow-red-200',
+    item: 'border-red-100 bg-red-50/70 text-red-950 hover:bg-red-100/80',
+    icon: 'bg-red-50 text-red-700 ring-red-100',
+    surface: 'border-red-100 bg-red-50/70 text-red-900',
+    label: 'Kinh doanh',
+    title: 'Quản lý flash sale',
+    description: 'Cài đặt giá sale theo tiền hoặc phần trăm, kèm thời gian bắt đầu và kết thúc.',
   },
   categories: {
     active: 'bg-red-600 text-white shadow-sm shadow-red-200',
@@ -292,6 +305,15 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
     title: 'Video & nội dung',
     description: 'Khu vực quản lý video, bài viết và nội dung hiển thị riêng với dashboard.',
   },
+  banners: {
+    active: 'bg-teal-600 text-white shadow-sm shadow-teal-200',
+    item: 'border-teal-100 bg-teal-50/75 text-teal-950 hover:bg-teal-100/80',
+    icon: 'bg-teal-50 text-teal-700 ring-teal-100',
+    surface: 'border-teal-100 bg-teal-50/80 text-teal-900',
+    label: 'Nội dung',
+    title: 'Quản lý banner',
+    description: 'Khu vực quản lý banner trang chủ, liên kết danh mục và sản phẩm nổi bật.',
+  },
   audit: {
     active: 'bg-slate-700 text-white shadow-sm shadow-slate-200',
     item: 'border-slate-200 bg-slate-100/80 text-slate-950 hover:bg-slate-200/70',
@@ -316,12 +338,14 @@ export const adminTabs: { id: AdminTab; label: string; group: AdminTabGroup; ico
   { id: 'overview', label: 'Tổng quan', group: 'Tổng quan', icon: LayoutDashboard },
   { id: 'orders', label: 'Đơn hàng', group: 'Kinh doanh', icon: ClipboardList },
   { id: 'vouchers', label: 'Voucher', group: 'Kinh doanh', icon: BadgePercent },
+  { id: 'flashSales', label: 'Flash sale', group: 'Kinh doanh', icon: Zap },
   { id: 'products', label: 'Sản phẩm', group: 'Catalog', icon: Package },
   { id: 'categories', label: 'Danh mục', group: 'Catalog', icon: FolderTree },
   { id: 'brands', label: 'Thương hiệu', group: 'Catalog', icon: Building2 },
   { id: 'services', label: 'Dịch vụ', group: 'Catalog', icon: ShieldCheck },
   { id: 'inventory', label: 'Tồn kho', group: 'Vận hành', icon: Boxes },
   { id: 'content', label: 'Video & nội dung', group: 'Vận hành', icon: Megaphone },
+  { id: 'banners', label: 'Banner', group: 'Vận hành', icon: Image },
   { id: 'customers', label: 'Khách hàng', group: 'Khách hàng', icon: Users },
   { id: 'reviews', label: 'Đánh giá', group: 'Khách hàng', icon: Star },
   { id: 'audit', label: 'Nhật ký', group: 'Hệ thống', icon: ScrollText },
@@ -347,6 +371,15 @@ export const adminTabTone: Record<AdminTab, { active: string; item: string; icon
     label: 'Quản lý',
     title: 'Quản lý sản phẩm',
     description: 'Khu vực cập nhật dữ liệu sản phẩm, media, biến thể và giá bán.',
+  },
+  flashSales: {
+    active: 'border-red-200 bg-red-100 text-slate-800 shadow-sm shadow-red-50',
+    item: 'border-red-100 bg-red-50/70 text-slate-700 hover:bg-red-100/80',
+    icon: 'bg-red-50 text-red-700 ring-red-100',
+    surface: 'border-red-100 bg-red-50/70 text-red-900',
+    label: 'Kinh doanh',
+    title: 'Quản lý flash sale',
+    description: 'Cài đặt giá sale theo tiền hoặc phần trăm, kèm thời gian bắt đầu và kết thúc.',
   },
   categories: {
     active: 'border-rose-200 bg-rose-100 text-slate-800 shadow-sm shadow-rose-50',
@@ -429,6 +462,15 @@ export const adminTabTone: Record<AdminTab, { active: string; item: string; icon
     title: 'Video và nội dung',
     description: 'Khu vực quản lý video, bài viết và nội dung hiển thị riêng với dashboard.',
   },
+  banners: {
+    active: 'border-emerald-200 bg-emerald-100 text-slate-800 shadow-sm shadow-emerald-50',
+    item: 'border-emerald-100 bg-emerald-50/75 text-slate-700 hover:bg-emerald-100/80',
+    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    surface: 'border-emerald-100 bg-emerald-50/80 text-emerald-900',
+    label: 'Nội dung',
+    title: 'Quản lý banner',
+    description: 'Khu vực quản lý banner trang chủ, liên kết danh mục và sản phẩm nổi bật.',
+  },
   audit: {
     active: 'border-slate-200 bg-slate-100 text-slate-800 shadow-sm shadow-slate-50',
     item: 'border-slate-200 bg-slate-100/80 text-slate-700 hover:bg-slate-200/70',
@@ -452,6 +494,7 @@ export const adminTabTone: Record<AdminTab, { active: string; item: string; icon
 export const searchPlaceholderByTab: Record<AdminTab, string> = {
   overview: 'Tìm số liệu, cảnh báo hoặc khu vực cần theo dõi',
   products: 'Tìm sản phẩm, SKU, thương hiệu',
+  flashSales: 'Tìm sản phẩm đang flash sale',
   categories: 'Tìm danh mục, slug, danh mục cha',
   brands: 'Tìm thương hiệu, mã hoặc SEO',
   services: 'Tìm dịch vụ, mã, nhóm hoặc loại dịch vụ',
@@ -461,6 +504,7 @@ export const searchPlaceholderByTab: Record<AdminTab, string> = {
   inventory: 'Tìm sản phẩm, SKU, trạng thái kho',
   reviews: 'Tìm sản phẩm, khách hàng, nội dung',
   content: 'Tìm tiêu đề, loại, mô tả',
+  banners: 'Tìm banner theo tiêu đề hoặc mô tả',
   audit: 'Tìm sự kiện, tài nguyên hoặc IP',
   permissions: 'Tìm vai trò, nhóm quyền hoặc thao tác',
 };
@@ -619,6 +663,7 @@ export const emptyProduct = {
   name: '',
   price: 0,
   discountPrice: 0,
+  stock: 0,
   brand: 'Apple',
   category: 'PHONE',
   categoryId: '',
