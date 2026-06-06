@@ -3,13 +3,13 @@ import time
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from redis.asyncio import Redis
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.session import get_session
 from app.infrastructure.cache import get_redis
+from app.infrastructure.database.repositories import catalog_category_repo
 
-router = APIRouter(prefix="/catalog", tags=["Catalog"])
+router = APIRouter(tags=["Catalog"])
 
 CATEGORY_CACHE_ROOT_ORDER_KEY = "catalog:categories:roots:active"
 CATEGORY_CACHE_ROOT_ORDER_STALE_KEY = "catalog:categories:roots:stale"
@@ -65,45 +65,7 @@ async def list_categories(session: AsyncSession = Depends(get_session), redis: R
             await redis.incr("metrics:catalog_categories:cache_miss")
         except Exception:
             mark_redis_unavailable()
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                c.id::text,
-                c.parent_id::text AS "parentId",
-                c.code,
-                c.slug,
-                c.name,
-                c.icon,
-                c.icon_url AS "iconUrl",
-                c.banner_url AS "bannerUrl",
-                COALESCE(c.spec_fields, '[]'::jsonb) AS "specFields",
-                c.filter_config AS "filterConfig",
-                c.sort_order AS "order",
-                COALESCE(
-                    jsonb_agg(
-                        DISTINCT jsonb_build_object(
-                            'id', child.id::text,
-                            'code', child.code,
-                            'slug', child.slug,
-                            'name', child.name,
-                            'sortOrder', child.sort_order
-                        )
-                    ) FILTER (WHERE child.id IS NOT NULL AND COALESCE(child.is_deleted, FALSE) = FALSE AND child.status = 'ACTIVE'),
-                    '[]'::jsonb
-                ) AS children
-            FROM categories c
-            LEFT JOIN categories child ON child.parent_id = c.id
-            WHERE c.parent_id IS NULL
-              AND c.is_active = TRUE
-              AND c.status = 'ACTIVE'
-              AND COALESCE(c.is_deleted, FALSE) = FALSE
-            GROUP BY c.id
-            ORDER BY c.sort_order, c.name
-            """
-        )
-    )
-    categories = [dict(row._mapping) for row in result]
+    categories = await catalog_category_repo.list_active_root_categories(session)
     if redis_cache_available():
         try:
             payload = json.dumps(categories, ensure_ascii=False, default=str)
@@ -120,19 +82,7 @@ async def list_categories(session: AsyncSession = Depends(get_session), redis: R
 
 @router.get("/redirects/{old_slug}")
 async def get_category_redirect(old_slug: str, session: AsyncSession = Depends(get_session)) -> dict:
-    row = (
-        await session.execute(
-            text(
-                """
-                SELECT source_path AS "sourcePath", target_path AS "targetPath", status_code AS "statusCode"
-                FROM url_redirects
-                WHERE source_path = :source_path
-                  AND entity_type = 'category'
-                """
-            ),
-            {"source_path": f"/category/{old_slug}"},
-        )
-    ).mappings().first()
+    row = await catalog_category_repo.get_category_redirect(session, old_slug)
     if not row:
         raise HTTPException(status_code=404, detail="Redirect not found.")
-    return dict(row)
+    return row

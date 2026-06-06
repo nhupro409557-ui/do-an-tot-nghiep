@@ -6,7 +6,6 @@ import smtplib
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.commerce.integrations import RefundGateway, ShippingGateway
@@ -21,6 +20,7 @@ from app.application.commerce.schemas import (
     VoucherValidationResponse,
 )
 from app.config import settings
+from app.infrastructure.database.repositories import commerce_repo
 
 
 ORDER_STATUS_TRANSITIONS: dict[str, set[str]] = {
@@ -52,13 +52,11 @@ ORDER_STATUS_EMAIL_LABELS: dict[str, str] = {
 }
 from app.domain.users.entities import LoyaltyTransactionType
 from app.infrastructure.database.models import (
-    AIContextLog,
     LoyaltyTransaction,
     Order,
     OrderHistoryLog,
     OrderItem,
     PaymentTransaction,
-    Product,
     User,
     UserVoucher,
     Voucher,
@@ -211,8 +209,7 @@ class AudienceRule(VoucherRule):
                 "Voucher is reserved for another customer.",
             )
         if voucher.eligible_user_registered_after and context.user_id:
-            user_result = await service._session.execute(select(User.created_at).where(User.id == context.user_id))
-            registered_at = user_result.scalar_one_or_none()
+            registered_at = await commerce_repo.get_user_created_at(service._session, context.user_id)
             if registered_at and registered_at < voucher.eligible_user_registered_after:
                 return service._invalid(
                     voucher.code,
@@ -371,8 +368,7 @@ class VoucherService:
         if voucher is None:
             return self._invalid(code.upper(), "VOUCHER_ERR_INVALID", "Voucher is invalid or inactive.")
 
-        now_result = await self._session.execute(text("SELECT NOW()"))
-        now = now_result.scalar_one()
+        now = await commerce_repo.get_database_now(self._session)
         context = VoucherValidationContext(
             voucher=voucher,
             now=now,
@@ -416,18 +412,13 @@ class VoucherService:
 
     async def claim_voucher(self, *, user_id: UUID, voucher_id: UUID) -> UserVoucherResponse:
         now = datetime.now(timezone.utc)
-        voucher = await self._session.scalar(select(Voucher).where(Voucher.id == voucher_id))
+        voucher = await commerce_repo.get_voucher_by_id(self._session, voucher_id)
         if voucher is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voucher not found.")
         if voucher.status != "ACTIVE":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Voucher is not active.")
 
-        existing = await self._session.scalar(
-            select(UserVoucher)
-            .where(UserVoucher.user_id == user_id)
-            .where(UserVoucher.voucher_id == voucher_id)
-            .where(UserVoucher.status.in_(["AVAILABLE", "RESERVED", "USED"]))
-        )
+        existing = await commerce_repo.get_existing_user_voucher(self._session, user_id=user_id, voucher_id=voucher_id)
         if existing is not None:
             return self._wallet_response(existing, voucher)
 
@@ -442,20 +433,13 @@ class VoucherService:
             claimed_at=now,
             expires_at=expires_at,
         )
-        self._session.add(wallet_voucher)
-        await self._session.flush()
+        await commerce_repo.add_user_voucher(self._session, wallet_voucher)
         return self._wallet_response(wallet_voucher, voucher)
 
     async def list_user_vouchers(self, *, user_id: UUID) -> list[UserVoucherResponse]:
-        result = await self._session.execute(
-            select(UserVoucher, Voucher)
-            .join(Voucher, Voucher.id == UserVoucher.voucher_id)
-            .where(UserVoucher.user_id == user_id)
-            .order_by(UserVoucher.claimed_at.desc())
-        )
         responses: list[UserVoucherResponse] = []
         now = datetime.now(timezone.utc)
-        for wallet_voucher, voucher in result.all():
+        for wallet_voucher, voucher in await commerce_repo.list_user_vouchers_with_voucher(self._session, user_id):
             if wallet_voucher.expires_at and wallet_voucher.status == "AVAILABLE" and wallet_voucher.expires_at < now:
                 await self._expire_wallet_voucher(wallet_voucher)
             responses.append(self._wallet_response(wallet_voucher, voucher))
@@ -471,30 +455,25 @@ class VoucherService:
     ) -> UserVoucher | None:
         claimed_voucher = None
         if voucher.validity_days_after_claim > 0 and user_id:
-            claimed_voucher = await self._session.scalar(
-                select(UserVoucher)
-                .where(UserVoucher.user_id == user_id)
-                .where(UserVoucher.voucher_id == voucher.id)
-                .where(UserVoucher.status.in_(["AVAILABLE", "RESERVED"]))
-                .order_by(UserVoucher.claimed_at.desc())
-                .with_for_update()
+            claimed_voucher = await commerce_repo.get_claimed_voucher_for_update(
+                self._session,
+                user_id=user_id,
+                voucher_id=voucher.id,
             )
         voucher.used_count += 1
         voucher.total_discount_used = Decimal(voucher.total_discount_used or 0) + discount_amount
-        self._session.add(voucher)
+        commerce_repo.save_model(self._session, voucher)
         if claimed_voucher is not None:
             claimed_voucher.status = "USED"
             claimed_voucher.used_at = datetime.now(timezone.utc)
             claimed_voucher.order_id = order_id
-            self._session.add(claimed_voucher)
+            commerce_repo.save_model(self._session, claimed_voucher)
         return claimed_voucher
 
     async def rollback_voucher_usage(self, *, order: Order) -> None:
         if not order.voucher_code:
             return
-        voucher = await self._session.scalar(
-            select(Voucher).where(Voucher.code == order.voucher_code.upper()).with_for_update()
-        )
+        voucher = await commerce_repo.get_voucher_by_order_code_for_update(self._session, order.voucher_code)
         if voucher is not None:
             voucher.used_count = max(0, int(voucher.used_count or 0) - 1)
             restored_discount = min(
@@ -502,11 +481,9 @@ class VoucherService:
                 Decimal(order.discount_amount or 0),
             )
             voucher.total_discount_used = max(Decimal("0"), Decimal(voucher.total_discount_used or 0) - restored_discount)
-            self._session.add(voucher)
+            commerce_repo.save_model(self._session, voucher)
         if order.voucher_claim_id:
-            wallet_voucher = await self._session.scalar(
-                select(UserVoucher).where(UserVoucher.id == order.voucher_claim_id).with_for_update()
-            )
+            wallet_voucher = await commerce_repo.get_user_voucher_for_update(self._session, order.voucher_claim_id)
             if wallet_voucher is not None:
                 now = datetime.now(timezone.utc)
                 if wallet_voucher.expires_at and wallet_voucher.expires_at < now:
@@ -515,7 +492,7 @@ class VoucherService:
                     wallet_voucher.status = "AVAILABLE"
                 wallet_voucher.used_at = None
                 wallet_voucher.order_id = None
-                self._session.add(wallet_voucher)
+                commerce_repo.save_model(self._session, wallet_voucher)
 
     def _invalid(
         self,
@@ -552,45 +529,29 @@ class VoucherService:
 
     async def _expire_wallet_voucher(self, wallet_voucher: UserVoucher) -> None:
         wallet_voucher.status = "EXPIRED"
-        self._session.add(wallet_voucher)
+        commerce_repo.save_model(self._session, wallet_voucher)
 
     async def _get_active_voucher(self, code: str) -> Voucher | None:
-        result = await self._session.execute(
-            select(Voucher).where(Voucher.code == code.upper()).where(Voucher.status == "ACTIVE")
-        )
-        return result.scalar_one_or_none()
+        return await commerce_repo.get_active_voucher(self._session, code)
 
     async def _get_claimed_voucher(self, *, user_id: UUID, voucher_id: UUID) -> UserVoucher | None:
-        result = await self._session.execute(
-            select(UserVoucher)
-            .where(UserVoucher.user_id == user_id)
-            .where(UserVoucher.voucher_id == voucher_id)
-            .order_by(UserVoucher.claimed_at.desc())
-        )
-        return result.scalar_one_or_none()
+        return await commerce_repo.get_claimed_voucher(self._session, user_id=user_id, voucher_id=voucher_id)
 
     async def _user_order_count(self, user_id: UUID) -> int:
-        result = await self._session.execute(
-            text("SELECT COUNT(*) FROM orders WHERE user_id = :user_id"),
-            {"user_id": user_id},
-        )
-        return int(result.scalar() or 0)
+        return await commerce_repo.count_user_orders(self._session, user_id)
 
     async def _user_voucher_usage_count(self, user_id: UUID, code: str) -> int:
-        result = await self._session.execute(
-            text("SELECT COUNT(*) FROM orders WHERE user_id = :user_id AND voucher_code = :code"),
-            {"user_id": user_id, "code": code.upper()},
-        )
-        return int(result.scalar() or 0)
+        return await commerce_repo.count_user_voucher_usage(self._session, user_id=user_id, code=code)
 
     async def _voucher_usage_count_by(self, column: str, value: str, code: str) -> int:
         if column not in {"voucher_device_id", "voucher_ip_address"}:
             return 0
-        result = await self._session.execute(
-            text(f"SELECT COUNT(*) FROM orders WHERE voucher_code = :code AND {column} = :value"),
-            {"code": code.upper(), "value": value},
+        return await commerce_repo.count_voucher_usage_by_identity(
+            self._session,
+            column=column,
+            value=value,
+            code=code,
         )
-        return int(result.scalar() or 0)
 
     @staticmethod
     def _calculate_discount(*, voucher: Voucher, subtotal_amount: Decimal) -> Decimal:
@@ -611,7 +572,7 @@ class CreateOrderUseCase:
 
     async def execute(self, request: CreateOrderRequest) -> CreateOrderResponse:
         if request.idempotency_key:
-            existing = await self._session.scalar(select(Order).where(Order.idempotency_key == request.idempotency_key))
+            existing = await commerce_repo.get_order_by_idempotency_key(self._session, request.idempotency_key)
             if existing is not None:
                 return CreateOrderResponse(
                     order_id=existing.id,
@@ -636,7 +597,7 @@ class CreateOrderUseCase:
         async with self._session.begin():
             user = None
             if request.user_id:
-                user = await self._session.scalar(select(User).where(User.id == request.user_id).with_for_update())
+                user = await commerce_repo.get_user_for_update(self._session, request.user_id)
                 if user is None:
                     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
                 if user.loyalty_wallet_status != "ACTIVE":
@@ -647,10 +608,9 @@ class CreateOrderUseCase:
             product_ids = {str(item.product_id) for item in request.items if item.product_id}
             category_ids = {str(item.category_id) for item in request.items if item.category_id}
             if product_ids and not category_ids:
-                product_result = await self._session.execute(
-                    select(Product.id, Product.category_id, Product.subcategory_id).where(
-                        Product.id.in_([UUID(item) for item in product_ids])
-                    )
+                product_result = await commerce_repo.list_product_categories(
+                    self._session,
+                    [UUID(item) for item in product_ids],
                 )
                 category_ids = {
                     str(row.subcategory_id or row.category_id)
@@ -661,12 +621,7 @@ class CreateOrderUseCase:
             voucher = None
             voucher_service = VoucherService(session=self._session)
             if request.voucher_code:
-                voucher = await self._session.scalar(
-                    select(Voucher)
-                    .where(Voucher.code == request.voucher_code.upper())
-                    .where(Voucher.status == "ACTIVE")
-                    .with_for_update()
-                )
+                voucher = await commerce_repo.get_active_voucher_for_update(self._session, request.voucher_code)
                 if voucher is None:
                     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid voucher.")
                 validation = await voucher_service.validate(
@@ -698,101 +653,50 @@ class CreateOrderUseCase:
 
             for item in request.items:
                 if item.variant_id:
-                    inventory_row = (
-                        await self._session.execute(
-                            text(
-                                """
-                                SELECT id, product_id, stock_quantity
-                                FROM product_variants
-                                WHERE id = :variant_id
-                                  AND (:product_id IS NULL OR product_id = :product_id)
-                                  AND is_active = TRUE
-                                FOR UPDATE
-                                """
-                            ),
-                            {"variant_id": item.variant_id, "product_id": item.product_id},
-                        )
-                    ).mappings().first()
+                    inventory_row = await commerce_repo.get_variant_inventory_for_update(
+                        self._session,
+                        variant_id=item.variant_id,
+                        product_id=item.product_id,
+                    )
                     if not inventory_row:
                         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product variant not found.")
                     old_quantity = int(inventory_row["stock_quantity"] or 0)
                     new_quantity = old_quantity - item.quantity
                     if new_quantity < 0:
                         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Not enough stock for {item.product_name}.")
-                    await self._session.execute(
-                        text("UPDATE product_variants SET stock_quantity = :quantity, updated_at = NOW() WHERE id = :id"),
-                        {"id": item.variant_id, "quantity": new_quantity},
-                    )
-                    await self._session.execute(
-                        text(
-                            """
-                            INSERT INTO inventory_adjustment_logs (
-                                id, product_id, variant_id, old_quantity, new_quantity, delta,
-                                transaction_type, reference_code, reason, note
-                            )
-                            VALUES (
-                                :id, :product_id, :variant_id, :old_quantity, :new_quantity, :delta,
-                                'SALE', :reference_code, 'ORDER_CREATED', :note
-                            )
-                            """
-                        ),
-                        {
-                            "id": uuid4(),
-                            "product_id": item.product_id or inventory_row["product_id"],
-                            "variant_id": item.variant_id,
-                            "old_quantity": old_quantity,
-                            "new_quantity": new_quantity,
-                            "delta": -item.quantity,
-                            "reference_code": order_code,
-                            "note": f"Reserve stock during checkout for {item.product_name}.",
-                        },
+                    await commerce_repo.update_variant_stock(self._session, variant_id=item.variant_id, quantity=new_quantity)
+                    await commerce_repo.insert_inventory_adjustment(
+                        self._session,
+                        product_id=item.product_id or inventory_row["product_id"],
+                        variant_id=item.variant_id,
+                        old_quantity=old_quantity,
+                        new_quantity=new_quantity,
+                        delta=-item.quantity,
+                        transaction_type="SALE",
+                        reference_code=order_code,
+                        reason="ORDER_CREATED",
+                        note=f"Reserve stock during checkout for {item.product_name}.",
                     )
                 elif item.product_id:
-                    inventory_row = (
-                        await self._session.execute(
-                            text(
-                                """
-                                SELECT id, stock_quantity
-                                FROM products
-                                WHERE id = :product_id AND status = 'ACTIVE'
-                                FOR UPDATE
-                                """
-                            ),
-                            {"product_id": item.product_id},
-                        )
-                    ).mappings().first()
+                    inventory_row = await commerce_repo.get_product_inventory_for_update(self._session, item.product_id)
                     if not inventory_row:
                         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
                     old_quantity = int(inventory_row["stock_quantity"] or 0)
                     new_quantity = old_quantity - item.quantity
                     if new_quantity < 0:
                         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Not enough stock for {item.product_name}.")
-                    await self._session.execute(
-                        text("UPDATE products SET stock_quantity = :quantity, updated_at = NOW() WHERE id = :id"),
-                        {"id": item.product_id, "quantity": new_quantity},
-                    )
-                    await self._session.execute(
-                        text(
-                            """
-                            INSERT INTO inventory_adjustment_logs (
-                                id, product_id, variant_id, old_quantity, new_quantity, delta,
-                                transaction_type, reference_code, reason, note
-                            )
-                            VALUES (
-                                :id, :product_id, NULL, :old_quantity, :new_quantity, :delta,
-                                'SALE', :reference_code, 'ORDER_CREATED', :note
-                            )
-                            """
-                        ),
-                        {
-                            "id": uuid4(),
-                            "product_id": item.product_id,
-                            "old_quantity": old_quantity,
-                            "new_quantity": new_quantity,
-                            "delta": -item.quantity,
-                            "reference_code": order_code,
-                            "note": f"Reserve stock during checkout for {item.product_name}.",
-                        },
+                    await commerce_repo.update_product_stock(self._session, product_id=item.product_id, quantity=new_quantity)
+                    await commerce_repo.insert_inventory_adjustment(
+                        self._session,
+                        product_id=item.product_id,
+                        variant_id=None,
+                        old_quantity=old_quantity,
+                        new_quantity=new_quantity,
+                        delta=-item.quantity,
+                        transaction_type="SALE",
+                        reference_code=order_code,
+                        reason="ORDER_CREATED",
+                        note=f"Reserve stock during checkout for {item.product_name}.",
                     )
 
             if voucher is not None:
@@ -826,8 +730,9 @@ class CreateOrderUseCase:
                 recipient_phone=request.shipping.recipient_phone,
                 shipping_address=request.shipping.shipping_address,
             )
-            self._session.add(order)
-            self._session.add(
+            commerce_repo.save_model(self._session, order)
+            commerce_repo.save_model(
+                self._session,
                 OrderHistoryLog(
                     id=uuid4(),
                     order_id=order.id,
@@ -836,11 +741,12 @@ class CreateOrderUseCase:
                     changed_by="system-checkout",
                     note="Order created from checkout.",
                     metadata_json={"payment_method": order.payment_method},
-                )
+                ),
             )
 
             for item in request.items:
-                self._session.add(
+                commerce_repo.save_model(
+                    self._session,
                     OrderItem(
                         id=uuid4(),
                         order_id=order.id,
@@ -850,7 +756,7 @@ class CreateOrderUseCase:
                         quantity=item.quantity,
                         unit_price=item.unit_price,
                         total_price=item.unit_price * item.quantity,
-                    )
+                    ),
                 )
 
             checkout_url = None
@@ -866,7 +772,8 @@ class CreateOrderUseCase:
                     checkout_url = payment_init.checkout_url
                 else:
                     checkout_url = f"https://sandbox-payment.local/{request.payment_method.lower()}/{order.order_code}"
-                self._session.add(
+                commerce_repo.save_model(
+                    self._session,
                     PaymentTransaction(
                         id=uuid4(),
                         order_id=order.id,
@@ -876,13 +783,14 @@ class CreateOrderUseCase:
                         transaction_ref=order.order_code,
                         checkout_url=checkout_url,
                         raw_response=(payment_init.raw_response if payment_init else {"mode": "sandbox"}),
-                    )
+                    ),
                 )
 
             if user and request.loyalty_points_used > 0:
                 balance_before = user.loyalty_points_balance
                 user.loyalty_points_balance -= request.loyalty_points_used
-                self._session.add(
+                commerce_repo.save_model(
+                    self._session,
                     LoyaltyTransaction(
                         id=uuid4(),
                         user_id=user.id,
@@ -893,9 +801,9 @@ class CreateOrderUseCase:
                         balance_after=user.loyalty_points_balance,
                         reason="Redeem loyalty points during checkout.",
                         metadata_json={"order_code": order.order_code},
-                    )
+                    ),
                 )
-                self._session.add(user)
+                commerce_repo.save_model(self._session, user)
 
         return CreateOrderResponse(
             order_id=order.id,
@@ -909,10 +817,7 @@ class CreateOrderUseCase:
         )
 
     async def _existing_checkout_url(self, order_id: UUID) -> str | None:
-        result = await self._session.execute(
-            select(PaymentTransaction.checkout_url).where(PaymentTransaction.order_id == order_id).limit(1)
-        )
-        return result.scalar_one_or_none()
+        return await commerce_repo.get_checkout_url(self._session, order_id)
 
 
 class CompleteOrderUseCase:
@@ -936,7 +841,7 @@ class CompleteOrderUseCase:
         changed_by: str | None = None,
     ) -> None:
         async with self._session.begin():
-            order = await self._session.scalar(select(Order).where(Order.id == order_id).with_for_update())
+            order = await commerce_repo.get_order_for_update(self._session, order_id)
             if order is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
 
@@ -1004,15 +909,16 @@ class CompleteOrderUseCase:
             if refund_payment:
                 await self._mark_payment_refunded(order, now=now)
 
-            self._session.add(order)
+            commerce_repo.save_model(self._session, order)
 
             if order.status == "COMPLETED" and previous_status != "COMPLETED" and order.user_id and order.loyalty_points_earned > 0:
-                user = await self._session.scalar(select(User).where(User.id == order.user_id).with_for_update())
+                user = await commerce_repo.get_user_for_update(self._session, order.user_id)
                 if user and user.loyalty_wallet_status == "ACTIVE":
                     balance_before = user.loyalty_points_balance
                     user.loyalty_points_balance += order.loyalty_points_earned
                     user.loyalty_tier = calculate_tier(user.loyalty_points_balance)
-                    self._session.add(
+                    commerce_repo.save_model(
+                        self._session,
                         LoyaltyTransaction(
                             id=uuid4(),
                             user_id=user.id,
@@ -1023,19 +929,18 @@ class CompleteOrderUseCase:
                             balance_after=user.loyalty_points_balance,
                             reason="Earn points when order is completed.",
                             metadata_json={"order_code": order.order_code},
-                        )
+                        ),
                     )
-                    self._session.add(user)
+                    commerce_repo.save_model(self._session, user)
 
             if order.status in {"CANCELLED", "REFUNDED", "PAYMENT_FAILED"} and previous_status not in {"CANCELLED", "REFUNDED", "PAYMENT_FAILED"} and order.voucher_code:
-                voucher = await self._session.scalar(
-                    select(Voucher).where(Voucher.code == order.voucher_code.upper()).with_for_update()
-                )
+                voucher = await commerce_repo.get_voucher_by_order_code_for_update(self._session, order.voucher_code)
                 if voucher and voucher.refund_policy in {"ALWAYS", "SHOP_FAULT_ONLY"}:
                     await VoucherService(session=self._session).rollback_voucher_usage(order=order)
 
             if status_value is not None and status_value != previous_status:
-                self._session.add(
+                commerce_repo.save_model(
+                    self._session,
                     OrderHistoryLog(
                         id=uuid4(),
                         order_id=order.id,
@@ -1048,9 +953,9 @@ class CompleteOrderUseCase:
                             "tracking_code": order.tracking_code,
                             "refund_payment": refund_payment,
                         },
-                    )
+                    ),
                 )
-                user = await self._session.scalar(select(User).where(User.id == order.user_id)) if order.user_id else None
+                user = await commerce_repo.get_user(self._session, order.user_id) if order.user_id else None
                 self._send_order_status_email(order=order, user=user)
 
     async def execute_admin_update(self, *, order_id: UUID, request: AdminUpdateOrderRequest) -> None:
@@ -1067,26 +972,15 @@ class CompleteOrderUseCase:
         )
 
     async def expire_pending_orders(self, *, online_timeout_minutes: int = 15, cod_timeout_hours: int = 24) -> int:
-        result = await self._session.execute(
-            text(
-                """
-                SELECT id
-                FROM orders
-                WHERE status = 'PENDING'
-                  AND (
-                    (payment_method <> 'COD' AND created_at < NOW() - make_interval(mins => :online_timeout_minutes))
-                    OR
-                    (payment_method = 'COD' AND created_at < NOW() - make_interval(hours => :cod_timeout_hours))
-                  )
-                ORDER BY created_at ASC
-                """
-            ),
-            {"online_timeout_minutes": online_timeout_minutes, "cod_timeout_hours": cod_timeout_hours},
+        order_ids = await commerce_repo.list_pending_order_ids_to_expire(
+            self._session,
+            online_timeout_minutes=online_timeout_minutes,
+            cod_timeout_hours=cod_timeout_hours,
         )
         expired_count = 0
-        for row in result.all():
+        for order_id in order_ids:
             await self.execute(
-                order_id=row[0],
+                order_id=order_id,
                 status_value="PAYMENT_FAILED",
                 internal_note="Auto cancel overdue pending order.",
                 changed_by="system-expirer",
@@ -1095,10 +989,7 @@ class CompleteOrderUseCase:
         return expired_count
 
     async def _mark_payment_refunded(self, order: Order, *, now: datetime) -> None:
-        payment_rows = await self._session.execute(
-            select(PaymentTransaction).where(PaymentTransaction.order_id == order.id).with_for_update()
-        )
-        transactions = payment_rows.scalars().all()
+        transactions = await commerce_repo.list_payment_transactions_for_update(self._session, order.id)
         if not transactions:
             return
         for transaction in transactions:
@@ -1118,132 +1009,54 @@ class CompleteOrderUseCase:
                     "refund_provider_ref": gateway_result.provider_ref,
                     "refund_message": gateway_result.message,
                 }
-                self._session.add(transaction)
+                commerce_repo.save_model(self._session, transaction)
         order.payment_status = "REFUNDED"
         order.refunded_at = order.refunded_at or now
 
     async def _restock_order_items(self, order: Order) -> None:
-        item_rows = await self._session.execute(
-            text(
-                """
-                SELECT
-                    oi.id,
-                    oi.product_id,
-                    oi.variant_id AS order_variant_id,
-                    oi.product_name,
-                    oi.quantity,
-                    logs.variant_id
-                FROM order_items oi
-                LEFT JOIN LATERAL (
-                    SELECT ial.variant_id
-                    FROM inventory_adjustment_logs ial
-                    WHERE ial.reference_code = :reference_code
-                      AND ial.product_id IS NOT DISTINCT FROM oi.product_id
-                      AND ial.reason = 'ORDER_CREATED'
-                    ORDER BY ial.created_at ASC
-                    LIMIT 1
-                ) logs ON TRUE
-                WHERE oi.order_id = :order_id
-                """
-            ),
-            {"order_id": order.id, "reference_code": order.order_code},
-        )
-        for item in item_rows.mappings().all():
+        for item in await commerce_repo.list_restock_items(self._session, order_id=order.id, order_code=order.order_code):
             quantity = int(item["quantity"] or 0)
             variant_id = item["order_variant_id"] or item["variant_id"]
             if variant_id:
-                inventory_row = (
-                    await self._session.execute(
-                        text(
-                            """
-                            SELECT id, product_id, stock_quantity
-                            FROM product_variants
-                            WHERE id = :variant_id
-                            FOR UPDATE
-                            """
-                        ),
-                        {"variant_id": variant_id},
-                    )
-                ).mappings().first()
+                inventory_row = await commerce_repo.get_variant_stock_for_update(self._session, variant_id)
                 if not inventory_row:
                     continue
                 old_quantity = int(inventory_row["stock_quantity"] or 0)
                 new_quantity = old_quantity + quantity
-                await self._session.execute(
-                    text("UPDATE product_variants SET stock_quantity = :quantity, updated_at = NOW() WHERE id = :id"),
-                    {"id": variant_id, "quantity": new_quantity},
-                )
-                await self._session.execute(
-                    text(
-                        """
-                        INSERT INTO inventory_adjustment_logs (
-                            id, product_id, variant_id, old_quantity, new_quantity, delta,
-                            transaction_type, reference_code, reason, note
-                        )
-                        VALUES (
-                            :id, :product_id, :variant_id, :old_quantity, :new_quantity, :delta,
-                            'RETURN', :reference_code, 'ORDER_CANCELLED_RESTOCK', :note
-                        )
-                        """
-                    ),
-                    {
-                        "id": uuid4(),
-                        "product_id": inventory_row["product_id"],
-                        "variant_id": variant_id,
-                        "old_quantity": old_quantity,
-                        "new_quantity": new_quantity,
-                        "delta": quantity,
-                        "reference_code": order.order_code,
-                        "note": f"Restock after cancelling order for {item['product_name']}.",
-                    },
+                await commerce_repo.update_variant_stock(self._session, variant_id=variant_id, quantity=new_quantity)
+                await commerce_repo.insert_inventory_adjustment(
+                    self._session,
+                    product_id=inventory_row["product_id"],
+                    variant_id=variant_id,
+                    old_quantity=old_quantity,
+                    new_quantity=new_quantity,
+                    delta=quantity,
+                    transaction_type="RETURN",
+                    reference_code=order.order_code,
+                    reason="ORDER_CANCELLED_RESTOCK",
+                    note=f"Restock after cancelling order for {item['product_name']}.",
                 )
                 continue
 
             if not item["product_id"]:
                 continue
-            inventory_row = (
-                await self._session.execute(
-                    text(
-                        """
-                        SELECT id, stock_quantity
-                        FROM products
-                        WHERE id = :product_id
-                        FOR UPDATE
-                        """
-                    ),
-                    {"product_id": item["product_id"]},
-                )
-            ).mappings().first()
+            inventory_row = await commerce_repo.get_product_stock_for_update(self._session, item["product_id"])
             if not inventory_row:
                 continue
             old_quantity = int(inventory_row["stock_quantity"] or 0)
             new_quantity = old_quantity + quantity
-            await self._session.execute(
-                text("UPDATE products SET stock_quantity = :quantity, updated_at = NOW() WHERE id = :id"),
-                {"id": item["product_id"], "quantity": new_quantity},
-            )
-            await self._session.execute(
-                text(
-                    """
-                    INSERT INTO inventory_adjustment_logs (
-                        id, product_id, variant_id, old_quantity, new_quantity, delta,
-                        transaction_type, reference_code, reason, note
-                    )
-                    VALUES (
-                        :id, :product_id, NULL, :old_quantity, :new_quantity, :delta,
-                        'RETURN', :reference_code, 'ORDER_CANCELLED_RESTOCK', :note
-                    )
-                    """
-                ),
-                {
-                    "id": uuid4(),
-                    "product_id": item["product_id"],
-                    "old_quantity": old_quantity,
-                    "new_quantity": new_quantity,
-                    "delta": quantity,
-                    "reference_code": order.order_code,
-                    "note": f"Restock after cancelling order for {item['product_name']}.",
-                },
+            await commerce_repo.update_product_stock(self._session, product_id=item["product_id"], quantity=new_quantity)
+            await commerce_repo.insert_inventory_adjustment(
+                self._session,
+                product_id=item["product_id"],
+                variant_id=None,
+                old_quantity=old_quantity,
+                new_quantity=new_quantity,
+                delta=quantity,
+                transaction_type="RETURN",
+                reference_code=order.order_code,
+                reason="ORDER_CANCELLED_RESTOCK",
+                note=f"Restock after cancelling order for {item['product_name']}.",
             )
 
     def _send_order_status_email(self, *, order: Order, user: User | None) -> None:
@@ -1303,23 +1116,13 @@ class ReportUseCase:
         self._session = session
 
     async def revenue(self) -> RevenueReportResponse:
-        total_orders = await self._session.scalar(select(func.count(Order.id)))
-        completed_orders = await self._session.scalar(
-            select(func.count(Order.id)).where(Order.status == "COMPLETED")
-        )
-        total_revenue = await self._session.scalar(
-            select(func.coalesce(func.sum(Order.total_amount), 0)).where(Order.status == "COMPLETED")
-        )
-        ai_interactions = await self._session.scalar(select(func.count(AIContextLog.id)))
-        loyalty_points_used = await self._session.scalar(
-            select(func.coalesce(func.sum(Order.loyalty_points_used), 0))
-        )
+        report = await commerce_repo.get_revenue_report(self._session)
         return RevenueReportResponse(
-            total_orders=total_orders or 0,
-            completed_orders=completed_orders or 0,
-            total_revenue=total_revenue or Decimal("0"),
-            ai_interactions=ai_interactions or 0,
-            loyalty_points_used=loyalty_points_used or 0,
+            total_orders=report["total_orders"],
+            completed_orders=report["completed_orders"],
+            total_revenue=report["total_revenue"],
+            ai_interactions=report["ai_interactions"],
+            loyalty_points_used=report["loyalty_points_used"],
         )
 
 

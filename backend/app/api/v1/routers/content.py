@@ -1,218 +1,28 @@
-import json
-from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, Query, Request, status
 from redis.asyncio import Redis
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user_id
+from app.api.v1.schemas.content import (
+    ProductImageCommentRequest,
+    ReviewRequest,
+    ReviewUpdateRequest,
+    VideoCommentRequest,
+    VideoViewHeartbeatRequest,
+)
+from app.application.services import public_content_service
 from app.infrastructure.cache import get_redis
 from app.infrastructure.database.session import get_session
-from app.shared.reviews import (
-    REVIEW_WINDOW_DAYS,
-    compute_review_window,
-    detect_spam_reason,
-    dumps_json,
-    enforce_review_rate_limit,
-    get_latest_reviewable_order,
-    normalize_review_text,
-    review_order_outcome_label,
-    sanitize_media_urls,
-    sanitize_review_text,
-    sync_product_review_stats,
-)
 
 
 router = APIRouter(tags=["Content"])
 
-SENSITIVE_COMMENT_TERMS = {
-    "chửi", "địt", "đụ", "cặc", "lồn", "đéo", "dm", "đm", "fuck", "shit", "scam", "lừa đảo"
-}
-
-
-def content_cache_key(page: int, limit: int) -> str:
-    return f"storefront:content:videos:page:{page}:limit:{limit}"
-
-
-def banner_cache_key(limit: int) -> str:
-    return f"storefront:content:banners:limit:{limit}"
-
-
-class ReviewRequest(BaseModel):
-    userName: str = Field(min_length=1, max_length=255)
-    rating: int = Field(ge=1, le=5)
-    comment: str = Field(min_length=1, max_length=2000)
-    mediaUrls: list[str] = Field(default_factory=list, max_length=6)
-
-
-class ReviewUpdateRequest(BaseModel):
-    userName: str = Field(min_length=1, max_length=255)
-    rating: int = Field(ge=1, le=5)
-    comment: str = Field(min_length=1, max_length=2000)
-    mediaUrls: list[str] = Field(default_factory=list, max_length=6)
-
-
-class VideoCommentRequest(BaseModel):
-    body: str = Field(min_length=1, max_length=1000)
-    parentId: UUID | None = None
-    replyToUserName: str | None = Field(default=None, max_length=120)
-
-
-class ProductImageCommentRequest(BaseModel):
-    body: str = Field(min_length=1, max_length=1000)
-    imageUrl: str | None = None
-    parentId: UUID | None = None
-    replyToUserName: str | None = Field(default=None, max_length=120)
-
-
-class VideoViewHeartbeatRequest(BaseModel):
-    watchedSeconds: int = Field(ge=1, le=30)
-    positionSeconds: float | None = Field(default=None, ge=0)
-    visible: bool = True
-
-
-def youtube_embed_url(value: str | None) -> str | None:
-    if not value:
-        return None
-    text_value = str(value).strip()
-    if "youtube.com/embed/" in text_value:
-        return text_value
-    if "youtu.be/" in text_value:
-        video_id = text_value.split("youtu.be/", 1)[1].split("?", 1)[0].split("/", 1)[0]
-        return f"https://www.youtube.com/embed/{video_id}"
-    if "youtube.com/shorts/" in text_value:
-        video_id = text_value.split("youtube.com/shorts/", 1)[1].split("?", 1)[0].split("/", 1)[0]
-        return f"https://www.youtube.com/embed/{video_id}"
-    if "youtube.com/watch" in text_value and "v=" in text_value:
-        video_id = text_value.split("v=", 1)[1].split("&", 1)[0]
-        return f"https://www.youtube.com/embed/{video_id}"
-    return None
-
-
-def youtube_thumbnail_url(value: str | None) -> str | None:
-    embed = youtube_embed_url(value)
-    if not embed:
-        return None
-    video_id = embed.rstrip("/").split("/")[-1].split("?")[0]
-    return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg" if video_id else None
-
-
-def detect_sensitive_comment(value: str) -> str | None:
-    lowered = value.lower()
-    for term in SENSITIVE_COMMENT_TERMS:
-        if term in lowered:
-            return f"Tự động ẩn do chứa từ nhạy cảm: {term}"
-    spam_reason = detect_spam_reason(value, [])
-    return spam_reason
-
-
-async def get_existing_review(*, product_id: UUID, user_id: UUID, session: AsyncSession) -> dict | None:
-    row = (
-        await session.execute(
-            text(
-                """
-                SELECT
-                    id::text,
-                    product_id::text AS "productId",
-                    order_id::text AS "orderId",
-                    user_name AS "userName",
-                    rating,
-                    comment,
-                    media_urls AS "mediaUrls",
-                    status,
-                    moderation_note AS "moderationNote",
-                    review_window_expires_at AS "reviewWindowExpiresAt",
-                    edited_at AS "editedAt",
-                    created_at AS "createdAt",
-                    updated_at AS "updatedAt"
-                FROM product_reviews
-                WHERE user_id = :user_id
-                  AND product_id = :product_id
-                ORDER BY created_at DESC
-                LIMIT 1
-                """
-            ),
-            {"user_id": user_id, "product_id": product_id},
-        )
-    ).mappings().first()
-    return dict(row) if row else None
-
-
-async def get_review_eligibility(product_id: UUID, user_id: UUID, session: AsyncSession) -> dict:
-    latest_order = await get_latest_reviewable_order(session=session, user_id=user_id, product_id=product_id)
-    existing_review = await get_existing_review(product_id=product_id, user_id=user_id, session=session)
-    has_completed_order = bool(latest_order)
-    within_window, expires_at = compute_review_window(latest_order)
-    already_reviewed = bool(existing_review)
-    order_outcome = review_order_outcome_label(latest_order["status"]) if latest_order else None
-    can_review = has_completed_order and within_window and not already_reviewed and order_outcome is None
-
-    existing_expires_at = existing_review.get("reviewWindowExpiresAt") if existing_review else None
-    if isinstance(existing_expires_at, str):
-        existing_expires_at = datetime.fromisoformat(existing_expires_at)
-    can_edit = bool(existing_review and existing_expires_at and datetime.now(timezone.utc) <= existing_expires_at and order_outcome is None)
-    can_delete = can_edit
-
-    if existing_review:
-        message = "Ban da danh gia san pham nay. Ban co the sua hoac xoa trong thoi gian cho phep."
-    elif order_outcome == "DA_HOAN_TIEN":
-        message = "Don hang lien quan da hoan tien, danh gia moi khong con kha dung."
-    elif order_outcome == "DA_TRA_HANG":
-        message = "Don hang lien quan da tra hang, danh gia moi khong con kha dung."
-    elif has_completed_order and not within_window:
-        message = f"Da het han danh gia. Chi cho phep danh gia trong vong {REVIEW_WINDOW_DAYS} ngay sau khi hoan thanh don."
-    elif has_completed_order:
-        message = "Ban co the danh gia san pham nay."
-    else:
-        message = "Chi khach hang co don hang da hoan thanh moi co the danh gia san pham nay."
-
-    return {
-        "canReview": can_review,
-        "hasCompletedOrder": has_completed_order,
-        "alreadyReviewed": already_reviewed,
-        "withinReviewWindow": within_window,
-        "reviewWindowExpiresAt": expires_at,
-        "canEdit": can_edit,
-        "canDelete": can_delete,
-        "orderOutcome": order_outcome,
-        "existingReview": existing_review,
-        "message": message,
-    }
-
 
 @router.get("/products/{product_id}/reviews")
 async def list_reviews(product_id: UUID, session: AsyncSession = Depends(get_session)) -> list[dict]:
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                pr.id::text,
-                pr.product_id::text AS "productId",
-                pr.user_id::text AS "userId",
-                pr.user_name AS "userName",
-                pr.rating,
-                pr.comment,
-                pr.media_urls AS "mediaUrls",
-                pr.shop_reply AS "shopReply",
-                pr.shop_replied_at AS "shopRepliedAt",
-                CASE
-                    WHEN o.status = 'REFUNDED' THEN 'DA_HOAN_TIEN'
-                    WHEN o.status = 'RETURNED' THEN 'DA_TRA_HANG'
-                    ELSE NULL
-                END AS "orderOutcome",
-                pr.created_at AS "createdAt"
-            FROM product_reviews pr
-            LEFT JOIN orders o ON o.id = pr.order_id
-            WHERE pr.product_id = :product_id AND pr.status = 'PUBLISHED'
-            ORDER BY pr.created_at DESC
-            """
-        ),
-        {"product_id": product_id},
-    )
-    return [dict(row._mapping) for row in result]
+    return await public_content_service.list_reviews(product_id, session)
 
 
 @router.get("/products/{product_id}/reviews/eligibility")
@@ -221,7 +31,7 @@ async def review_eligibility(
     current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    return await get_review_eligibility(product_id, current_user_id, session)
+    return await public_content_service.get_review_eligibility(product_id, current_user_id, session)
 
 
 @router.post("/products/{product_id}/reviews", status_code=status.HTTP_201_CREATED)
@@ -231,82 +41,7 @@ async def create_review(
     current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    eligibility = await get_review_eligibility(product_id, current_user_id, session)
-    if not eligibility["canReview"]:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=eligibility["message"])
-
-    await enforce_review_rate_limit(session=session, user_id=current_user_id)
-    media_urls = sanitize_media_urls(payload.mediaUrls)
-    safe_user_name = sanitize_review_text(payload.userName)[:255]
-    safe_comment = sanitize_review_text(payload.comment)
-    normalized_comment = normalize_review_text(safe_comment)
-
-    duplicate_review = await session.scalar(
-        text(
-            """
-            SELECT EXISTS (
-                SELECT 1
-                FROM product_reviews
-                WHERE user_id = :user_id
-                  AND product_id = :product_id
-                  AND lower(trim(comment)) = :normalized_comment
-            )
-            """
-        ),
-        {
-            "user_id": current_user_id,
-            "product_id": product_id,
-            "normalized_comment": normalized_comment,
-        },
-    )
-    if duplicate_review:
-        raise HTTPException(status_code=409, detail="Danh gia trung noi dung truoc do. Vui long chinh sua nhan xet truoc khi gui lai.")
-
-    # Suspicious reviews are kept in moderation so the shop can inspect them instead of losing traceability.
-    spam_reason = detect_spam_reason(safe_comment, media_urls)
-    moderation_note = "Tu dong cho duyet truoc khi public."
-    if spam_reason:
-        moderation_note = f"Tu dong giu lai de kiem tra spam: {spam_reason}"
-
-    latest_order = await get_latest_reviewable_order(session=session, user_id=current_user_id, product_id=product_id)
-    _, expires_at = compute_review_window(latest_order)
-
-    review_id = uuid4()
-    await session.execute(
-        text(
-            """
-            INSERT INTO product_reviews (
-                id, product_id, order_id, user_id, user_name, rating, comment, media_urls,
-                status, moderation_note, is_spam, spam_reason, review_window_expires_at
-            )
-            VALUES (
-                :id, :product_id, :order_id, :user_id, :user_name, :rating, :comment, CAST(:media_urls AS jsonb),
-                'PENDING', :moderation_note, :is_spam, :spam_reason, :review_window_expires_at
-            )
-            """
-        ),
-        {
-            "id": review_id,
-            "product_id": product_id,
-            "order_id": UUID(str(latest_order["id"])) if latest_order else None,
-            "user_id": current_user_id,
-            "user_name": safe_user_name,
-            "rating": payload.rating,
-            "comment": safe_comment,
-            "media_urls": dumps_json(media_urls),
-            "moderation_note": moderation_note,
-            "is_spam": bool(spam_reason),
-            "spam_reason": spam_reason,
-            "review_window_expires_at": expires_at,
-        },
-    )
-    await sync_product_review_stats(session=session, product_id=product_id)
-    await session.commit()
-    return {
-        "id": str(review_id),
-        "status": "PENDING",
-        "message": "Danh gia da duoc gui va dang cho kiem duyet truoc khi hien thi cong khai.",
-    }
+    return await public_content_service.create_review(product_id, payload, current_user_id, session)
 
 
 @router.patch("/products/{product_id}/reviews/{review_id}")
@@ -317,94 +52,7 @@ async def update_own_review(
     current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    review = (
-        await session.execute(
-            text(
-                """
-                SELECT id, review_window_expires_at
-                FROM product_reviews
-                WHERE id = :review_id
-                  AND product_id = :product_id
-                  AND user_id = :user_id
-                """
-            ),
-            {"review_id": review_id, "product_id": product_id, "user_id": current_user_id},
-        )
-    ).mappings().first()
-    if not review:
-        raise HTTPException(status_code=404, detail="Review not found.")
-    expires_at = review["review_window_expires_at"]
-    if not expires_at or datetime.now(timezone.utc) > expires_at:
-        raise HTTPException(status_code=403, detail="Da het han chinh sua danh gia.")
-
-    eligibility = await get_review_eligibility(product_id, current_user_id, session)
-    if eligibility.get("orderOutcome") is not None:
-        raise HTTPException(status_code=403, detail="Danh gia nay gan voi don hang da tra/hoan, khong the chinh sua.")
-
-    media_urls = sanitize_media_urls(payload.mediaUrls)
-    safe_user_name = sanitize_review_text(payload.userName)[:255]
-    safe_comment = sanitize_review_text(payload.comment)
-    normalized_comment = normalize_review_text(safe_comment)
-    duplicate_review = await session.scalar(
-        text(
-            """
-            SELECT EXISTS (
-                SELECT 1
-                FROM product_reviews
-                WHERE user_id = :user_id
-                  AND product_id = :product_id
-                  AND id <> :review_id
-                  AND lower(trim(comment)) = :normalized_comment
-            )
-            """
-        ),
-        {
-            "user_id": current_user_id,
-            "product_id": product_id,
-            "review_id": review_id,
-            "normalized_comment": normalized_comment,
-        },
-    )
-    if duplicate_review:
-        raise HTTPException(status_code=409, detail="Noi dung danh gia bi trung voi mot danh gia khac cua ban.")
-
-    spam_reason = detect_spam_reason(safe_comment, media_urls)
-    moderation_note = "Nguoi dung da sua danh gia, can duyet lai."
-    if spam_reason:
-        moderation_note = f"Ban sua danh gia bi giu lai de kiem tra spam: {spam_reason}"
-
-    await session.execute(
-        text(
-            """
-            UPDATE product_reviews
-            SET
-                user_name = :user_name,
-                rating = :rating,
-                comment = :comment,
-                media_urls = CAST(:media_urls AS jsonb),
-                status = 'PENDING',
-                moderation_note = :moderation_note,
-                is_spam = :is_spam,
-                spam_reason = :spam_reason,
-                edited_at = NOW(),
-                updated_at = NOW()
-            WHERE id = :review_id
-            """
-        ),
-        {
-            "review_id": review_id,
-            "user_name": safe_user_name,
-            "rating": payload.rating,
-            "comment": safe_comment,
-            "media_urls": dumps_json(media_urls),
-            "moderation_note": moderation_note,
-            "is_spam": bool(spam_reason),
-            "spam_reason": spam_reason,
-        },
-    )
-    await sync_product_review_stats(session=session, product_id=product_id)
-    await session.commit()
-    return {"ok": True, "status": "PENDING", "message": "Danh gia da duoc cap nhat va quay lai hang doi kiem duyet."}
+    return await public_content_service.update_own_review(product_id, review_id, payload, current_user_id, session)
 
 
 @router.delete("/products/{product_id}/reviews/{review_id}")
@@ -414,32 +62,7 @@ async def delete_own_review(
     current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    review = (
-        await session.execute(
-            text(
-                """
-                SELECT id, review_window_expires_at
-                FROM product_reviews
-                WHERE id = :review_id
-                  AND product_id = :product_id
-                  AND user_id = :user_id
-                """
-            ),
-            {"review_id": review_id, "product_id": product_id, "user_id": current_user_id},
-        )
-    ).mappings().first()
-    if not review:
-        raise HTTPException(status_code=404, detail="Review not found.")
-    expires_at = review["review_window_expires_at"]
-    if not expires_at or datetime.now(timezone.utc) > expires_at:
-        raise HTTPException(status_code=403, detail="Da het han xoa danh gia.")
-
-    result = await session.execute(text("DELETE FROM product_reviews WHERE id = :review_id"), {"review_id": review_id})
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Review not found.")
-    await sync_product_review_stats(session=session, product_id=product_id)
-    await session.commit()
-    return {"ok": True}
+    return await public_content_service.delete_own_review(product_id, review_id, current_user_id, session)
 
 
 @router.get("/notifications")
@@ -447,18 +70,7 @@ async def list_notifications(
     current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict]:
-    result = await session.execute(
-        text(
-            """
-            SELECT id::text, type, title, message, read, created_at AS "createdAt"
-            FROM notifications
-            WHERE user_id = :user_id
-            ORDER BY created_at DESC
-            """
-        ),
-        {"user_id": current_user_id},
-    )
-    return [dict(row._mapping) for row in result]
+    return await public_content_service.list_notifications(current_user_id, session)
 
 
 @router.patch("/notifications/read-all")
@@ -466,27 +78,12 @@ async def mark_notifications_read(
     current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, bool]:
-    await session.execute(
-        text("UPDATE notifications SET read = TRUE WHERE user_id = :user_id"),
-        {"user_id": current_user_id},
-    )
-    await session.commit()
-    return {"ok": True}
+    return await public_content_service.mark_notifications_read(current_user_id, session)
 
 
 @router.get("/rewards")
 async def list_rewards(session: AsyncSession = Depends(get_session)) -> list[dict]:
-    result = await session.execute(
-        text(
-            """
-            SELECT id::text, title, description, cost, image_url AS "imageUrl", is_active AS "isActive"
-            FROM rewards
-            WHERE is_active = TRUE
-            ORDER BY cost, created_at DESC
-            """
-        )
-    )
-    return [dict(row._mapping) for row in result]
+    return await public_content_service.list_rewards(session)
 
 
 @router.get("/banners")
@@ -495,88 +92,7 @@ async def list_banners(
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
 ) -> list[dict]:
-    cache_key = banner_cache_key(limit)
-    cached = None
-    try:
-        cached = await redis.get(cache_key)
-    except Exception:
-      cached = None
-    if cached:
-        return json.loads(cached)
-
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                v.id::text,
-                v.title,
-                v.description,
-                COALESCE(v.banner_image_url, v.thumbnail_url) AS "imageUrl",
-                v.sort_order AS "sortOrder",
-                COALESCE(
-                    (
-                        SELECT json_build_object(
-                            'id', p.id::text,
-                            'slug', p.slug,
-                            'name', p.name
-                        )
-                        FROM content_product_relations cpr
-                        JOIN products p ON p.id = cpr.product_id
-                        WHERE cpr.content_id = v.id
-                          AND p.status = 'ACTIVE'
-                          AND p.deleted_at IS NULL
-                        ORDER BY p.name ASC
-                        LIMIT 1
-                    ),
-                    NULL
-                ) AS product,
-                COALESCE(
-                    (
-                        SELECT json_build_object(
-                            'id', c.id::text,
-                            'slug', c.slug,
-                            'name', c.name
-                        )
-                        FROM content_category_relations ccr
-                        JOIN categories c ON c.id = ccr.category_id
-                        WHERE ccr.content_id = v.id
-                          AND c.deleted_at IS NULL
-                        ORDER BY c.name ASC
-                        LIMIT 1
-                    ),
-                    NULL
-                ) AS category
-            FROM videos v
-            WHERE v.is_active = TRUE
-              AND v.deleted_at IS NULL
-              AND v.content_type = 'BANNER'
-              AND v.status = 'PUBLISHED'
-              AND (v.scheduled_at IS NULL OR v.scheduled_at <= NOW())
-            ORDER BY v.sort_order DESC, COALESCE(v.published_at, v.created_at) DESC, v.created_at DESC
-            LIMIT :limit
-            """
-        ),
-        {"limit": limit},
-    )
-    items = []
-    for row in result:
-        item = dict(row._mapping)
-        product = item.get("product") or {}
-        category = item.get("category") or {}
-        if product.get("id"):
-            item["href"] = f"/product/{product.get('slug') or product.get('id')}"
-        elif category.get("id") or category.get("slug"):
-            item["href"] = f"/products/{category.get('slug') or category.get('id')}"
-        else:
-            item["href"] = "/products"
-        items.append(item)
-    try:
-        await redis.setex(cache_key, 300, json.dumps(items, ensure_ascii=False, default=str))
-        await redis.sadd("storefront:content:videos:keys", cache_key)
-        await redis.expire("storefront:content:videos:keys", 24 * 60 * 60)
-    except Exception:
-        pass
-    return items
+    return await public_content_service.list_banners(limit, session, redis)
 
 
 @router.get("/videos")
@@ -586,138 +102,7 @@ async def list_videos(
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
 ) -> dict:
-    cache_key = content_cache_key(page, limit)
-    cached = None
-    try:
-        cached = await redis.get(cache_key)
-    except Exception:
-        cached = None
-    if cached:
-        return json.loads(cached)
-
-    offset = (page - 1) * limit
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                v.id::text,
-                v.title,
-                v.description,
-                v.content_type AS "contentType",
-                v.video_source AS "videoSource",
-                v.video_category AS "videoCategory",
-                v.status,
-                v.video_url AS "videoUrl",
-                CASE WHEN v.video_source = 'YOUTUBE' THEN v.video_url ELSE NULL END AS "youtubeUrl",
-                v.thumbnail_url AS "thumbnailUrl",
-                v.banner_image_url AS "bannerImageUrl",
-                COALESCE((SELECT COUNT(*) FROM video_likes vl WHERE vl.video_id = v.id), 0)::int AS "likeCount",
-                v.view_count AS "viewCount",
-                v.sort_order AS "sortOrder",
-                v.published_at AS "publishedAt",
-                v.is_active AS "isActive",
-                COALESCE(
-                    (
-                        SELECT json_agg(cpr.product_id::text)
-                        FROM content_product_relations cpr
-                        WHERE cpr.content_id = v.id
-                    ),
-                    '[]'::json
-                ) AS "productIds",
-                COALESCE(
-                    (
-                        SELECT json_agg(
-                            json_build_object(
-                                'id', p.id::text,
-                                'name', p.name,
-                                'imageUrl', p.image_url,
-                                'price', p.price,
-                                'discountPrice', p.sale_price,
-                                'brand', b.name,
-                                'categoryId', p.category_id::text
-                            )
-                            ORDER BY p.name ASC
-                        )
-                        FROM content_product_relations cpr
-                        JOIN products p ON p.id = cpr.product_id
-                        LEFT JOIN brands b ON b.id = p.brand_id
-                        WHERE cpr.content_id = v.id
-                    ),
-                    '[]'::json
-                ) AS products,
-                COALESCE(
-                    (
-                        SELECT json_agg(ccr.category_id::text)
-                        FROM content_category_relations ccr
-                        WHERE ccr.content_id = v.id
-                    ),
-                    '[]'::json
-                ) AS "categoryIds",
-                COALESCE(
-                    (
-                        SELECT json_agg(
-                            json_build_object(
-                                'id', cc.id::text,
-                                'userName', cc.user_name,
-                                'content', CASE WHEN cc.is_retracted THEN 'Bình luận này đã bị thu hồi' ELSE cc.body END,
-                                'parentId', cc.parent_id::text,
-                                'replyToUserName', cc.reply_to_user_name,
-                                'isHidden', cc.is_hidden,
-                                'isRetracted', cc.is_retracted,
-                                'createdAt', cc.created_at
-                            )
-                            ORDER BY cc.created_at ASC
-                        )
-                        FROM content_comments cc
-                        WHERE cc.content_id = v.id
-                          AND cc.deleted_at IS NULL
-                          AND cc.is_hidden = FALSE
-                    ),
-                    '[]'::json
-                ) AS comments
-            FROM videos v
-            WHERE v.is_active = TRUE
-              AND v.deleted_at IS NULL
-              AND v.content_type = 'VIDEO'
-              AND v.status = 'PUBLISHED'
-              AND (v.scheduled_at IS NULL OR v.scheduled_at <= NOW())
-            ORDER BY v.sort_order DESC, COALESCE(v.published_at, v.created_at) DESC, v.created_at DESC
-            LIMIT :limit OFFSET :offset
-            """
-        ),
-        {"limit": limit, "offset": offset},
-    )
-    items = [dict(row._mapping) for row in result]
-    for item in items:
-        item["embedUrl"] = youtube_embed_url(item.get("videoUrl")) if item.get("videoSource") == "YOUTUBE" else None
-        item["youtubeThumbnailUrl"] = youtube_thumbnail_url(item.get("videoUrl")) if item.get("videoSource") == "YOUTUBE" else None
-    total = await session.scalar(
-        text(
-            """
-            SELECT COUNT(*)
-            FROM videos
-            WHERE is_active = TRUE
-              AND deleted_at IS NULL
-              AND content_type = 'VIDEO'
-              AND status = 'PUBLISHED'
-              AND (scheduled_at IS NULL OR scheduled_at <= NOW())
-            """
-        )
-    ) or 0
-    payload = {
-        "items": items,
-        "page": page,
-        "limit": limit,
-        "total": int(total),
-        "hasMore": offset + len(items) < int(total),
-    }
-    try:
-        await redis.setex(cache_key, 300, json.dumps(payload, ensure_ascii=False, default=str))
-        await redis.sadd("storefront:content:videos:keys", cache_key)
-        await redis.expire("storefront:content:videos:keys", 24 * 60 * 60)
-    except Exception:
-        pass
-    return payload
+    return await public_content_service.list_videos(page, limit, session, redis)
 
 
 @router.post("/videos/{video_id}/view")
@@ -729,61 +114,8 @@ async def record_video_view(
     redis: Redis = Depends(get_redis),
     x_device_id: str | None = Header(default=None),
 ) -> dict:
-    exists = await session.scalar(
-        text(
-            """
-            SELECT COUNT(*)
-            FROM videos
-            WHERE id = :video_id
-              AND content_type = 'VIDEO'
-              AND deleted_at IS NULL
-              AND is_active = TRUE
-              AND status = 'PUBLISHED'
-            """
-        ),
-        {"video_id": video_id},
-    )
-    if not exists:
-        raise HTTPException(status_code=404, detail="Video not found.")
-    if not payload.visible:
-        return {"counted": False}
-
     fingerprint = x_device_id or f"{request.client.host if request.client else 'unknown'}:{request.headers.get('user-agent', '')[:120]}"
-    base_key = f"video:view:{video_id}:{fingerprint}"
-    counted_key = f"{base_key}:counted"
-    try:
-      if await redis.get(counted_key):
-          return {"counted": False}
-      watched = await redis.incrby(base_key, payload.watchedSeconds)
-      await redis.expire(base_key, 60 * 60)
-      if watched < 30:
-          return {"counted": False, "watchedSeconds": int(watched)}
-      await redis.setex(counted_key, 24 * 60 * 60, "1")
-      await redis.delete(base_key)
-    except Exception:
-      # Fallback keeps local/dev usable even if Redis is unavailable.
-      pass
-
-    result = await session.execute(
-        text(
-            """
-            UPDATE videos
-            SET view_count = view_count + 1, updated_at = NOW()
-            WHERE id = :video_id
-              AND content_type = 'VIDEO'
-              AND deleted_at IS NULL
-              AND is_active = TRUE
-              AND status = 'PUBLISHED'
-            RETURNING view_count
-            """
-        ),
-        {"video_id": video_id},
-    )
-    view_count = result.scalar_one_or_none()
-    if view_count is None:
-        raise HTTPException(status_code=404, detail="Video not found.")
-    await session.commit()
-    return {"counted": True, "viewCount": int(view_count)}
+    return await public_content_service.record_video_view(video_id, payload, fingerprint, session, redis)
 
 
 @router.post("/videos/{video_id}/like")
@@ -792,37 +124,7 @@ async def toggle_video_like(
     session: AsyncSession = Depends(get_session),
     current_user_id: UUID = Depends(get_current_user_id),
 ) -> dict:
-    exists = await session.scalar(
-        text("SELECT COUNT(*) FROM videos WHERE id = :video_id AND content_type = 'VIDEO' AND deleted_at IS NULL"),
-        {"video_id": video_id},
-    )
-    if not exists:
-        raise HTTPException(status_code=404, detail="Video not found.")
-    liked = await session.scalar(
-        text("SELECT COUNT(*) FROM video_likes WHERE video_id = :video_id AND user_id = :user_id"),
-        {"video_id": video_id, "user_id": current_user_id},
-    )
-    if liked:
-        await session.execute(
-            text("DELETE FROM video_likes WHERE video_id = :video_id AND user_id = :user_id"),
-            {"video_id": video_id, "user_id": current_user_id},
-        )
-        is_liked = False
-    else:
-        await session.execute(
-            text(
-                """
-                INSERT INTO video_likes (video_id, user_id)
-                VALUES (:video_id, :user_id)
-                ON CONFLICT (video_id, user_id) DO NOTHING
-                """
-            ),
-            {"video_id": video_id, "user_id": current_user_id},
-        )
-        is_liked = True
-    like_count = await session.scalar(text("SELECT COUNT(*) FROM video_likes WHERE video_id = :video_id"), {"video_id": video_id}) or 0
-    await session.commit()
-    return {"liked": is_liked, "likeCount": int(like_count)}
+    return await public_content_service.toggle_video_like(video_id, session, current_user_id)
 
 
 @router.post("/videos/{video_id}/comments", status_code=status.HTTP_201_CREATED)
@@ -832,81 +134,7 @@ async def create_video_comment(
     session: AsyncSession = Depends(get_session),
     current_user_id: UUID = Depends(get_current_user_id),
 ) -> dict:
-    video_exists = await session.scalar(
-        text("SELECT COUNT(*) FROM videos WHERE id = :video_id AND content_type = 'VIDEO' AND deleted_at IS NULL AND is_active = TRUE AND status = 'PUBLISHED'"),
-        {"video_id": video_id},
-    )
-    if not video_exists:
-        raise HTTPException(status_code=404, detail="Video not found.")
-
-    parent_id = payload.parentId
-    reply_to_user_name = payload.replyToUserName
-    if parent_id:
-        parent = (
-            await session.execute(
-                text(
-                    """
-                    SELECT id, parent_id, user_name
-                    FROM content_comments
-                    WHERE id = :parent_id
-                      AND content_id = :video_id
-                      AND deleted_at IS NULL
-                    """
-                ),
-                {"parent_id": parent_id, "video_id": video_id},
-            )
-        ).mappings().first()
-        if not parent:
-            raise HTTPException(status_code=404, detail="Parent comment not found.")
-        if parent["parent_id"]:
-            parent_id = parent["parent_id"]
-        reply_to_user_name = reply_to_user_name or parent["user_name"]
-
-    user = (
-        await session.execute(
-            text("SELECT full_name FROM users WHERE id = :user_id"),
-            {"user_id": current_user_id},
-        )
-    ).mappings().first()
-    user_name = user["full_name"] if user else "Khách hàng"
-    clean_body = sanitize_review_text(payload.body).strip()
-    moderation_reason = detect_sensitive_comment(clean_body)
-    comment_id = uuid4()
-    await session.execute(
-        text(
-            """
-            INSERT INTO content_comments (
-                id, content_id, user_id, user_name, body, parent_id, reply_to_user_name,
-                is_hidden, moderation_reason, created_by, updated_by, created_at, updated_at
-            )
-            VALUES (
-                :id, :video_id, :user_id, :user_name, :body, :parent_id, :reply_to_user_name,
-                :is_hidden, :moderation_reason, :user_id, :user_id, NOW(), NOW()
-            )
-            """
-        ),
-        {
-            "id": comment_id,
-            "video_id": video_id,
-            "user_id": current_user_id,
-            "user_name": user_name,
-            "body": clean_body,
-            "parent_id": parent_id,
-            "reply_to_user_name": reply_to_user_name,
-            "is_hidden": bool(moderation_reason),
-            "moderation_reason": moderation_reason,
-        },
-    )
-    await session.commit()
-    return {
-        "id": str(comment_id),
-        "userName": user_name,
-        "content": clean_body,
-        "parentId": str(parent_id) if parent_id else None,
-        "replyToUserName": reply_to_user_name,
-        "isHidden": bool(moderation_reason),
-        "moderationReason": moderation_reason,
-    }
+    return await public_content_service.create_video_comment(video_id, payload, session, current_user_id)
 
 
 @router.delete("/videos/{video_id}/comments/{comment_id}")
@@ -916,52 +144,12 @@ async def retract_video_comment(
     session: AsyncSession = Depends(get_session),
     current_user_id: UUID = Depends(get_current_user_id),
 ) -> dict:
-    result = await session.execute(
-        text(
-            """
-            UPDATE content_comments
-            SET is_retracted = TRUE,
-                retracted_at = NOW(),
-                updated_by = :user_id,
-                updated_at = NOW()
-            WHERE id = :comment_id
-              AND content_id = :video_id
-              AND user_id = :user_id
-              AND deleted_at IS NULL
-              AND is_retracted = FALSE
-            """
-        ),
-        {"comment_id": comment_id, "video_id": video_id, "user_id": current_user_id},
-    )
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Comment not found.")
-    await session.commit()
-    return {"ok": True}
+    return await public_content_service.retract_video_comment(video_id, comment_id, session, current_user_id)
 
 
 @router.get("/products/{product_id}/image-comments")
 async def list_product_image_comments(product_id: UUID, session: AsyncSession = Depends(get_session)) -> list[dict]:
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                id::text,
-                user_name AS "userName",
-                CASE WHEN is_retracted THEN 'Bình luận này đã bị thu hồi' ELSE body END AS content,
-                parent_id::text AS "parentId",
-                reply_to_user_name AS "replyToUserName",
-                is_hidden AS "isHidden",
-                is_retracted AS "isRetracted",
-                created_at AS "createdAt"
-            FROM product_image_comments
-            WHERE product_id = :product_id
-              AND is_hidden = FALSE
-            ORDER BY created_at ASC
-            """
-        ),
-        {"product_id": product_id},
-    )
-    return [dict(row._mapping) for row in result]
+    return await public_content_service.list_product_image_comments(product_id, session)
 
 
 @router.post("/products/{product_id}/image-comments", status_code=status.HTTP_201_CREATED)
@@ -971,71 +159,7 @@ async def create_product_image_comment(
     session: AsyncSession = Depends(get_session),
     current_user_id: UUID = Depends(get_current_user_id),
 ) -> dict:
-    exists = await session.scalar(text("SELECT COUNT(*) FROM products WHERE id = :product_id"), {"product_id": product_id})
-    if not exists:
-        raise HTTPException(status_code=404, detail="Product not found.")
-    parent_id = payload.parentId
-    reply_to_user_name = payload.replyToUserName
-    if parent_id:
-        parent = (
-            await session.execute(
-                text(
-                    """
-                    SELECT id, parent_id, user_name
-                    FROM product_image_comments
-                    WHERE id = :parent_id AND product_id = :product_id AND is_hidden = FALSE
-                    """
-                ),
-                {"parent_id": parent_id, "product_id": product_id},
-            )
-        ).mappings().first()
-        if not parent:
-            raise HTTPException(status_code=404, detail="Parent comment not found.")
-        if parent["parent_id"]:
-            parent_id = parent["parent_id"]
-            reply_to_user_name = reply_to_user_name or parent["user_name"]
-    user_name = (
-        await session.execute(text("SELECT full_name FROM users WHERE id = :id"), {"id": current_user_id})
-    ).scalar_one_or_none() or "Khách hàng"
-    clean_body = sanitize_review_text(payload.body).strip()
-    moderation_reason = detect_sensitive_comment(clean_body)
-    comment_id = uuid4()
-    await session.execute(
-        text(
-            """
-            INSERT INTO product_image_comments (
-                id, product_id, image_url, user_id, user_name, body, parent_id, reply_to_user_name,
-                is_hidden, is_retracted, moderation_reason, created_at, updated_at
-            )
-            VALUES (
-                :id, :product_id, :image_url, :user_id, :user_name, :body, :parent_id, :reply_to_user_name,
-                :is_hidden, FALSE, :moderation_reason, NOW(), NOW()
-            )
-            """
-        ),
-        {
-            "id": comment_id,
-            "product_id": product_id,
-            "image_url": payload.imageUrl,
-            "user_id": current_user_id,
-            "user_name": user_name,
-            "body": clean_body,
-            "parent_id": parent_id,
-            "reply_to_user_name": reply_to_user_name,
-            "is_hidden": bool(moderation_reason),
-            "moderation_reason": moderation_reason,
-        },
-    )
-    await session.commit()
-    return {
-        "id": str(comment_id),
-        "userName": user_name,
-        "content": clean_body if not moderation_reason else "Bình luận đang chờ kiểm duyệt.",
-        "parentId": str(parent_id) if parent_id else None,
-        "replyToUserName": reply_to_user_name,
-        "isHidden": bool(moderation_reason),
-        "isRetracted": False,
-    }
+    return await public_content_service.create_product_image_comment(product_id, payload, session, current_user_id)
 
 
 @router.delete("/products/{product_id}/image-comments/{comment_id}")
@@ -1045,19 +169,4 @@ async def retract_product_image_comment(
     session: AsyncSession = Depends(get_session),
     current_user_id: UUID = Depends(get_current_user_id),
 ) -> dict:
-    result = await session.execute(
-        text(
-            """
-            UPDATE product_image_comments
-            SET is_retracted = TRUE, body = '', updated_at = NOW()
-            WHERE id = :comment_id
-              AND product_id = :product_id
-              AND user_id = :user_id
-            """
-        ),
-        {"comment_id": comment_id, "product_id": product_id, "user_id": current_user_id},
-    )
-    if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Comment not found.")
-    await session.commit()
-    return {"ok": True}
+    return await public_content_service.retract_product_image_comment(product_id, comment_id, session, current_user_id)

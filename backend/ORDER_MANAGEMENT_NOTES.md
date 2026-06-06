@@ -1,4 +1,4 @@
-# Order Management Notes
+﻿# Order Management Notes
 
 ## Scope of the 2026-05 upgrade
 - Added richer admin operations for order handling instead of status-only updates.
@@ -28,9 +28,9 @@
 - `backend/app/application/commerce/integrations.py`
 - `backend/app/main.py`
 - `backend/app/config.py`
-- `frontend/src/services/apiDb.ts`
-- `frontend/src/pages/CheckoutPage.tsx`
-- `frontend/src/pages/AdminDashboard.tsx`
+- `legacy apiDb.ts`
+- `frontend/src/features/storefront-commerce/pages/CheckoutPage.tsx`
+- `frontend/src/features/admin-shell/pages/AdminDashboard.tsx`
 
 ## Design notes
 - Current status flow is intentionally strict: pending -> processing -> shipped -> completed, with cancellation only before completion.
@@ -59,3 +59,32 @@
 - Replace the in-process maintenance loop with a dedicated scheduler / worker in production if horizontal scaling is introduced.
 - Add return-reason codes and warehouse intake inspection outcomes for `RETURNED` orders.
 - Replace sandbox shipping pricing with a live carrier quote adapter if exact fee calculation is required.
+
+## Refactor Structure Notes (June 2026)
+
+### 1. Backend Service Layer Pattern
+- Logic truy váº¥n SQL vÃ  database mapping cá»§a `list_orders` vÃ  `get_order_detail` Ä‘Ã£ Ä‘Æ°á»£c tÃ¡ch hoÃ n toÃ n ra khá»i Router Layer (`commerce.py`) vÃ  chuyá»ƒn sang Service Layer chuyÃªn biá»‡t: [order_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/order_service.py).
+- Router [commerce.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/api/v1/routers/commerce.py) hiá»‡n táº¡i chá»‰ cÃ²n khai bÃ¡o endpoints, nháº­n payload, Dependency Injection vÃ  chuyá»ƒn tiáº¿p xá»­ lÃ½ sang `order_service.py` hoáº·c cÃ¡c Use Cases khÃ¡c cá»§a Commerce.
+
+### 2. Frontend Feature-First Architecture
+- Module Quáº£n lÃ½ ÄÆ¡n hÃ ng Ä‘Ã£ Ä‘Æ°á»£c chuyá»ƒn dá»‹ch hoÃ n chá»‰nh vá» thÆ° má»¥c tÃ­nh nÄƒng Ä‘á»™c láº­p táº¡i: [src/features/admin-orders/](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/)
+  - **Services**: [adminOrdersApi.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/services/adminOrdersApi.ts) chá»©a cÃ¡c hÃ m gá»i API Ä‘Æ¡n hÃ ng (Ä‘Æ°á»£c bÃ³c tÃ¡ch tá»« `apiDb.ts` Ä‘á»ƒ giá»¯ tÃ­nh tÆ°Æ¡ng thÃ­ch ngÆ°á»£c thÃ´ng qua spread operator).
+  - **Hooks**: [useAdminOrdersLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/hooks/useAdminOrdersLogic.ts) xá»­ lÃ½ logic nghiá»‡p vá»¥ vÃ  state cá»§a UI.
+  - **Components**: [AdminOrdersTab.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/components/AdminOrdersTab.tsx) chá»©a UI hiá»ƒn thá»‹ danh sÃ¡ch vÃ  chi tiáº¿t Ä‘Æ¡n hÃ ng.
+- CÃ¡c file Ä‘iá»u phá»‘i chung nhÆ° [apiDb.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/legacy apiDb.ts), [useAdminLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/hooks/useAdminLogic.ts), vÃ  [AdminDashboardTabContent.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/components/AdminDashboardTabContent.tsx) Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t Ä‘Æ°á»ng dáº«n import má»›i.
+
+
+
+## Update 2026-06-05 Order Service Repository Split
+
+- TÃ¡ch truy váº¥n danh sÃ¡ch Ä‘Æ¡n hÃ ng vÃ  chi tiáº¿t Ä‘Æ¡n hÃ ng khá»i `app/application/services/order_service.py` sang `app/infrastructure/database/repositories/order_repo.py`.
+- `order_service.py` hiá»‡n chá»‰ cÃ²n gá»i repository vÃ  xá»­ lÃ½ lá»—i khÃ´ng tÃ¬m tháº¥y Ä‘Æ¡n hÃ ng.
+- Káº¿t quáº£ kiá»ƒm tra: compile backend thÃ nh cÃ´ng; import `app.main`, commerce router, order service vÃ  order repository thÃ nh cÃ´ng.
+
+
+## Update 2026-06-05 Commerce Router SQL Cleanup
+
+- TÃ¡ch hai truy váº¥n DB cÃ²n láº¡i trong `app/api/v1/routers/commerce.py` sang repository.
+- Danh sÃ¡ch voucher public chuyá»ƒn sang `voucher_repo.list_public_vouchers`; tra cá»©u Ä‘Æ¡n hÃ ng theo `order_code` cho MoMo IPN chuyá»ƒn sang `order_repo.get_order_id_by_code`.
+- `commerce.py` hiá»‡n khÃ´ng cÃ²n SQL trá»±c tiáº¿p; router chá»‰ Ä‘iá»u phá»‘i request, repository/service/use case xá»­ lÃ½ dá»¯ liá»‡u.
+- Káº¿t quáº£ kiá»ƒm tra: compile backend thÃ nh cÃ´ng; import `app.main`, commerce router, order repository vÃ  voucher repository thÃ nh cÃ´ng.

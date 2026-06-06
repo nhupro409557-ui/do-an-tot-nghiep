@@ -1,0 +1,157 @@
+import { useState, type FormEvent } from 'react';
+import { brandApi } from '../../../services/brandApi';
+import { notifyAdmin } from '../../admin-shell/utils/adminNotice';
+
+const initialBrandForm = {
+  name: '',
+  code: '',
+  slug: '',
+  logoUrl: '',
+  logoAltText: '',
+  order: 0,
+  isActive: true,
+  landingTitle: '',
+};
+
+type UseAdminBrandsLogicParams = {
+  brands: any[];
+  reloadCurrentTab: () => Promise<void>;
+};
+
+export function useAdminBrandsLogic({ brands, reloadCurrentTab }: UseAdminBrandsLogicParams) {
+  const [brandForm, setBrandForm] = useState(initialBrandForm);
+  const [brandCodeStatus, setBrandCodeStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
+  const [brandImportMode, setBrandImportMode] = useState('skip');
+  const [brandImportJobs, setBrandImportJobs] = useState<any[]>([]);
+  const [activeBrandImportJob, setActiveBrandImportJob] = useState<any | null>(null);
+  const [selectedBrandIds, setSelectedBrandIds] = useState<string[]>([]);
+  const [editingBrandId, setEditingBrandId] = useState<string | null>(null);
+  const [brandCloseSignal, setBrandCloseSignal] = useState(0);
+
+  function resetBrandForm() {
+    setEditingBrandId(null);
+    setBrandCodeStatus('idle');
+    setBrandForm(initialBrandForm);
+    setBrandCloseSignal((value) => value + 1);
+  }
+
+  async function handleBrandSubmit(event: FormEvent) {
+    event.preventDefault();
+    const currentEditingBrandId = editingBrandId;
+    const existing = brands.find((item) => item.id === editingBrandId);
+    const payload = { ...brandForm, categoryIds: existing?.categoryIds || [] };
+
+    try {
+      if (payload.code.trim()) {
+        const check = await brandApi.adminCheckBrandCode({ code: payload.code.trim(), excludeId: editingBrandId });
+        if (!check.available) {
+          window.alert('Mã thương hiệu đã tồn tại. Vui lòng chọn mã khác.');
+          return;
+        }
+      }
+      if (editingBrandId) await brandApi.adminUpdateBrand(editingBrandId, payload);
+      else await brandApi.adminCreateBrand(payload);
+      setBrandCloseSignal((value) => value + 1);
+      window.setTimeout(resetBrandForm, 250);
+      await reloadCurrentTab();
+      window.setTimeout(() => {
+        notifyAdmin(currentEditingBrandId ? 'Đã lưu thay đổi thương hiệu thành công.' : 'Đã thêm thương hiệu thành công.');
+      }, 100);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Không thể lưu thương hiệu. Vui lòng thử lại.');
+    }
+  }
+
+  async function checkBrandCodeOnBlur() {
+    const code = brandForm.code.trim();
+    if (!code) {
+      setBrandCodeStatus('idle');
+      return;
+    }
+    setBrandCodeStatus('checking');
+    try {
+      const result = await brandApi.adminCheckBrandCode({ code, excludeId: editingBrandId });
+      setBrandCodeStatus(result.available ? 'available' : 'taken');
+    } catch {
+      setBrandCodeStatus('idle');
+    }
+  }
+
+  async function handleBrandImportFile(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      window.alert('Vui lòng chọn file CSV.');
+      return;
+    }
+    try {
+      const result = await brandApi.adminImportBrands(file, brandImportMode);
+      setActiveBrandImportJob({ id: result.jobId, status: result.status, progress: 0, totalRows: 0, processedRows: 0, importedRows: 0, updatedRows: 0, skippedRows: 0 });
+      await reloadCurrentTab();
+      notifyAdmin(`Đã đưa file vào hàng đợi xử lý. Mã lịch sử: ${result.jobId}`, 'info');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Không thể import thương hiệu.');
+    }
+  }
+
+  function editBrand(brand: any) {
+    setEditingBrandId(brand.id);
+    setBrandForm({
+      name: brand.name || '',
+      code: brand.code || '',
+      slug: brand.slug || '',
+      logoUrl: brand.logoUrl || '',
+      logoAltText: brand.logoAltText || '',
+      order: Number(brand.order || 0),
+      isActive: brand.isActive !== false,
+      landingTitle: brand.landingTitle || '',
+    });
+  }
+
+  async function reactivateBrand(brand: any) {
+    await brandApi.adminUpdateBrandStatus(brand.id, true);
+    await reloadCurrentTab();
+  }
+
+  async function hideBrand(brand: any) {
+    if (!window.confirm(`Ẩn thương hiệu ${brand.name}? Thương hiệu sẽ không hiển thị ở storefront.`)) return;
+    await brandApi.adminUpdateBrandStatus(brand.id, false);
+    await reloadCurrentTab();
+  }
+
+  async function bulkUpdateBrandStatus(isActive: boolean) {
+    if (!selectedBrandIds.length) return;
+    if (!window.confirm(`${isActive ? 'Khôi phục' : 'Ẩn'} ${selectedBrandIds.length} thương hiệu đã chọn?`)) return;
+    const result = await brandApi.adminUpdateBrandsStatus(selectedBrandIds, isActive);
+    setSelectedBrandIds([]);
+    await reloadCurrentTab();
+    notifyAdmin(`Đã cập nhật ${result.updated} thương hiệu. Lỗi: ${result.failed.length}.`, result.failed.length ? 'info' : 'success');
+  }
+
+  return {
+    brandForm,
+    setBrandForm,
+    brandCodeStatus,
+    setBrandCodeStatus,
+    brandImportMode,
+    setBrandImportMode,
+    brandImportJobs,
+    setBrandImportJobs,
+    activeBrandImportJob,
+    setActiveBrandImportJob,
+    selectedBrandIds,
+    setSelectedBrandIds,
+    editingBrandId,
+    setEditingBrandId,
+    brandCloseSignal,
+    setBrandCloseSignal,
+    resetBrandForm,
+    handleBrandSubmit,
+    checkBrandCodeOnBlur,
+    handleBrandImportFile,
+    editBrand,
+    reactivateBrand,
+    hideBrand,
+    bulkUpdateBrandStatus,
+  };
+}

@@ -1,6 +1,7 @@
 import { request } from './apiClient';
 
 export const brandApi = {
+  listBrands: () => request<any[]>('/catalog/brands'),
   adminListBrands: (params: { page?: number; limit?: number; search?: string; status?: string } = {}) => {
     const searchParams = new URLSearchParams();
     if (params.page) searchParams.set('page', String(params.page));

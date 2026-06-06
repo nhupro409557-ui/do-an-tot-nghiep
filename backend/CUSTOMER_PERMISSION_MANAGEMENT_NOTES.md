@@ -1,4 +1,4 @@
-# Quan ly khach hang va phan quyen
+﻿# Quan ly khach hang va phan quyen
 
 ## Pham vi hien tai
 
@@ -161,3 +161,33 @@
 - Soft delete cho tag neu can bao toan lich su gan/bo tag.
 - Bulk role update co workflow xac nhan.
 - Timeline hop nhat don hang, diem, voucher, ghi chu, log bao mat tren cung mot truc thoi gian.
+
+## Refactor Structure Notes (June 2026)
+
+### 1. Backend Service Layer Pattern
+- ToÃ n bá»™ logic truy váº¥n SQL, database transactions, hashing máº­t kháº©u, phÃ¢n quyá»n vÃ  cÃ¡c rÃ ng buá»™c nghiá»‡p vá»¥ khÃ¡c cá»§a KhÃ¡ch hÃ ng Ä‘Ã£ Ä‘Æ°á»£c chuyá»ƒn dá»‹ch hoÃ n toÃ n tá»« Router (`admin_customers.py`) sang Service Layer chuyÃªn biá»‡t: [customer_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/customer_service.py).
+- File router [admin_customers.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/api/v1/routers/admin_customers.py) Ä‘Æ°á»£c lÃ m má»ng tá»‘i Ä‘a, chá»‰ chá»‹u trÃ¡ch nhiá»‡m Ä‘á»‹nh nghÄ©a route endpoints, Dependency Injection, nháº­n dá»¯ liá»‡u Ä‘áº§u vÃ o vÃ  chuyá»ƒn tiáº¿p lá»i gá»i cho `customer_service.py`.
+- CÃ¡c helper category migration cÅ© (`enqueue_category_cache_refresh`, `process_category_migration_job`, `refresh_category_cache`) Ä‘Æ°á»£c di chuyá»ƒn vÃ o `customer_service.py` vÃ  sá»­a lá»—i tiá»m áº©n `NameError` báº±ng cÃ¡ch import Ä‘áº§y Ä‘á»§ dependencies (`AsyncSessionFactory`), Ä‘á»“ng thá»i sá»­ dá»¥ng import cá»¥c bá»™ Ä‘á»ƒ ngÄƒn lá»—i circular import.
+
+### 2. Frontend Feature-First Architecture
+- Module Quáº£n lÃ½ KhÃ¡ch hÃ ng Ä‘Æ°á»£c Ä‘Ã³ng gÃ³i hoÃ n chá»‰nh trong thÆ° má»¥c tÃ­nh nÄƒng Ä‘á»™c láº­p táº¡i: [src/features/admin-customers/](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-customers/)
+  - **Services**: [adminCustomersApi.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-customers/services/adminCustomersApi.ts) Ä‘áº£m nháº­n gá»i API.
+  - **Hooks**: [useAdminCustomersLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-customers/hooks/useAdminCustomersLogic.ts) xá»­ lÃ½ state vÃ  logic nghiá»‡p vá»¥ UI.
+  - **Components**: [AdminCustomersTab.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-customers/components/AdminCustomersTab.tsx) chá»©a mÃ£ nguá»“n giao diá»‡n chÃ­nh.
+- CÃ¡c file chung Ä‘iá»u phá»‘i dá»¯ liá»‡u vÃ  hiá»ƒn thá»‹ tab Admin nhÆ° [apiDb.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/legacy apiDb.ts), [useAdminLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/hooks/useAdminLogic.ts), vÃ  [AdminDashboardTabContent.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/components/AdminDashboardTabContent.tsx) Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t Ä‘Æ°á»ng dáº«n import má»›i.
+
+### 3. Frontend Feature-First Architecture cho PhÃ¢n quyá»n (Permissions & Roles)
+- Module Quáº£n lÃ½ PhÃ¢n quyá»n Ä‘Æ°á»£c tÃ¡ch biá»‡t hoÃ n toÃ n khá»i module khÃ¡ch hÃ ng vÃ  Ä‘Ã³ng gÃ³i Ä‘á»™c láº­p táº¡i: [src/features/admin-permissions/](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-permissions/)
+  - **Services**: [adminPermissionsApi.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-permissions/services/adminPermissionsApi.ts) chá»©a cÃ¡c API gá»i phÃ¢n quyá»n vÃ  vai trÃ² riÃªng biá»‡t.
+  - **Hooks**: [useAdminPermissionsLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-permissions/hooks/useAdminPermissionsLogic.ts) xá»­ lÃ½ state UI vÃ  tÆ°Æ¡ng tÃ¡c phÃ¢n quyá»n.
+  - **Components**: [AdminPermissionsTab.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-permissions/components/AdminPermissionsTab.tsx) lÃ  thÃ nh pháº§n UI chÃ­nh Ä‘iá»u khiá»ƒn ma tráº­n phÃ¢n quyá»n.
+- CÃ¡c API phÃ¢n quyá»n cÅ© náº±m trong `adminCustomersApi.ts` Ä‘Ã£ Ä‘Æ°á»£c dá»n dáº¹p sáº¡ch sáº½ Ä‘á»ƒ Ä‘áº£m báº£o Single Responsibility Principle.
+- ÄÃ£ cáº­p nháº­t Ä‘áº§y Ä‘á»§ import liÃªn káº¿t táº¡i [apiDb.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/legacy apiDb.ts), [useAdminLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/hooks/useAdminLogic.ts), vÃ  [AdminDashboardTabContent.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/components/AdminDashboardTabContent.tsx).
+- BiÃªn dá»‹ch toÃ n bá»™ Frontend báº±ng `npx tsc --noEmit` hoÃ n táº¥t thÃ nh cÃ´ng 100% khÃ´ng phÃ¡t sinh lá»—i compile.
+
+### 4. Backend Customer Service Repository Split (June 2026)
+- TÃ¡ch má»™t lÆ°á»£ng lá»›n SQL Ä‘á»c dá»¯ liá»‡u khá»i [customer_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/customer_service.py) sang lá»›p [customer_repo.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/infrastructure/database/repositories/customer_repo.py) má»›i.
+- CÃ¡c hÃ m Ä‘Ã£ chuyá»ƒn xuá»‘ng Repository gá»“m: Danh sÃ¡ch khÃ¡ch hÃ ng admin, chi tiáº¿t khÃ¡ch hÃ ng, tag khÃ¡ch hÃ ng, tÃ³m táº¯t ghi chÃº (notes), sá»‘ lÆ°á»£ng voucher cá»§a khÃ¡ch hÃ ng, danh sÃ¡ch Ä‘Æ¡n hÃ ng, lá»‹ch sá»­ Ä‘iá»ƒm thÆ°á»Ÿng (loyalty history), ghi chÃº CSKH, nháº­t kÃ½ há»‡ thá»‘ng (audit logs), danh sÃ¡ch quyá»n háº¡n (permissions) vÃ  danh sÃ¡ch vai trÃ² (roles).
+- Giá»¯ láº¡i cÃ¡c luá»“ng ghi nháº¡y cáº£m cÃ³ nhiá»u side-effect (nhÆ° cáº­p nháº­t tag, táº¡o ghi chÃº CSKH, Ä‘iá»u chá»‰nh Ä‘iá»ƒm thÆ°á»Ÿng, cáº¥p phÃ¡t voucher, táº¡o nhÃ¢n viÃªn, thay Ä‘á»•i vai trÃ²/quyá»n háº¡n vÃ  vÃ´ hiá»‡u hÃ³a hÃ ng loáº¡t) trá»±c tiáº¿p táº¡i Service Ä‘á»ƒ giá»¯ an toÃ n tá»‘i Ä‘a cho luá»“ng nghiá»‡p vá»¥.
+- Káº¿t quáº£ kiá»ƒm tra: biÃªn dá»‹ch toÃ n bá»™ backend báº±ng `.venv` thÃ nh cÃ´ng; náº¡p (import) `app.main`, `customer_service` vÃ  `customer_repo` hoáº¡t Ä‘á»™ng bÃ¬nh thÆ°á»ng.
+

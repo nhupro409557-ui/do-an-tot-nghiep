@@ -1,64 +1,17 @@
-import { normalizeVietnameseEncoding } from '../utils/textEncoding';
+import { authRequest } from './authRequest';
+import { clearStoredAuth, readAuthJson, writeAuthJson } from './authStorage';
+import type { MockUser, PendingPasswordReset, PendingRegistration } from './authTypes';
+export type { MockUser, PendingPasswordReset, PendingRegistration } from './authTypes';
+export { getAuthErrorMessage } from './authErrors';
 
-export interface MockUser {
-  uid: string;
-  email: string;
-  displayName: string | null;
-  emailVerified: boolean;
-  isAnonymous: boolean;
-  tenantId: string | null;
-  providerData: { providerId: string; email: string | null }[];
-}
-
-export type PendingRegistration = {
-  token: string;
-  email: string;
-  displayName: string;
-  expiresAt: number;
-};
-
-export type PendingPasswordReset = {
-  token: string;
-  email: string;
-  expiresAt: number;
-};
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
-
-let currentUser: MockUser | null = readJson('auth_user', null);
-let currentProfile: any | null = readJson('auth_user_profile', null);
+let currentUser: MockUser | null = readAuthJson('auth_user', null);
+let currentProfile: any | null = readAuthJson('auth_user_profile', null);
 let authToken: string | null = null;
 const listeners: ((user: MockUser | null) => void)[] = [];
 let authBootstrapPromise: Promise<void> | null = null;
 
-function readJson<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? normalizeVietnameseEncoding(JSON.parse(raw)) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeJson(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (authToken) headers.Authorization = `Bearer ${authToken}`;
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: { ...headers, ...(options.headers as Record<string, string> | undefined) },
-  });
-  const body = normalizeVietnameseEncoding(await response.json().catch(() => ({})));
-  if (!response.ok) {
-    const err: any = new Error(body.detail || 'Co loi xay ra. Vui long thu lai.');
-    err.code = response.status === 401 ? 'auth/invalid-credential' : `http/${response.status}`;
-    throw err;
-  }
-  return body as T;
+  return authRequest<T>(path, options, authToken);
 }
 
 function notify() {
@@ -69,8 +22,8 @@ function persistAuth(payload: { token: string; user: MockUser; profile: any }) {
   authToken = payload.token;
   currentUser = payload.user;
   currentProfile = payload.profile;
-  writeJson('auth_user', payload.user);
-  writeJson('auth_user_profile', payload.profile);
+  writeAuthJson('auth_user', payload.user);
+  writeAuthJson('auth_user_profile', payload.profile);
   notify();
 }
 
@@ -87,10 +40,7 @@ function clearLocalAuthState(notifyListeners = true) {
   authToken = null;
   currentUser = null;
   currentProfile = null;
-  localStorage.removeItem('auth_user');
-  localStorage.removeItem('auth_user_profile');
-  localStorage.removeItem('last_pending_registration');
-  localStorage.removeItem('last_pending_password_reset');
+  clearStoredAuth();
   if (notifyListeners) notify();
 }
 
@@ -289,7 +239,7 @@ export function getUserProfile(uid: string): any | null {
 export function updateUserProfile(uid: string, updates: any) {
   if (currentUser?.uid !== uid) return;
   currentProfile = { ...(currentProfile || {}), ...updates, updatedAt: new Date().toISOString() };
-  writeJson('auth_user_profile', currentProfile);
+  writeAuthJson('auth_user_profile', currentProfile);
   notify();
   apiRequest<any>('/auth/me/profile', {
     method: 'PATCH',
@@ -297,7 +247,7 @@ export function updateUserProfile(uid: string, updates: any) {
   })
     .then(profile => {
       currentProfile = profile;
-      writeJson('auth_user_profile', profile);
+      writeAuthJson('auth_user_profile', profile);
       notify();
     })
     .catch(console.error);
@@ -309,30 +259,4 @@ export function ensureUserProfile(user: MockUser) {
 
 export function rememberPendingRegistration(registration: PendingRegistration) {
   void registration;
-}
-
-export function getAuthErrorMessage(code?: string, fallback = 'Co loi xay ra. Vui long thu lai.') {
-  switch (code) {
-    case 'auth/invalid-credential':
-    case 'auth/wrong-password':
-    case 'auth/user-not-found':
-      return 'Email hoac mat khau khong dung.';
-    case 'http/409':
-    case 'auth/email-already-in-use':
-      return 'Email nay da duoc dang ky.';
-    case 'auth/weak-password':
-      return 'Mat khau can co it nhat 6 ky tu.';
-    case 'http/400':
-      return fallback;
-    case 'auth/requires-recent-login':
-      return 'Vui long dang nhap lai truoc khi thuc hien thao tac nay.';
-    case 'auth/too-many-requests':
-      return 'Ban thao tac qua nhieu lan. Vui long thu lai sau.';
-    case 'auth/invalid-reset-token':
-      return 'Lien ket dat lai mat khau da het han.';
-    case 'auth/invalid-reset-code':
-      return 'Ma xac nhan khong hop le hoac da het han.';
-    default:
-      return fallback;
-  }
 }

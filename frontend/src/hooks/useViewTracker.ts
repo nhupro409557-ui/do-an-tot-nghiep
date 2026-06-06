@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { apiDb } from '../services/apiDb';
+import { publicApi } from '../services/publicApi';
 
 const HEARTBEAT_SECONDS = 10;
 
@@ -33,7 +33,7 @@ export function useViewTracker(productId?: string | null) {
       if (countedRef.current || document.visibilityState !== 'visible') return;
       updateScrollDepth();
       try {
-        const result = await apiDb.recordProductViewHeartbeat(productId, {
+        const result = await publicApi.recordProductViewHeartbeat(productId, {
           activeSeconds,
           scrollDepth: scrollDepthRef.current,
           source: 'product_detail',

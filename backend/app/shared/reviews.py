@@ -5,9 +5,9 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.infrastructure.database.repositories import review_repo
 
 REVIEW_WINDOW_DAYS = 30
 REVIEW_RATE_LIMIT_COUNT = 3
@@ -27,94 +27,44 @@ def sanitize_review_text(value: str) -> str:
 def sanitize_media_urls(media_urls: list[str], limit: int = 6) -> list[str]:
     cleaned = [item.strip() for item in media_urls if item and item.strip()]
     if len(cleaned) > limit:
-        raise HTTPException(status_code=422, detail=f"Toi da {limit} anh/video cho moi danh gia.")
+        raise HTTPException(status_code=422, detail=f"Tối đa {limit} ảnh/video cho mỗi đánh giá.")
     if any(item.startswith("data:") for item in cleaned):
-        raise HTTPException(status_code=400, detail="Media danh gia phai la URL da upload, khong dung data URL.")
+        raise HTTPException(status_code=400, detail="Media đánh giá phải là URL đã upload, không dùng data URL.")
     return cleaned
 
 
 def detect_spam_reason(comment: str, media_urls: list[str]) -> str | None:
     normalized = normalize_review_text(comment)
     if len(set(normalized)) <= 3 and len(normalized) >= 12:
-        return "Noi dung co dau hieu lap ky tu bat thuong."
+        return "Nội dung có dấu hiệu lặp ký tự bất thường."
     if re.search(r"(.)\1{7,}", normalized):
-        return "Noi dung co chuoi ky tu lap lai qua nhieu."
+        return "Nội dung có chuỗi ký tự lặp lại quá nhiều."
     if normalized.count("http://") + normalized.count("https://") >= 2:
-        return "Noi dung chua qua nhieu lien ket."
+        return "Nội dung chứa quá nhiều liên kết."
     if len(media_urls) > 4:
-        return "Danh gia gan qua nhieu media trong mot lan gui."
+        return "Đánh giá gắn quá nhiều media trong một lần gửi."
     return None
 
 
 async def enforce_review_rate_limit(*, session: AsyncSession, user_id: UUID) -> None:
-    recent_count = await session.scalar(
-        text(
-            """
-            SELECT COUNT(*)
-            FROM product_reviews
-            WHERE user_id = :user_id
-              AND created_at >= NOW() - make_interval(mins => :window_minutes)
-            """
-        ),
-        {"user_id": user_id, "window_minutes": REVIEW_RATE_LIMIT_MINUTES},
+    recent_count = await review_repo.count_recent_user_reviews(
+        session,
+        user_id=user_id,
+        window_minutes=REVIEW_RATE_LIMIT_MINUTES,
     )
-    if int(recent_count or 0) >= REVIEW_RATE_LIMIT_COUNT:
+    if recent_count >= REVIEW_RATE_LIMIT_COUNT:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Ban gui qua nhieu danh gia trong thoi gian ngan. Thu lai sau {REVIEW_RATE_LIMIT_MINUTES} phut.",
+            detail=f"Bạn gửi quá nhiều đánh giá trong thời gian ngắn. Thử lại sau {REVIEW_RATE_LIMIT_MINUTES} phút.",
         )
 
 
 async def sync_product_review_stats(*, session: AsyncSession, product_id: UUID) -> None:
-    await session.execute(
-        text(
-            """
-            UPDATE products p
-            SET
-                rating = stats.rating,
-                review_count = stats.review_count,
-                updated_at = NOW()
-            FROM (
-                SELECT
-                    :product_id AS product_id,
-                    ROUND(AVG(rating) FILTER (WHERE status = 'PUBLISHED'), 2)::numeric(3, 2) AS rating,
-                    COUNT(*) FILTER (WHERE status = 'PUBLISHED') AS review_count
-                FROM product_reviews
-                WHERE product_id = :product_id
-            ) stats
-            WHERE p.id = stats.product_id
-            """
-        ),
-        {"product_id": product_id},
-    )
+    await review_repo.sync_product_review_stats(session, product_id)
 
 
 async def get_latest_reviewable_order(*, session: AsyncSession, user_id: UUID, product_id: UUID) -> dict | None:
-    row = (
-        await session.execute(
-            text(
-                """
-                SELECT
-                    o.id::text AS id,
-                    o.status,
-                    o.payment_status AS "paymentStatus",
-                    o.completed_at AS "completedAt",
-                    o.refunded_at AS "refundedAt",
-                    o.created_at AS "createdAt"
-                FROM orders o
-                JOIN order_items oi ON oi.order_id = o.id
-                WHERE o.user_id = :user_id
-                  AND oi.product_id = :product_id
-                  AND o.payment_status = 'PAID'
-                  AND o.status IN ('COMPLETED', 'RETURNED', 'REFUNDED')
-                ORDER BY COALESCE(o.completed_at, o.created_at) DESC
-                LIMIT 1
-                """
-            ),
-            {"user_id": user_id, "product_id": product_id},
-        )
-    ).mappings().first()
-    return dict(row) if row else None
+    return await review_repo.get_latest_reviewable_order(session, user_id=user_id, product_id=product_id)
 
 
 def compute_review_window(order_row: dict | None) -> tuple[bool, datetime | None]:

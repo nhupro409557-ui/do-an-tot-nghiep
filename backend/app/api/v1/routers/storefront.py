@@ -2,11 +2,11 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from redis.asyncio import Redis
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.routers.catalog import product_row
 from app.infrastructure.cache import get_redis
+from app.infrastructure.database.repositories import storefront_repo
 from app.infrastructure.database.session import get_session
 
 
@@ -17,12 +17,7 @@ async def resolve_brand_redirect(session: AsyncSession, slug: str, max_hops: int
     current = slug
     seen = {slug}
     for _ in range(max_hops):
-        next_slug = (
-            await session.execute(
-                text("SELECT new_slug FROM brand_slug_redirects WHERE old_slug = :slug"),
-                {"slug": current},
-            )
-        ).scalar_one_or_none()
+        next_slug = await storefront_repo.get_brand_redirect_slug(session, current)
         if not next_slug:
             return current if current != slug else None
         if next_slug in seen:
@@ -41,31 +36,12 @@ async def get_brand_landing(
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
 ) -> dict:
-    brand_result = await session.execute(
-        text(
-            """
-            SELECT
-                id::text,
-                code,
-                slug,
-                name,
-                logo_url AS "logoUrl",
-                logo_alt_text AS "logoAltText",
-                landing_title AS "landingTitle",
-                cache_version AS "cacheVersion",
-                sort_order AS "order"
-            FROM brands
-            WHERE slug = :slug AND is_active = TRUE
-            """
-        ),
-        {"slug": slug},
-    )
-    brand = brand_result.mappings().first()
+    brand = await storefront_repo.get_active_brand_by_slug(session, slug)
     if not brand:
         redirect = await resolve_brand_redirect(session, slug)
         if redirect:
             response.status_code = status.HTTP_308_PERMANENT_REDIRECT
-            response.headers["Location"] = f"/api/v1/storefront/brands/{redirect}"
+            response.headers["Location"] = f"/api/storefront/brands/{redirect}"
             return {"redirectTo": redirect}
         raise HTTPException(status_code=404, detail="Brand not found.")
 
@@ -77,72 +53,13 @@ async def get_brand_landing(
     except Exception:
         pass
 
-    total = (
-        await session.execute(
-            text(
-                """
-                SELECT COUNT(*)
-                FROM products p
-                WHERE p.status = 'ACTIVE'
-                  AND (p.brand_id = CAST(:brand_id AS uuid) OR p.brand = :brand_name)
-                """
-            ),
-            {"brand_id": brand["id"], "brand_name": brand["name"]},
-        )
-    ).scalar_one()
-
-    product_result = await session.execute(
-        text(
-            """
-            SELECT
-                p.id::text,
-                p.sku,
-                p.name,
-                p.slug,
-                p.category,
-                p.brand,
-                c.slug AS "categorySlug",
-                c.name AS "categoryName",
-                COALESCE(c.spec_fields, '[]'::jsonb) || COALESCE(sc.spec_fields, '[]'::jsonb) AS "specFields",
-                sc.slug AS "subcategorySlug",
-                sc.name AS "subcategoryName",
-                p.description,
-                p.specifications,
-                p.price,
-                p.sale_price AS "discountPrice",
-                p.stock_quantity AS "stock",
-                p.status,
-                p.image_url AS "imageUrl",
-                p.video_url AS "videoUrl",
-                p.images,
-                p.colors,
-                p.capacities,
-                p.promotions,
-                p.badge,
-                p.rating,
-                COALESCE(p.review_count, 0) AS "reviewCount",
-                COALESCE(os.sold_count, 0) AS "soldCount",
-                p.is_featured AS "isFeatured",
-                p.is_flash_sale AS "isFlashSale",
-                '[]'::jsonb AS variants
-            FROM products p
-            LEFT JOIN categories c ON c.id = p.category_id
-            LEFT JOIN categories sc ON sc.id = p.subcategory_id
-            LEFT JOIN (
-                SELECT oi.product_id, SUM(oi.quantity) AS sold_count
-                FROM order_items oi
-                JOIN orders o ON o.id = oi.order_id
-                WHERE o.status = 'COMPLETED'
-                GROUP BY oi.product_id
-            ) os ON os.product_id = p.id
-            WHERE p.status = 'ACTIVE'
-              AND (p.brand_id = CAST(:brand_id AS uuid) OR p.brand = :brand_name)
-            GROUP BY p.id, c.id, sc.id, os.sold_count
-            ORDER BY p.is_featured DESC, p.created_at DESC
-            LIMIT :limit OFFSET :offset
-            """
-        ),
-        {"brand_id": brand["id"], "brand_name": brand["name"], "limit": limit, "offset": (page - 1) * limit},
+    total = await storefront_repo.count_active_products_by_brand(session, brand_id=brand["id"], brand_name=brand["name"])
+    product_result = await storefront_repo.list_active_products_by_brand(
+        session,
+        brand_id=brand["id"],
+        brand_name=brand["name"],
+        limit=limit,
+        offset=(page - 1) * limit,
     )
     payload = {
         "brand": dict(brand),

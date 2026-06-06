@@ -1,4 +1,4 @@
-# Frontend Backend Catalog Images - 2026-05-29
+﻿# Frontend Backend Catalog Images - 2026-05-29
 
 ## Tom tat
 
@@ -48,13 +48,13 @@ Noi dung:
 
 File chinh:
 
-- `frontend/src/services/apiDb.ts`
-- `frontend/src/pages/ImagesPage.tsx`
-- `frontend/src/pages/ProductListPage.tsx`
-- `frontend/src/pages/RankingsPage.tsx`
-- `frontend/src/pages/HomePage.tsx`
-- `frontend/src/components/home/FlashSale.tsx`
-- `frontend/src/components/product/SuggestedProducts.tsx`
+- `legacy apiDb.ts`
+- `frontend/src/features/media/pages/ImagesPage.tsx`
+- `frontend/src/features/products/pages/ProductListPage.tsx`
+- `frontend/src/features/products/pages/RankingsPage.tsx`
+- `frontend/src/features/home/pages/HomePage.tsx`
+- `frontend/src/features/home/components/FlashSale.tsx`
+- `frontend/src/features/products/components/SuggestedProducts.tsx`
 - `frontend/src/components/layout/NotificationDropdown.tsx`
 
 Noi dung:

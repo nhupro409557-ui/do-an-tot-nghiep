@@ -1,5 +1,5 @@
 import { request } from './apiClient';
-import { formatProductDemoData } from './apiDb';
+import { formatProductDemoData } from './productMedia';
 
 export const productApi = {
   adminListProducts: async (params: { page?: number; limit?: number; search?: string; status?: string; categoryId?: string; brandId?: string } = {}) => {
@@ -43,9 +43,19 @@ export const productApi = {
   adminApproveProduct: (id: string) => request(`/admin/products/${encodeURIComponent(id)}/approve`, {
     method: 'POST',
   }),
+  adminReactivateProduct: (id: string) => request(`/admin/products/${encodeURIComponent(id)}/reactivate`, {
+    method: 'POST',
+  }),
+  adminHideProduct: (id: string) => request(`/admin/products/${encodeURIComponent(id)}/hide`, {
+    method: 'POST',
+  }),
   adminBulkApproveProducts: (ids: string[]) => request<{ updated: number; skipped: any[] }>('/admin/products/bulk-approve', {
     method: 'POST',
     body: JSON.stringify({ ids }),
+  }),
+  adminBulkProductAction: (action: 'APPROVE' | 'ARCHIVE' | 'HIDE' | 'RESTORE' | 'DELETE', productIds: string[]) => request<{ updated: number; skipped: any[] }>('/admin/products/bulk-action', {
+    method: 'POST',
+    body: JSON.stringify({ action, productIds }),
   }),
   adminDuplicateProduct: (id: string) => request<{ id: string }>(`/admin/products/${encodeURIComponent(id)}/duplicate`, {
     method: 'POST',

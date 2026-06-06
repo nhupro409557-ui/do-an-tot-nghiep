@@ -9,7 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
-from sqlalchemy import text
 
 from app.api.v1.routers.ai_assistant import router as ai_assistant_router
 from app.api.v1.routers.admin import router as admin_router
@@ -23,6 +22,7 @@ from app.api.v1.routers.storefront import router as storefront_router
 from app.api.v1.routers.users import router as users_router
 from app.application.commerce.use_cases import CompleteOrderUseCase
 from app.config import settings
+from app.infrastructure.database.repositories import audit_repo
 from app.infrastructure.database.session import AsyncSessionFactory
 
 
@@ -103,22 +103,13 @@ async def run_order_maintenance_loop() -> None:
 async def save_audit_log_async(actor_id: UUID | None, method: str, ip_address: str, user_agent: str | None, metadata: dict) -> None:
     try:
         async with AsyncSessionFactory() as session:
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO security_audit_logs 
-                        (user_id, event_type, ip_address, user_agent, metadata)
-                    VALUES 
-                        (:user_id, :event_type, :ip_address, :user_agent, CAST(:metadata AS jsonb))
-                    """
-                ),
-                {
-                    "user_id": actor_id,
-                    "event_type": f"admin_{method.lower()}",
-                    "ip_address": ip_address,
-                    "user_agent": user_agent,
-                    "metadata": json.dumps(metadata, ensure_ascii=False),
-                },
+            await audit_repo.insert_security_audit_log(
+                session,
+                user_id=actor_id,
+                event_type=f"admin_{method.lower()}",
+                ip_address=ip_address,
+                user_agent=user_agent,
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
             )
             await session.commit()
     except Exception as e:
@@ -132,7 +123,7 @@ async def admin_audit_middleware(request, call_next):
     except Exception as exc:
         logger.error("Unhandled request error: %s %s", request.method, request.url.path, exc_info=True)
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
-    if request.url.path.startswith("/api/v1/admin/") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+    if request.url.path.startswith("/api/admin/") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         resource, resource_id = resource_from_path(request.url.path)
         actor_id = audit_actor_id(request)
         headers = {
@@ -180,13 +171,13 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
-app.include_router(auth_router, prefix="/api/v1")
-app.include_router(admin_router, prefix="/api/v1")
-app.include_router(users_router, prefix="/api/v1")
-app.include_router(auth_email_router, prefix="/api/v1")
-app.include_router(ai_assistant_router, prefix="/api/v1")
-app.include_router(loyalty_router, prefix="/api/v1")
-app.include_router(commerce_router, prefix="/api/v1")
-app.include_router(catalog_router, prefix="/api/v1")
-app.include_router(content_router, prefix="/api/v1")
-app.include_router(storefront_router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
+app.include_router(users_router, prefix="/api")
+app.include_router(auth_email_router, prefix="/api")
+app.include_router(ai_assistant_router, prefix="/api")
+app.include_router(loyalty_router, prefix="/api")
+app.include_router(commerce_router, prefix="/api")
+app.include_router(catalog_router, prefix="/api")
+app.include_router(content_router, prefix="/api")
+app.include_router(storefront_router, prefix="/api")

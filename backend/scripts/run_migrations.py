@@ -24,6 +24,8 @@ SQL_FILES = [
     "051_flash_sales.sql",
     "052_remove_category_seo_metadata.sql",
     "053_remove_brand_seo_metadata.sql",
+    "054_product_discontinued_status.sql",
+    "055_product_inherited_visibility.sql",
 ]
 
 def split_sql_statements(sql_text):

@@ -1,4 +1,4 @@
-# Category Management Notes
+﻿# Category Management Notes
 
 This file records the non-obvious decisions added while hardening category management.
 
@@ -60,12 +60,12 @@ This file records the non-obvious decisions added while hardening category manag
 7. Restore UX safety notice
 
 - Frontend restore action now warns admins that category restore does not automatically reactivate products.
-- File: `frontend/src/pages/AdminDashboard.tsx`
+- File: `frontend/src/features/admin-shell/pages/AdminDashboard.tsx`
 
 8. Frontend concurrency message
 
 - Frontend now translates version mismatch / `409 Conflict` style responses into a clearer admin message.
-- File: `frontend/src/pages/AdminDashboard.tsx`
+- File: `frontend/src/features/admin-shell/pages/AdminDashboard.tsx`
 
 9. Category-only refresh path in Admin Dashboard
 
@@ -86,14 +86,14 @@ This file records the non-obvious decisions added while hardening category manag
 - Purpose:
   - show cache hit ratio / P99 latency / running migration jobs
   - expose audit history and migration progress for the category being edited
-- File: `frontend/src/pages/AdminDashboard.tsx`
+- File: `frontend/src/features/admin-shell/pages/AdminDashboard.tsx`
 
 11. Migration job auto-polling while editing category
 
 - When the selected category has `PENDING/RUNNING/IN_PROGRESS` migration jobs, the category workspace now auto-refreshes on an interval.
 - Purpose:
   - helps admins observe long-running parent-change migrations without manually reloading the whole dashboard
-- File: `frontend/src/pages/AdminDashboard.tsx`
+- File: `frontend/src/features/admin-shell/pages/AdminDashboard.tsx`
 
 ## Maintenance guidance
 

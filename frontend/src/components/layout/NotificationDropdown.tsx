@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bell, Package, Gift, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { apiDb } from '../../services/apiDb';
+import { publicApi } from '../../services/publicApi';
 import { useAuth } from '../../context/AuthContext';
 import { getAccessToken } from '../../services/authDb';
 
@@ -28,7 +28,7 @@ export function NotificationDropdown() {
       }
 
       try {
-        const notifs = await apiDb.listNotifications();
+        const notifs = await publicApi.listNotifications();
         notifs.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setNotifications(notifs.map((data: any) => {
           return {
@@ -76,7 +76,7 @@ export function NotificationDropdown() {
   const markAllRead = async () => {
     if (!user) return;
     try {
-      await apiDb.markNotificationsRead();
+      await publicApi.markNotificationsRead();
       setNotifications(notifications.map(n => ({ ...n, read: true })));
     } catch (err) {
       console.error(err);

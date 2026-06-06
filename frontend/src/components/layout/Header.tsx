@@ -122,8 +122,18 @@ export const Header = () => {
             to={user ? '/dashboard' : '/login'}
             className="flex shrink-0 flex-col items-center p-1 hover:text-white/85"
           >
-            <UserIcon className="h-6 w-6" />
-            <span className="hidden text-xs lg:block">Tài khoản</span>
+            <div className="relative">
+              <UserIcon className="h-6 w-6" />
+              {user && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+                </span>
+              )}
+            </div>
+            <span className="hidden text-xs lg:block max-w-[80px] truncate">
+              {user ? (user.displayName || 'Tài khoản') : 'Tài khoản'}
+            </span>
           </Link>
 
           <Bell className="hidden" aria-hidden="true" />

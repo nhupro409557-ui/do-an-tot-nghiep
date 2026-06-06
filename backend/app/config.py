@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     momo_access_key: str = ""
     momo_secret_key: str = ""
     momo_redirect_url: str = "http://localhost:3000/dashboard"
-    momo_ipn_path: str = "/api/v1/payments/momo/ipn"
+    momo_ipn_path: str = "/api/payments/momo/ipn"
     momo_request_type: str = "captureWallet"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

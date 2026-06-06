@@ -19,7 +19,21 @@ export const BottomNav = () => {
     { path: '/category', icon: <LayoutGrid className="w-6 h-6 mb-1" strokeWidth={1.5} />, label: 'Danh mục' },
     { path: '/video', icon: <PlaySquare className="w-6 h-6 mb-1 fill-primary/10" strokeWidth={1.5} />, label: 'Video' },
     { path: '/rankings', icon: <Trophy className="w-6 h-6 mb-1" strokeWidth={1.5} />, label: 'Xếp hạng' },
-    { path: user ? '/dashboard' : '/login', icon: <User className="w-6 h-6 mb-1" strokeWidth={1.5} />, label: 'Tài khoản' },
+    {
+      path: user ? '/dashboard' : '/login',
+      icon: (
+        <div className="relative">
+          <User className="w-6 h-6 mb-1" strokeWidth={1.5} />
+          {user && (
+            <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+            </span>
+          )}
+        </div>
+      ),
+      label: user ? (user.displayName || 'Tài khoản') : 'Tài khoản'
+    },
   ];
 
   return (

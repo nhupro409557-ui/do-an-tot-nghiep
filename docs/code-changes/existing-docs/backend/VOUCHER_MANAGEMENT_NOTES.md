@@ -1,4 +1,4 @@
-# Voucher Management Notes
+﻿# Voucher Management Notes
 
 ## Scope of the 2026-05 upgrade
 - Added voucher wallet support through `user_vouchers`.
@@ -13,8 +13,8 @@
 - `backend/app/api/v1/routers/commerce.py`
 - `backend/app/infrastructure/database/models.py`
 - `backend/migrations/031_voucher_wallet_and_rollbacks.sql`
-- `frontend/src/services/apiDb.ts`
-- `frontend/src/pages/CheckoutPage.tsx`
+- `legacy apiDb.ts`
+- `frontend/src/features/storefront-commerce/pages/CheckoutPage.tsx`
 
 ## Design notes
 - Voucher wallet is required only when `validity_days_after_claim > 0`.

@@ -1,46 +1,141 @@
-# Product Management Notes
+﻿# Product Management Notes
+
+## Update 2026-06-06 inherited category/brand visibility
+
+- ThÃªm hai cá»™t `products.hidden_by_category` vÃ  `products.hidden_by_brand` Ä‘á»ƒ phÃ¢n biá»‡t sáº£n pháº©m bá»‹ áº©n do danh má»¥c/thÆ°Æ¡ng hiá»‡u vá»›i sáº£n pháº©m do admin chá»§ Ä‘á»™ng táº¯t.
+- Khi danh má»¥c hoáº·c thÆ°Æ¡ng hiá»‡u bá»‹ áº©n, backend chá»‰ Ä‘Ã¡nh dáº¥u cÃ¡c sáº£n pháº©m Ä‘ang `ACTIVE` táº¡i thá»i Ä‘iá»ƒm Ä‘Ã³, chuyá»ƒn chÃºng sang `INACTIVE` vÃ  táº¯t biáº¿n thá»ƒ Ä‘á»ƒ storefront khÃ´ng hiá»ƒn thá»‹.
+- Khi danh má»¥c hoáº·c thÆ°Æ¡ng hiá»‡u báº­t láº¡i, backend chá»‰ khÃ´i phá»¥c cÃ¡c sáº£n pháº©m cÃ³ cá» áº©n káº¿ thá»«a tÆ°Æ¡ng á»©ng, khÃ´ng cÃ²n bá»‹ lÃ½ do áº©n khÃ¡c cháº·n, vÃ  váº«n thá»a Ä‘iá»u kiá»‡n danh má»¥c/thÆ°Æ¡ng hiá»‡u Ä‘ang báº­t. Sáº£n pháº©m vá»‘n Ä‘Ã£ `INACTIVE` trÆ°á»›c Ä‘Ã³ khÃ´ng bá»‹ báº­t láº¡i.
+- Backend cháº·n má»i thao tÃ¡c báº­t sáº£n pháº©m sang `ACTIVE` náº¿u danh má»¥c, danh má»¥c con hoáº·c thÆ°Æ¡ng hiá»‡u hiá»‡n Ä‘ang áº©n. Admin pháº£i báº­t danh má»¥c/thÆ°Æ¡ng hiá»‡u trÆ°á»›c rá»“i má»›i báº­t sáº£n pháº©m.
+- TÃ¡ch thao tÃ¡c sáº£n pháº©m thÃ nh `áº¨n` vÃ  `XÃ³a`: `POST /admin/products/{id}/hide` chá»‰ chuyá»ƒn sáº£n pháº©m sang `INACTIVE`, cÃ²n `DELETE /admin/products/{id}` giá»¯ rule xÃ³a/xá»­ lÃ½ rÃ ng buá»™c hiá»‡n cÃ³. Bulk action há»— trá»£ thÃªm `HIDE`, `RESTORE`, `DELETE`.
+- Migration liÃªn quan: `backend/migrations/055_product_inherited_visibility.sql`.
+
+## Update 2026-06-06 product reactivate flow
+
+- ThÃªm endpoint `POST /admin/products/{id}/reactivate` Ä‘á»ƒ báº­t láº¡i sáº£n pháº©m tá»« `INACTIVE` hoáº·c `DISCONTINUED` vá» `ACTIVE`, thay vÃ¬ dÃ¹ng `PATCH /admin/products/{id}` vá»›i payload Ä‘áº§y Ä‘á»§.
+- Khi báº­t láº¡i sáº£n pháº©m tá»«ng bá»‹ táº¡m áº©n, backend tá»± báº­t láº¡i cÃ¡c biáº¿n thá»ƒ chÆ°a bá»‹ xÃ³a/lÆ°u trá»¯ (`deleted_at IS NULL`, status khÃ´ng pháº£i `deleted`/`archived`), trÃ¡nh lá»—i sáº£n pháº©m báº­t láº¡i nhÆ°ng biáº¿n thá»ƒ váº«n bá»‹ táº¯t.
+- Frontend nÃºt khÃ´i phá»¥c/báº­t láº¡i trong báº£ng sáº£n pháº©m nay hiá»ƒn thá»‹ cho cáº£ `INACTIVE` vÃ  `DISCONTINUED`, Ä‘á»“ng thá»i gá»i endpoint reactivate riÃªng.
+
+## Update 2026-06-06 OPPO product image gallery
+
+- ÄÃ£ copy áº£nh ngÆ°á»i dÃ¹ng cung cáº¥p cho cÃ¡c dÃ²ng OPPO vÃ o `frontend/public/images/products/` vá»›i tÃªn thÆ° má»¥c vÃ  tÃªn file khÃ´ng dáº¥u Ä‘á»ƒ URL á»•n Ä‘á»‹nh.
+- áº¢nh Ä‘áº¡i diá»‡n Ä‘Æ°á»£c chá»n theo file cÃ³ tÃªn chá»©a `áº£nh Ä‘áº¡i diá»‡n` hoáº·c biáº¿n thá»ƒ gÃµ gáº§n giá»‘ng trong tá»«ng thÆ° má»¥c mÃ u.
+- ThÃªm script `backend/scripts/update_oppo_product_images.py` Ä‘á»ƒ cáº­p nháº­t `products.image_url`, `products.images`, `product_variants.image_url` vÃ  `product_variants.images`.
+- ÄÃ£ cháº¡y script trÃªn DB local cho cÃ¡c sáº£n pháº©m:
+  - `OPPO Reno15 5G`: Tráº¯ng Cá»±c Quang, Xanh Cháº¡ng Váº¡ng.
+  - `OPPO Reno15 F 5G`: Há»“ng Rá»±c Rá»¡, Xanh DÆ°Æ¡ng, Xanh Nháº¡t.
+  - `OPPO Find N6`: Cam Ná»Ÿ Rá»™, Titan Ãnh Sao.
+  - `OPPO Find X9 Ultra`: Cam Háº»m NÃºi, NÃ¢u LÃ£nh NguyÃªn.
+  - `OPPO Find X9s`: Cam HoÃ ng HÃ´n, TÃ­m Lavender, XÃ¡m Báº§u Trá»i.
+  - `OPPO Find X8`: Äen KhÃ´ng Gian, XÃ¡m Sao BÄƒng.
+  - `OPPO Find N3`: gáº¯n áº£nh sáº£n pháº©m chung tá»« bá»™ áº£nh Ä‘en/vÃ ng vÃ¬ hiá»‡n khÃ´ng cÃ³ biáº¿n thá»ƒ active.
+- Verification: `python -m py_compile backend/scripts/update_oppo_product_images.py` thÃ nh cÃ´ng; truy váº¥n DB xÃ¡c nháº­n 7 sáº£n pháº©m vÃ  cÃ¡c biáº¿n thá»ƒ active Ä‘Ã£ nháº­n URL áº£nh má»›i.
+
+
+
+#
+#
+
+## Update 2026-06-05 product service repository split
+
+- Báº¯t Ä‘áº§u tÃ¡ch SQL trong `backend/app/application/services/product_service.py` xuá»‘ng repository.
+- Chuyá»ƒn cÃ¡c truy váº¥n Ã­t rá»§i ro sang `backend/app/infrastructure/database/repositories/product_repo.py`: gá»£i Ã½ sáº£n pháº©m, import/export jobs, danh sÃ¡ch export, KPI catalog vÃ  audit logs sáº£n pháº©m.
+- Tiáº¿p tá»¥c chuyá»ƒn cÃ¡c logic liÃªn káº¿t quan há»‡ xuá»‘ng `product_repo.py`, bao gá»“m:
+  - Thao tÃ¡c xÃ³a/chÃ¨n liÃªn káº¿t `product_accessories` vÃ  `product_attached_services`.
+  - Láº¥y thÃ´ng tin nhÃ³m dá»‹ch vá»¥ Ä‘i kÃ¨m.
+  - Láº¥y cÃ¡c báº£n ghi bundle, accessory, vÃ  attached service tÆ°Æ¡ng á»©ng tá»‘i Æ°u cho danh sÃ¡ch sáº£n pháº©m.
+- Chuyá»ƒn Ä‘á»•i cÃ¢u truy váº¥n chÃ­nh danh sÃ¡ch sáº£n pháº©m admin sang `product_repo.py` vá»›i hÃ m `list_admin_product_rows` (xá»­ lÃ½ lá»c bá»™ lá»c, phÃ¢n trang, Ä‘áº¿m tá»•ng sá»‘ báº£n ghi vÃ  gom nhÃ³m cÃ¡c biáº¿n thá»ƒ).
+- `product_service.py` hiá»‡n táº¡i chá»‰ cÃ²n giá»¯ láº¡i cÃ¡c luá»“ng ghi/cáº­p nháº­t dá»¯ liá»‡u lá»›n vÃ  phá»©c táº¡p nhÆ° create/update/duplicate vÃ  xá»­ lÃ½ tá»«ng dÃ²ng cá»§a import job.
+
+## Update 2026-06-05 backend admin overview refactor
+
+- TÃ¡ch `backend/app/api/v1/routers/admin_overview.py` theo hÆ°á»›ng Controller - Service.
+- Router overview hiá»‡n chá»‰ giá»¯ endpoint `/overview`, permission vÃ  dependency session.
+- Chuyá»ƒn toÃ n bá»™ SQL tá»•ng há»£p dashboard sang `backend/app/application/services/overview_service.py`.
+
+## Update 2026-06-05 backend admin products refactor
+
+- TÃ¡ch `backend/app/api/v1/routers/admin_products.py` theo hÆ°á»›ng Controller - Service.
+- Router sáº£n pháº©m hiá»‡n chá»‰ giá»¯ endpoint, dependency quyá»n/session, tham sá»‘ query/upload vÃ  chuyá»ƒn tiáº¿p sang `product_service` hoáº·c `attached_service`.
+- Chuyá»ƒn cÃ¡c luá»“ng list/suggest/import/export/KPI/audit/create/update/duplicate product sang `backend/app/application/services/product_service.py`.
+- Giá»¯ nguyÃªn SQL vÃ  transaction trong service á»Ÿ bÆ°á»›c Ä‘áº§u Ä‘á»ƒ báº£o toÃ n hÃ nh vi cá»§a luá»“ng product lá»›n; repository chi tiáº¿t cho product sáº½ tiáº¿p tá»¥c tÃ¡ch á»Ÿ vÃ²ng sau.
+
+## Update 2026-06-05 backend product approval refactor
+
+- TÃ¡ch `backend/app/api/v1/routers/admin_product_approvals.py` theo hÆ°á»›ng Controller - Service.
+- Router duyá»‡t sáº£n pháº©m hiá»‡n chá»‰ giá»¯ cÃ¡c endpoint submit, approve, bulk approve, bulk action, archive vÃ  delete rá»“i chuyá»ƒn tiáº¿p sang `product_approval_service`.
+- Chuyá»ƒn luá»“ng nghiá»‡p vá»¥ duyá»‡t sáº£n pháº©m, merge báº£n revision, archive, deactivate vÃ  bulk action sang `backend/app/application/services/product_approval_service.py`.
+- Giá»¯ nguyÃªn transaction vÃ  SQL trong service á»Ÿ bÆ°á»›c Ä‘áº§u Ä‘á»ƒ háº¡n cháº¿ Ä‘á»•i hÃ nh vi cá»§a luá»“ng merge revision; repository chi tiáº¿t cho approval sáº½ tÃ¡ch tiáº¿p á»Ÿ vÃ²ng sau.
+
+## Update 2026-06-05 backend product helper refactor
+
+- TÃ¡ch tiáº¿p `admin_product_utils.py`: CÃ¡c helper dÃ¹ng chung cá»§a sáº£n pháº©m Ä‘Æ°á»£c chuyá»ƒn sang `backend/app/application/services/product_helper_service.py`.
+- SQL phá»¥ trá»£ cho Ä‘á»“ng bá»™ giÃ¡/tá»“n kho cha vÃ  láº¥y nhÃ£n danh má»¥c/thÆ°Æ¡ng hiá»‡u Ä‘Æ°á»£c chuyá»ƒn sang `backend/app/infrastructure/database/repositories/product_repo.py`.
+- Cáº­p nháº­t `admin_products.py`, `admin_product_approvals.py`, `inventory_service.py` vÃ  `product_variant_service.py` Ä‘á»ƒ import helper tá»« táº§ng application thay vÃ¬ tá»« router utils.
+- `admin_product_utils.py` giá» chá»‰ lÃ  file tÆ°Æ¡ng thÃ­ch re-export Ä‘á»ƒ trÃ¡nh lÃ m Ä‘á»©t cÃ¡c import cÅ© ngoÃ i luá»“ng refactor.
+
+## Update 2026-06-05 backend product variant refactor
+
+- ÄÃ£ hoÃ n thÃ nh tÃ¡ch vÃ  cáº¥u trÃºc láº¡i module quáº£n lÃ½ biáº¿n thá»ƒ sáº£n pháº©m (`admin_product_variants.py`) theo mÃ´ hÃ¬nh Controller - Service - Repository:
+  - **Router tinh gá»n**: [admin_product_variants.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/api/v1/routers/admin_product_variants.py) hiá»‡n táº¡i chá»‰ cÃ²n endpoint xÃ³a biáº¿n thá»ƒ sáº£n pháº©m vÃ  chuyá»ƒn tiáº¿p lá»i gá»i sang lá»›p Service.
+  - **Lá»›p Service (Logic nghiá»‡p vá»¥)**: Chuyá»ƒn toÃ n bá»™ logic xá»­ lÃ½ nghiá»‡p vá»¥ liÃªn quan sang [product_variant_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/product_variant_service.py), bao gá»“m:
+    - HÃ m thÃªm má»›i vÃ  cáº­p nháº­t biáº¿n thá»ƒ sáº£n pháº©m (`upsert_product_variants`).
+    - HÃ m xÃ³a biáº¿n thá»ƒ sáº£n pháº©m (`delete_product_variant`).
+    - CÃ¡c bÆ°á»›c xÃ¡c thá»±c logic: Kiá»ƒm tra trÃ¹ng láº·p mÃ£ SKU, kiá»ƒm tra cáº¥u hÃ¬nh biáº¿n thá»ƒ máº·c Ä‘á»‹nh cá»§a sáº£n pháº©m, kiá»ƒm tra tÃ­nh tÆ°Æ¡ng thÃ­ch giá»¯a thuá»™c tÃ­nh biáº¿n thá»ƒ vá»›i cÃ¡c tÃ¹y chá»n (`options`) cá»§a sáº£n pháº©m cha.
+    - Ãnh xáº¡ thÃ´ng sá»‘ (mÃ u sáº¯c, RAM, ROM, thÃ´ng sá»‘ ká»¹ thuáº­t, hÃ¬nh áº£nh, giÃ¡ cáº£ vÃ  sá»‘ lÆ°á»£ng tá»“n kho).
+  - **Lá»›p Repository (Truy váº¥n CSDL)**: Chuyá»ƒn toÃ n bá»™ cÃ¢u lá»‡nh SQL vÃ  tÆ°Æ¡ng tÃ¡c DB sang [product_variant_repo.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/infrastructure/database/repositories/product_variant_repo.py), bao gá»“m:
+    - Truy váº¥n ngá»¯ cáº£nh sáº£n pháº©m.
+    - Kiá»ƒm tra mÃ£ SKU hiá»‡n cÃ³.
+    - Láº¥y danh sÃ¡ch cÃ¡c biáº¿n thá»ƒ cá»§a sáº£n pháº©m.
+    - Thá»±c hiá»‡n cÃ¡c thao tÃ¡c Insert, Update vÃ  Soft-delete biáº¿n thá»ƒ.
+    - Tá»± Ä‘á»™ng cáº¥u hÃ¬nh vÃ  chá»n biáº¿n thá»ƒ máº·c Ä‘á»‹nh má»›i khi cáº§n.
+    - Cáº­p nháº­t láº¡i mÃ£ SKU cá»§a sáº£n pháº©m cha.
+  - **Äá»“ng bá»™ hÃ³a cÃ¡c router liÃªn quan**: Cáº­p nháº­t [admin_products.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/api/v1/routers/admin_products.py) Ä‘á»ƒ trá»±c tiáº¿p import vÃ  gá»i `upsert_product_variants` tá»« lá»›p Service má»›i, thay vÃ¬ import tá»« router biáº¿n thá»ƒ cÅ©.
+- **ÄÃ£ kiá»ƒm tra ká»¹ thuáº­t**:
+  - BiÃªn dá»‹ch thá»­ toÃ n bá»™ code backend báº±ng lá»‡nh `python -m compileall backend/app` thÃ nh cÃ´ng (Pass).
+  - Kiá»ƒm tra viá»‡c náº¡p (import) thÃ nh cÃ´ng Ä‘á»‘i vá»›i `app.main`, `admin`, `admin_products`, `admin_product_variants` cÃ¹ng vá»›i service vÃ  repo má»›i láº­p (Pass).
+  - ChÆ°a thá»±c hiá»‡n cháº¡y thá»­ nghiá»‡m thao tÃ¡c ghi nháº­n trá»±c tiáº¿p vÃ o DB do cáº§n luá»“ng dá»¯ liá»‡u/API hoÃ n chá»‰nh Ä‘á»ƒ kiá»ƒm thá»­. Vá» máº·t kiáº¿n trÃºc vÃ  mÃ£ nguá»“n, cáº¥u trÃºc quáº£n lÃ½ biáº¿n thá»ƒ Ä‘Ã£ tuÃ¢n thá»§ cháº·t cháº½ mÃ´ hÃ¬nh phÃ¢n lá»›p.
 
 ## Update 2026-06-03 React Doctor safe frontend fixes
 
-- Chạy React Doctor ở chế độ tạm thời, không cài package vào project và không thêm hook/config.
-- Sửa lỗi hook/runtime không đổi giao diện trong storefront/admin:
-  - `ProductDetail.tsx`: đưa effect phím tắt media viewer lên trước nhánh return sớm, thêm cleanup cho timer thông báo thêm vào giỏ và khôi phục overflow khi unmount.
-  - `VerifyEmailPage.tsx`: cleanup timer chuyển hướng sau xác nhận email, tránh cập nhật state sau khi rời trang.
-  - `CheckoutPage.tsx`: chuyển nhánh giỏ hàng trống xuống sau hook tính phí giao hàng để giữ thứ tự hook ổn định; đồng thời phục hồi chữ tiếng Việt bị lỗi mã hóa trong file.
-  - Các tab admin khách hàng/phân quyền/dashboard: đưa các lời gọi quyền ra biến top-level hoặc hàm render thường để tránh gọi hook/component trong JSX/callback.
-- Sau sửa, `npm run lint` pass và React Doctor giảm Bugs errors từ 29 xuống 20; phần còn lại là nhóm cảnh báo lớn về state sync trong luồng catalog/data loading, cần refactor riêng để tránh thay đổi hành vi tải dữ liệu ngoài ý muốn.
+- Cháº¡y React Doctor á»Ÿ cháº¿ Ä‘á»™ táº¡m thá»i, khÃ´ng cÃ i package vÃ o project vÃ  khÃ´ng thÃªm hook/config.
+- Sá»­a lá»—i hook/runtime khÃ´ng Ä‘á»•i giao diá»‡n trong storefront/admin:
+  - `ProductDetail.tsx`: Ä‘Æ°a effect phÃ­m táº¯t media viewer lÃªn trÆ°á»›c nhÃ¡nh return sá»›m, thÃªm cleanup cho timer thÃ´ng bÃ¡o thÃªm vÃ o giá» vÃ  khÃ´i phá»¥c overflow khi unmount.
+  - `VerifyEmailPage.tsx`: cleanup timer chuyá»ƒn hÆ°á»›ng sau xÃ¡c nháº­n email, trÃ¡nh cáº­p nháº­t state sau khi rá»i trang.
+  - `CheckoutPage.tsx`: chuyá»ƒn nhÃ¡nh giá» hÃ ng trá»‘ng xuá»‘ng sau hook tÃ­nh phÃ­ giao hÃ ng Ä‘á»ƒ giá»¯ thá»© tá»± hook á»•n Ä‘á»‹nh; Ä‘á»“ng thá»i phá»¥c há»“i chá»¯ tiáº¿ng Viá»‡t bá»‹ lá»—i mÃ£ hÃ³a trong file.
+  - CÃ¡c tab admin khÃ¡ch hÃ ng/phÃ¢n quyá»n/dashboard: Ä‘Æ°a cÃ¡c lá»i gá»i quyá»n ra biáº¿n top-level hoáº·c hÃ m render thÆ°á»ng Ä‘á»ƒ trÃ¡nh gá»i hook/component trong JSX/callback.
+- Sau sá»­a, `npm run lint` pass vÃ  React Doctor giáº£m Bugs errors tá»« 29 xuá»‘ng 20; pháº§n cÃ²n láº¡i lÃ  nhÃ³m cáº£nh bÃ¡o lá»›n vá» state sync trong luá»“ng catalog/data loading, cáº§n refactor riÃªng Ä‘á»ƒ trÃ¡nh thay Ä‘á»•i hÃ nh vi táº£i dá»¯ liá»‡u ngoÃ i Ã½ muá»‘n.
 
 ## Update 2026-06-03 React Doctor Bugs errors cleanup
 
-- Tiếp tục xử lý các lỗi nhóm Bugs còn lại mà không đổi layout/giao diện:
-  - `useCatalog.ts`: chốt option ranked featured ở lần mount đầu, thêm cleanup cho async load catalog.
-  - `ImagesModal.tsx` và `ReelsModal.tsx`: tách outer/inner modal để remount nội dung khi mở, thay vì reset nhiều state trong effect; thêm cleanup URL query khi đóng modal.
-  - `ProductReviews.tsx`: remount theo `productId + user`, thêm cleanup async và đưa prefill review hiện có vào callback eligibility thay vì sync form bằng effect riêng.
-  - `VietnamAddressSelector.tsx`: bỏ state `wards`, derive danh sách phường/xã từ `provinces + provinceId` bằng `useMemo`; sửa một số nhãn tiếng Việt có dấu.
-  - `ProductDetail.tsx`: chuyển reset lựa chọn sản phẩm/media sang cập nhật có điều kiện theo `product.id`/`activeVariant.id`; effect Swiper chỉ còn điều khiển slide, không set state React.
-- Verification: `npm run lint` pass; React Doctor báo Bugs còn `0 errors`, chỉ còn optional warnings.
+- Tiáº¿p tá»¥c xá»­ lÃ½ cÃ¡c lá»—i nhÃ³m Bugs cÃ²n láº¡i mÃ  khÃ´ng Ä‘á»•i layout/giao diá»‡n:
+  - `useCatalog.ts`: chá»‘t option ranked featured á»Ÿ láº§n mount Ä‘áº§u, thÃªm cleanup cho async load catalog.
+  - `ImagesModal.tsx` vÃ  `ReelsModal.tsx`: tÃ¡ch outer/inner modal Ä‘á»ƒ remount ná»™i dung khi má»Ÿ, thay vÃ¬ reset nhiá»u state trong effect; thÃªm cleanup URL query khi Ä‘Ã³ng modal.
+  - `ProductReviews.tsx`: remount theo `productId + user`, thÃªm cleanup async vÃ  Ä‘Æ°a prefill review hiá»‡n cÃ³ vÃ o callback eligibility thay vÃ¬ sync form báº±ng effect riÃªng.
+  - `VietnamAddressSelector.tsx`: bá» state `wards`, derive danh sÃ¡ch phÆ°á»ng/xÃ£ tá»« `provinces + provinceId` báº±ng `useMemo`; sá»­a má»™t sá»‘ nhÃ£n tiáº¿ng Viá»‡t cÃ³ dáº¥u.
+  - `ProductDetail.tsx`: chuyá»ƒn reset lá»±a chá»n sáº£n pháº©m/media sang cáº­p nháº­t cÃ³ Ä‘iá»u kiá»‡n theo `product.id`/`activeVariant.id`; effect Swiper chá»‰ cÃ²n Ä‘iá»u khiá»ƒn slide, khÃ´ng set state React.
+- Verification: `npm run lint` pass; React Doctor bÃ¡o Bugs cÃ²n `0 errors`, chá»‰ cÃ²n optional warnings.
 
 ## Update 2026-06-03 revision variant specs persistence
 
-- Sửa lỗi khi chỉnh sửa sản phẩm đang bán để tạo `REVISION_DRAFT`: backend `upsert_product_variants` nay lưu `product_variants.specs` từ `var.specs` do frontend gửi lên, thay vì ghi đè bằng `attributes`. Nhờ vậy các thông số kỹ thuật được chọn làm biến thể như RAM/ROM/cấu hình giữ đúng thay đổi trong bản nháp chỉnh sửa.
-- `attributes` vẫn được dùng riêng cho hợp đồng `options` và validate lựa chọn biến thể; `specs` giữ key kỹ thuật của form admin để khi mở lại bản nháp không bị đọc nhầm về dữ liệu cũ hoặc nhãn hiển thị.
+- Sá»­a lá»—i khi chá»‰nh sá»­a sáº£n pháº©m Ä‘ang bÃ¡n Ä‘á»ƒ táº¡o `REVISION_DRAFT`: backend `upsert_product_variants` nay lÆ°u `product_variants.specs` tá»« `var.specs` do frontend gá»­i lÃªn, thay vÃ¬ ghi Ä‘Ã¨ báº±ng `attributes`. Nhá» váº­y cÃ¡c thÃ´ng sá»‘ ká»¹ thuáº­t Ä‘Æ°á»£c chá»n lÃ m biáº¿n thá»ƒ nhÆ° RAM/ROM/cáº¥u hÃ¬nh giá»¯ Ä‘Ãºng thay Ä‘á»•i trong báº£n nhÃ¡p chá»‰nh sá»­a.
+- `attributes` váº«n Ä‘Æ°á»£c dÃ¹ng riÃªng cho há»£p Ä‘á»“ng `options` vÃ  validate lá»±a chá»n biáº¿n thá»ƒ; `specs` giá»¯ key ká»¹ thuáº­t cá»§a form admin Ä‘á»ƒ khi má»Ÿ láº¡i báº£n nhÃ¡p khÃ´ng bá»‹ Ä‘á»c nháº§m vá» dá»¯ liá»‡u cÅ© hoáº·c nhÃ£n hiá»ƒn thá»‹.
 
 ## Update 2026-06-03 admin product form controlled popup close
 
-- Popup thêm/sửa sản phẩm trên admin nay có trạng thái mở/đóng riêng (`productFormOpen`) thay vì chỉ dựa vào `closeSignal`; sau khi thêm hoặc lưu thành công, popup được đóng ngay trước khi reset form để tránh hiện tượng modal vẫn mở nhưng nội dung bị nhảy về form thêm mới/trống.
-- `CollapsibleSection` hỗ trợ thêm chế độ controlled qua `open` và `onOpenChange`, trong khi vẫn giữ tương thích với các popup khác đang dùng trạng thái nội bộ và `closeSignal`.
+- Popup thÃªm/sá»­a sáº£n pháº©m trÃªn admin nay cÃ³ tráº¡ng thÃ¡i má»Ÿ/Ä‘Ã³ng riÃªng (`productFormOpen`) thay vÃ¬ chá»‰ dá»±a vÃ o `closeSignal`; sau khi thÃªm hoáº·c lÆ°u thÃ nh cÃ´ng, popup Ä‘Æ°á»£c Ä‘Ã³ng ngay trÆ°á»›c khi reset form Ä‘á»ƒ trÃ¡nh hiá»‡n tÆ°á»£ng modal váº«n má»Ÿ nhÆ°ng ná»™i dung bá»‹ nháº£y vá» form thÃªm má»›i/trá»‘ng.
+- `CollapsibleSection` há»— trá»£ thÃªm cháº¿ Ä‘á»™ controlled qua `open` vÃ  `onOpenChange`, trong khi váº«n giá»¯ tÆ°Æ¡ng thÃ­ch vá»›i cÃ¡c popup khÃ¡c Ä‘ang dÃ¹ng tráº¡ng thÃ¡i ná»™i bá»™ vÃ  `closeSignal`.
 
 ## Update 2026-06-03 admin merged revision action guard
 
-- Bản chỉnh sửa sản phẩm sau khi duyệt và merge vào sản phẩm gốc có trạng thái `MERGED`; đây là bản lịch sử/audit, không được gửi duyệt, sửa, xóa hoặc khôi phục lại.
-- Bảng quản trị sản phẩm nay chỉ hiển thị nhãn "Đã áp dụng vào sản phẩm gốc" cho dòng `MERGED`, thay vì các nút thao tác vận hành.
-- Các thao tác gửi duyệt, duyệt, khôi phục và lưu trữ trong `useAdminProductsLogic.ts` được bọc lỗi để admin nhận thông báo rõ ràng, không còn lỗi promise chưa bắt trên console.
-- Backend `PATCH /api/v1/admin/products/{id}` và `DELETE /api/v1/admin/products/{id}` từ chối cập nhật/xóa trực tiếp bản `MERGED`; backend cũng từ chối khôi phục trực tiếp sản phẩm `ARCHIVED` sang `ACTIVE`.
-- Khi tạo `REVISION_DRAFT`, `upsert_product_variants` không còn đồng bộ `products.sku` của bản revision theo SKU biến thể mặc định, tránh lỗi trùng unique SKU với sản phẩm/biến thể đang active.
-- Sau khi chỉnh sửa sản phẩm đang bán, frontend thông báo rõ là đã tạo bản chỉnh sửa cần duyệt, tự chuyển bộ lọc danh sách sang `REVISION_DRAFT` và đóng form trước khi reset để không còn cảm giác popup bị đổi sang form thêm mới.
-- Backend `extract_product_metadata` nay nhận đúng các key frontend gửi trong `specifications`: `_variantSpecKeys`, `_accessoryOffers`, `_attachedServices`, `_warrantyPolicy`, rồi lưu vào `sales_config` chuẩn. Frontend cũng fallback đọc các key cũ này từ `specifications` khi mở bản nháp chỉnh sửa đã tạo trước đó.
-- Sửa thứ tự đóng popup sản phẩm: `closeSignal` dùng layout effect và `handleProductSubmit` chờ một frame trước khi reset form, tránh modal còn mở nhưng nội dung đã nhảy sang form thêm mới.
-- Sửa lưu/mở lại ROM biến thể trong bản chỉnh sửa: frontend chuẩn hóa key biến thể từ label tiếng Việt như `Bộ nhớ trong` về key `storage`, backend validate option/attribute bằng Unicode normalized và fallback map `Bộ nhớ trong`/`ROM` vào cột `product_variants.storage`. Đã test tạo revision tạm với ROM `999GB`, DB lưu đúng `storage = 999GB`, rồi xóa revision test.
+- Báº£n chá»‰nh sá»­a sáº£n pháº©m sau khi duyá»‡t vÃ  merge vÃ o sáº£n pháº©m gá»‘c cÃ³ tráº¡ng thÃ¡i `MERGED`; Ä‘Ã¢y lÃ  báº£n lá»‹ch sá»­/audit, khÃ´ng Ä‘Æ°á»£c gá»­i duyá»‡t, sá»­a, xÃ³a hoáº·c khÃ´i phá»¥c láº¡i.
+- Báº£ng quáº£n trá»‹ sáº£n pháº©m nay chá»‰ hiá»ƒn thá»‹ nhÃ£n "ÄÃ£ Ã¡p dá»¥ng vÃ o sáº£n pháº©m gá»‘c" cho dÃ²ng `MERGED`, thay vÃ¬ cÃ¡c nÃºt thao tÃ¡c váº­n hÃ nh.
+- CÃ¡c thao tÃ¡c gá»­i duyá»‡t, duyá»‡t, khÃ´i phá»¥c vÃ  lÆ°u trá»¯ trong `useAdminProductsLogic.ts` Ä‘Æ°á»£c bá»c lá»—i Ä‘á»ƒ admin nháº­n thÃ´ng bÃ¡o rÃµ rÃ ng, khÃ´ng cÃ²n lá»—i promise chÆ°a báº¯t trÃªn console.
+- Backend `PATCH /api/v1/admin/products/{id}` vÃ  `DELETE /api/v1/admin/products/{id}` tá»« chá»‘i cáº­p nháº­t/xÃ³a trá»±c tiáº¿p báº£n `MERGED`; backend cÅ©ng tá»« chá»‘i khÃ´i phá»¥c trá»±c tiáº¿p sáº£n pháº©m `ARCHIVED` sang `ACTIVE`.
+- Khi táº¡o `REVISION_DRAFT`, `upsert_product_variants` khÃ´ng cÃ²n Ä‘á»“ng bá»™ `products.sku` cá»§a báº£n revision theo SKU biáº¿n thá»ƒ máº·c Ä‘á»‹nh, trÃ¡nh lá»—i trÃ¹ng unique SKU vá»›i sáº£n pháº©m/biáº¿n thá»ƒ Ä‘ang active.
+- Sau khi chá»‰nh sá»­a sáº£n pháº©m Ä‘ang bÃ¡n, frontend thÃ´ng bÃ¡o rÃµ lÃ  Ä‘Ã£ táº¡o báº£n chá»‰nh sá»­a cáº§n duyá»‡t, tá»± chuyá»ƒn bá»™ lá»c danh sÃ¡ch sang `REVISION_DRAFT` vÃ  Ä‘Ã³ng form trÆ°á»›c khi reset Ä‘á»ƒ khÃ´ng cÃ²n cáº£m giÃ¡c popup bá»‹ Ä‘á»•i sang form thÃªm má»›i.
+- Backend `extract_product_metadata` nay nháº­n Ä‘Ãºng cÃ¡c key frontend gá»­i trong `specifications`: `_variantSpecKeys`, `_accessoryOffers`, `_attachedServices`, `_warrantyPolicy`, rá»“i lÆ°u vÃ o `sales_config` chuáº©n. Frontend cÅ©ng fallback Ä‘á»c cÃ¡c key cÅ© nÃ y tá»« `specifications` khi má»Ÿ báº£n nhÃ¡p chá»‰nh sá»­a Ä‘Ã£ táº¡o trÆ°á»›c Ä‘Ã³.
+- Sá»­a thá»© tá»± Ä‘Ã³ng popup sáº£n pháº©m: `closeSignal` dÃ¹ng layout effect vÃ  `handleProductSubmit` chá» má»™t frame trÆ°á»›c khi reset form, trÃ¡nh modal cÃ²n má»Ÿ nhÆ°ng ná»™i dung Ä‘Ã£ nháº£y sang form thÃªm má»›i.
+- Sá»­a lÆ°u/má»Ÿ láº¡i ROM biáº¿n thá»ƒ trong báº£n chá»‰nh sá»­a: frontend chuáº©n hÃ³a key biáº¿n thá»ƒ tá»« label tiáº¿ng Viá»‡t nhÆ° `Bá»™ nhá»› trong` vá» key `storage`, backend validate option/attribute báº±ng Unicode normalized vÃ  fallback map `Bá»™ nhá»› trong`/`ROM` vÃ o cá»™t `product_variants.storage`. ÄÃ£ test táº¡o revision táº¡m vá»›i ROM `999GB`, DB lÆ°u Ä‘Ãºng `storage = 999GB`, rá»“i xÃ³a revision test.
 
 ## Update 2026-06-03 iPhone 17 Pro Max uses iPhone 17 Pro images
 
@@ -51,8 +146,8 @@
 
 ## Update 2026-06-03 storefront shared product video
 
-- Trang chi tiết sản phẩm nay ưu tiên hiển thị video dùng chung ở đầu gallery nếu sản phẩm có `videoUrl`, giống cách CellphoneS đặt thumbnail "Video" làm media đầu tiên.
-- Khi gallery mở bằng video, ảnh dùng cho giỏ hàng vẫn fallback sang ảnh sản phẩm hoặc ảnh biến thể đầu tiên để không lưu URL video làm ảnh sản phẩm trong cart.
+- Trang chi tiáº¿t sáº£n pháº©m nay Æ°u tiÃªn hiá»ƒn thá»‹ video dÃ¹ng chung á»Ÿ Ä‘áº§u gallery náº¿u sáº£n pháº©m cÃ³ `videoUrl`, giá»‘ng cÃ¡ch CellphoneS Ä‘áº·t thumbnail "Video" lÃ m media Ä‘áº§u tiÃªn.
+- Khi gallery má»Ÿ báº±ng video, áº£nh dÃ¹ng cho giá» hÃ ng váº«n fallback sang áº£nh sáº£n pháº©m hoáº·c áº£nh biáº¿n thá»ƒ Ä‘áº§u tiÃªn Ä‘á»ƒ khÃ´ng lÆ°u URL video lÃ m áº£nh sáº£n pháº©m trong cart.
 
 ## Update 2026-06-03 iPhone 17 Pro image gallery
 
@@ -78,13 +173,13 @@
 
 ## Update 2026-06-03 Revert image card UI
 
-- Đã trả lại giao diện thẻ ảnh sản phẩm trên `frontend/src/pages/ImagesPage.tsx` về kiểu cũ theo yêu cầu: khung ảnh gradient, nhãn nổi, khu thông tin dưới ảnh và nút mua nhỏ hiện theo hover.
+- ÄÃ£ tráº£ láº¡i giao diá»‡n tháº» áº£nh sáº£n pháº©m trÃªn `frontend/src/features/media/pages/ImagesPage.tsx` vá» kiá»ƒu cÅ© theo yÃªu cáº§u: khung áº£nh gradient, nhÃ£n ná»•i, khu thÃ´ng tin dÆ°á»›i áº£nh vÃ  nÃºt mua nhá» hiá»‡n theo hover.
 
 ## Update 2026-06-03 Product image card UI
 
-- Chỉnh lại thẻ ảnh sản phẩm trên trang thư viện ảnh (`frontend/src/pages/ImagesPage.tsx`) để ảnh sản phẩm hiển thị thoáng hơn, giảm khoảng trắng xấu quanh ảnh cao/dọc.
-- Làm phần thông tin dưới ảnh gọn hơn: tên sản phẩm, giá, lượt xem/lượt thích và nút "Xem sản phẩm" hiển thị cố định thay vì ẩn khi hover.
-- Nhãn danh mục và số lượng ảnh được thu gọn để không lấn vào ảnh sản phẩm.
+- Chá»‰nh láº¡i tháº» áº£nh sáº£n pháº©m trÃªn trang thÆ° viá»‡n áº£nh (`frontend/src/features/media/pages/ImagesPage.tsx`) Ä‘á»ƒ áº£nh sáº£n pháº©m hiá»ƒn thá»‹ thoÃ¡ng hÆ¡n, giáº£m khoáº£ng tráº¯ng xáº¥u quanh áº£nh cao/dá»c.
+- LÃ m pháº§n thÃ´ng tin dÆ°á»›i áº£nh gá»n hÆ¡n: tÃªn sáº£n pháº©m, giÃ¡, lÆ°á»£t xem/lÆ°á»£t thÃ­ch vÃ  nÃºt "Xem sáº£n pháº©m" hiá»ƒn thá»‹ cá»‘ Ä‘á»‹nh thay vÃ¬ áº©n khi hover.
+- NhÃ£n danh má»¥c vÃ  sá»‘ lÆ°á»£ng áº£nh Ä‘Æ°á»£c thu gá»n Ä‘á»ƒ khÃ´ng láº¥n vÃ o áº£nh sáº£n pháº©m.
 
 ## Update 2026-05-22
 
@@ -203,7 +298,7 @@
 ## Update 2026-05-30 flat variants & default variant refactor
 
 - Thong nhat module quan ly san pham va bien the:
-  - Moi san pham co it nhat mot bien thể.
+  - Moi san pham co it nhat mot bien thá»ƒ.
   - San pham don gian khong co lua chon duoc tu dong tao mot default variant trong DB.
   - SKU cua bien the dang active la duy nhat trong toan he thong, nhung SKU cua bien the da bi xoa mem co the duoc tai su dung.
   - Bat buoc moi san pham chi co dung mot bien the mac dinh (`is_default = true`) tai moi thoi diem.
@@ -268,246 +363,383 @@
 
 ## Update 2026-05-31 admin product action cleanup
 
-- Bảng sản phẩm admin đã bỏ các nút phụ `Preview` và `Sao chép` khỏi cột thao tác để giao diện gọn hơn.
-- Cột thao tác chỉ giữ các hành động vận hành chính theo trạng thái sản phẩm: sửa, xóa/ẩn, khôi phục nếu có, gửi duyệt, duyệt và lưu trữ.
+- Báº£ng sáº£n pháº©m admin Ä‘Ã£ bá» cÃ¡c nÃºt phá»¥ `Preview` vÃ  `Sao chÃ©p` khá»i cá»™t thao tÃ¡c Ä‘á»ƒ giao diá»‡n gá»n hÆ¡n.
+- Cá»™t thao tÃ¡c chá»‰ giá»¯ cÃ¡c hÃ nh Ä‘á»™ng váº­n hÃ nh chÃ­nh theo tráº¡ng thÃ¡i sáº£n pháº©m: sá»­a, xÃ³a/áº©n, khÃ´i phá»¥c náº¿u cÃ³, gá»­i duyá»‡t, duyá»‡t vÃ  lÆ°u trá»¯.
 
 ## Update 2026-05-31 direct approval bypass for super admin
 
-- Khi tài khoản đăng nhập có vai trò `SUPER_ADMIN`, cho phép duyệt thẳng (Duyệt ngay) sản phẩm từ trạng thái `DRAFT` hoặc `REVISION_DRAFT` mà không cần đi qua bước trung gian `PENDING_REVIEW` (gửi duyệt).
-- API backend cập nhật các route `/products/{product_id}/approve`, `/products/bulk-approve` và `/products/bulk-action` để tự động kiểm tra `role_code` của user và cho phép trạng thái `DRAFT`/`REVISION_DRAFT` được duyệt thẳng thành `ACTIVE` đối với Super Admin.
-- Frontend hiển thị thêm nút "Duyệt thẳng" bên cạnh nút "Gửi duyệt" trên bảng danh sách sản phẩm dành riêng cho Super Admin.
+- Khi tÃ i khoáº£n Ä‘Äƒng nháº­p cÃ³ vai trÃ² `SUPER_ADMIN`, cho phÃ©p duyá»‡t tháº³ng (Duyá»‡t ngay) sáº£n pháº©m tá»« tráº¡ng thÃ¡i `DRAFT` hoáº·c `REVISION_DRAFT` mÃ  khÃ´ng cáº§n Ä‘i qua bÆ°á»›c trung gian `PENDING_REVIEW` (gá»­i duyá»‡t).
+- API backend cáº­p nháº­t cÃ¡c route `/products/{product_id}/approve`, `/products/bulk-approve` vÃ  `/products/bulk-action` Ä‘á»ƒ tá»± Ä‘á»™ng kiá»ƒm tra `role_code` cá»§a user vÃ  cho phÃ©p tráº¡ng thÃ¡i `DRAFT`/`REVISION_DRAFT` Ä‘Æ°á»£c duyá»‡t tháº³ng thÃ nh `ACTIVE` Ä‘á»‘i vá»›i Super Admin.
+- Frontend hiá»ƒn thá»‹ thÃªm nÃºt "Duyá»‡t tháº³ng" bÃªn cáº¡nh nÃºt "Gá»­i duyá»‡t" trÃªn báº£ng danh sÃ¡ch sáº£n pháº©m dÃ nh riÃªng cho Super Admin.
 
 ## Update 2026-05-31 fix duplicate SKU check query
 
-- Sửa lỗi `AmbiguousParameterError: could not determine data type of parameter $3` khi kiểm tra trùng lặp SKU trong cơ sở dữ liệu khi cập nhật hoặc thêm sản phẩm.
-- Giải pháp: Thực hiện ép kiểu tường minh `CAST(:parent_product_id AS UUID)` trong câu truy vấn `sku_query` của hàm `upsert_product_variants` tại file `admin_products.py`.
+- Sá»­a lá»—i `AmbiguousParameterError: could not determine data type of parameter $3` khi kiá»ƒm tra trÃ¹ng láº·p SKU trong cÆ¡ sá»Ÿ dá»¯ liá»‡u khi cáº­p nháº­t hoáº·c thÃªm sáº£n pháº©m.
+- Giáº£i phÃ¡p: Thá»±c hiá»‡n Ã©p kiá»ƒu tÆ°á»ng minh `CAST(:parent_product_id AS UUID)` trong cÃ¢u truy váº¥n `sku_query` cá»§a hÃ m `upsert_product_variants` táº¡i file `admin_products.py`.
 
 ## Update 2026-05-31 fix admin products filter logic
 
-- Khắc phục lỗi bộ lọc quản lý sản phẩm Admin (Danh mục và Thương hiệu) không hoạt động do vòng lặp phụ thuộc state và closure lỗi thời (stale state) khi gọi API.
-- Giải pháp: Di chuyển các state `productCategoryFilter` và `productBrandFilter` quay trở lại hook cha `useAdminLogic.ts` để quản lý tập trung và đảm bảo reactivity. Truyền các state này cùng setter của chúng xuống hook con `useAdminProductsLogic.ts` để đồng bộ hóa luồng dữ liệu.
+- Kháº¯c phá»¥c lá»—i bá»™ lá»c quáº£n lÃ½ sáº£n pháº©m Admin (Danh má»¥c vÃ  ThÆ°Æ¡ng hiá»‡u) khÃ´ng hoáº¡t Ä‘á»™ng do vÃ²ng láº·p phá»¥ thuá»™c state vÃ  closure lá»—i thá»i (stale state) khi gá»i API.
+- Giáº£i phÃ¡p: Di chuyá»ƒn cÃ¡c state `productCategoryFilter` vÃ  `productBrandFilter` quay trá»Ÿ láº¡i hook cha `useAdminLogic.ts` Ä‘á»ƒ quáº£n lÃ½ táº­p trung vÃ  Ä‘áº£m báº£o reactivity. Truyá»n cÃ¡c state nÃ y cÃ¹ng setter cá»§a chÃºng xuá»‘ng hook con `useAdminProductsLogic.ts` Ä‘á»ƒ Ä‘á»“ng bá»™ hÃ³a luá»“ng dá»¯ liá»‡u.
 
 ## Update 2026-06-01 admin form completion feedback
 
-- Sau khi thêm hoặc chỉnh sửa sản phẩm thành công, popup sản phẩm tự đóng thay vì reset về trạng thái "Thêm sản phẩm mới" ngay trong popup đang mở.
-- Admin nhận thông báo thành công rõ ràng sau khi thêm hoặc lưu thay đổi sản phẩm.
-- Cùng đợt này, các popup quản trị dùng chung `CollapsibleSection` cho thương hiệu và voucher cũng được đóng bằng `closeSignal` sau khi lưu thành công để giữ hành vi nhất quán.
+- Sau khi thÃªm hoáº·c chá»‰nh sá»­a sáº£n pháº©m thÃ nh cÃ´ng, popup sáº£n pháº©m tá»± Ä‘Ã³ng thay vÃ¬ reset vá» tráº¡ng thÃ¡i "ThÃªm sáº£n pháº©m má»›i" ngay trong popup Ä‘ang má»Ÿ.
+- Admin nháº­n thÃ´ng bÃ¡o thÃ nh cÃ´ng rÃµ rÃ ng sau khi thÃªm hoáº·c lÆ°u thay Ä‘á»•i sáº£n pháº©m.
+- CÃ¹ng Ä‘á»£t nÃ y, cÃ¡c popup quáº£n trá»‹ dÃ¹ng chung `CollapsibleSection` cho thÆ°Æ¡ng hiá»‡u vÃ  voucher cÅ©ng Ä‘Æ°á»£c Ä‘Ã³ng báº±ng `closeSignal` sau khi lÆ°u thÃ nh cÃ´ng Ä‘á»ƒ giá»¯ hÃ nh vi nháº¥t quÃ¡n.
 
 ## Update 2026-06-01 product and variant galleries
 
-- Form quản trị sản phẩm đã có lại phần tải "Bộ ảnh sản phẩm chung" và gửi dữ liệu vào `products.images`; sản phẩm đơn giản không có biến thể hiển thị được gallery chung thay vì chỉ có ảnh đại diện.
-- Biến thể tách rõ `imageUrl` là ảnh đại diện biến thể và `images` là bộ ảnh riêng của biến thể.
-- Thêm migration `049_product_variant_images.sql` để bổ sung cột `product_variants.images`.
-- API admin/catalog trả `images` cho từng biến thể; trang chi tiết sản phẩm gom cả ảnh đại diện biến thể và bộ ảnh biến thể vào gallery hiển thị.
+- Form quáº£n trá»‹ sáº£n pháº©m Ä‘Ã£ cÃ³ láº¡i pháº§n táº£i "Bá»™ áº£nh sáº£n pháº©m chung" vÃ  gá»­i dá»¯ liá»‡u vÃ o `products.images`; sáº£n pháº©m Ä‘Æ¡n giáº£n khÃ´ng cÃ³ biáº¿n thá»ƒ hiá»ƒn thá»‹ Ä‘Æ°á»£c gallery chung thay vÃ¬ chá»‰ cÃ³ áº£nh Ä‘áº¡i diá»‡n.
+- Biáº¿n thá»ƒ tÃ¡ch rÃµ `imageUrl` lÃ  áº£nh Ä‘áº¡i diá»‡n biáº¿n thá»ƒ vÃ  `images` lÃ  bá»™ áº£nh riÃªng cá»§a biáº¿n thá»ƒ.
+- ThÃªm migration `049_product_variant_images.sql` Ä‘á»ƒ bá»• sung cá»™t `product_variants.images`.
+- API admin/catalog tráº£ `images` cho tá»«ng biáº¿n thá»ƒ; trang chi tiáº¿t sáº£n pháº©m gom cáº£ áº£nh Ä‘áº¡i diá»‡n biáº¿n thá»ƒ vÃ  bá»™ áº£nh biáº¿n thá»ƒ vÃ o gallery hiá»ƒn thá»‹.
 ## Update 2026-06-01 storefront product detail scroll
 
-- Ghi chú: bố cục này đã được thay bằng bản sticky ở mục kế tiếp để giảm khoảng trắng tốt hơn.
-- Trang chi tiết sản phẩm trên màn hình lớn dùng hai cột độc lập cho khu ảnh/thông số nhanh và khu giá/tuỳ chọn mua hàng.
-- Mỗi cột chỉ giới hạn chiều cao theo phần nhìn thấy hợp lý, không ép chiều cao khi nội dung ngắn để tránh tạo khoảng trắng thừa.
-- Khi cuộn tới đầu hoặc cuối một cột, phần cuộn còn lại được chuyển tiếp ra trang để người dùng đi xuống nội dung mô tả, sản phẩm gợi ý và đánh giá tự nhiên hơn.
+- Ghi chÃº: bá»‘ cá»¥c nÃ y Ä‘Ã£ Ä‘Æ°á»£c thay báº±ng báº£n sticky á»Ÿ má»¥c káº¿ tiáº¿p Ä‘á»ƒ giáº£m khoáº£ng tráº¯ng tá»‘t hÆ¡n.
+- Trang chi tiáº¿t sáº£n pháº©m trÃªn mÃ n hÃ¬nh lá»›n dÃ¹ng hai cá»™t Ä‘á»™c láº­p cho khu áº£nh/thÃ´ng sá»‘ nhanh vÃ  khu giÃ¡/tuá»³ chá»n mua hÃ ng.
+- Má»—i cá»™t chá»‰ giá»›i háº¡n chiá»u cao theo pháº§n nhÃ¬n tháº¥y há»£p lÃ½, khÃ´ng Ã©p chiá»u cao khi ná»™i dung ngáº¯n Ä‘á»ƒ trÃ¡nh táº¡o khoáº£ng tráº¯ng thá»«a.
+- Khi cuá»™n tá»›i Ä‘áº§u hoáº·c cuá»‘i má»™t cá»™t, pháº§n cuá»™n cÃ²n láº¡i Ä‘Æ°á»£c chuyá»ƒn tiáº¿p ra trang Ä‘á»ƒ ngÆ°á»i dÃ¹ng Ä‘i xuá»‘ng ná»™i dung mÃ´ táº£, sáº£n pháº©m gá»£i Ã½ vÃ  Ä‘Ã¡nh giÃ¡ tá»± nhiÃªn hÆ¡n.
 
 ## Update 2026-06-01 storefront product detail sticky layout
 
-- Trang chi tiết sản phẩm đổi từ hai cột cuộn độc lập sang bố cục cột trái sticky và cột phải cuộn theo trang để giảm khoảng trắng và giữ ảnh sản phẩm làm điểm neo thị giác.
-- Phần thông số kỹ thuật trên storefront đọc linh hoạt cả `specs` và `specifications`, hỗ trợ dữ liệu dạng object hoặc mảng `{ key, label, value, group }`.
-- Tuỳ chọn phiên bản/màu sắc trên storefront được chuẩn hoá label/key trước khi render để tránh lỗi React khi API trả object như `{ name }`.
-- Thông số sản phẩm có thêm alias và fallback label tiếng Việt ở storefront, ví dụ `screenSize` được chuẩn hoá về `screen_size`, các key như `wifi`, `bluetooth`, `rear_video`, `noise_cancellation` được hiển thị bằng tên tiếng Việt.
+- Trang chi tiáº¿t sáº£n pháº©m Ä‘á»•i tá»« hai cá»™t cuá»™n Ä‘á»™c láº­p sang bá»‘ cá»¥c cá»™t trÃ¡i sticky vÃ  cá»™t pháº£i cuá»™n theo trang Ä‘á»ƒ giáº£m khoáº£ng tráº¯ng vÃ  giá»¯ áº£nh sáº£n pháº©m lÃ m Ä‘iá»ƒm neo thá»‹ giÃ¡c.
+- Pháº§n thÃ´ng sá»‘ ká»¹ thuáº­t trÃªn storefront Ä‘á»c linh hoáº¡t cáº£ `specs` vÃ  `specifications`, há»— trá»£ dá»¯ liá»‡u dáº¡ng object hoáº·c máº£ng `{ key, label, value, group }`.
+- Tuá»³ chá»n phiÃªn báº£n/mÃ u sáº¯c trÃªn storefront Ä‘Æ°á»£c chuáº©n hoÃ¡ label/key trÆ°á»›c khi render Ä‘á»ƒ trÃ¡nh lá»—i React khi API tráº£ object nhÆ° `{ name }`.
+- ThÃ´ng sá»‘ sáº£n pháº©m cÃ³ thÃªm alias vÃ  fallback label tiáº¿ng Viá»‡t á»Ÿ storefront, vÃ­ dá»¥ `screenSize` Ä‘Æ°á»£c chuáº©n hoÃ¡ vá» `screen_size`, cÃ¡c key nhÆ° `wifi`, `bluetooth`, `rear_video`, `noise_cancellation` Ä‘Æ°á»£c hiá»ƒn thá»‹ báº±ng tÃªn tiáº¿ng Viá»‡t.
 
 ## Update 2026-06-01 storefront product detail premium CellphoneS style
 
-- Cải tiến giao diện trang chi tiết sản phẩm lấy cảm hứng từ CellphoneS:
-  - Nút chọn dung lượng và màu sắc tự động hiển thị giá bán tương ứng phía dưới (truy xuất từ biến thể của sản phẩm).
-  - Nút trả góp chia thành 2 nút song song: "TRẢ GÓP 0%" (tông vàng cam) và "TRẢ GÓP QUA THẺ" (tông xanh dương) với thông tin phụ trực quan.
-  - Phần mô tả sản phẩm (Product Description) mặc định giới hạn chiều cao tối đa 400px, có hiệu ứng phủ mờ đáy (gradient fadeout) và nút toggle "Xem thêm / Thu gọn".
-  - Các nút tác vụ nhanh ở đầu trang (Yêu thích, Hỏi đáp, Thông số, So sánh) được phối màu xám đen với hiệu ứng chuyển màu đỏ khi hover đồng bộ với tông màu đỏ của shop.
-  - Gom nhóm các khối nội dung rời rạc ở cột phải thành 2 Card lớn thống nhất: "Purchase Card" (chứa giá, các phiên bản chọn, khuyến mãi lồng bên trong, số lượng, cụm nút thanh toán và trả góp) và "Information Card" (chứa Đặc điểm nổi bật + Mô tả chi tiết phân cách bởi một đường kẻ mảnh), giúp loại bỏ hoàn toàn các khoảng trống lề thừa rời rạc ở cột phải.
-  - Loại bỏ hoàn toàn nền trắng của khung bao Thumbs Swiper để các ảnh con nổi tự nhiên trên nền xám của trang, triệt tiêu khoảng trống trắng thừa bên phải. Đồng thời đổi ảnh lớn sang kích thước động `w-[90%] h-[90%]` để lấp đầy hộp trắng trưng bày cân đối.
-  - Sử dụng Grid tỷ lệ `lg:grid-cols-[500px_1fr]` cố định cột trái 500px và loại bỏ `mx-auto` trên `<aside>` để cột trái bám sát lề trái trang, thu hẹp khoảng hở dọc trống trải ở giữa hai cột.
-  - Chuyển nền trang sang trắng tinh (`bg-white`), làm phẳng tiêu đề và ô cam kết, loại bỏ bóng đổ bọc ngoài ở tất cả các khối (chỉ dùng viền mảnh `border-gray-200`) và để các phần tử mua hàng ở cột phải chảy trực tiếp trên nền trắng không đóng hộp bọc ngoài, phản ánh chính xác phong cách tối giản phẳng (Flat Design) của CellphoneS.
+- Cáº£i tiáº¿n giao diá»‡n trang chi tiáº¿t sáº£n pháº©m láº¥y cáº£m há»©ng tá»« CellphoneS:
+  - NÃºt chá»n dung lÆ°á»£ng vÃ  mÃ u sáº¯c tá»± Ä‘á»™ng hiá»ƒn thá»‹ giÃ¡ bÃ¡n tÆ°Æ¡ng á»©ng phÃ­a dÆ°á»›i (truy xuáº¥t tá»« biáº¿n thá»ƒ cá»§a sáº£n pháº©m).
+  - NÃºt tráº£ gÃ³p chia thÃ nh 2 nÃºt song song: "TRáº¢ GÃ“P 0%" (tÃ´ng vÃ ng cam) vÃ  "TRáº¢ GÃ“P QUA THáºº" (tÃ´ng xanh dÆ°Æ¡ng) vá»›i thÃ´ng tin phá»¥ trá»±c quan.
+  - Pháº§n mÃ´ táº£ sáº£n pháº©m (Product Description) máº·c Ä‘á»‹nh giá»›i háº¡n chiá»u cao tá»‘i Ä‘a 400px, cÃ³ hiá»‡u á»©ng phá»§ má» Ä‘Ã¡y (gradient fadeout) vÃ  nÃºt toggle "Xem thÃªm / Thu gá»n".
+  - CÃ¡c nÃºt tÃ¡c vá»¥ nhanh á»Ÿ Ä‘áº§u trang (YÃªu thÃ­ch, Há»i Ä‘Ã¡p, ThÃ´ng sá»‘, So sÃ¡nh) Ä‘Æ°á»£c phá»‘i mÃ u xÃ¡m Ä‘en vá»›i hiá»‡u á»©ng chuyá»ƒn mÃ u Ä‘á» khi hover Ä‘á»“ng bá»™ vá»›i tÃ´ng mÃ u Ä‘á» cá»§a shop.
+  - Gom nhÃ³m cÃ¡c khá»‘i ná»™i dung rá»i ráº¡c á»Ÿ cá»™t pháº£i thÃ nh 2 Card lá»›n thá»‘ng nháº¥t: "Purchase Card" (chá»©a giÃ¡, cÃ¡c phiÃªn báº£n chá»n, khuyáº¿n mÃ£i lá»“ng bÃªn trong, sá»‘ lÆ°á»£ng, cá»¥m nÃºt thanh toÃ¡n vÃ  tráº£ gÃ³p) vÃ  "Information Card" (chá»©a Äáº·c Ä‘iá»ƒm ná»•i báº­t + MÃ´ táº£ chi tiáº¿t phÃ¢n cÃ¡ch bá»Ÿi má»™t Ä‘Æ°á»ng káº» máº£nh), giÃºp loáº¡i bá» hoÃ n toÃ n cÃ¡c khoáº£ng trá»‘ng lá» thá»«a rá»i ráº¡c á»Ÿ cá»™t pháº£i.
+  - Loáº¡i bá» hoÃ n toÃ n ná»n tráº¯ng cá»§a khung bao Thumbs Swiper Ä‘á»ƒ cÃ¡c áº£nh con ná»•i tá»± nhiÃªn trÃªn ná»n xÃ¡m cá»§a trang, triá»‡t tiÃªu khoáº£ng trá»‘ng tráº¯ng thá»«a bÃªn pháº£i. Äá»“ng thá»i Ä‘á»•i áº£nh lá»›n sang kÃ­ch thÆ°á»›c Ä‘á»™ng `w-[90%] h-[90%]` Ä‘á»ƒ láº¥p Ä‘áº§y há»™p tráº¯ng trÆ°ng bÃ y cÃ¢n Ä‘á»‘i.
+  - Sá»­ dá»¥ng Grid tá»· lá»‡ `lg:grid-cols-[500px_1fr]` cá»‘ Ä‘á»‹nh cá»™t trÃ¡i 500px vÃ  loáº¡i bá» `mx-auto` trÃªn `<aside>` Ä‘á»ƒ cá»™t trÃ¡i bÃ¡m sÃ¡t lá» trÃ¡i trang, thu háº¹p khoáº£ng há»Ÿ dá»c trá»‘ng tráº£i á»Ÿ giá»¯a hai cá»™t.
+  - Chuyá»ƒn ná»n trang sang tráº¯ng tinh (`bg-white`), lÃ m pháº³ng tiÃªu Ä‘á» vÃ  Ã´ cam káº¿t, loáº¡i bá» bÃ³ng Ä‘á»• bá»c ngoÃ i á»Ÿ táº¥t cáº£ cÃ¡c khá»‘i (chá»‰ dÃ¹ng viá»n máº£nh `border-gray-200`) vÃ  Ä‘á»ƒ cÃ¡c pháº§n tá»­ mua hÃ ng á»Ÿ cá»™t pháº£i cháº£y trá»±c tiáº¿p trÃªn ná»n tráº¯ng khÃ´ng Ä‘Ã³ng há»™p bá»c ngoÃ i, pháº£n Ã¡nh chÃ­nh xÃ¡c phong cÃ¡ch tá»‘i giáº£n pháº³ng (Flat Design) cá»§a CellphoneS.
 
 ## Update 2026-06-01 storefront product detail real data migration
 
-- Loại bỏ hoàn toàn các dữ liệu giả (fallback promotions mặc định, phụ kiện mua kèm cứng) khỏi trang chi tiết sản phẩm.
-- Sửa Catalog API `GET /catalog/products/{product_id}` để trả về `salesConfig` và tự động resolve thông tin chi tiết các sản phẩm phụ kiện trong `accessoryOffers` (bao gồm tên, SKU, hình ảnh, giá gốc, giá bán hiện tại và giá sau ưu đãi mua kèm).
-- Cập nhật frontend `ProductDetail.tsx` để ẩn khối Khuyến mãi nếu sản phẩm không cấu hình `promotions` trong DB.
-- Cập nhật frontend `BundleOffers` để ẩn khối Ưu đãi mua kèm nếu sản phẩm không có `accessoryOffers` thực tế. Khi hiển thị, khối sẽ render tên, hình ảnh, giá bán lẻ hiện tại và giá ưu đãi mua kèm thực tế của các phụ kiện được liên kết.
-- Sửa đổi logic tính điểm xu hướng rankings (`ranking_row` trong `catalog.py`): Nếu sản phẩm không phát sinh tương tác nào (lượt xem, tìm kiếm, lượt mua) trong khoảng thời gian trượt đã chọn (ví dụ 24h), điểm xu hướng sẽ trả về 0 thay vì neo giữ điểm tích lũy trọn đời (từ lượt yêu thích/đánh giá).
-- Cấu trúc cơ chế sắp xếp phân tầng (multi-level fallback) trong Rankings: Khi các sản phẩm cùng bằng điểm nhau ở tiêu chí chính (ví dụ cùng bằng 0 điểm xu hướng ở khoảng thời gian 24h), hệ thống sẽ tự động so sánh qua các cấp tiếp theo gồm mốc 24h, mốc 7 ngày, mốc 30 ngày, mốc 1 năm, rồi đến doanh thu chu kỳ và cuối cùng là điểm đánh giá của sản phẩm. Logic này áp dụng đồng bộ cho tất cả các tiêu chí sắp xếp (trending, sold, view, search, like, rating) và loại bỏ hoàn toàn các mốc "kỳ trước" (previous period) để đảm bảo tuân thủ đúng yêu cầu mốc thời gian tăng dần của người dùng.
-- Thêm `like_stats` và `rating_stats` theo các mốc thời gian vào câu SQL của Rankings API để hỗ trợ đầy đủ cơ chế so sánh phân tầng cho hai tùy chọn "Được yêu thích nhất" (like) và "Đánh giá cao nhất" (rating).
-- Sửa điểm xu hướng Rankings để lượt yêu thích/đánh giá chỉ được tính theo đúng khoảng thời gian đang xem. Ví dụ mốc 24h chỉ cộng lượt thích và đánh giá mới trong 24h, không cộng tổng `favorite_count`/`review_count` trọn đời sản phẩm vào điểm xu hướng.
-- Rankings không còn lấy `rating`, `review_count`, `favorite_count` trực tiếp từ bảng `products` vì các cột này có thể chứa dữ liệu seed/tổng hợp cũ. API rankings tính lại các chỉ số này từ bảng phát sinh thật gồm `product_reviews` và `user_favorites`; tiêu chí "Yêu thích" và "Đánh giá" ưu tiên dữ liệu trong khoảng thời gian đang chọn.
-- Biểu đồ `history` của Rankings chia bucket cố định theo mốc hiển thị: 24h = 24 khung giờ, 7d = 7 ngày, 30d = 30 ngày, 1y = 12 tháng. Bucket được neo vào đầu giờ/ngày/tháng để label không bị lệch hoặc dư điểm cuối.
+- Loáº¡i bá» hoÃ n toÃ n cÃ¡c dá»¯ liá»‡u giáº£ (fallback promotions máº·c Ä‘á»‹nh, phá»¥ kiá»‡n mua kÃ¨m cá»©ng) khá»i trang chi tiáº¿t sáº£n pháº©m.
+- Sá»­a Catalog API `GET /catalog/products/{product_id}` Ä‘á»ƒ tráº£ vá» `salesConfig` vÃ  tá»± Ä‘á»™ng resolve thÃ´ng tin chi tiáº¿t cÃ¡c sáº£n pháº©m phá»¥ kiá»‡n trong `accessoryOffers` (bao gá»“m tÃªn, SKU, hÃ¬nh áº£nh, giÃ¡ gá»‘c, giÃ¡ bÃ¡n hiá»‡n táº¡i vÃ  giÃ¡ sau Æ°u Ä‘Ã£i mua kÃ¨m).
+- Cáº­p nháº­t frontend `ProductDetail.tsx` Ä‘á»ƒ áº©n khá»‘i Khuyáº¿n mÃ£i náº¿u sáº£n pháº©m khÃ´ng cáº¥u hÃ¬nh `promotions` trong DB.
+- Cáº­p nháº­t frontend `BundleOffers` Ä‘á»ƒ áº©n khá»‘i Æ¯u Ä‘Ã£i mua kÃ¨m náº¿u sáº£n pháº©m khÃ´ng cÃ³ `accessoryOffers` thá»±c táº¿. Khi hiá»ƒn thá»‹, khá»‘i sáº½ render tÃªn, hÃ¬nh áº£nh, giÃ¡ bÃ¡n láº» hiá»‡n táº¡i vÃ  giÃ¡ Æ°u Ä‘Ã£i mua kÃ¨m thá»±c táº¿ cá»§a cÃ¡c phá»¥ kiá»‡n Ä‘Æ°á»£c liÃªn káº¿t.
+- Sá»­a Ä‘á»•i logic tÃ­nh Ä‘iá»ƒm xu hÆ°á»›ng rankings (`ranking_row` trong `catalog.py`): Náº¿u sáº£n pháº©m khÃ´ng phÃ¡t sinh tÆ°Æ¡ng tÃ¡c nÃ o (lÆ°á»£t xem, tÃ¬m kiáº¿m, lÆ°á»£t mua) trong khoáº£ng thá»i gian trÆ°á»£t Ä‘Ã£ chá»n (vÃ­ dá»¥ 24h), Ä‘iá»ƒm xu hÆ°á»›ng sáº½ tráº£ vá» 0 thay vÃ¬ neo giá»¯ Ä‘iá»ƒm tÃ­ch lÅ©y trá»n Ä‘á»i (tá»« lÆ°á»£t yÃªu thÃ­ch/Ä‘Ã¡nh giÃ¡).
+- Cáº¥u trÃºc cÆ¡ cháº¿ sáº¯p xáº¿p phÃ¢n táº§ng (multi-level fallback) trong Rankings: Khi cÃ¡c sáº£n pháº©m cÃ¹ng báº±ng Ä‘iá»ƒm nhau á»Ÿ tiÃªu chÃ­ chÃ­nh (vÃ­ dá»¥ cÃ¹ng báº±ng 0 Ä‘iá»ƒm xu hÆ°á»›ng á»Ÿ khoáº£ng thá»i gian 24h), há»‡ thá»‘ng sáº½ tá»± Ä‘á»™ng so sÃ¡nh qua cÃ¡c cáº¥p tiáº¿p theo gá»“m má»‘c 24h, má»‘c 7 ngÃ y, má»‘c 30 ngÃ y, má»‘c 1 nÄƒm, rá»“i Ä‘áº¿n doanh thu chu ká»³ vÃ  cuá»‘i cÃ¹ng lÃ  Ä‘iá»ƒm Ä‘Ã¡nh giÃ¡ cá»§a sáº£n pháº©m. Logic nÃ y Ã¡p dá»¥ng Ä‘á»“ng bá»™ cho táº¥t cáº£ cÃ¡c tiÃªu chÃ­ sáº¯p xáº¿p (trending, sold, view, search, like, rating) vÃ  loáº¡i bá» hoÃ n toÃ n cÃ¡c má»‘c "ká»³ trÆ°á»›c" (previous period) Ä‘á»ƒ Ä‘áº£m báº£o tuÃ¢n thá»§ Ä‘Ãºng yÃªu cáº§u má»‘c thá»i gian tÄƒng dáº§n cá»§a ngÆ°á»i dÃ¹ng.
+- ThÃªm `like_stats` vÃ  `rating_stats` theo cÃ¡c má»‘c thá»i gian vÃ o cÃ¢u SQL cá»§a Rankings API Ä‘á»ƒ há»— trá»£ Ä‘áº§y Ä‘á»§ cÆ¡ cháº¿ so sÃ¡nh phÃ¢n táº§ng cho hai tÃ¹y chá»n "ÄÆ°á»£c yÃªu thÃ­ch nháº¥t" (like) vÃ  "ÄÃ¡nh giÃ¡ cao nháº¥t" (rating).
+- Sá»­a Ä‘iá»ƒm xu hÆ°á»›ng Rankings Ä‘á»ƒ lÆ°á»£t yÃªu thÃ­ch/Ä‘Ã¡nh giÃ¡ chá»‰ Ä‘Æ°á»£c tÃ­nh theo Ä‘Ãºng khoáº£ng thá»i gian Ä‘ang xem. VÃ­ dá»¥ má»‘c 24h chá»‰ cá»™ng lÆ°á»£t thÃ­ch vÃ  Ä‘Ã¡nh giÃ¡ má»›i trong 24h, khÃ´ng cá»™ng tá»•ng `favorite_count`/`review_count` trá»n Ä‘á»i sáº£n pháº©m vÃ o Ä‘iá»ƒm xu hÆ°á»›ng.
+- Rankings khÃ´ng cÃ²n láº¥y `rating`, `review_count`, `favorite_count` trá»±c tiáº¿p tá»« báº£ng `products` vÃ¬ cÃ¡c cá»™t nÃ y cÃ³ thá»ƒ chá»©a dá»¯ liá»‡u seed/tá»•ng há»£p cÅ©. API rankings tÃ­nh láº¡i cÃ¡c chá»‰ sá»‘ nÃ y tá»« báº£ng phÃ¡t sinh tháº­t gá»“m `product_reviews` vÃ  `user_favorites`; tiÃªu chÃ­ "YÃªu thÃ­ch" vÃ  "ÄÃ¡nh giÃ¡" Æ°u tiÃªn dá»¯ liá»‡u trong khoáº£ng thá»i gian Ä‘ang chá»n.
+- Biá»ƒu Ä‘á»“ `history` cá»§a Rankings chia bucket cá»‘ Ä‘á»‹nh theo má»‘c hiá»ƒn thá»‹: 24h = 24 khung giá», 7d = 7 ngÃ y, 30d = 30 ngÃ y, 1y = 12 thÃ¡ng. Bucket Ä‘Æ°á»£c neo vÃ o Ä‘áº§u giá»/ngÃ y/thÃ¡ng Ä‘á»ƒ label khÃ´ng bá»‹ lá»‡ch hoáº·c dÆ° Ä‘iá»ƒm cuá»‘i.
 
 ## Update 2026-06-02 product favorite event history
 
-- Thêm migration `050_product_favorite_events.sql` để bổ sung `is_active`, `updated_at` cho `user_favorites` và tạo bảng `user_favorite_events` ghi nhật ký `LIKE`/`UNLIKE` kèm `created_at`.
-- API yêu thích sản phẩm không xóa cứng dòng yêu thích nữa. Khi hủy yêu thích, hệ thống chuyển `is_active = FALSE` và ghi sự kiện `UNLIKE`; khi yêu thích lại, hệ thống bật `is_active = TRUE`, cập nhật thời gian trạng thái hiện tại và ghi sự kiện `LIKE` mới.
-- Rankings tính các chỉ số yêu thích theo 24h/7d/30d/1y từ bảng `user_favorite_events` với `action = 'LIKE'`, giúp dữ liệu lịch sử không bị mất khi người dùng hủy yêu thích sau đó. Danh sách sản phẩm yêu thích của người dùng vẫn chỉ hiển thị các dòng `is_active = TRUE`.
-- API `GET /catalog/favorites` trả thêm `favoritedAt` và `favoriteUpdatedAt`; tab "Sản phẩm yêu thích" trên tài khoản hiển thị thời điểm người dùng yêu thích sản phẩm.
-- API toggle yêu thích có rate limit qua Redis theo cặp user/sản phẩm: tối đa 5 lần thích/hủy trong 10 giây. Nếu vượt ngưỡng, trả 429 với thông báo "Bạn thao tác yêu thích quá nhanh. Vui lòng thử lại sau vài giây." để giảm spam làm nhiễu event log và rankings.
-- Rankings tính "Yêu thích" theo điểm ròng từ event log: `LIKE = +1`, `UNLIKE = -1`. Vì vậy nếu người dùng hủy yêu thích trong 24h/7d/30d/1y thì chỉ số có thể đi xuống ở đúng bucket thời gian đó; nếu thích lại thì tăng lại. Cách này tránh việc spam thích/hủy/thích làm buff nhiều lượt `LIKE` giả trong cùng một khoảng thời gian.
+- ThÃªm migration `050_product_favorite_events.sql` Ä‘á»ƒ bá»• sung `is_active`, `updated_at` cho `user_favorites` vÃ  táº¡o báº£ng `user_favorite_events` ghi nháº­t kÃ½ `LIKE`/`UNLIKE` kÃ¨m `created_at`.
+- API yÃªu thÃ­ch sáº£n pháº©m khÃ´ng xÃ³a cá»©ng dÃ²ng yÃªu thÃ­ch ná»¯a. Khi há»§y yÃªu thÃ­ch, há»‡ thá»‘ng chuyá»ƒn `is_active = FALSE` vÃ  ghi sá»± kiá»‡n `UNLIKE`; khi yÃªu thÃ­ch láº¡i, há»‡ thá»‘ng báº­t `is_active = TRUE`, cáº­p nháº­t thá»i gian tráº¡ng thÃ¡i hiá»‡n táº¡i vÃ  ghi sá»± kiá»‡n `LIKE` má»›i.
+- Rankings tÃ­nh cÃ¡c chá»‰ sá»‘ yÃªu thÃ­ch theo 24h/7d/30d/1y tá»« báº£ng `user_favorite_events` vá»›i `action = 'LIKE'`, giÃºp dá»¯ liá»‡u lá»‹ch sá»­ khÃ´ng bá»‹ máº¥t khi ngÆ°á»i dÃ¹ng há»§y yÃªu thÃ­ch sau Ä‘Ã³. Danh sÃ¡ch sáº£n pháº©m yÃªu thÃ­ch cá»§a ngÆ°á»i dÃ¹ng váº«n chá»‰ hiá»ƒn thá»‹ cÃ¡c dÃ²ng `is_active = TRUE`.
+- API `GET /catalog/favorites` tráº£ thÃªm `favoritedAt` vÃ  `favoriteUpdatedAt`; tab "Sáº£n pháº©m yÃªu thÃ­ch" trÃªn tÃ i khoáº£n hiá»ƒn thá»‹ thá»i Ä‘iá»ƒm ngÆ°á»i dÃ¹ng yÃªu thÃ­ch sáº£n pháº©m.
+- API toggle yÃªu thÃ­ch cÃ³ rate limit qua Redis theo cáº·p user/sáº£n pháº©m: tá»‘i Ä‘a 5 láº§n thÃ­ch/há»§y trong 10 giÃ¢y. Náº¿u vÆ°á»£t ngÆ°á»¡ng, tráº£ 429 vá»›i thÃ´ng bÃ¡o "Báº¡n thao tÃ¡c yÃªu thÃ­ch quÃ¡ nhanh. Vui lÃ²ng thá»­ láº¡i sau vÃ i giÃ¢y." Ä‘á»ƒ giáº£m spam lÃ m nhiá»…u event log vÃ  rankings.
+- Rankings tÃ­nh "YÃªu thÃ­ch" theo Ä‘iá»ƒm rÃ²ng tá»« event log: `LIKE = +1`, `UNLIKE = -1`. VÃ¬ váº­y náº¿u ngÆ°á»i dÃ¹ng há»§y yÃªu thÃ­ch trong 24h/7d/30d/1y thÃ¬ chá»‰ sá»‘ cÃ³ thá»ƒ Ä‘i xuá»‘ng á»Ÿ Ä‘Ãºng bucket thá»i gian Ä‘Ã³; náº¿u thÃ­ch láº¡i thÃ¬ tÄƒng láº¡i. CÃ¡ch nÃ y trÃ¡nh viá»‡c spam thÃ­ch/há»§y/thÃ­ch lÃ m buff nhiá»u lÆ°á»£t `LIKE` giáº£ trong cÃ¹ng má»™t khoáº£ng thá»i gian.
 ## Update 2026-06-02 storefront product list filters
 
-- Trang danh sách sản phẩm đổi bộ lọc Danh mục và Hãng từ danh sách nút/chip sang danh sách sổ xuống để gọn hơn khi dữ liệu nhiều.
-- Bộ lọc giá trên storefront dùng một thanh trượt khoảng giá chung và hai ô nhập thủ công cho giá tối thiểu/tối đa đến 100 triệu; giá tùy chỉnh tiếp tục ghi vào query `min_price`/`max_price` để dùng chung luồng lọc catalog hiện có.
-- Thẻ sản phẩm storefront bỏ nút So sánh dạng overlay chỉ hiện khi rê chuột trên desktop; nút So sánh nay hiển thị cố định trong chân thẻ để người dùng dễ chọn hơn.
+- Trang danh sÃ¡ch sáº£n pháº©m Ä‘á»•i bá»™ lá»c Danh má»¥c vÃ  HÃ£ng tá»« danh sÃ¡ch nÃºt/chip sang danh sÃ¡ch sá»• xuá»‘ng Ä‘á»ƒ gá»n hÆ¡n khi dá»¯ liá»‡u nhiá»u.
+- Bá»™ lá»c giÃ¡ trÃªn storefront dÃ¹ng má»™t thanh trÆ°á»£t khoáº£ng giÃ¡ chung vÃ  hai Ã´ nháº­p thá»§ cÃ´ng cho giÃ¡ tá»‘i thiá»ƒu/tá»‘i Ä‘a Ä‘áº¿n 100 triá»‡u; giÃ¡ tÃ¹y chá»‰nh tiáº¿p tá»¥c ghi vÃ o query `min_price`/`max_price` Ä‘á»ƒ dÃ¹ng chung luá»“ng lá»c catalog hiá»‡n cÃ³.
+- Tháº» sáº£n pháº©m storefront bá» nÃºt So sÃ¡nh dáº¡ng overlay chá»‰ hiá»‡n khi rÃª chuá»™t trÃªn desktop; nÃºt So sÃ¡nh nay hiá»ƒn thá»‹ cá»‘ Ä‘á»‹nh trong chÃ¢n tháº» Ä‘á»ƒ ngÆ°á»i dÃ¹ng dá»… chá»n hÆ¡n.
 
 ## Update 2026-06-03 smartphone product specifications update
 
-- Thực hiện cập nhật đầy đủ thông số kỹ thuật (specifications) cho toàn bộ sản phẩm thuộc danh mục điện thoại (smartphones).
-- Cập nhật trực tiếp file SQL seed `backend/migrations/init_database.sql` cho 5 mẫu điện thoại flagship: iPhone 16 Pro Max (`IP16PM`), Samsung Galaxy S24 Ultra (`S24U`), Samsung Galaxy Z Fold6 (`ZFOLD6`), Xiaomi 14 Ultra (`X14U`), và OPPO Find N3 (`OPPFN3`) với đầy đủ 42 trường specifications theo chuẩn của danh mục.
-- Chạy script Python `update_smartphone_specs.py` để bổ sung và chuẩn hóa dữ liệu thực tế bằng tiếng Việt có dấu cho các trường còn thiếu (bao gồm `brightness`, `video_recording`, `connectivity`...) cho toàn bộ 38 sản phẩm điện thoại đang tồn tại trong cơ sở dữ liệu.
-- Đảm bảo 100% trường specifications được điền giá trị chuẩn và hiển thị đồng bộ trên storefront.
+- Thá»±c hiá»‡n cáº­p nháº­t Ä‘áº§y Ä‘á»§ thÃ´ng sá»‘ ká»¹ thuáº­t (specifications) cho toÃ n bá»™ sáº£n pháº©m thuá»™c danh má»¥c Ä‘iá»‡n thoáº¡i (smartphones).
+- Cáº­p nháº­t trá»±c tiáº¿p file SQL seed `backend/migrations/init_database.sql` cho 5 máº«u Ä‘iá»‡n thoáº¡i flagship: iPhone 16 Pro Max (`IP16PM`), Samsung Galaxy S24 Ultra (`S24U`), Samsung Galaxy Z Fold6 (`ZFOLD6`), Xiaomi 14 Ultra (`X14U`), vÃ  OPPO Find N3 (`OPPFN3`) vá»›i Ä‘áº§y Ä‘á»§ 42 trÆ°á»ng specifications theo chuáº©n cá»§a danh má»¥c.
+- Cháº¡y script Python `update_smartphone_specs.py` Ä‘á»ƒ bá»• sung vÃ  chuáº©n hÃ³a dá»¯ liá»‡u thá»±c táº¿ báº±ng tiáº¿ng Viá»‡t cÃ³ dáº¥u cho cÃ¡c trÆ°á»ng cÃ²n thiáº¿u (bao gá»“m `brightness`, `video_recording`, `connectivity`...) cho toÃ n bá»™ 38 sáº£n pháº©m Ä‘iá»‡n thoáº¡i Ä‘ang tá»“n táº¡i trong cÆ¡ sá»Ÿ dá»¯ liá»‡u.
+- Äáº£m báº£o 100% trÆ°á»ng specifications Ä‘Æ°á»£c Ä‘iá»n giÃ¡ trá»‹ chuáº©n vÃ  hiá»ƒn thá»‹ Ä‘á»“ng bá»™ trÃªn storefront.
 ## Update 2026-06-03 flash sale management
 
-- Thêm migration `051_flash_sales.sql` tạo bảng `flash_sales` tách riêng khỏi bảng `products`.
-- Admin có module riêng:
+- ThÃªm migration `051_flash_sales.sql` táº¡o báº£ng `flash_sales` tÃ¡ch riÃªng khá»i báº£ng `products`.
+- Admin cÃ³ module riÃªng:
   - Backend: `backend/app/api/v1/routers/admin_flash_sales.py`.
-  - Frontend hook: `frontend/src/components/admin/hooks/useAdminFlashSalesLogic.ts`.
-  - Frontend tab: `frontend/src/components/admin/tabs/AdminFlashSalesTab.tsx`.
-- File chính chỉ đăng ký router/tab/API để giữ đúng nguyên tắc không nhồi logic flash sale vào module quản lý sản phẩm.
-- Flash sale hỗ trợ chọn sản phẩm, giảm theo phần trăm hoặc số tiền, thời gian bắt đầu, thời gian kết thúc hoặc không có thời hạn, thêm, sửa, xóa và bật/tắt trạng thái.
-- Backend kiểm tra giá flash sale phải lớn hơn 0 và nhỏ hơn giá bán hiện tại của sản phẩm trước khi lưu.
-- Catalog API tính giá flash sale động khi sale đang hiệu lực, không ghi đè `products.price` hoặc `products.sale_price`.
-- Storefront product card và trang chi tiết sản phẩm ưu tiên hiển thị giá flash sale, giá gốc bị gạch và nhãn/bảng thông báo flash sale đang diễn ra.
+  - Frontend hook: `frontend/src/features/admin-flash-sales/hooks/useAdminFlashSalesLogic.ts`.
+  - Frontend tab: `frontend/src/features/admin-flash-sales/components/AdminFlashSalesTab.tsx`.
+- File chÃ­nh chá»‰ Ä‘Äƒng kÃ½ router/tab/API Ä‘á»ƒ giá»¯ Ä‘Ãºng nguyÃªn táº¯c khÃ´ng nhá»“i logic flash sale vÃ o module quáº£n lÃ½ sáº£n pháº©m.
+- Flash sale há»— trá»£ chá»n sáº£n pháº©m, giáº£m theo pháº§n trÄƒm hoáº·c sá»‘ tiá»n, thá»i gian báº¯t Ä‘áº§u, thá»i gian káº¿t thÃºc hoáº·c khÃ´ng cÃ³ thá»i háº¡n, thÃªm, sá»­a, xÃ³a vÃ  báº­t/táº¯t tráº¡ng thÃ¡i.
+- Backend kiá»ƒm tra giÃ¡ flash sale pháº£i lá»›n hÆ¡n 0 vÃ  nhá» hÆ¡n giÃ¡ bÃ¡n hiá»‡n táº¡i cá»§a sáº£n pháº©m trÆ°á»›c khi lÆ°u.
+- Catalog API tÃ­nh giÃ¡ flash sale Ä‘á»™ng khi sale Ä‘ang hiá»‡u lá»±c, khÃ´ng ghi Ä‘Ã¨ `products.price` hoáº·c `products.sale_price`.
+- Storefront product card vÃ  trang chi tiáº¿t sáº£n pháº©m Æ°u tiÃªn hiá»ƒn thá»‹ giÃ¡ flash sale, giÃ¡ gá»‘c bá»‹ gáº¡ch vÃ  nhÃ£n/báº£ng thÃ´ng bÃ¡o flash sale Ä‘ang diá»…n ra.
 ## Update 2026-06-03 storefront product detail real metrics
 
-- Trang chi tiết sản phẩm không còn dùng số liệu ảo cho đánh giá và đã bán:
-  - Không fallback rating về `4.8`.
-  - Không fallback đã bán về `128`.
-  - Khi chưa có dữ liệu, rating hiển thị "Chưa có đánh giá", số đánh giá và đã bán hiển thị `0`.
-- Frontend không còn thay ảnh sản phẩm theo bảng ảnh demo trong `apiDb.ts`; ảnh sản phẩm lấy từ dữ liệu backend/database và chỉ được chuẩn hóa URL.
-- API chi tiết sản phẩm tính `rating`, `reviewCount`, `favoriteCount` trực tiếp từ `product_reviews` và `user_favorites`; `soldCount` tiếp tục tính từ `order_items` của đơn `COMPLETED`.
+- Trang chi tiáº¿t sáº£n pháº©m khÃ´ng cÃ²n dÃ¹ng sá»‘ liá»‡u áº£o cho Ä‘Ã¡nh giÃ¡ vÃ  Ä‘Ã£ bÃ¡n:
+  - KhÃ´ng fallback rating vá» `4.8`.
+  - KhÃ´ng fallback Ä‘Ã£ bÃ¡n vá» `128`.
+  - Khi chÆ°a cÃ³ dá»¯ liá»‡u, rating hiá»ƒn thá»‹ "ChÆ°a cÃ³ Ä‘Ã¡nh giÃ¡", sá»‘ Ä‘Ã¡nh giÃ¡ vÃ  Ä‘Ã£ bÃ¡n hiá»ƒn thá»‹ `0`.
+- Frontend khÃ´ng cÃ²n thay áº£nh sáº£n pháº©m theo báº£ng áº£nh demo trong `apiDb.ts`; áº£nh sáº£n pháº©m láº¥y tá»« dá»¯ liá»‡u backend/database vÃ  chá»‰ Ä‘Æ°á»£c chuáº©n hÃ³a URL.
+- API chi tiáº¿t sáº£n pháº©m tÃ­nh `rating`, `reviewCount`, `favoriteCount` trá»±c tiáº¿p tá»« `product_reviews` vÃ  `user_favorites`; `soldCount` tiáº¿p tá»¥c tÃ­nh tá»« `order_items` cá»§a Ä‘Æ¡n `COMPLETED`.
 
 ## Update 2026-06-03 storefront product detail variant configuration
 
-- Trang chi tiết sản phẩm đổi khu chọn "Phiên bản" thành "Cấu hình" để người mua biết rõ biến thể đang chọn theo thông số nào.
-- Frontend dựng nhãn cấu hình từ dữ liệu biến thể thật, ưu tiên `ram`, `storage`/ROM và `configuration`; ví dụ `RAM 8GB / ROM 256GB`.
-- Mỗi nút cấu hình hiển thị thêm chip thông số nhỏ như `RAM: 8GB`, `ROM: 256GB` và giá của biến thể tương ứng, ưu tiên đúng màu đang chọn nếu sản phẩm có nhiều màu.
-- Catalog API chi tiết sản phẩm trả thêm `options` để storefront có đủ dữ liệu cấu hình biến thể từ database.
+- Trang chi tiáº¿t sáº£n pháº©m Ä‘á»•i khu chá»n "PhiÃªn báº£n" thÃ nh "Cáº¥u hÃ¬nh" Ä‘á»ƒ ngÆ°á»i mua biáº¿t rÃµ biáº¿n thá»ƒ Ä‘ang chá»n theo thÃ´ng sá»‘ nÃ o.
+- Frontend dá»±ng nhÃ£n cáº¥u hÃ¬nh tá»« dá»¯ liá»‡u biáº¿n thá»ƒ tháº­t, Æ°u tiÃªn `ram`, `storage`/ROM vÃ  `configuration`; vÃ­ dá»¥ `RAM 8GB / ROM 256GB`.
+- Má»—i nÃºt cáº¥u hÃ¬nh hiá»ƒn thá»‹ thÃªm chip thÃ´ng sá»‘ nhá» nhÆ° `RAM: 8GB`, `ROM: 256GB` vÃ  giÃ¡ cá»§a biáº¿n thá»ƒ tÆ°Æ¡ng á»©ng, Æ°u tiÃªn Ä‘Ãºng mÃ u Ä‘ang chá»n náº¿u sáº£n pháº©m cÃ³ nhiá»u mÃ u.
+- Catalog API chi tiáº¿t sáº£n pháº©m tráº£ thÃªm `options` Ä‘á»ƒ storefront cÃ³ Ä‘á»§ dá»¯ liá»‡u cáº¥u hÃ¬nh biáº¿n thá»ƒ tá»« database.
 
 ## Update 2026-06-03 storefront color-scoped variant configuration
 
-- Khu chọn cấu hình trên trang chi tiết sản phẩm nay lọc theo màu đang chọn: nếu màu đó có 3 biến thể thì chỉ hiển thị 3 lựa chọn cấu hình của màu đó.
-- Nhãn cấu hình được rút gọn để tránh lặp `ROM 512GB / Cấu hình 512GB`; khi chỉ có bộ nhớ thì hiển thị `512GB`, khi có RAM và ROM thì hiển thị dạng `8GB / 512GB`.
-- Khi đổi màu, nếu cấu hình đang chọn không tồn tại ở màu mới, storefront tự chuyển sang cấu hình đầu tiên có sẵn của màu đó để giá và biến thể active luôn khớp dữ liệu thật.
+- Khu chá»n cáº¥u hÃ¬nh trÃªn trang chi tiáº¿t sáº£n pháº©m nay lá»c theo mÃ u Ä‘ang chá»n: náº¿u mÃ u Ä‘Ã³ cÃ³ 3 biáº¿n thá»ƒ thÃ¬ chá»‰ hiá»ƒn thá»‹ 3 lá»±a chá»n cáº¥u hÃ¬nh cá»§a mÃ u Ä‘Ã³.
+- NhÃ£n cáº¥u hÃ¬nh Ä‘Æ°á»£c rÃºt gá»n Ä‘á»ƒ trÃ¡nh láº·p `ROM 512GB / Cáº¥u hÃ¬nh 512GB`; khi chá»‰ cÃ³ bá»™ nhá»› thÃ¬ hiá»ƒn thá»‹ `512GB`, khi cÃ³ RAM vÃ  ROM thÃ¬ hiá»ƒn thá»‹ dáº¡ng `8GB / 512GB`.
+- Khi Ä‘á»•i mÃ u, náº¿u cáº¥u hÃ¬nh Ä‘ang chá»n khÃ´ng tá»“n táº¡i á»Ÿ mÃ u má»›i, storefront tá»± chuyá»ƒn sang cáº¥u hÃ¬nh Ä‘áº§u tiÃªn cÃ³ sáºµn cá»§a mÃ u Ä‘Ã³ Ä‘á»ƒ giÃ¡ vÃ  biáº¿n thá»ƒ active luÃ´n khá»›p dá»¯ liá»‡u tháº­t.
 
 ## Update 2026-06-03 storefront split RAM ROM selection
 
-- Trang chi tiết sản phẩm không còn chỉ chọn cấu hình gộp; storefront tách nhóm chọn theo từng thông số biến thể riêng như `RAM`, `ROM` và cấu hình phụ nếu có.
-- Danh sách RAM/ROM được dựng từ các biến thể thật của màu đang chọn; nếu màu đó chỉ có một biến thể thì vẫn hiển thị cấu hình duy nhất để người mua biết rõ đang chọn gì.
-- Giá bán lấy từ biến thể khớp với màu + RAM + ROM đang chọn. Khi đổi RAM, hệ thống giữ ROM hiện tại nếu còn hợp lệ; nếu không, tự chọn ROM đầu tiên có trong RAM mới.
-- Nút chọn màu không hiển thị giá riêng nữa để tránh hiểu nhầm màu có giá cố định; giá chỉ hiện ở khu giá chính và các lựa chọn cấu hình có ảnh hưởng trực tiếp tới biến thể.
-- Thông số kỹ thuật trên trang chi tiết nay merge thông số của biến thể đang chọn vào thông số sản phẩm trước khi hiển thị, nên RAM/ROM và các specs biến thể tự đổi theo cấu hình active thay vì hiện giá trị tổng hợp như `256 GB / 512 GB`.
-- Tên sản phẩm trên H1 của trang chi tiết gộp luôn cấu hình dạng `Tên sản phẩm - RAM / ROM`, ví dụ `HONOR 400 Pro - 12GB / 512GB`. Nếu biến thể thiếu RAM hoặc ROM riêng, storefront fallback sang thông số chung của sản phẩm để người mua vẫn thấy cấu hình đầy đủ.
+- Trang chi tiáº¿t sáº£n pháº©m khÃ´ng cÃ²n chá»‰ chá»n cáº¥u hÃ¬nh gá»™p; storefront tÃ¡ch nhÃ³m chá»n theo tá»«ng thÃ´ng sá»‘ biáº¿n thá»ƒ riÃªng nhÆ° `RAM`, `ROM` vÃ  cáº¥u hÃ¬nh phá»¥ náº¿u cÃ³.
+- Danh sÃ¡ch RAM/ROM Ä‘Æ°á»£c dá»±ng tá»« cÃ¡c biáº¿n thá»ƒ tháº­t cá»§a mÃ u Ä‘ang chá»n; náº¿u mÃ u Ä‘Ã³ chá»‰ cÃ³ má»™t biáº¿n thá»ƒ thÃ¬ váº«n hiá»ƒn thá»‹ cáº¥u hÃ¬nh duy nháº¥t Ä‘á»ƒ ngÆ°á»i mua biáº¿t rÃµ Ä‘ang chá»n gÃ¬.
+- GiÃ¡ bÃ¡n láº¥y tá»« biáº¿n thá»ƒ khá»›p vá»›i mÃ u + RAM + ROM Ä‘ang chá»n. Khi Ä‘á»•i RAM, há»‡ thá»‘ng giá»¯ ROM hiá»‡n táº¡i náº¿u cÃ²n há»£p lá»‡; náº¿u khÃ´ng, tá»± chá»n ROM Ä‘áº§u tiÃªn cÃ³ trong RAM má»›i.
+- NÃºt chá»n mÃ u khÃ´ng hiá»ƒn thá»‹ giÃ¡ riÃªng ná»¯a Ä‘á»ƒ trÃ¡nh hiá»ƒu nháº§m mÃ u cÃ³ giÃ¡ cá»‘ Ä‘á»‹nh; giÃ¡ chá»‰ hiá»‡n á»Ÿ khu giÃ¡ chÃ­nh vÃ  cÃ¡c lá»±a chá»n cáº¥u hÃ¬nh cÃ³ áº£nh hÆ°á»Ÿng trá»±c tiáº¿p tá»›i biáº¿n thá»ƒ.
+- ThÃ´ng sá»‘ ká»¹ thuáº­t trÃªn trang chi tiáº¿t nay merge thÃ´ng sá»‘ cá»§a biáº¿n thá»ƒ Ä‘ang chá»n vÃ o thÃ´ng sá»‘ sáº£n pháº©m trÆ°á»›c khi hiá»ƒn thá»‹, nÃªn RAM/ROM vÃ  cÃ¡c specs biáº¿n thá»ƒ tá»± Ä‘á»•i theo cáº¥u hÃ¬nh active thay vÃ¬ hiá»‡n giÃ¡ trá»‹ tá»•ng há»£p nhÆ° `256 GB / 512 GB`.
+- TÃªn sáº£n pháº©m trÃªn H1 cá»§a trang chi tiáº¿t gá»™p luÃ´n cáº¥u hÃ¬nh dáº¡ng `TÃªn sáº£n pháº©m - RAM / ROM`, vÃ­ dá»¥ `HONOR 400 Pro - 12GB / 512GB`. Náº¿u biáº¿n thá»ƒ thiáº¿u RAM hoáº·c ROM riÃªng, storefront fallback sang thÃ´ng sá»‘ chung cá»§a sáº£n pháº©m Ä‘á»ƒ ngÆ°á»i mua váº«n tháº¥y cáº¥u hÃ¬nh Ä‘áº§y Ä‘á»§.
 
 ## Update 2026-06-03 storefront specs modal overflow fix
 
-- Sửa popup "Thông số kỹ thuật" trên trang chi tiết sản phẩm để thanh chọn nhóm thông số không bị che hoặc cắt bởi vùng nội dung.
-- Header và thanh chọn nhóm được giữ ở vùng riêng, phần bảng thông số chỉ cuộn dọc và không tạo cuộn ngang cho toàn modal.
-- Nội dung label/value trong bảng thông số tự xuống dòng để tránh kéo rộng modal khi thông số dài.
-- Thanh chọn nhóm thông số trong popup nay là điều hướng cuộn tới nhóm tương ứng, không còn lọc ẩn các nhóm thông số khác.
-- Khi bấm nhóm thông số, modal chừa khoảng đệm phía trên section đích để tiêu đề và dòng đầu không bị thanh chọn nhóm che mất; scrollbar ngang của thanh nhóm cũng được ẩn để giao diện sạch hơn.
-- Mô tả sản phẩm trên trang chi tiết được làm sạch HTML trước khi hiển thị, tránh lỗi các thẻ như `<p>` xuất hiện trong "Đặc điểm nổi bật" và "Thông tin chi tiết".
-- Breadcrumb trang chi tiết sản phẩm hiển thị theo thứ tự `Trang chủ > Danh mục cha > Danh mục con nếu có > Thương hiệu > Tên sản phẩm`; Catalog API trả thêm `subcategory` để frontend có tên danh mục con.
+- Sá»­a popup "ThÃ´ng sá»‘ ká»¹ thuáº­t" trÃªn trang chi tiáº¿t sáº£n pháº©m Ä‘á»ƒ thanh chá»n nhÃ³m thÃ´ng sá»‘ khÃ´ng bá»‹ che hoáº·c cáº¯t bá»Ÿi vÃ¹ng ná»™i dung.
+- Header vÃ  thanh chá»n nhÃ³m Ä‘Æ°á»£c giá»¯ á»Ÿ vÃ¹ng riÃªng, pháº§n báº£ng thÃ´ng sá»‘ chá»‰ cuá»™n dá»c vÃ  khÃ´ng táº¡o cuá»™n ngang cho toÃ n modal.
+- Ná»™i dung label/value trong báº£ng thÃ´ng sá»‘ tá»± xuá»‘ng dÃ²ng Ä‘á»ƒ trÃ¡nh kÃ©o rá»™ng modal khi thÃ´ng sá»‘ dÃ i.
+- Thanh chá»n nhÃ³m thÃ´ng sá»‘ trong popup nay lÃ  Ä‘iá»u hÆ°á»›ng cuá»™n tá»›i nhÃ³m tÆ°Æ¡ng á»©ng, khÃ´ng cÃ²n lá»c áº©n cÃ¡c nhÃ³m thÃ´ng sá»‘ khÃ¡c.
+- Khi báº¥m nhÃ³m thÃ´ng sá»‘, modal chá»«a khoáº£ng Ä‘á»‡m phÃ­a trÃªn section Ä‘Ã­ch Ä‘á»ƒ tiÃªu Ä‘á» vÃ  dÃ²ng Ä‘áº§u khÃ´ng bá»‹ thanh chá»n nhÃ³m che máº¥t; scrollbar ngang cá»§a thanh nhÃ³m cÅ©ng Ä‘Æ°á»£c áº©n Ä‘á»ƒ giao diá»‡n sáº¡ch hÆ¡n.
+- MÃ´ táº£ sáº£n pháº©m trÃªn trang chi tiáº¿t Ä‘Æ°á»£c lÃ m sáº¡ch HTML trÆ°á»›c khi hiá»ƒn thá»‹, trÃ¡nh lá»—i cÃ¡c tháº» nhÆ° `<p>` xuáº¥t hiá»‡n trong "Äáº·c Ä‘iá»ƒm ná»•i báº­t" vÃ  "ThÃ´ng tin chi tiáº¿t".
+- Breadcrumb trang chi tiáº¿t sáº£n pháº©m hiá»ƒn thá»‹ theo thá»© tá»± `Trang chá»§ > Danh má»¥c cha > Danh má»¥c con náº¿u cÃ³ > ThÆ°Æ¡ng hiá»‡u > TÃªn sáº£n pháº©m`; Catalog API tráº£ thÃªm `subcategory` Ä‘á»ƒ frontend cÃ³ tÃªn danh má»¥c con.
 
 ## Update 2026-06-03 HONOR Magic V5 variant RAM correction
 
-- Sửa lỗi các biến thể (variants) của `HONOR Magic V5` (`HN-MGV5`) bị thiếu trường `ram` (giá trị bằng `NULL`/`None`), dẫn đến việc hiển thị không đúng/không đầy đủ tùy chọn RAM bên cạnh tùy chọn ROM/dung lượng trên trang chi tiết sản phẩm.
-- Cập nhật trực tiếp cột `options` trong bảng `products` của `HN-MGV5` để thiết lập đúng hợp đồng options (Màu sắc, Dung lượng, RAM).
-- Chạy script Python `update_magic_v5_variants.py` cập nhật trực tiếp cho toàn bộ 8 biến thể của dòng máy này:
-  - Thiết lập cột `ram = '12GB'`, `specs` = `{"storage": "512GB", "ram": "12GB"}` và `attributes` tương ứng cho các biến thể 512GB.
-  - Thiết lập cột `ram = '16GB'`, `specs` = `{"storage": "1TB", "ram": "16GB"}` và `attributes` tương ứng cho các biến thể 1TB.
-- Giúp storefront hiển thị chuẩn xác các tùy chọn RAM/ROM tách biệt (như `12GB / 512GB` và `16GB / 1TB`) cho người dùng khi chọn cấu hình sản phẩm.
+- Sá»­a lá»—i cÃ¡c biáº¿n thá»ƒ (variants) cá»§a `HONOR Magic V5` (`HN-MGV5`) bá»‹ thiáº¿u trÆ°á»ng `ram` (giÃ¡ trá»‹ báº±ng `NULL`/`None`), dáº«n Ä‘áº¿n viá»‡c hiá»ƒn thá»‹ khÃ´ng Ä‘Ãºng/khÃ´ng Ä‘áº§y Ä‘á»§ tÃ¹y chá»n RAM bÃªn cáº¡nh tÃ¹y chá»n ROM/dung lÆ°á»£ng trÃªn trang chi tiáº¿t sáº£n pháº©m.
+- Cáº­p nháº­t trá»±c tiáº¿p cá»™t `options` trong báº£ng `products` cá»§a `HN-MGV5` Ä‘á»ƒ thiáº¿t láº­p Ä‘Ãºng há»£p Ä‘á»“ng options (MÃ u sáº¯c, Dung lÆ°á»£ng, RAM).
+- Cháº¡y script Python `update_magic_v5_variants.py` cáº­p nháº­t trá»±c tiáº¿p cho toÃ n bá»™ 8 biáº¿n thá»ƒ cá»§a dÃ²ng mÃ¡y nÃ y:
+  - Thiáº¿t láº­p cá»™t `ram = '12GB'`, `specs` = `{"storage": "512GB", "ram": "12GB"}` vÃ  `attributes` tÆ°Æ¡ng á»©ng cho cÃ¡c biáº¿n thá»ƒ 512GB.
+  - Thiáº¿t láº­p cá»™t `ram = '16GB'`, `specs` = `{"storage": "1TB", "ram": "16GB"}` vÃ  `attributes` tÆ°Æ¡ng á»©ng cho cÃ¡c biáº¿n thá»ƒ 1TB.
+- GiÃºp storefront hiá»ƒn thá»‹ chuáº©n xÃ¡c cÃ¡c tÃ¹y chá»n RAM/ROM tÃ¡ch biá»‡t (nhÆ° `12GB / 512GB` vÃ  `16GB / 1TB`) cho ngÆ°á»i dÃ¹ng khi chá»n cáº¥u hÃ¬nh sáº£n pháº©m.
 
 ## Update 2026-06-03 HONOR Magic V5 color deletion
 
-- Thực hiện xóa 2 màu sắc cấu hình "Nâu Lụa" và "Đen Titanium" khỏi dòng máy `HONOR Magic V5` (`HN-MGV5`) theo yêu cầu.
+- Thá»±c hiá»‡n xÃ³a 2 mÃ u sáº¯c cáº¥u hÃ¬nh "NÃ¢u Lá»¥a" vÃ  "Äen Titanium" khá»i dÃ²ng mÃ¡y `HONOR Magic V5` (`HN-MGV5`) theo yÃªu cáº§u.
 
 ## Update 2026-06-03 HONOR Magic V5 image gallery
 
-- Đã copy ảnh người dùng cung cấp từ thư mục `HONOR Magic V5` vào `frontend/public/images/products/honor-magic-v5`.
-- Ảnh được chia theo màu:
-  - `white`: Trắng Ngà, gồm ảnh đại diện và 11 ảnh gallery.
-  - `gold`: Vàng Bình Minh, gồm ảnh đại diện và 13 ảnh gallery.
-  - `common`: 5 ảnh dùng chung.
-- Thêm script `backend/scripts/update_magic_v5_images.py` để cập nhật `products.image_url`, `products.images`, `product_variants.image_url`, `product_variants.images` cho SKU `HN-MGV5`.
-- Đã chạy script trên DB local: 2 biến thể Trắng Ngà và 2 biến thể Vàng Bình Minh đã trỏ tới đúng ảnh theo màu; product dùng ảnh đại diện Trắng Ngà và gallery chung.
-- Quy ước ảnh HONOR Magic V5: file có chữ "ảnh đại diện" được dùng cho `image_url`; các file còn lại trong thư mục màu là gallery của biến thể đó và được lưu vào `product_variants.images`. Vì vậy `product_variants.images` không chứa lại ảnh đại diện.
-- Trang chi tiết sản phẩm nay dựng gallery theo biến thể đang chọn trước, sau đó mới nối ảnh chung của sản phẩm. Khi người dùng đổi màu/cấu hình, ảnh chính tự nhảy về ảnh đầu của biến thể active và không còn gom ảnh của các màu khác vào đầu gallery.
-- Sửa form admin sản phẩm: khi mở chỉnh sửa, hook `useAdminProductsLogic.ts` nay map `item.images` vào từng biến thể để preview "Bộ ảnh biến thể" hiển thị đúng ảnh đang lưu trong DB và không bị mất khi lưu lại.
-- Storefront có fallback ảnh biến thể theo màu: nếu biến thể active chưa có `imageUrl/images`, trang chi tiết tự tìm biến thể khác cùng `colorName` có ảnh để dùng, rồi vẫn nối thêm ảnh chung của sản phẩm.
-- Form admin sản phẩm có thêm thao tác "Lấy ảnh cùng màu" và menu "Lấy ảnh từ biến thể khác" để copy `imageUrl/images` từ biến thể đã có ảnh sang biến thể mới hoặc biến thể cùng màu, giảm việc nhập ảnh lặp lại cho từng RAM/ROM.
-- Thẻ sản phẩm ngoài danh sách chỉ dùng ảnh đại diện sản phẩm và ảnh đại diện biến thể; không dùng `product.images` vì bộ ảnh chung chỉ dành cho gallery bên trong trang chi tiết sản phẩm.
-- Catalog API chi tiết sản phẩm trả thêm `images` cho từng biến thể để gallery chi tiết có thể nối `variant.imageUrl` + `variant.images` + `product.images`.
-- Cập nhật trực tiếp trường `colors` và `options` (Màu sắc) của sản phẩm trong bảng `products` để loại bỏ 2 màu này, chỉ giữ lại "Trắng Ngà" và "Vàng Bình Minh".
-- Thực hiện soft-delete (đặt `deleted_at = NOW()`, `status = 'deleted'`, `is_active = FALSE`) cho 4 biến thể tương ứng của 2 màu sắc này trong bảng `product_variants` (gồm `HN-MGV5-BK-512GB`, `HN-MGV5-BK-1TB`, `HN-MGV5-BR-512GB`, `HN-MGV5-BR-1TB`), đảm bảo đồng bộ dữ liệu trên storefront.
-- Cập nhật tập lệnh `backend/scripts/update_magic_v5_variants.py` để loại bỏ hai màu này khỏi mảng options được cấu hình lại, tránh việc chạy lại script khôi phục nhầm các màu đã xóa.
+- ÄÃ£ copy áº£nh ngÆ°á»i dÃ¹ng cung cáº¥p tá»« thÆ° má»¥c `HONOR Magic V5` vÃ o `frontend/public/images/products/honor-magic-v5`.
+- áº¢nh Ä‘Æ°á»£c chia theo mÃ u:
+  - `white`: Tráº¯ng NgÃ , gá»“m áº£nh Ä‘áº¡i diá»‡n vÃ  11 áº£nh gallery.
+  - `gold`: VÃ ng BÃ¬nh Minh, gá»“m áº£nh Ä‘áº¡i diá»‡n vÃ  13 áº£nh gallery.
+  - `common`: 5 áº£nh dÃ¹ng chung.
+- ThÃªm script `backend/scripts/update_magic_v5_images.py` Ä‘á»ƒ cáº­p nháº­t `products.image_url`, `products.images`, `product_variants.image_url`, `product_variants.images` cho SKU `HN-MGV5`.
+- ÄÃ£ cháº¡y script trÃªn DB local: 2 biáº¿n thá»ƒ Tráº¯ng NgÃ  vÃ  2 biáº¿n thá»ƒ VÃ ng BÃ¬nh Minh Ä‘Ã£ trá» tá»›i Ä‘Ãºng áº£nh theo mÃ u; product dÃ¹ng áº£nh Ä‘áº¡i diá»‡n Tráº¯ng NgÃ  vÃ  gallery chung.
+- Quy Æ°á»›c áº£nh HONOR Magic V5: file cÃ³ chá»¯ "áº£nh Ä‘áº¡i diá»‡n" Ä‘Æ°á»£c dÃ¹ng cho `image_url`; cÃ¡c file cÃ²n láº¡i trong thÆ° má»¥c mÃ u lÃ  gallery cá»§a biáº¿n thá»ƒ Ä‘Ã³ vÃ  Ä‘Æ°á»£c lÆ°u vÃ o `product_variants.images`. VÃ¬ váº­y `product_variants.images` khÃ´ng chá»©a láº¡i áº£nh Ä‘áº¡i diá»‡n.
+- Trang chi tiáº¿t sáº£n pháº©m nay dá»±ng gallery theo biáº¿n thá»ƒ Ä‘ang chá»n trÆ°á»›c, sau Ä‘Ã³ má»›i ná»‘i áº£nh chung cá»§a sáº£n pháº©m. Khi ngÆ°á»i dÃ¹ng Ä‘á»•i mÃ u/cáº¥u hÃ¬nh, áº£nh chÃ­nh tá»± nháº£y vá» áº£nh Ä‘áº§u cá»§a biáº¿n thá»ƒ active vÃ  khÃ´ng cÃ²n gom áº£nh cá»§a cÃ¡c mÃ u khÃ¡c vÃ o Ä‘áº§u gallery.
+- Sá»­a form admin sáº£n pháº©m: khi má»Ÿ chá»‰nh sá»­a, hook `useAdminProductsLogic.ts` nay map `item.images` vÃ o tá»«ng biáº¿n thá»ƒ Ä‘á»ƒ preview "Bá»™ áº£nh biáº¿n thá»ƒ" hiá»ƒn thá»‹ Ä‘Ãºng áº£nh Ä‘ang lÆ°u trong DB vÃ  khÃ´ng bá»‹ máº¥t khi lÆ°u láº¡i.
+- Storefront cÃ³ fallback áº£nh biáº¿n thá»ƒ theo mÃ u: náº¿u biáº¿n thá»ƒ active chÆ°a cÃ³ `imageUrl/images`, trang chi tiáº¿t tá»± tÃ¬m biáº¿n thá»ƒ khÃ¡c cÃ¹ng `colorName` cÃ³ áº£nh Ä‘á»ƒ dÃ¹ng, rá»“i váº«n ná»‘i thÃªm áº£nh chung cá»§a sáº£n pháº©m.
+- Form admin sáº£n pháº©m cÃ³ thÃªm thao tÃ¡c "Láº¥y áº£nh cÃ¹ng mÃ u" vÃ  menu "Láº¥y áº£nh tá»« biáº¿n thá»ƒ khÃ¡c" Ä‘á»ƒ copy `imageUrl/images` tá»« biáº¿n thá»ƒ Ä‘Ã£ cÃ³ áº£nh sang biáº¿n thá»ƒ má»›i hoáº·c biáº¿n thá»ƒ cÃ¹ng mÃ u, giáº£m viá»‡c nháº­p áº£nh láº·p láº¡i cho tá»«ng RAM/ROM.
+- Tháº» sáº£n pháº©m ngoÃ i danh sÃ¡ch chá»‰ dÃ¹ng áº£nh Ä‘áº¡i diá»‡n sáº£n pháº©m vÃ  áº£nh Ä‘áº¡i diá»‡n biáº¿n thá»ƒ; khÃ´ng dÃ¹ng `product.images` vÃ¬ bá»™ áº£nh chung chá»‰ dÃ nh cho gallery bÃªn trong trang chi tiáº¿t sáº£n pháº©m.
+- Catalog API chi tiáº¿t sáº£n pháº©m tráº£ thÃªm `images` cho tá»«ng biáº¿n thá»ƒ Ä‘á»ƒ gallery chi tiáº¿t cÃ³ thá»ƒ ná»‘i `variant.imageUrl` + `variant.images` + `product.images`.
+- Cáº­p nháº­t trá»±c tiáº¿p trÆ°á»ng `colors` vÃ  `options` (MÃ u sáº¯c) cá»§a sáº£n pháº©m trong báº£ng `products` Ä‘á»ƒ loáº¡i bá» 2 mÃ u nÃ y, chá»‰ giá»¯ láº¡i "Tráº¯ng NgÃ " vÃ  "VÃ ng BÃ¬nh Minh".
+- Thá»±c hiá»‡n soft-delete (Ä‘áº·t `deleted_at = NOW()`, `status = 'deleted'`, `is_active = FALSE`) cho 4 biáº¿n thá»ƒ tÆ°Æ¡ng á»©ng cá»§a 2 mÃ u sáº¯c nÃ y trong báº£ng `product_variants` (gá»“m `HN-MGV5-BK-512GB`, `HN-MGV5-BK-1TB`, `HN-MGV5-BR-512GB`, `HN-MGV5-BR-1TB`), Ä‘áº£m báº£o Ä‘á»“ng bá»™ dá»¯ liá»‡u trÃªn storefront.
+- Cáº­p nháº­t táº­p lá»‡nh `backend/scripts/update_magic_v5_variants.py` Ä‘á»ƒ loáº¡i bá» hai mÃ u nÃ y khá»i máº£ng options Ä‘Æ°á»£c cáº¥u hÃ¬nh láº¡i, trÃ¡nh viá»‡c cháº¡y láº¡i script khÃ´i phá»¥c nháº§m cÃ¡c mÃ u Ä‘Ã£ xÃ³a.
 
 ## Update 2026-06-03 HONOR 400 5G color deletion & option setup
 
-- Thực hiện xóa 2 màu sắc cấu hình "Xám Mặt Trăng" và "Đen Bóng Đêm" khỏi dòng máy `HONOR 400 5G` (`HN-400`) theo yêu cầu.
-- Cập nhật trực tiếp trường `colors` và `options` (Màu sắc, Dung lượng, RAM) của sản phẩm `HN-400` trong bảng `products` để loại bỏ 2 màu này, chỉ giữ lại "Vàng Sa Mạc", đồng thời đồng bộ cấu hình RAM của phiên bản 256GB là 8GB và 512GB là 12GB.
-- Thực hiện soft-delete (đặt `deleted_at = NOW()`, `status = 'deleted'`, `is_active = FALSE`) cho 4 biến thể tương ứng của 2 màu sắc này trong bảng `product_variants` (gồm `HN-400-GR-256GB`, `HN-400-GR-512GB`, `HN-400-BK-256GB`, `HN-400-BK-512GB`).
+- Thá»±c hiá»‡n xÃ³a 2 mÃ u sáº¯c cáº¥u hÃ¬nh "XÃ¡m Máº·t TrÄƒng" vÃ  "Äen BÃ³ng ÄÃªm" khá»i dÃ²ng mÃ¡y `HONOR 400 5G` (`HN-400`) theo yÃªu cáº§u.
+- Cáº­p nháº­t trá»±c tiáº¿p trÆ°á»ng `colors` vÃ  `options` (MÃ u sáº¯c, Dung lÆ°á»£ng, RAM) cá»§a sáº£n pháº©m `HN-400` trong báº£ng `products` Ä‘á»ƒ loáº¡i bá» 2 mÃ u nÃ y, chá»‰ giá»¯ láº¡i "VÃ ng Sa Máº¡c", Ä‘á»“ng thá»i Ä‘á»“ng bá»™ cáº¥u hÃ¬nh RAM cá»§a phiÃªn báº£n 256GB lÃ  8GB vÃ  512GB lÃ  12GB.
+- Thá»±c hiá»‡n soft-delete (Ä‘áº·t `deleted_at = NOW()`, `status = 'deleted'`, `is_active = FALSE`) cho 4 biáº¿n thá»ƒ tÆ°Æ¡ng á»©ng cá»§a 2 mÃ u sáº¯c nÃ y trong báº£ng `product_variants` (gá»“m `HN-400-GR-256GB`, `HN-400-GR-512GB`, `HN-400-BK-256GB`, `HN-400-BK-512GB`).
 
 ## Update 2026-06-03 HONOR 400 series image gallery
 
-- Đã copy ảnh người dùng cung cấp:
-  - `HONOR 400 5G` vào `frontend/public/images/products/honor-400-5g`.
-  - `Honor 400 pro` vào `frontend/public/images/products/honor-400-pro`.
-- Thêm script `backend/scripts/update_honor_400_images.py` để cập nhật ảnh cho SKU `HN-400` và `HN-400P`.
-- Đã chạy script trên DB local:
-  - `HN-400`: product dùng ảnh đại diện Vàng Sa Mạc, có 5 ảnh chung; 2 biến thể Vàng Sa Mạc có ảnh đại diện và 5 ảnh gallery biến thể.
-  - `HN-400P`: product dùng ảnh đại diện Đen Bóng Đêm; 2 biến thể Đen Bóng Đêm có 5 ảnh gallery, 2 biến thể Xám Mặt Trăng có 3 ảnh gallery.
-- `HN-400P` màu Xanh Thủy Triều chưa có bộ ảnh được cung cấp nên hiện vẫn giữ ảnh placeholder cũ cho biến thể màu xanh.
-- Đồng bộ thông tin RAM (`ram = '8GB'` hoặc `'12GB'`), specifications (`specs`) và thuộc tính (`attributes`) cho tất cả 6 biến thể (bao gồm cả các biến thể đã soft-deleted) tương thích với cấu hình 8GB RAM / 256GB ROM và 12GB RAM / 512GB ROM để dữ liệu đồng bộ nhất quán trên storefront.
-- Tạo script `backend/scripts/update_honor_400_5g.py` để thực hiện cập nhật này một cách tự động và lưu trữ dự phòng.
+- ÄÃ£ copy áº£nh ngÆ°á»i dÃ¹ng cung cáº¥p:
+  - `HONOR 400 5G` vÃ o `frontend/public/images/products/honor-400-5g`.
+  - `Honor 400 pro` vÃ o `frontend/public/images/products/honor-400-pro`.
+- ThÃªm script `backend/scripts/update_honor_400_images.py` Ä‘á»ƒ cáº­p nháº­t áº£nh cho SKU `HN-400` vÃ  `HN-400P`.
+- ÄÃ£ cháº¡y script trÃªn DB local:
+  - `HN-400`: product dÃ¹ng áº£nh Ä‘áº¡i diá»‡n VÃ ng Sa Máº¡c, cÃ³ 5 áº£nh chung; 2 biáº¿n thá»ƒ VÃ ng Sa Máº¡c cÃ³ áº£nh Ä‘áº¡i diá»‡n vÃ  5 áº£nh gallery biáº¿n thá»ƒ.
+  - `HN-400P`: product dÃ¹ng áº£nh Ä‘áº¡i diá»‡n Äen BÃ³ng ÄÃªm; 2 biáº¿n thá»ƒ Äen BÃ³ng ÄÃªm cÃ³ 5 áº£nh gallery, 2 biáº¿n thá»ƒ XÃ¡m Máº·t TrÄƒng cÃ³ 3 áº£nh gallery.
+- `HN-400P` mÃ u Xanh Thá»§y Triá»u chÆ°a cÃ³ bá»™ áº£nh Ä‘Æ°á»£c cung cáº¥p nÃªn hiá»‡n váº«n giá»¯ áº£nh placeholder cÅ© cho biáº¿n thá»ƒ mÃ u xanh.
+- Äá»“ng bá»™ thÃ´ng tin RAM (`ram = '8GB'` hoáº·c `'12GB'`), specifications (`specs`) vÃ  thuá»™c tÃ­nh (`attributes`) cho táº¥t cáº£ 6 biáº¿n thá»ƒ (bao gá»“m cáº£ cÃ¡c biáº¿n thá»ƒ Ä‘Ã£ soft-deleted) tÆ°Æ¡ng thÃ­ch vá»›i cáº¥u hÃ¬nh 8GB RAM / 256GB ROM vÃ  12GB RAM / 512GB ROM Ä‘á»ƒ dá»¯ liá»‡u Ä‘á»“ng bá»™ nháº¥t quÃ¡n trÃªn storefront.
+- Táº¡o script `backend/scripts/update_honor_400_5g.py` Ä‘á»ƒ thá»±c hiá»‡n cáº­p nháº­t nÃ y má»™t cÃ¡ch tá»± Ä‘á»™ng vÃ  lÆ°u trá»¯ dá»± phÃ²ng.
 
 ## Update 2026-06-03 Global Laptops & Tablets RAM/Option Standardization
 
-- Thực hiện rà soát toàn bộ sản phẩm trên hệ thống, phát hiện và sửa đổi hoàn chỉnh lỗi thiếu cấu hình tùy chọn (`options`), thiếu RAM trong biến thể hoặc chưa đồng bộ `attributes` và `specs` cho **20 sản phẩm** thuộc danh mục `laptops` và `tablets`.
-- Tạo và chạy tập lệnh [repair_products.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/scripts/repair_products.py) tự động thực hiện:
-  - Đồng bộ hóa mảng `options` của sản phẩm chứa cấu trúc tiếng Việt chuẩn: Màu sắc, Dung lượng, RAM.
-  - Điền giá trị RAM chuẩn vào cột `ram` của biến thể.
-  - Đồng bộ `specs` và `attributes` đầy đủ bằng tiếng Việt tương ứng cho từng biến thể để storefront hiển thị tùy chọn chính xác nhất.
-- Chạy lại script rà soát xác nhận số lượng sản phẩm có cấu hình lỗi đã giảm về 0, đồng thời chạy bộ kiểm thử rules của variant thành công 100%.
+- Thá»±c hiá»‡n rÃ  soÃ¡t toÃ n bá»™ sáº£n pháº©m trÃªn há»‡ thá»‘ng, phÃ¡t hiá»‡n vÃ  sá»­a Ä‘á»•i hoÃ n chá»‰nh lá»—i thiáº¿u cáº¥u hÃ¬nh tÃ¹y chá»n (`options`), thiáº¿u RAM trong biáº¿n thá»ƒ hoáº·c chÆ°a Ä‘á»“ng bá»™ `attributes` vÃ  `specs` cho **20 sáº£n pháº©m** thuá»™c danh má»¥c `laptops` vÃ  `tablets`.
+- Táº¡o vÃ  cháº¡y táº­p lá»‡nh [repair_products.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/scripts/repair_products.py) tá»± Ä‘á»™ng thá»±c hiá»‡n:
+  - Äá»“ng bá»™ hÃ³a máº£ng `options` cá»§a sáº£n pháº©m chá»©a cáº¥u trÃºc tiáº¿ng Viá»‡t chuáº©n: MÃ u sáº¯c, Dung lÆ°á»£ng, RAM.
+  - Äiá»n giÃ¡ trá»‹ RAM chuáº©n vÃ o cá»™t `ram` cá»§a biáº¿n thá»ƒ.
+  - Äá»“ng bá»™ `specs` vÃ  `attributes` Ä‘áº§y Ä‘á»§ báº±ng tiáº¿ng Viá»‡t tÆ°Æ¡ng á»©ng cho tá»«ng biáº¿n thá»ƒ Ä‘á»ƒ storefront hiá»ƒn thá»‹ tÃ¹y chá»n chÃ­nh xÃ¡c nháº¥t.
+- Cháº¡y láº¡i script rÃ  soÃ¡t xÃ¡c nháº­n sá»‘ lÆ°á»£ng sáº£n pháº©m cÃ³ cáº¥u hÃ¬nh lá»—i Ä‘Ã£ giáº£m vá» 0, Ä‘á»“ng thá»i cháº¡y bá»™ kiá»ƒm thá»­ rules cá»§a variant thÃ nh cÃ´ng 100%.
 
 ## Update 2026-06-03 Smartphones RAM Separation & Option Standardization
 
-- Thực hiện chuẩn hóa cấu hình RAM và bộ nhớ cho toàn bộ danh mục Điện thoại (Smartphones) trên hệ thống.
-- Giải quyết triệt để lỗi RAM/ROM gộp trong trường `storage` của biến thể (dạng `"RAM 8GB - 256GB"`) bằng cách tách thành:
-  - Cột `storage` là giá trị dung lượng sạch (ví dụ: `"256GB"`).
-  - Cột `ram` là mức RAM tương ứng (ví dụ: `"8GB"`).
-- Đối với các dòng điện thoại sử dụng dung lượng sạch nhưng chưa được gán RAM ở biến thể, tự động phân tích và gán giá trị RAM chuẩn tương ứng theo thông số kỹ thuật và phân khúc giá (ví dụ: dòng S26 Ultra 1TB có 16GB RAM, các dòng khác có 12GB RAM; Redmi Note 14 Pro+ bản 256GB có 8GB RAM, bản 512GB có 12GB RAM).
-- Đồng bộ mảng `options` cấp sản phẩm với cấu trúc đầy đủ bằng tiếng Việt (Màu sắc, Dung lượng, RAM).
-- Đồng bộ `specs` và `attributes` đầy đủ bằng tiếng Việt tương ứng cho từng biến thể. Các biến thể khác nhau về RAM/ROM vẫn giữ nguyên mức giá chênh lệch đã được thiết lập trước đó trong cơ sở dữ liệu.
-- Tạo và chạy tập lệnh [repair_smartphones.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/scripts/repair_smartphones.py) tự động thực hiện và lưu trữ dự phòng.
+- Thá»±c hiá»‡n chuáº©n hÃ³a cáº¥u hÃ¬nh RAM vÃ  bá»™ nhá»› cho toÃ n bá»™ danh má»¥c Äiá»‡n thoáº¡i (Smartphones) trÃªn há»‡ thá»‘ng.
+- Giáº£i quyáº¿t triá»‡t Ä‘á»ƒ lá»—i RAM/ROM gá»™p trong trÆ°á»ng `storage` cá»§a biáº¿n thá»ƒ (dáº¡ng `"RAM 8GB - 256GB"`) báº±ng cÃ¡ch tÃ¡ch thÃ nh:
+  - Cá»™t `storage` lÃ  giÃ¡ trá»‹ dung lÆ°á»£ng sáº¡ch (vÃ­ dá»¥: `"256GB"`).
+  - Cá»™t `ram` lÃ  má»©c RAM tÆ°Æ¡ng á»©ng (vÃ­ dá»¥: `"8GB"`).
+- Äá»‘i vá»›i cÃ¡c dÃ²ng Ä‘iá»‡n thoáº¡i sá»­ dá»¥ng dung lÆ°á»£ng sáº¡ch nhÆ°ng chÆ°a Ä‘Æ°á»£c gÃ¡n RAM á»Ÿ biáº¿n thá»ƒ, tá»± Ä‘á»™ng phÃ¢n tÃ­ch vÃ  gÃ¡n giÃ¡ trá»‹ RAM chuáº©n tÆ°Æ¡ng á»©ng theo thÃ´ng sá»‘ ká»¹ thuáº­t vÃ  phÃ¢n khÃºc giÃ¡ (vÃ­ dá»¥: dÃ²ng S26 Ultra 1TB cÃ³ 16GB RAM, cÃ¡c dÃ²ng khÃ¡c cÃ³ 12GB RAM; Redmi Note 14 Pro+ báº£n 256GB cÃ³ 8GB RAM, báº£n 512GB cÃ³ 12GB RAM).
+- Äá»“ng bá»™ máº£ng `options` cáº¥p sáº£n pháº©m vá»›i cáº¥u trÃºc Ä‘áº§y Ä‘á»§ báº±ng tiáº¿ng Viá»‡t (MÃ u sáº¯c, Dung lÆ°á»£ng, RAM).
+- Äá»“ng bá»™ `specs` vÃ  `attributes` Ä‘áº§y Ä‘á»§ báº±ng tiáº¿ng Viá»‡t tÆ°Æ¡ng á»©ng cho tá»«ng biáº¿n thá»ƒ. CÃ¡c biáº¿n thá»ƒ khÃ¡c nhau vá» RAM/ROM váº«n giá»¯ nguyÃªn má»©c giÃ¡ chÃªnh lá»‡ch Ä‘Ã£ Ä‘Æ°á»£c thiáº¿t láº­p trÆ°á»›c Ä‘Ã³ trong cÆ¡ sá»Ÿ dá»¯ liá»‡u.
+- Táº¡o vÃ  cháº¡y táº­p lá»‡nh [repair_smartphones.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/scripts/repair_smartphones.py) tá»± Ä‘á»™ng thá»±c hiá»‡n vÃ  lÆ°u trá»¯ dá»± phÃ²ng.
 
 ## Update 2026-06-03 HONOR X9d 5G Color Deletion
 
-- Thực hiện xóa 2 màu sắc cấu hình "Nâu Đỏ" và "Xanh Rừng" khỏi dòng máy `HONOR X9d 5G` (`HN-X9D`) theo yêu cầu.
-- Cập nhật trường `colors` và `options` (Màu sắc) của sản phẩm trong bảng `products` để loại bỏ 2 màu này, chỉ giữ lại "Vàng Bình Minh" và "Đen Bóng Đêm".
-- Thực hiện soft-delete (đặt `deleted_at = NOW()`, `status = 'deleted'`, `is_active = FALSE`) cho 4 biến thể tương ứng của 2 màu sắc này trong bảng `product_variants` (gồm `HN-X9D-BR-256GB`, `HN-X9D-BR-512GB`, `HN-X9D-GR-256GB`, `HN-X9D-GR-512GB`), đảm bảo đồng bộ dữ liệu trên storefront.
-- Tạo và chạy tập lệnh [delete_honor_x9d_colors.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/scripts/delete_honor_x9d_colors.py) tự động thực hiện và lưu trữ dự phòng.
+- Thá»±c hiá»‡n xÃ³a 2 mÃ u sáº¯c cáº¥u hÃ¬nh "NÃ¢u Äá»" vÃ  "Xanh Rá»«ng" khá»i dÃ²ng mÃ¡y `HONOR X9d 5G` (`HN-X9D`) theo yÃªu cáº§u.
+- Cáº­p nháº­t trÆ°á»ng `colors` vÃ  `options` (MÃ u sáº¯c) cá»§a sáº£n pháº©m trong báº£ng `products` Ä‘á»ƒ loáº¡i bá» 2 mÃ u nÃ y, chá»‰ giá»¯ láº¡i "VÃ ng BÃ¬nh Minh" vÃ  "Äen BÃ³ng ÄÃªm".
+- Thá»±c hiá»‡n soft-delete (Ä‘áº·t `deleted_at = NOW()`, `status = 'deleted'`, `is_active = FALSE`) cho 4 biáº¿n thá»ƒ tÆ°Æ¡ng á»©ng cá»§a 2 mÃ u sáº¯c nÃ y trong báº£ng `product_variants` (gá»“m `HN-X9D-BR-256GB`, `HN-X9D-BR-512GB`, `HN-X9D-GR-256GB`, `HN-X9D-GR-512GB`), Ä‘áº£m báº£o Ä‘á»“ng bá»™ dá»¯ liá»‡u trÃªn storefront.
+- Táº¡o vÃ  cháº¡y táº­p lá»‡nh [delete_honor_x9d_colors.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/scripts/delete_honor_x9d_colors.py) tá»± Ä‘á»™ng thá»±c hiá»‡n vÃ  lÆ°u trá»¯ dá»± phÃ²ng.
 
 ## Update 2026-06-03 HONOR X9d 5G image gallery
 
-- Đã copy ảnh người dùng cung cấp từ thư mục `honor x9d` vào `frontend/public/images/products/honor-x9d`.
-- Ảnh được chia theo màu:
-  - `black`: Đen Bóng Đêm, gồm ảnh đại diện và 8 ảnh gallery.
-  - `gold`: Vàng Bình Minh, gồm ảnh đại diện và 11 ảnh gallery.
-  - `common`: 5 ảnh dùng chung cho trang chi tiết sản phẩm.
-- Thêm script `backend/scripts/update_honor_x9d_images.py` để cập nhật `products.image_url`, `products.images`, `product_variants.image_url`, `product_variants.images` cho SKU `HN-X9D`.
-- Đã chạy script trên DB local: 2 biến thể Đen Bóng Đêm và 2 biến thể Vàng Bình Minh đã trỏ đúng ảnh theo màu; product dùng ảnh đại diện Đen Bóng Đêm và gallery chung.
-- Quy ước ảnh HONOR X9d 5G: file có chữ "ảnh đại diện" hoặc "ảnh địa diện" được dùng cho `image_url`; các file còn lại trong thư mục màu là gallery của biến thể đó và được lưu vào `product_variants.images`.
+- ÄÃ£ copy áº£nh ngÆ°á»i dÃ¹ng cung cáº¥p tá»« thÆ° má»¥c `honor x9d` vÃ o `frontend/public/images/products/honor-x9d`.
+- áº¢nh Ä‘Æ°á»£c chia theo mÃ u:
+  - `black`: Äen BÃ³ng ÄÃªm, gá»“m áº£nh Ä‘áº¡i diá»‡n vÃ  8 áº£nh gallery.
+  - `gold`: VÃ ng BÃ¬nh Minh, gá»“m áº£nh Ä‘áº¡i diá»‡n vÃ  11 áº£nh gallery.
+  - `common`: 5 áº£nh dÃ¹ng chung cho trang chi tiáº¿t sáº£n pháº©m.
+- ThÃªm script `backend/scripts/update_honor_x9d_images.py` Ä‘á»ƒ cáº­p nháº­t `products.image_url`, `products.images`, `product_variants.image_url`, `product_variants.images` cho SKU `HN-X9D`.
+- ÄÃ£ cháº¡y script trÃªn DB local: 2 biáº¿n thá»ƒ Äen BÃ³ng ÄÃªm vÃ  2 biáº¿n thá»ƒ VÃ ng BÃ¬nh Minh Ä‘Ã£ trá» Ä‘Ãºng áº£nh theo mÃ u; product dÃ¹ng áº£nh Ä‘áº¡i diá»‡n Äen BÃ³ng ÄÃªm vÃ  gallery chung.
+- Quy Æ°á»›c áº£nh HONOR X9d 5G: file cÃ³ chá»¯ "áº£nh Ä‘áº¡i diá»‡n" hoáº·c "áº£nh Ä‘á»‹a diá»‡n" Ä‘Æ°á»£c dÃ¹ng cho `image_url`; cÃ¡c file cÃ²n láº¡i trong thÆ° má»¥c mÃ u lÃ  gallery cá»§a biáº¿n thá»ƒ Ä‘Ã³ vÃ  Ä‘Æ°á»£c lÆ°u vÃ o `product_variants.images`.
 
 ## Update 2026-06-04 Admin product simple-product variant rule
 
-- Sản phẩm không có biến thể nay được xem là sản phẩm đơn giản hợp lệ; giá, giá bán, tồn kho, ảnh và thông tin chung lấy trực tiếp từ bảng `products`.
-- Chỉ sản phẩm có danh sách biến thể mới bắt buộc có đúng một biến thể mặc định. Khi danh sách biến thể rỗng, backend không tự tạo biến thể mặc định nữa và cho phép xóa biến thể cuối cùng bằng soft-delete.
-- Form admin thêm trường `Tồn kho chung`, gửi kèm `brand` và `category` để thương hiệu nhập tay không bị rơi về `Khác`, đồng thời không gửi cấu hình option/variant khi sản phẩm không có biến thể.
-- Khi sửa sản phẩm, frontend map lại đúng `stockQuantity` và `salePrice` của biến thể để tránh mất tồn kho hoặc giá bán sau khi lưu.
-- Backend chỉ đồng bộ giá/tồn kho cha từ biến thể khi sản phẩm thật sự còn biến thể; sản phẩm đơn giản giữ nguyên giá và tồn kho chung.
-- Sửa thêm lỗi lọc `status=all` trong danh sách admin và lỗi nhân bản sản phẩm do PostgreSQL không suy luận được kiểu của hậu tố SKU.
-- Tách frontend API sản phẩm: thêm `frontend/src/services/productApi.ts` cho các endpoint admin product, chuyển `useAdminProductsLogic.ts`, `AdminProductsTab.tsx` và phần load product trong `useAdminLogic.ts` sang service này. Các endpoint admin product đã chuyển được gỡ khỏi `apiDb`; các endpoint tồn kho liên quan sản phẩm vẫn giữ tạm để tách sang `inventoryApi` sau.
-- Sau khi tách thêm hook product/variant, `useAdminProductVariants.ts` trả thêm `colorOptionName` để `useAdminProductsLogic.ts` map lại màu biến thể khi mở form chỉnh sửa. Sửa import thiếu `youtubeEmbedUrl` và `ImageWithFallback` ở `ProductDetail.tsx` sau khi tách helper media.
+- Sáº£n pháº©m khÃ´ng cÃ³ biáº¿n thá»ƒ nay Ä‘Æ°á»£c xem lÃ  sáº£n pháº©m Ä‘Æ¡n giáº£n há»£p lá»‡; giÃ¡, giÃ¡ bÃ¡n, tá»“n kho, áº£nh vÃ  thÃ´ng tin chung láº¥y trá»±c tiáº¿p tá»« báº£ng `products`.
+- Chá»‰ sáº£n pháº©m cÃ³ danh sÃ¡ch biáº¿n thá»ƒ má»›i báº¯t buá»™c cÃ³ Ä‘Ãºng má»™t biáº¿n thá»ƒ máº·c Ä‘á»‹nh. Khi danh sÃ¡ch biáº¿n thá»ƒ rá»—ng, backend khÃ´ng tá»± táº¡o biáº¿n thá»ƒ máº·c Ä‘á»‹nh ná»¯a vÃ  cho phÃ©p xÃ³a biáº¿n thá»ƒ cuá»‘i cÃ¹ng báº±ng soft-delete.
+- Form admin thÃªm trÆ°á»ng `Tá»“n kho chung`, gá»­i kÃ¨m `brand` vÃ  `category` Ä‘á»ƒ thÆ°Æ¡ng hiá»‡u nháº­p tay khÃ´ng bá»‹ rÆ¡i vá» `KhÃ¡c`, Ä‘á»“ng thá»i khÃ´ng gá»­i cáº¥u hÃ¬nh option/variant khi sáº£n pháº©m khÃ´ng cÃ³ biáº¿n thá»ƒ.
+- Khi sá»­a sáº£n pháº©m, frontend map láº¡i Ä‘Ãºng `stockQuantity` vÃ  `salePrice` cá»§a biáº¿n thá»ƒ Ä‘á»ƒ trÃ¡nh máº¥t tá»“n kho hoáº·c giÃ¡ bÃ¡n sau khi lÆ°u.
+- Backend chá»‰ Ä‘á»“ng bá»™ giÃ¡/tá»“n kho cha tá»« biáº¿n thá»ƒ khi sáº£n pháº©m tháº­t sá»± cÃ²n biáº¿n thá»ƒ; sáº£n pháº©m Ä‘Æ¡n giáº£n giá»¯ nguyÃªn giÃ¡ vÃ  tá»“n kho chung.
+- Sá»­a thÃªm lá»—i lá»c `status=all` trong danh sÃ¡ch admin vÃ  lá»—i nhÃ¢n báº£n sáº£n pháº©m do PostgreSQL khÃ´ng suy luáº­n Ä‘Æ°á»£c kiá»ƒu cá»§a háº­u tá»‘ SKU.
+- TÃ¡ch frontend API sáº£n pháº©m: thÃªm `frontend/src/services/productApi.ts` cho cÃ¡c endpoint admin product, chuyá»ƒn `useAdminProductsLogic.ts`, `AdminProductsTab.tsx` vÃ  pháº§n load product trong `useAdminLogic.ts` sang service nÃ y. CÃ¡c endpoint admin product Ä‘Ã£ chuyá»ƒn Ä‘Æ°á»£c gá»¡ khá»i `apiDb`; cÃ¡c endpoint tá»“n kho liÃªn quan sáº£n pháº©m váº«n giá»¯ táº¡m Ä‘á»ƒ tÃ¡ch sang `inventoryApi` sau.
+- Sau khi tÃ¡ch thÃªm hook product/variant, `useAdminProductVariants.ts` tráº£ thÃªm `colorOptionName` Ä‘á»ƒ `useAdminProductsLogic.ts` map láº¡i mÃ u biáº¿n thá»ƒ khi má»Ÿ form chá»‰nh sá»­a. Sá»­a import thiáº¿u `youtubeEmbedUrl` vÃ  `ImageWithFallback` á»Ÿ `ProductDetail.tsx` sau khi tÃ¡ch helper media.
+
+## Update 2026-06-05 Frontend feature-first refactor for Products & Brands
+
+- HoÃ n thÃ nh di chuyá»ƒn toÃ n bá»™ module **ThÆ°Æ¡ng hiá»‡u (Brands)** vÃ  **Sáº£n pháº©m (Products)** á»Ÿ Frontend sang cáº¥u trÃºc hÆ°á»›ng tÃ­nh nÄƒng (**Feature-First Architecture**):
+  - **Module ThÆ°Æ¡ng hiá»‡u (Brands)**: Di chuyá»ƒn sang `src/features/admin-brands/` gá»“m API (`services/adminBrandsApi.ts`), logic hooks (`hooks/useAdminBrandsLogic.ts`) vÃ  giao diá»‡n (`components/AdminBrandsTab.tsx`).
+  - **Module Sáº£n pháº©m (Products)**: Di chuyá»ƒn sang `src/features/admin-products/` gá»“m API (`services/adminProductsApi.ts`), logic hooks (`hooks/useAdminProductsLogic.ts`, `useAdminProductOffers.ts`, `useAdminProductVariants.ts`) vÃ  cÃ¡c UI Components (`components/AdminProductsTab.tsx`, `components/products/ProductAccessoriesSection.tsx`, `ProductFormSection.tsx`, `ProductTableSection.tsx`, `ProductVariantsSection.tsx`).
+  - **Cáº­p nháº­t import chung**: Cáº­p nháº­t liÃªn káº¿t import trong cÃ¡c file Ä‘iá»u phá»‘i trung tÃ¢m nhÆ° `apiDb.ts`, `useAdminLogic.ts` vÃ  `AdminDashboardTabContent.tsx`.
+  - **Dá»n dáº¹p**: XÃ³a sáº¡ch toÃ n bá»™ cÃ¡c file vÃ  thÆ° má»¥c cÅ© táº¡i cÃ¡c thÆ° má»¥c dÃ¹ng chung `components/admin/tabs/`, `components/admin/hooks/` vÃ  `services/api/`.
+  - **XÃ¡c minh**: Cháº¡y thÃ nh cÃ´ng lá»‡nh kiá»ƒm tra kiá»ƒu `npx tsc --noEmit` trÃªn toÃ n bá»™ frontend mÃ  khÃ´ng phÃ¡t sinh báº¥t ká»³ lá»—i compile nÃ o.
+
+## Update 2026-06-05 Refactor Attached Services to Service Layer & Feature-First
+
+- Backend: TÃ¡ch logic nghiá»‡p vá»¥ vÃ  truy váº¥n SQL cá»§a Dá»‹ch vá»¥ Ä‘i kÃ¨m (Attached Services) ra khá»i `admin_products.py` sang má»™t Service Layer chuyÃªn biá»‡t táº¡i `app/application/services/attached_service.py` Ä‘á»ƒ giá»¯ router sáº¡ch sáº½, dá»… báº£o trÃ¬. CÃ¡c route `/attached-services` chá»‰ lÃ m nhiá»‡m vá»¥ Ä‘iá»u hÆ°á»›ng vÃ  gá»i hÃ m tá»« service.
+- Frontend: ÄÃ³ng gÃ³i toÃ n bá»™ module Dá»‹ch vá»¥ vÃ o thÆ° má»¥c tÃ­nh nÄƒng chuyÃªn biá»‡t `src/features/admin-services/` theo kiáº¿n trÃºc hÆ°á»›ng tÃ­nh nÄƒng (Feature-First Architecture).
+  - TÃ¡ch API Attached Services tá»« `apiDb.ts` sang `adminServicesApi.ts` trong thÆ° má»¥c feature má»›i, Ä‘á»“ng thá»i spread gá»™p láº¡i vÃ o `apiDb.ts` Ä‘á»ƒ giá»¯ tÆ°Æ¡ng thÃ­ch ngÆ°á»£c.
+  - Di chuyá»ƒn UI tab `AdminServicesTab.tsx` vÃ  custom hook `useAdminServicesLogic.ts` vÃ o feature folder, cáº­p nháº­t cÃ¡c import Ä‘iá»u phá»‘i liÃªn quan (`apiDb.ts`, `useAdminLogic.ts`, `AdminDashboardTabContent.tsx`).
+- Káº¿t quáº£ kiá»ƒm tra:
+  - Frontend: compile thÃ nh cÃ´ng báº±ng `npx tsc --noEmit`.
+  - Backend: compile thÃ nh cÃ´ng báº±ng `py_compile`, import `app.main` hoáº¡t Ä‘á»™ng bÃ¬nh thÆ°á»ng, khÃ´ng xáº£y ra import vÃ²ng láº·p.
+
+## Update 2026-06-05 Refactor Flash Sales to Service Layer & Feature-First
+
+- Backend: TÃ¡ch logic nghiá»‡p vá»¥, tÃ­nh toÃ¡n giÃ¡ sale vÃ  truy váº¥n SQL cá»§a Flash Sales ra khá»i `admin_flash_sales.py` sang má»™t Service Layer chuyÃªn biá»‡t táº¡i `app/application/services/flash_sale_service.py`. Class pydantic `FlashSalePayload` Ä‘Æ°á»£c di chuyá»ƒn sang `admin_schemas.py` Ä‘á»ƒ thá»‘ng nháº¥t cáº¥u trÃºc schema.
+- Frontend: ÄÃ³ng gÃ³i toÃ n bá»™ module Flash Sales vÃ o thÆ° má»¥c tÃ­nh nÄƒng chuyÃªn biá»‡t `src/features/admin-flash-sales/` theo kiáº¿n trÃºc hÆ°á»›ng tÃ­nh nÄƒng (Feature-First Architecture).
+  - TÃ¡ch cÃ¡c API cá»§a Flash Sales tá»« `adminContentApi.ts` sang `adminFlashSalesApi.ts` trong thÆ° má»¥c feature má»›i, Ä‘á»“ng thá»i spread gá»™p láº¡i vÃ o `apiDb.ts` Ä‘á»ƒ giá»¯ tÆ°Æ¡ng thÃ­ch ngÆ°á»£c.
+  - Di chuyá»ƒn UI tab `AdminFlashSalesTab.tsx` vÃ  custom hook `useAdminFlashSalesLogic.ts` vÃ o feature folder, cáº­p nháº­t cÃ¡c import Ä‘iá»u phá»‘i liÃªn quan (`apiDb.ts`, `useAdminLogic.ts`, `AdminDashboardTabContent.tsx`, `adminContentApi.ts`).
+- Káº¿t quáº£ kiá»ƒm tra:
+  - Frontend: compile thÃ nh cÃ´ng báº±ng `npx tsc --noEmit`.
+  - Backend: compile thÃ nh cÃ´ng báº±ng `py_compile`, import `app.main` hoáº¡t Ä‘á»™ng bÃ¬nh thÆ°á»ng, khÃ´ng xáº£y ra import vÃ²ng láº·p.
+
+## Update 2026-06-05 Refactor Reviews to Service Layer & Feature-First
+
+- Backend: TÃ¡ch logic nghiá»‡p vá»¥, kiá»ƒm duyá»‡t vÃ  truy váº¥n SQL cá»§a ÄÃ¡nh giÃ¡ (Reviews) ra khá»i `admin_reviews.py` sang má»™t Service Layer chuyÃªn biá»‡t táº¡i `app/application/services/review_service.py`.
+- Frontend: ÄÃ³ng gÃ³i toÃ n bá»™ module ÄÃ¡nh giÃ¡ vÃ o thÆ° má»¥c tÃ­nh nÄƒng chuyÃªn biá»‡t `src/features/admin-reviews/` theo kiáº¿n trÃºc hÆ°á»›ng tÃ­nh nÄƒng (Feature-First Architecture).
+  - TÃ¡ch cÃ¡c API cá»§a ÄÃ¡nh giÃ¡ tá»« `adminContentApi.ts` sang `adminReviewsApi.ts` trong thÆ° má»¥c feature má»›i, Ä‘á»“ng thá»i spread gá»™p láº¡i vÃ o `apiDb.ts` Ä‘á»ƒ giá»¯ tÆ°Æ¡ng thÃ­ch ngÆ°á»£c.
+  - Di chuyá»ƒn UI tab `AdminReviewsTab.tsx` vÃ  custom hook `useAdminReviewsLogic.ts` vÃ o feature folder, cáº­p nháº­t cÃ¡c import Ä‘iá»u phá»‘i liÃªn quan (`apiDb.ts`, `useAdminLogic.ts`, `AdminDashboardTabContent.tsx`, `adminContentApi.ts`).
+- Káº¿t quáº£ kiá»ƒm tra:
+  - Frontend: compile thÃ nh cÃ´ng báº±ng `npx tsc --noEmit`.
+  - Backend: compile thÃ nh cÃ´ng báº±ng `py_compile`, import `app.main` hoáº¡t Ä‘á»™ng bÃ¬nh thÆ°á»ng, khÃ´ng xáº£y ra import vÃ²ng láº·p.
+## Update 2026-06-05 Backend Product Repository Split
+
+- TÃ¡ch query danh sÃ¡ch sáº£n pháº©m admin khá»i `app/application/services/product_service.py` sang `app/infrastructure/database/repositories/product_repo.py` qua hÃ m `list_admin_product_rows`.
+- Repository hiá»‡n phá»¥ trÃ¡ch lá»c, phÃ¢n trang, Ä‘áº¿m tá»•ng vÃ  gom danh sÃ¡ch biáº¿n thá»ƒ; service chá»‰ cÃ²n gá»i repo rá»“i bá»• sung quan há»‡ bundle, phá»¥ kiá»‡n vÃ  dá»‹ch vá»¥ Ä‘i kÃ¨m trÆ°á»›c khi tráº£ response.
+- Káº¿t quáº£ kiá»ƒm tra: compile toÃ n bá»™ backend báº±ng mÃ´i trÆ°á»ng áº£o `.venv` thÃ nh cÃ´ng; import `app.main`, router admin products, product service vÃ  product repository Ä‘á»u hoáº¡t Ä‘á»™ng.
+
+## Update 2026-06-05 Product Service SQL Cleanup
+
+- Má»Ÿ rá»™ng `app/infrastructure/database/repositories/product_repo.py` Ä‘á»ƒ chá»©a cÃ¡c truy váº¥n DB cÃ²n láº¡i cá»§a `product_service.py`: import CSV job, insert product, insert revision, update product, deactivate variants khi sáº£n pháº©m inactive, vÃ  duplicate product/variants/bundles/accessories.
+- LÃ m sáº¡ch `app/application/services/product_service.py`: bá» SQL trá»±c tiáº¿p (`session.execute`, `session.scalar`, `text`) vÃ  chuyá»ƒn import schema sang `app.api.v1.schemas.admin`.
+- Giá»¯ service á»Ÿ vai trÃ² xá»­ lÃ½ nghiá»‡p vá»¥: validate media, chuáº©n hÃ³a options/specs/sales config, kiá»ƒm tra category migration, gá»i variant service, Ä‘á»“ng bá»™ quan há»‡ sáº£n pháº©m, audit vÃ  commit.
+- Sá»­a láº¡i thÃ´ng bÃ¡o lá»—i tiáº¿ng Viá»‡t cho luá»“ng import CSV.
+- Káº¿t quáº£ kiá»ƒm tra: compile toÃ n bá»™ backend báº±ng `.venv` thÃ nh cÃ´ng; import `app.main`, admin products router, product service vÃ  product repository thÃ nh cÃ´ng.
+
+## Update 2026-06-05 Product Approval Repository Split
+
+- TÃ¡ch truy váº¥n vÃ  thao tÃ¡c dá»¯ liá»‡u cá»§a luá»“ng duyá»‡t sáº£n pháº©m khá»i `app/application/services/product_approval_service.py` sang `app/infrastructure/database/repositories/product_approval_repo.py`.
+- `product_approval_service.py` hiá»‡n giá»¯ vai trÃ² Ä‘iá»u phá»‘i nghiá»‡p vá»¥: submit, approve, bulk approve/archive/delete, archive, deactivate; Ä‘á»“ng thá»i giá»¯ bÆ°á»›c Ä‘á»“ng bá»™ giÃ¡ sáº£n pháº©m cha khi duyá»‡t/xuáº¥t báº£n revision.
+- Repository má»›i phá»¥ trÃ¡ch cÃ¡c thao tÃ¡c DB nháº¡y cáº£m cá»§a approval: merge revision variants, cáº­p nháº­t tráº¡ng thÃ¡i sáº£n pháº©m, sao chÃ©p bundle/accessory tá»« revision, archive/deactivate vÃ  kiá»ƒm tra category migration.
+- Káº¿t quáº£ kiá»ƒm tra: compile toÃ n bá»™ backend báº±ng `.venv` thÃ nh cÃ´ng; import `app.main`, router admin product approvals, product approval service vÃ  product approval repository thÃ nh cÃ´ng.
+
+
+## Update 2026-06-05 Admin Overview Repository Split
+
+- TÃ¡ch truy váº¥n dashboard tá»•ng quan admin khá»i `app/application/services/overview_service.py` sang `app/infrastructure/database/repositories/overview_repo.py`.
+- Service hiá»‡n chá»‰ cÃ²n gom dá»¯ liá»‡u tá»« repo vÃ  Ä‘á»‹nh dáº¡ng response cho router `admin_overview.py`.
+- Káº¿t quáº£ kiá»ƒm tra: compile backend thÃ nh cÃ´ng; import `app.main`, admin overview router, overview service vÃ  overview repository thÃ nh cÃ´ng.
+
+
+## Update 2026-06-05 Attached Service Repository Split
+
+- TÃ¡ch truy váº¥n vÃ  thao tÃ¡c DB cá»§a dá»‹ch vá»¥ Ä‘i kÃ¨m khá»i `app/application/services/attached_service.py` sang `app/infrastructure/database/repositories/attached_service_repo.py`.
+- Service hiá»‡n chá»‰ cÃ²n chuáº©n hÃ³a giÃ¡ theo loáº¡i dá»‹ch vá»¥, gá»i repository, commit vÃ  tráº£ response cho router admin products.
+- Káº¿t quáº£ kiá»ƒm tra: compile backend thÃ nh cÃ´ng; import `app.main`, admin products router, attached service vÃ  attached service repository thÃ nh cÃ´ng.
+
+## Update 2026-06-06 product delete rule
+
+- `DELETE /admin/products/{id}` khÃ´ng cÃ²n tá»± chuyá»ƒn sáº£n pháº©m khÃ´ng rÃ ng buá»™c sang `ARCHIVED`.
+- Náº¿u sáº£n pháº©m cÃ³ Ä‘Æ¡n hÃ ng hoáº·c Ä‘Ã¡nh giÃ¡, thao tÃ¡c xÃ³a sáº½ chuyá»ƒn sang `INACTIVE` Ä‘á»ƒ giá»¯ lá»‹ch sá»­ bÃ¡n hÃ ng vÃ  Ä‘Ã¡nh giÃ¡.
+- Náº¿u sáº£n pháº©m chÆ°a cÃ³ Ä‘Æ¡n hÃ ng/Ä‘Ã¡nh giÃ¡ nhÆ°ng Ä‘Ã£ cÃ³ dá»¯ liá»‡u nháº­p kho tháº­t, backend tráº£ `409` vÃ  yÃªu cáº§u áº©n sáº£n pháº©m thay vÃ¬ xÃ³a. Dá»¯ liá»‡u nháº­p kho tháº­t Ä‘Æ°á»£c xÃ¡c Ä‘á»‹nh báº±ng `inventory_adjustment_logs.transaction_type = 'RECEIPT'` vá»›i `delta > 0`, hoáº·c `inventory_transactions` loáº¡i `IN` tá»« chá»©ng tá»« `INBOUND`.
+- Náº¿u sáº£n pháº©m chÆ°a cÃ³ Ä‘Æ¡n hÃ ng, chÆ°a cÃ³ Ä‘Ã¡nh giÃ¡ vÃ  chÆ°a cÃ³ dá»¯ liá»‡u nháº­p kho tháº­t, backend xÃ³a cá»©ng báº£n ghi sáº£n pháº©m; cÃ¡c quan há»‡ bundle/accessory/service liÃªn quan Ä‘Æ°á»£c dá»n trÆ°á»›c khi xÃ³a. Tá»“n kho seed/import náº±m trong `stock_quantity` nhÆ°ng khÃ´ng cÃ³ log nháº­p kho tháº­t khÃ´ng cháº·n xÃ³a.
+
+## Update 2026-06-06 discontinued product status
+
+- ThÃªm tráº¡ng thÃ¡i sáº£n pháº©m `DISCONTINUED` / `Ngá»«ng kinh doanh` vÃ o constraint DB, helper chuáº©n hÃ³a tráº¡ng thÃ¡i vÃ  lá»±a chá»n tráº¡ng thÃ¡i trong admin.
+- Storefront khÃ´ng Ä‘Æ°a sáº£n pháº©m `DISCONTINUED` vÃ o danh sÃ¡ch máº·c Ä‘á»‹nh/trang chá»§. Khi ngÆ°á»i dÃ¹ng tÃ¬m kiáº¿m báº±ng tá»« khÃ³a hoáº·c truy cáº­p trá»±c tiáº¿p trang chi tiáº¿t, sáº£n pháº©m váº«n hiá»ƒn thá»‹ thÃ´ng tin tham kháº£o.
+- Trang chi tiáº¿t sáº£n pháº©m `DISCONTINUED` khÃ´ng hiá»ƒn thá»‹ giÃ¡ bÃ¡n, flash sale, gÃ³i mua kÃ¨m, nÃºt mua ngay, thÃªm giá» hÃ ng, sá»‘ lÆ°á»£ng hoáº·c tráº£ gÃ³p. UI chá»‰ hiá»ƒn thá»‹ nhÃ£n `Ngá»«ng kinh doanh` vÃ  thÃ´ng tin sáº£n pháº©m.
+
+## Update 2026-06-06 Delete OPPO Find X8 White Variant
+
+- Thá»±c hiá»‡n xÃ³a biáº¿n thá»ƒ "Tráº¯ng Tinh TÃº" cá»§a sáº£n pháº©m OPPO Find X8 (ID: `f7712c7b-7390-4a07-972b-fd5f1f7657ba`) trong cÆ¡ sá»Ÿ dá»¯ liá»‡u:
+  - Cáº­p nháº­t trÆ°á»ng `colors` cá»§a sáº£n pháº©m Ä‘á»ƒ loáº¡i bá» mÃ u "Tráº¯ng Tinh TÃº".
+  - Cáº­p nháº­t trÆ°á»ng `options` cá»§a sáº£n pháº©m Ä‘á»ƒ loáº¡i bá» mÃ u "Tráº¯ng Tinh TÃº" ra khá»i danh sÃ¡ch giÃ¡ trá»‹ cá»§a tÃ¹y chá»n "MÃ u sáº¯c".
+  - Soft-delete cÃ¡c biáº¿n thá»ƒ mÃ u tráº¯ng (`OP-FX8-WH-256GB` vÃ  `OP-FX8-WH-512GB`) trong báº£ng `product_variants` báº±ng cÃ¡ch cáº­p nháº­t `is_active = FALSE`, `status = 'deleted'`, `is_default = FALSE` vÃ  ghi nháº­n thá»i gian `deleted_at`.
+  - Thiáº¿t láº­p biáº¿n thá»ƒ active Ä‘áº§u tiÃªn (`OP-FX8-BK-256GB`) lÃ m biáº¿n thá»ƒ máº·c Ä‘á»‹nh (`is_default = TRUE`) vÃ  cáº­p nháº­t SKU cá»§a sáº£n pháº©m cha Ä‘á»ƒ Ä‘Ã¡p á»©ng yÃªu cáº§u nghiá»‡p vá»¥ vá» biáº¿n thá»ƒ máº·c Ä‘á»‹nh duy nháº¥t.
+
+## Update 2026-06-06 Delete OPPO Find N6 Black Variant
+
+- Thá»±c hiá»‡n xÃ³a biáº¿n thá»ƒ "Äen SÃ¢u Tháº³m" cá»§a sáº£n pháº©m OPPO Find N6 (ID: `8d6c4002-f89d-4b1e-b898-65e5508ce38d`) trong cÆ¡ sá»Ÿ dá»¯ liá»‡u:
+  - Cáº­p nháº­t trÆ°á»ng `colors` cá»§a sáº£n pháº©m Ä‘á»ƒ loáº¡i bá» mÃ u "Äen SÃ¢u Tháº³m".
+  - Cáº­p nháº­t trÆ°á»ng `options` cá»§a sáº£n pháº©m Ä‘á»ƒ loáº¡i bá» mÃ u "Äen SÃ¢u Tháº³m" ra khá»i danh sÃ¡ch giÃ¡ trá»‹ cá»§a tÃ¹y chá»n "MÃ u sáº¯c".
+  - Soft-delete cÃ¡c biáº¿n thá»ƒ mÃ u Ä‘en (`OP-FN6-BK-512GB` vÃ  `OP-FN6-BK-1TB`) trong báº£ng `product_variants` báº±ng cÃ¡ch cáº­p nháº­t `is_active = FALSE`, `status = 'deleted'`, `is_default = FALSE` vÃ  ghi nháº­n thá»i gian `deleted_at`.
+  - Thiáº¿t láº­p biáº¿n thá»ƒ active Ä‘áº§u tiÃªn (`OP-FN6-OR-1TB`) lÃ m biáº¿n thá»ƒ máº·c Ä‘á»‹nh (`is_default = TRUE`) vÃ  cáº­p nháº­t SKU cá»§a sáº£n pháº©m cha Ä‘á»ƒ Ä‘Ã¡p á»©ng yÃªu cáº§u nghiá»‡p vá»¥ vá» biáº¿n thá»ƒ máº·c Ä‘á»‹nh duy nháº¥t.
+
+## Update 2026-06-06 Modify OPPO Reno15 F 5G Variants
+
+- Thá»±c hiá»‡n cáº­p nháº­t cÃ¡c biáº¿n thá»ƒ cá»§a sáº£n pháº©m OPPO Reno15 F 5G (ID: `664a9354-89f1-4275-8a74-20ee67607d3f`) trong cÆ¡ sá»Ÿ dá»¯ liá»‡u:
+  - Cáº­p nháº­t trÆ°á»ng `colors` vÃ  `options` cá»§a sáº£n pháº©m Ä‘á»ƒ loáº¡i bá» hai mÃ u "Xanh Cá»±c Quang" vÃ  "Tráº¯ng Tinh KhÃ´i", Ä‘á»“ng thá»i thÃªm hai mÃ u má»›i "Xanh Nháº¡t" (mÃ£ mÃ u: `#add8e6`) vÃ  "Xanh DÆ°Æ¡ng" (mÃ£ mÃ u: `#2196f3`).
+  - Soft-delete cÃ¡c biáº¿n thá»ƒ mÃ u cÅ©: `OP-RN15F-BL-8-256`, `OP-RN15F-BL-12-256` (Xanh Cá»±c Quang) vÃ  `OP-RN15F-WH-8-256`, `OP-RN15F-WH-12-256` (Tráº¯ng Tinh KhÃ´i) trong báº£ng `product_variants`.
+  - Táº¡o má»›i 4 biáº¿n thá»ƒ cho 2 mÃ u má»›i:
+    - MÃ u Xanh Nháº¡t: `OP-RN15F-LB-8-256` (8GB RAM - 256GB ROM, giÃ¡ 8,490,000Ä‘) vÃ  `OP-RN15F-LB-12-256` (12GB RAM - 256GB ROM, giÃ¡ 9,490,000Ä‘).
+    - MÃ u Xanh DÆ°Æ¡ng: `OP-RN15F-B-8-256` (8GB RAM - 256GB ROM, giÃ¡ 8,490,000Ä‘) vÃ  `OP-RN15F-B-12-256` (12GB RAM - 256GB ROM, giÃ¡ 9,490,000Ä‘).
+  - Thiáº¿t láº­p biáº¿n thá»ƒ `OP-RN15F-PK-8-256` (Há»“ng Rá»±c Rá»¡) lÃ m biáº¿n thá»ƒ máº·c Ä‘á»‹nh (`is_default = TRUE`) vÃ  cáº­p nháº­t SKU cá»§a sáº£n pháº©m cha.
+
+## Update 2026-06-06 Delete OPPO Reno15 5G Aurora Variant
+
+- Thá»±c hiá»‡n xÃ³a biáº¿n thá»ƒ "Xanh Cá»±c Quang" cá»§a sáº£n pháº©m OPPO Reno15 5G (ID: `1bcab5a6-c021-4976-83d8-6fd358a36192`) trong cÆ¡ sá»Ÿ dá»¯ liá»‡u:
+  - Cáº­p nháº­t trÆ°á»ng `colors` cá»§a sáº£n pháº©m Ä‘á»ƒ loáº¡i bá» mÃ u "Xanh Cá»±c Quang".
+  - Cáº­p nháº­t trÆ°á»ng `options` cá»§a sáº£n pháº©m Ä‘á»ƒ loáº¡i bá» mÃ u "Xanh Cá»±c Quang" ra khá»i danh sÃ¡ch giÃ¡ trá»‹ cá»§a tÃ¹y chá»n "MÃ u sáº¯c".
+  - Soft-delete cÃ¡c biáº¿n thá»ƒ mÃ u xanh cá»±c quang (`OP-RN15-AB-256GB` vÃ  `OP-RN15-AB-512GB`) trong báº£ng `product_variants` báº±ng cÃ¡ch cáº­p nháº­t `is_active = FALSE`, `status = 'deleted'`, `is_default = FALSE` vÃ  ghi nháº­n thá»i gian `deleted_at`.
+  - Thiáº¿t láº­p biáº¿n thá»ƒ active Ä‘áº§u tiÃªn (`OP-RN15-AW-256GB`) lÃ m biáº¿n thá»ƒ máº·c Ä‘á»‹nh (`is_default = TRUE`) vÃ  cáº­p nháº­t SKU cá»§a sáº£n pháº©m cha Ä‘á»ƒ Ä‘Ã¡p á»©ng yÃªu cáº§u nghiá»‡p vá»¥ vá» biáº¿n thá»ƒ máº·c Ä‘á»‹nh duy nháº¥t.
+
+## Update 2026-06-06 Add OPPO Find N3 Variants
+
+- Thá»±c hiá»‡n bá»• sung cÃ¡c biáº¿n thá»ƒ "Äen" vÃ  "VÃ ng" cho sáº£n pháº©m OPPO Find N3 (ID: `5f0c3535-c5ce-4cac-8321-a32ac43aefd2`) trong cÆ¡ sá»Ÿ dá»¯ liá»‡u:
+  - Cáº­p nháº­t trÆ°á»ng `colors` cá»§a sáº£n pháº©m, thÃªm hai mÃ u "Äen" (mÃ£ mÃ u: `#1a1a1c`) vÃ  "VÃ ng" (mÃ£ mÃ u: `#e5c158`).
+  - Thiáº¿t láº­p cáº¥u trÃºc `options` cho sáº£n pháº©m gá»“m cÃ³: MÃ u sáº¯c ("Äen", "VÃ ng"), Dung lÆ°á»£ng ("512GB"), vÃ  RAM ("16GB").
+  - Táº¡o má»›i 2 biáº¿n thá»ƒ trong báº£ng `product_variants`:
+    - Biáº¿n thá»ƒ Äen: SKU `OPPFN3-BK-512GB` (16GB RAM - 512GB ROM, giÃ¡ 39,990,000Ä‘, giÃ¡ bÃ¡n 34,990,000Ä‘, tá»“n kho 3), Ä‘áº·t lÃ m biáº¿n thá»ƒ máº·c Ä‘á»‹nh (`is_default = TRUE`).
+    - Biáº¿n thá»ƒ VÃ ng: SKU `OPPFN3-GD-512GB` (16GB RAM - 512GB ROM, giÃ¡ 39,990,000Ä‘, giÃ¡ bÃ¡n 34,990,000Ä‘, tá»“n kho 3).
+  - Cáº­p nháº­t SKU sáº£n pháº©m cha thÃ nh `OPPFN3-BK-512GB` theo biáº¿n thá»ƒ máº·c Ä‘á»‹nh.
+
+## Update 2026-06-06 Catalog Images Display Main Representative Image
+
+- Thay Ä‘á»•i cÃ¡ch láº¥y áº£nh Ä‘áº¡i diá»‡n cá»§a sáº£n pháº©m hiá»ƒn thá»‹ trÃªn trang thÆ° viá»‡n áº£nh `/images` (API `list_product_images` trong `catalog_utils.py`):
+  - GiÃ¡ trá»‹ trÆ°á»ng `mainUrl` tráº£ vá» cho Product Card nay Æ°u tiÃªn láº¥y áº£nh Ä‘áº¡i diá»‡n chung cá»§a sáº£n pháº©m (`product.imageUrl`) náº¿u nÃ³ lÃ  áº£nh há»£p lá»‡ (khÃ´ng pháº£i placeholder).
+  - Chá»‰ khi sáº£n pháº©m khÃ´ng cÃ³ áº£nh Ä‘áº¡i diá»‡n há»£p lá»‡ thÃ¬ má»›i fallback vá» áº£nh Ä‘áº§u tiÃªn trong bá»™ sÆ°u táº­p gallery (`image_entries[0]["url"]`).
+  - GiÃºp hiá»ƒn thá»‹ Ä‘Ãºng áº£nh Ä‘áº¡i diá»‡n Ä‘á»“ng bá»™ cá»§a sáº£n pháº©m á»Ÿ trang ngoÃ i danh sÃ¡ch áº£nh, trÃ¡nh viá»‡c láº¥y ngáº«u nhiÃªn áº£nh chi tiáº¿t hoáº·c áº£nh gÃ³c cáº¡nh tá»« gallery.

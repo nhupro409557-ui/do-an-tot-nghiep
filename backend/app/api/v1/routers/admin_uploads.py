@@ -64,7 +64,7 @@ async def create_presigned_upload(
     if not all([settings.s3_bucket, settings.s3_access_key_id, settings.s3_secret_access_key, settings.s3_public_base_url]):
         base_url = str(request.base_url).rstrip("/")
         return {
-            "uploadUrl": f"{base_url}/api/v1/admin/uploads/local/{file_key}",
+            "uploadUrl": f"{base_url}/api/admin/uploads/local/{file_key}",
             "fileKey": file_key,
             "publicUrl": f"{base_url}/uploads/{file_key}",
             "expiresIn": settings.s3_presign_expires_seconds,

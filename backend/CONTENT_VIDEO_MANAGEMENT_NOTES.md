@@ -1,4 +1,4 @@
-# Content / Video Management Notes
+﻿# Content / Video Management Notes
 
 # Update 2026-06-03 iPhone 17 Pro video content
 
@@ -9,24 +9,24 @@
 
 # Update 2026-06-03 admin video Vietnamese encoding fix
 
-- Đã sửa lỗi hiển thị tiếng Việt bị lỗi mã hóa (ký tự `?`) trong tệp giao diện quản lý video [AdminContentTab.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/components/admin/tabs/AdminContentTab.tsx).
-- Cập nhật logic trong [useAdminContentLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/components/admin/hooks/useAdminContentLogic.ts):
-  - Khắc phục lỗi gán đúp thuộc tính `userName` bị lỗi ở `serializeContentComments`.
-  - Loại bỏ các lệnh gán đúp `setContentNotice` bị lỗi mã hóa ở hàm `handleContentSubmit`.
-  - Thay thế chuỗi `'Kh?ch h?ng'` thành `'Khách hàng'` trong định dạng văn bản bình luận.
+- ÄÃ£ sá»­a lá»—i hiá»ƒn thá»‹ tiáº¿ng Viá»‡t bá»‹ lá»—i mÃ£ hÃ³a (kÃ½ tá»± `?`) trong tá»‡p giao diá»‡n quáº£n lÃ½ video [AdminContentTab.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-content/components/AdminContentTab.tsx).
+- Cáº­p nháº­t logic trong [useAdminContentLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-content/hooks/useAdminContentLogic.ts):
+  - Kháº¯c phá»¥c lá»—i gÃ¡n Ä‘Ãºp thuá»™c tÃ­nh `userName` bá»‹ lá»—i á»Ÿ `serializeContentComments`.
+  - Loáº¡i bá» cÃ¡c lá»‡nh gÃ¡n Ä‘Ãºp `setContentNotice` bá»‹ lá»—i mÃ£ hÃ³a á»Ÿ hÃ m `handleContentSubmit`.
+  - Thay tháº¿ chuá»—i `'Kh?ch h?ng'` thÃ nh `'KhÃ¡ch hÃ ng'` trong Ä‘á»‹nh dáº¡ng vÄƒn báº£n bÃ¬nh luáº­n.
 
 # Update 2026-06-03 HONOR X9d video publish fix
 
-- Phát hiện video `HONOR X9d 5G - Pin trâu, màn hình sáng, bền bỉ mỗi ngày` đã có file `video_url` và thumbnail nhưng vẫn giữ `status = 'DRAFT'`, nên storefront `/videos` không trả về vì chỉ hiển thị `status = 'PUBLISHED'`.
-- Đã cập nhật bản ghi video HONOR X9d sang `status = 'PUBLISHED'`, `is_active = TRUE`, có `published_at`, để trang video người dùng hiển thị được.
-- Form quản lý video trong `frontend/src/components/admin/tabs/AdminContentTab.tsx` được bổ sung dropdown `Trạng thái`, giúp admin chuyển video giữa Nháp / Chờ đăng / Đã xuất bản / Lưu trữ sau khi upload file.
+- PhÃ¡t hiá»‡n video `HONOR X9d 5G - Pin trÃ¢u, mÃ n hÃ¬nh sÃ¡ng, bá»n bá»‰ má»—i ngÃ y` Ä‘Ã£ cÃ³ file `video_url` vÃ  thumbnail nhÆ°ng váº«n giá»¯ `status = 'DRAFT'`, nÃªn storefront `/videos` khÃ´ng tráº£ vá» vÃ¬ chá»‰ hiá»ƒn thá»‹ `status = 'PUBLISHED'`.
+- ÄÃ£ cáº­p nháº­t báº£n ghi video HONOR X9d sang `status = 'PUBLISHED'`, `is_active = TRUE`, cÃ³ `published_at`, Ä‘á»ƒ trang video ngÆ°á»i dÃ¹ng hiá»ƒn thá»‹ Ä‘Æ°á»£c.
+- Form quáº£n lÃ½ video trong `frontend/src/features/admin-content/components/AdminContentTab.tsx` Ä‘Æ°á»£c bá»• sung dropdown `Tráº¡ng thÃ¡i`, giÃºp admin chuyá»ƒn video giá»¯a NhÃ¡p / Chá» Ä‘Äƒng / ÄÃ£ xuáº¥t báº£n / LÆ°u trá»¯ sau khi upload file.
 
 # Update 2026-06-03 HONOR X9d draft video content
 
-- Tạo script `backend/scripts/seed_honor_x9d_video_content.py` để chuẩn bị nội dung video nháp cho sản phẩm `HONOR X9d 5G` (`HN-X9D`).
-- Script tạo/cập nhật một bản ghi `videos.content_type = 'VIDEO'`, `video_category = 'PRODUCT'`, `status = 'DRAFT'`, `is_active = FALSE`, `video_url = NULL` để admin có thể gắn file video sau rồi mới xuất bản.
-- Nội dung đã liên kết với sản phẩm `HN-X9D`, gắn category/subcategory của sản phẩm và dùng ảnh đại diện sản phẩm làm thumbnail tạm.
-- Tiêu đề nháp: `HONOR X9d 5G - Pin trâu, màn hình sáng, bền bỉ mỗi ngày`.
+- Táº¡o script `backend/scripts/seed_honor_x9d_video_content.py` Ä‘á»ƒ chuáº©n bá»‹ ná»™i dung video nhÃ¡p cho sáº£n pháº©m `HONOR X9d 5G` (`HN-X9D`).
+- Script táº¡o/cáº­p nháº­t má»™t báº£n ghi `videos.content_type = 'VIDEO'`, `video_category = 'PRODUCT'`, `status = 'DRAFT'`, `is_active = FALSE`, `video_url = NULL` Ä‘á»ƒ admin cÃ³ thá»ƒ gáº¯n file video sau rá»“i má»›i xuáº¥t báº£n.
+- Ná»™i dung Ä‘Ã£ liÃªn káº¿t vá»›i sáº£n pháº©m `HN-X9D`, gáº¯n category/subcategory cá»§a sáº£n pháº©m vÃ  dÃ¹ng áº£nh Ä‘áº¡i diá»‡n sáº£n pháº©m lÃ m thumbnail táº¡m.
+- TiÃªu Ä‘á» nhÃ¡p: `HONOR X9d 5G - Pin trÃ¢u, mÃ n hÃ¬nh sÃ¡ng, bá»n bá»‰ má»—i ngÃ y`.
 
 ## Muc tieu nang cap
 - Bien bang `videos` thanh kho noi dung dung chung cho `VIDEO`, `BANNER`, `MARKETING_PAGE`.
@@ -166,27 +166,36 @@
 - Neu traffic video lon hon nua, chuyen pagination sang cursor-based va tach feed recommendation rieng.
 
 ## Update 2026-06-02 storefront video like modal
-- Trang `/video` gom trạng thái tim về `VideoPage` để thẻ video và modal Reels dùng chung `likedIds`.
-- Khi bấm tim trong modal hoặc lưới video, giao diện cập nhật số lượt tim lạc quan ngay, sau đó đồng bộ lại theo `likeCount`/`liked` từ endpoint `/videos/{id}/like`.
-- Nút tim trong Reels dùng đúng video của từng slide thay vì phụ thuộc state `currentVideo`, tránh lệch khi Swiper giữ nhiều slide trong DOM.
-- Reels không reset `activeIdx`/trạng thái phát chỉ vì `playlist` đổi sau khi cập nhật lượt tim; effect reset chỉ chạy khi mở modal hoặc đổi `initialIndex`.
-- Reels lưu lựa chọn bật/tắt tiếng trong `localStorage` bằng key `video_reels_muted`; sau khi người dùng bật tiếng, lần mở modal tiếp theo giữ nguyên bật tiếng thay vì tự mute lại.
-- Khi vào bằng URL `?watch=...` rồi bấm đóng modal, trang ghi nhớ video vừa đóng để tránh effect đọc query cũ mở modal lại, khắc phục tình trạng phải bấm nút X hai lần.
+- Trang `/video` gom tráº¡ng thÃ¡i tim vá» `VideoPage` Ä‘á»ƒ tháº» video vÃ  modal Reels dÃ¹ng chung `likedIds`.
+- Khi báº¥m tim trong modal hoáº·c lÆ°á»›i video, giao diá»‡n cáº­p nháº­t sá»‘ lÆ°á»£t tim láº¡c quan ngay, sau Ä‘Ã³ Ä‘á»“ng bá»™ láº¡i theo `likeCount`/`liked` tá»« endpoint `/videos/{id}/like`.
+- NÃºt tim trong Reels dÃ¹ng Ä‘Ãºng video cá»§a tá»«ng slide thay vÃ¬ phá»¥ thuá»™c state `currentVideo`, trÃ¡nh lá»‡ch khi Swiper giá»¯ nhiá»u slide trong DOM.
+- Reels khÃ´ng reset `activeIdx`/tráº¡ng thÃ¡i phÃ¡t chá»‰ vÃ¬ `playlist` Ä‘á»•i sau khi cáº­p nháº­t lÆ°á»£t tim; effect reset chá»‰ cháº¡y khi má»Ÿ modal hoáº·c Ä‘á»•i `initialIndex`.
+- Reels lÆ°u lá»±a chá»n báº­t/táº¯t tiáº¿ng trong `localStorage` báº±ng key `video_reels_muted`; sau khi ngÆ°á»i dÃ¹ng báº­t tiáº¿ng, láº§n má»Ÿ modal tiáº¿p theo giá»¯ nguyÃªn báº­t tiáº¿ng thay vÃ¬ tá»± mute láº¡i.
+- Khi vÃ o báº±ng URL `?watch=...` rá»“i báº¥m Ä‘Ã³ng modal, trang ghi nhá»› video vá»«a Ä‘Ã³ng Ä‘á»ƒ trÃ¡nh effect Ä‘á»c query cÅ© má»Ÿ modal láº¡i, kháº¯c phá»¥c tÃ¬nh tráº¡ng pháº£i báº¥m nÃºt X hai láº§n.
 ## Update 2026-06-03 admin video delete
-- Nút xóa video trong tab quản trị nội dung gọi qua `deleteContentVideo` của `useAdminContentLogic` để dùng đúng API client và tải lại danh sách sau khi xóa.
-- `DELETE /admin/videos/{id}` chuyển từ xóa cứng sang xóa mềm: đặt `deleted_at`, tắt `is_active`, chuyển `status` sang `ARCHIVED`, tăng `version` và ghi `updated_by`.
-- Việc xóa mềm giúp tránh lỗi khóa ngoại với bình luận, lượt thích, lượt xem hoặc quan hệ sản phẩm/danh mục, đồng thời vẫn làm mất video khỏi danh sách admin/storefront vì các truy vấn đang lọc `deleted_at IS NULL`.
+- NÃºt xÃ³a video trong tab quáº£n trá»‹ ná»™i dung gá»i qua `deleteContentVideo` cá»§a `useAdminContentLogic` Ä‘á»ƒ dÃ¹ng Ä‘Ãºng API client vÃ  táº£i láº¡i danh sÃ¡ch sau khi xÃ³a.
+- `DELETE /admin/videos/{id}` chuyá»ƒn tá»« xÃ³a cá»©ng sang xÃ³a má»m: Ä‘áº·t `deleted_at`, táº¯t `is_active`, chuyá»ƒn `status` sang `ARCHIVED`, tÄƒng `version` vÃ  ghi `updated_by`.
+- Viá»‡c xÃ³a má»m giÃºp trÃ¡nh lá»—i khÃ³a ngoáº¡i vá»›i bÃ¬nh luáº­n, lÆ°á»£t thÃ­ch, lÆ°á»£t xem hoáº·c quan há»‡ sáº£n pháº©m/danh má»¥c, Ä‘á»“ng thá»i váº«n lÃ m máº¥t video khá»i danh sÃ¡ch admin/storefront vÃ¬ cÃ¡c truy váº¥n Ä‘ang lá»c `deleted_at IS NULL`.
 # Update 2026-06-03 homepage banner management
 
-- Thêm luồng quản lý banner trang chủ dùng lại Content Hub hiện có (`videos.content_type = 'BANNER'`) để tránh tạo kho dữ liệu banner trùng lặp.
-- Backend bổ sung API admin riêng cho banner:
+- ThÃªm luá»“ng quáº£n lÃ½ banner trang chá»§ dÃ¹ng láº¡i Content Hub hiá»‡n cÃ³ (`videos.content_type = 'BANNER'`) Ä‘á»ƒ trÃ¡nh táº¡o kho dá»¯ liá»‡u banner trÃ¹ng láº·p.
+- Backend bá»• sung API admin riÃªng cho banner:
   - `GET /admin/banners`
   - `POST /admin/banners`
   - `PATCH /admin/banners/{banner_id}`
   - `DELETE /admin/banners/{banner_id}`
-- Backend bổ sung API storefront `GET /banners` để trang chủ lấy banner đã xuất bản.
-- Mỗi banner bắt buộc có danh mục đi kèm. Sản phẩm đi kèm là tùy chọn:
-  - Nếu có sản phẩm, banner dẫn đến trang chi tiết sản phẩm.
-  - Nếu không có sản phẩm, banner dẫn đến trang danh sách sản phẩm theo danh mục.
-- Frontend admin có tab riêng `Banner` với popup thêm/sửa gồm tiêu đề, mô tả cực ngắn, ảnh banner, danh mục, sản phẩm tùy chọn, thứ tự và trạng thái hiển thị.
-- Trang chủ `HomeBanner` đổi sang layout gần CellphoneS: dải tab tiêu đề/mô tả ngắn phía trên và ảnh banner lớn phía dưới, tự chạy slide và cho click theo link của banner.
+- Backend bá»• sung API storefront `GET /banners` Ä‘á»ƒ trang chá»§ láº¥y banner Ä‘Ã£ xuáº¥t báº£n.
+- Má»—i banner báº¯t buá»™c cÃ³ danh má»¥c Ä‘i kÃ¨m. Sáº£n pháº©m Ä‘i kÃ¨m lÃ  tÃ¹y chá»n:
+  - Náº¿u cÃ³ sáº£n pháº©m, banner dáº«n Ä‘áº¿n trang chi tiáº¿t sáº£n pháº©m.
+  - Náº¿u khÃ´ng cÃ³ sáº£n pháº©m, banner dáº«n Ä‘áº¿n trang danh sÃ¡ch sáº£n pháº©m theo danh má»¥c.
+- Frontend admin cÃ³ tab riÃªng `Banner` vá»›i popup thÃªm/sá»­a gá»“m tiÃªu Ä‘á», mÃ´ táº£ cá»±c ngáº¯n, áº£nh banner, danh má»¥c, sáº£n pháº©m tÃ¹y chá»n, thá»© tá»± vÃ  tráº¡ng thÃ¡i hiá»ƒn thá»‹.
+- Trang chá»§ `HomeBanner` Ä‘á»•i sang layout gáº§n CellphoneS: dáº£i tab tiÃªu Ä‘á»/mÃ´ táº£ ngáº¯n phÃ­a trÃªn vÃ  áº£nh banner lá»›n phÃ­a dÆ°á»›i, tá»± cháº¡y slide vÃ  cho click theo link cá»§a banner.
+
+# Update 2026-06-04 refactor Module Content & Banners
+
+- **Frontend**: Chuyá»ƒn Ä‘á»•i Module Content & Banners sang kiáº¿n trÃºc hÆ°á»›ng tÃ­nh nÄƒng (**Feature-First Architecture**).
+  - Di chuyá»ƒn toÃ n bá»™ giao diá»‡n quáº£n trá»‹ (`AdminContentTab.tsx`, `AdminBannersTab.tsx`), custom hooks (`useAdminContentLogic.ts`, `useAdminBannersLogic.ts`) vÃ  API client (`adminContentApi.ts`) vÃ o thÆ° má»¥c má»›i `src/features/admin-content/`.
+  - Cáº­p nháº­t import liÃªn quan táº¡i `apiDb.ts`, `useAdminLogic.ts`, vÃ  `AdminDashboardTabContent.tsx`.
+- **Backend**: TÃ¡ch logic nghiá»‡p vá»¥ vÃ  truy váº¥n database ra khá»i file router `admin_content.py` sang Service Layer má»›i (`app/application/services/content_service.py`).
+  - File router `admin_content.py` chá»‰ lÃ m nhiá»‡m vá»¥ tiáº¿p nháº­n request vÃ  chuyá»ƒn tiáº¿p xá»­ lÃ½ sang `content_service.py` giÃºp giá»¯ code sáº¡ch sáº½ vÃ  tÃ¡ch biá»‡t nghiá»‡p vá»¥.
+

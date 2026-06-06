@@ -1,4 +1,4 @@
-# Order Management Notes
+﻿# Order Management Notes
 
 ## Scope of the 2026-05 upgrade
 - Added richer admin operations for order handling instead of status-only updates.
@@ -28,9 +28,9 @@
 - `backend/app/application/commerce/integrations.py`
 - `backend/app/main.py`
 - `backend/app/config.py`
-- `frontend/src/services/apiDb.ts`
-- `frontend/src/pages/CheckoutPage.tsx`
-- `frontend/src/pages/AdminDashboard.tsx`
+- `legacy apiDb.ts`
+- `frontend/src/features/storefront-commerce/pages/CheckoutPage.tsx`
+- `frontend/src/features/admin-shell/pages/AdminDashboard.tsx`
 
 ## Design notes
 - Current status flow is intentionally strict: pending -> processing -> shipped -> completed, with cancellation only before completion.

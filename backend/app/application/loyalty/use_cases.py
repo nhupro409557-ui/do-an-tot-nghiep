@@ -1,12 +1,13 @@
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.loyalty.schemas import RedeemPointsResponse
-from app.domain.users.entities import LoyaltyTransactionType, LoyaltyWalletStatus, UserStatus
-from app.infrastructure.database.models import LoyaltyTransaction, User
+from app.domain.users.entities import LoyaltyWalletStatus
+from app.infrastructure.database.repositories.users import (
+    SqlAlchemyLoyaltyRepository,
+    SqlAlchemyUserRepository,
+)
 from app.shared.exceptions import (
     InsufficientPointsError,
     LoyaltyWalletClosedError,
@@ -19,15 +20,11 @@ class RedeemPointsUseCase:
         self._session = session
 
     async def execute(self, *, user_id: UUID, order_id: UUID, points: int) -> RedeemPointsResponse:
+        user_repo = SqlAlchemyUserRepository(self._session)
+        loyalty_repo = SqlAlchemyLoyaltyRepository(self._session)
+
         async with self._session.begin():
-            stmt = (
-                select(User)
-                .where(User.id == user_id)
-                .where(User.status == UserStatus.ACTIVE)
-                .with_for_update()
-            )
-            result = await self._session.execute(stmt)
-            user = result.scalar_one_or_none()
+            user = await user_repo.get_active_user_for_update(user_id)
 
             if user is None:
                 raise UserNotFoundError("Active user not found.")
@@ -40,21 +37,16 @@ class RedeemPointsUseCase:
                 raise InsufficientPointsError("Insufficient loyalty points.")
 
             balance_after = balance_before - points
-            self._session.add(
-                LoyaltyTransaction(
-                    id=uuid4(),
-                    user_id=user.id,
-                    order_id=order_id,
-                    type=LoyaltyTransactionType.REDEEM,
-                    points=points,
-                    balance_before=balance_before,
-                    balance_after=balance_after,
-                    reason="Redeem loyalty points for checkout.",
-                    metadata_json={"source": "CHECKOUT"},
-                )
+            await loyalty_repo.add_redeem_transaction(
+                user_id=user.id,
+                order_id=order_id,
+                points=points,
+                balance_before=balance_before,
+                balance_after=balance_after,
+                reason="Redeem loyalty points for checkout.",
             )
             user.loyalty_points_balance = balance_after
-            self._session.add(user)
+            await user_repo.save(user)
 
         return RedeemPointsResponse(
             user_id=user_id,

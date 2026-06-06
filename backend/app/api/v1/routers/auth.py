@@ -2,12 +2,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response, status
 from redis.asyncio import Redis
-from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_current_user_id
 from app.infrastructure.cache import get_redis
-from app.infrastructure.database.models import User
+from app.infrastructure.database.repositories import auth_repo
 from app.infrastructure.database.session import get_session
 
 from app.api.v1.routers.auth_utils import (
@@ -60,12 +59,11 @@ async def login(
     response: Response,
     session: AsyncSession = Depends(get_session),
 ) -> AuthResponse:
-    result = await session.execute(select(User).where(User.email == payload.email.lower(), User.status == "ACTIVE"))
-    user = result.scalar_one_or_none()
+    user = await auth_repo.get_active_user_by_email(session, payload.email.lower())
     if not user or not pwd_context.verify(payload.password, user.password_hash):
         await audit_log(session, "login_failed", request, email=payload.email.lower())
         await session.commit()
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email hoac mat khau khong dung.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email hoặc mật khẩu không đúng.")
     return await issue_auth_response(session, response, request, user)
 
 
@@ -81,8 +79,7 @@ async def admin_login(
     key = admin_login_key(request, email)
     await assert_admin_login_not_locked(redis, key)
 
-    result = await session.execute(select(User).where(User.email == email, User.status == "ACTIVE"))
-    user = result.scalar_one_or_none()
+    user = await auth_repo.get_active_user_by_email(session, email)
     if not user or not pwd_context.verify(payload.password, user.password_hash):
         await record_admin_login_failed(session, redis, key, request, email)
         await session.commit()
@@ -104,17 +101,7 @@ async def admin_login(
     import pyotp
     if not mfa or not mfa.get("mfa_enabled") or not mfa.get("mfa_secret"):
         secret = pyotp.random_base32()
-        await session.execute(
-            text(
-                """
-                INSERT INTO admin_mfa_settings (user_id, mfa_enabled, mfa_secret)
-                VALUES (:user_id, FALSE, :secret)
-                ON CONFLICT (user_id)
-                DO UPDATE SET mfa_secret = EXCLUDED.mfa_secret, updated_at = NOW()
-                """
-            ),
-            {"user_id": user.id, "secret": secret},
-        )
+        await auth_repo.upsert_admin_mfa_secret(session, user_id=user.id, secret=secret)
         await audit_log(session, "admin_mfa_setup_required", request, user_id=user.id, email=email)
         await session.commit()
         return AdminMfaChallengeResponse(
@@ -162,10 +149,7 @@ async def verify_admin_mfa(
         await session.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Mã xác thực MFA không hợp lệ.")
     if scope == "mfa_setup":
-        await session.execute(
-            text("UPDATE admin_mfa_settings SET mfa_enabled = TRUE, updated_at = NOW() WHERE user_id = :user_id"),
-            {"user_id": user.id},
-        )
+        await auth_repo.enable_admin_mfa(session, user.id)
     elif scope != "mfa_verify":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Phiên MFA không hợp lệ.")
     try:
@@ -197,18 +181,7 @@ async def refresh_session(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token.")
 
     token_hash = hash_refresh_token(refresh_token)
-    result = await session.execute(
-        text(
-            """
-            SELECT id, user_id, family_id, expires_at, revoked_at, grace_until, user_agent, ip_address
-            FROM refresh_token_sessions
-            WHERE token_hash = :token_hash
-            FOR UPDATE
-            """
-        ),
-        {"token_hash": token_hash},
-    )
-    current = result.mappings().one_or_none()
+    current = await auth_repo.get_refresh_session_for_update(session, token_hash)
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     is_grace_retry = False
@@ -226,24 +199,13 @@ async def refresh_session(
         await audit_log(session, "refresh_grace_retry", request, user_id=user.id, email=user.email)
     new_refresh_token = await store_refresh_session(session, request, user.id, current["family_id"])
     new_hash = hash_refresh_token(new_refresh_token)
-    new_result = await session.execute(
-        text("SELECT id FROM refresh_token_sessions WHERE token_hash = :token_hash"),
-        {"token_hash": new_hash},
-    )
-    new_id = new_result.scalar_one()
-    await session.execute(
-        text(
-            """
-            UPDATE refresh_token_sessions
-            SET revoked_at = NOW(),
-                rotated_at = NOW(),
-                replaced_by = :new_id,
-                replaced_by_token_hash = :new_hash,
-                grace_until = NOW() + make_interval(secs => :grace_seconds)
-            WHERE id = :old_id
-            """
-        ),
-        {"new_id": new_id, "new_hash": new_hash, "grace_seconds": REFRESH_GRACE_SECONDS, "old_id": current["id"]},
+    new_id = await auth_repo.get_refresh_session_id_by_hash(session, new_hash)
+    await auth_repo.rotate_refresh_session(
+        session,
+        old_session_id=current["id"],
+        new_session_id=new_id,
+        new_token_hash=new_hash,
+        grace_seconds=REFRESH_GRACE_SECONDS,
     )
     await audit_log(session, "refresh_rotated", request, user_id=user.id, email=user.email)
     await session.commit()
@@ -260,10 +222,7 @@ async def logout(
 ) -> dict[str, bool]:
     await ensure_session_security_tables(session)
     if refresh_token:
-        await session.execute(
-            text("UPDATE refresh_token_sessions SET revoked_at = NOW() WHERE token_hash = :token_hash"),
-            {"token_hash": hash_refresh_token(refresh_token)},
-        )
+        await auth_repo.revoke_refresh_session_by_hash(session, hash_refresh_token(refresh_token))
     await audit_log(session, "logout", request)
     await session.commit()
     clear_refresh_cookie(response)
@@ -278,19 +237,7 @@ async def list_active_sessions(
 ) -> list[ActiveSessionResponse]:
     await ensure_session_security_tables(session)
     current_hash = hash_refresh_token(refresh_token) if refresh_token else None
-    result = await session.execute(
-        text(
-            """
-            SELECT id, token_hash, user_agent, ip_address, created_at, rotated_at, expires_at
-            FROM refresh_token_sessions
-            WHERE user_id = :user_id
-              AND revoked_at IS NULL
-              AND expires_at > NOW()
-            ORDER BY created_at DESC
-            """
-        ),
-        {"user_id": current_user_id},
-    )
+    rows = await auth_repo.list_active_refresh_sessions(session, current_user_id)
     return [
         ActiveSessionResponse(
             id=row["id"],
@@ -301,7 +248,7 @@ async def list_active_sessions(
             rotatedAt=row["rotated_at"],
             expiresAt=row["expires_at"],
         )
-        for row in result.mappings()
+        for row in rows
     ]
 
 
@@ -316,28 +263,11 @@ async def revoke_session(
 ) -> dict[str, bool]:
     await ensure_session_security_tables(session)
     current_hash = hash_refresh_token(refresh_token) if refresh_token else None
-    result = await session.execute(
-        text(
-            """
-            SELECT id, token_hash
-            FROM refresh_token_sessions
-            WHERE id = :session_id
-              AND user_id = :user_id
-              AND revoked_at IS NULL
-              AND expires_at > NOW()
-            FOR UPDATE
-            """
-        ),
-        {"session_id": session_id, "user_id": current_user_id},
-    )
-    target = result.mappings().one_or_none()
+    target = await auth_repo.get_active_refresh_session_for_update(session, session_id=session_id, user_id=current_user_id)
     if target is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Khong tim thay phien dang nhap.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy phiên đăng nhập.")
 
-    await session.execute(
-        text("UPDATE refresh_token_sessions SET revoked_at = NOW() WHERE id = :session_id"),
-        {"session_id": session_id},
-    )
+    await auth_repo.revoke_refresh_session_by_id(session, session_id)
     await audit_log(
         session,
         "session_revoked",
@@ -383,20 +313,10 @@ async def change_password(
     await ensure_session_security_tables(session)
     user = await get_active_user(session, current_user_id)
     if not pwd_context.verify(payload.currentPassword, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mat khau hien tai khong dung.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mật khẩu hiện tại không đúng.")
     user.password_hash = pwd_context.hash(payload.newPassword)
-    await session.execute(text("UPDATE refresh_token_sessions SET revoked_at = NOW() WHERE user_id = :user_id"), {"user_id": user.id})
-    await session.execute(
-        text(
-            """
-            INSERT INTO auth_session_revocations (user_id, revoked_after, reason)
-            VALUES (:user_id, NOW(), 'password_changed')
-            ON CONFLICT (user_id)
-            DO UPDATE SET revoked_after = EXCLUDED.revoked_after, reason = EXCLUDED.reason, created_at = NOW()
-            """
-        ),
-        {"user_id": user.id},
-    )
+    await auth_repo.revoke_all_user_refresh_sessions(session, user.id)
+    await auth_repo.upsert_auth_session_revocation(session, user_id=user.id, reason="password_changed")
     await audit_log(session, "password_changed", request, user_id=user.id, email=user.email)
     await session.commit()
     return {"ok": True}

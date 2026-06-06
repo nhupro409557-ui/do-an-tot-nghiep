@@ -121,6 +121,8 @@ class Product(Base):
     favorite_count: Mapped[int] = mapped_column(default=0, nullable=False)
     is_featured: Mapped[bool] = mapped_column(default=False, nullable=False)
     is_flash_sale: Mapped[bool] = mapped_column(default=False, nullable=False)
+    hidden_by_category: Mapped[bool] = mapped_column(default=False, nullable=False)
+    hidden_by_brand: Mapped[bool] = mapped_column(default=False, nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="ACTIVE", nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)

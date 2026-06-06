@@ -7,8 +7,8 @@ from fastapi import Request, HTTPException, status
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.infrastructure.database.repositories import catalog_product_repo
 
 REDIS_RECOVERY_COOLDOWN_SECONDS = 30
 FAVORITE_TOGGLE_RATE_LIMIT = 5
@@ -108,25 +108,16 @@ async def insert_valid_product_view(
     request: Request,
     accumulated_seconds: int,
 ) -> None:
-    await session.execute(
-        text(
-            """
-            INSERT INTO product_view_events
-                (product_id, session_id, device_id, ip_address, user_agent, source, duration_seconds, scroll_depth)
-            VALUES
-                (:product_id, :session_id, :device_id, :ip_address, :user_agent, :source, :duration_seconds, :scroll_depth)
-            """
-        ),
-        {
-            "product_id": product_id,
-            "session_id": payload.sessionId,
-            "device_id": payload.deviceId,
-            "ip_address": request_ip(request),
-            "user_agent": request.headers.get("user-agent"),
-            "source": payload.source,
-            "duration_seconds": accumulated_seconds,
-            "scroll_depth": payload.scrollDepth,
-        },
+    await catalog_product_repo.insert_product_view_event(
+        session,
+        product_id=product_id,
+        session_id=payload.sessionId,
+        device_id=payload.deviceId,
+        ip_address=request_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        source=payload.source,
+        duration_seconds=accumulated_seconds,
+        scroll_depth=payload.scrollDepth,
     )
     await session.commit()
 
@@ -191,6 +182,7 @@ def product_row(row) -> dict:
         "PENDING": "Chờ duyệt",
         "ACTIVE": "Đang bán",
         "INACTIVE": "Tạm ẩn",
+        "DISCONTINUED": "Ngừng kinh doanh",
         "ARCHIVED": "Lưu trữ",
     }.get(status_value, status_value)
     base_price = float(item.get("price") or 0)
@@ -521,7 +513,7 @@ def build_product_image_collection(products: list[dict], q: str | None = None, c
                 "productName": product.get("name"),
                 "brand": product.get("brand"),
                 "category": category_name,
-                "mainUrl": image_entries[0]["url"],
+                "mainUrl": product.get("imageUrl") if is_real_product_image_url(product.get("imageUrl")) else image_entries[0]["url"],
                 "imageCount": len(image_entries),
                 "trendScore": approximate_trend_score(product),
                 "product": product,

@@ -1,0 +1,60 @@
+# Re-exports for backward compatibility
+
+from app.infrastructure.database.repositories.admin_content_repo import (
+    audit_admin_event,
+    check_content_exists,
+    delete_content_category_relations,
+    delete_content_product_relations,
+    insert_content_category_relation,
+    insert_content_product_relation,
+    insert_content_record,
+    list_admin_content,
+    soft_delete_admin_video_record,
+    soft_delete_content_record,
+    update_content_record,
+)
+from app.infrastructure.database.repositories.content_comment_repo import (
+    delete_content_comments,
+    get_image_comment_for_reply,
+    get_product_image_comment_parent,
+    get_video_comment_for_reply,
+    get_video_comment_parent,
+    insert_admin_content_comment,
+    insert_admin_image_comment_reply,
+    insert_admin_video_comment_reply,
+    insert_product_image_comment,
+    insert_video_comment,
+    list_admin_image_comments,
+    list_product_image_comments,
+    retract_product_image_comment,
+    retract_video_comment,
+    update_image_comment_visibility_in_db,
+    update_video_comment_visibility_in_db,
+)
+from app.infrastructure.database.repositories.public_content_repo import (
+    count_published_videos,
+    count_video_likes,
+    delete_review,
+    delete_video_like,
+    get_existing_review,
+    get_own_review_for_edit,
+    get_user_full_name,
+    has_duplicate_review,
+    increment_video_view_count,
+    insert_review,
+    insert_video_like,
+    list_banners,
+    list_notifications,
+    list_reviews,
+    list_rewards,
+    list_videos,
+    mark_notifications_read,
+    product_exists,
+    published_video_exists,
+    update_review_for_moderation,
+    user_liked_video,
+    video_exists,
+)
+
+# Re-export get_user_full_name_in_db as get_user_full_name for compatibility
+get_user_full_name_in_db = get_user_full_name

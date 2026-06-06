@@ -5,11 +5,11 @@ import hashlib
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from jose import JWTError, jwt
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.infrastructure.cache import get_redis
+from app.infrastructure.database.repositories import auth_repo
 from app.infrastructure.database.session import get_session
 
 
@@ -34,29 +34,7 @@ async def get_current_user_id(
                     if fingerprint != expected_fingerprint:
                         raise ValueError("Token fingerprint mismatch")
                 issued_at = payload.get("iat")
-                await session.execute(
-                    text(
-                        """
-                        CREATE TABLE IF NOT EXISTS auth_session_revocations (
-                            user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-                            revoked_after TIMESTAMPTZ NOT NULL,
-                            reason VARCHAR(120) NOT NULL,
-                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                        )
-                        """
-                    )
-                )
-                revoked = await session.execute(
-                    text(
-                        """
-                        SELECT revoked_after
-                        FROM auth_session_revocations
-                        WHERE user_id = :user_id
-                        """
-                    ),
-                    {"user_id": user_id},
-                )
-                revoked_after = revoked.scalar_one_or_none()
+                revoked_after = await auth_repo.get_session_revoked_after(session, user_id)
                 if revoked_after is not None and issued_at is not None:
                     if int(issued_at) <= int(revoked_after.timestamp()):
                         raise ValueError("Token has been revoked")
@@ -86,18 +64,7 @@ async def get_current_role_code(
     current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> str:
-    result = await session.execute(
-        text(
-            """
-            SELECT r.code
-            FROM users u
-            JOIN roles r ON r.id = u.role_id
-            WHERE u.id = :user_id AND u.status = 'ACTIVE'
-            """
-        ),
-        {"user_id": current_user_id},
-    )
-    role = result.scalar_one_or_none()
+    role = await auth_repo.get_active_user_role_code(session, current_user_id)
     if role is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is not active.")
     return role
@@ -133,32 +100,7 @@ async def get_user_permissions(
     except Exception:
         cached = None
 
-    result = await session.execute(
-        text(
-            """
-            SELECT DISTINCT code
-            FROM (
-                SELECT p.code
-                FROM users u
-                JOIN roles r ON r.id = u.role_id
-                JOIN role_permissions rp ON rp.role_id = r.id
-                JOIN permissions p ON p.id = rp.permission_id
-                WHERE u.id = :user_id
-                  AND u.status = 'ACTIVE'
-                UNION
-                SELECT p.code
-                FROM users u
-                JOIN user_permissions up ON up.user_id = u.id
-                JOIN permissions p ON p.id = up.permission_id
-                WHERE u.id = :user_id
-                  AND u.status = 'ACTIVE'
-            ) effective_permissions
-            ORDER BY code
-            """
-        ),
-        {"user_id": current_user_id},
-    )
-    permissions = {str(code) for code in result.scalars().all()}
+    permissions = set(await auth_repo.list_permissions_for_user(session, current_user_id))
     try:
         await redis.setex(cache_key, 15 * 60, json.dumps(sorted(permissions)))
     except Exception:

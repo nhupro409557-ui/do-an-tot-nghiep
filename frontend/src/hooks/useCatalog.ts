@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { apiDb } from '../services/apiDb';
+import { brandApi } from '../services/brandApi';
+import { categoryApi } from '../services/categoryApi';
+import { publicApi } from '../services/publicApi';
 import {
   CatalogCategory,
   CatalogGroup,
@@ -42,9 +44,9 @@ export function useCatalog(options: UseCatalogOptions = {}) {
     const loadCatalog = async () => {
       setLoading(true);
       const [categoryDocs, brandDocs, productDocs] = await Promise.all([
-        apiDb.listCategories(),
-        apiDb.listBrands(),
-        apiDb.listProducts(),
+        categoryApi.listCategories(),
+        brandApi.listBrands(),
+        publicApi.listProducts(),
       ]);
       const subcategoryDocs = categoryDocs.flatMap((category: any) =>
         (category.children || []).map((child: any) => ({
@@ -140,7 +142,7 @@ export function useCatalog(options: UseCatalogOptions = {}) {
 
       const rankedCategories = await Promise.all(
         baseCategories.map(async (category: CatalogCategory & { order?: number }) => {
-          const rankedProducts = await apiDb
+          const rankedProducts = await publicApi
             .listRankings({ period: '7d', criteria: 'trending', category: category.slug, limit: 10 })
             .then(toFeaturedProducts)
             .catch(() => []);

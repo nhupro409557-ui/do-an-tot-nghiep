@@ -12,12 +12,11 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr, Field
 from redis.asyncio import Redis
-from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user_id
 from app.config import settings
-from app.infrastructure.database.models import Role, User
+from app.infrastructure.database.models import User
+from app.infrastructure.database.repositories import auth_repo
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 rate_limit_hits: dict[str, list[float]] = {}
@@ -161,108 +160,19 @@ def enforce_rate_limit(key: str, limit: int, window_seconds: int) -> None:
     rate_limit_hits[key] = recent
 
 async def cleanup_expired_auth_tokens(session: AsyncSession) -> None:
-    await session.execute(
-        text("DELETE FROM registration_verification_tokens WHERE expires_at < NOW()")
-    )
-    await session.execute(text("DELETE FROM password_reset_tokens WHERE expires_at < NOW()"))
+    await auth_repo.cleanup_expired_auth_tokens(session)
 
 async def ensure_auth_verification_tables(session: AsyncSession) -> None:
-    await session.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS registration_verification_tokens (
-                token TEXT PRIMARY KEY,
-                code VARCHAR(6) NOT NULL,
-                email VARCHAR(255) NOT NULL,
-                password_hash TEXT NOT NULL,
-                display_name VARCHAR(255) NOT NULL,
-                expires_at TIMESTAMPTZ NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        )
-    )
-    await cleanup_expired_auth_tokens(session)
+    await auth_repo.ensure_auth_verification_tables(session)
 
 async def ensure_session_security_tables(session: AsyncSession) -> None:
-    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext('emv_auth_security_tables'))"))
-    await session.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS refresh_token_sessions (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                token_hash TEXT NOT NULL UNIQUE,
-                family_id UUID NOT NULL,
-                user_agent TEXT,
-                ip_address VARCHAR(80),
-                expires_at TIMESTAMPTZ NOT NULL,
-                revoked_at TIMESTAMPTZ,
-                replaced_by UUID,
-                grace_until TIMESTAMPTZ,
-                replaced_by_token_hash TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                rotated_at TIMESTAMPTZ
-            )
-            """
-        )
-    )
-    await session.execute(text("ALTER TABLE refresh_token_sessions ADD COLUMN IF NOT EXISTS grace_until TIMESTAMPTZ"))
-    await session.execute(text("ALTER TABLE refresh_token_sessions ADD COLUMN IF NOT EXISTS replaced_by_token_hash TEXT"))
-    await session.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS security_audit_logs (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-                event_type VARCHAR(80) NOT NULL,
-                email VARCHAR(255),
-                ip_address VARCHAR(80),
-                user_agent TEXT,
-                metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        )
-    )
-    await session.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS auth_session_revocations (
-                user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-                revoked_after TIMESTAMPTZ NOT NULL,
-                reason VARCHAR(120) NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        )
-    )
-    await session.execute(text("DELETE FROM refresh_token_sessions WHERE expires_at < NOW()"))
+    await auth_repo.ensure_session_security_tables(session)
 
 async def ensure_admin_mfa_table(session: AsyncSession) -> None:
-    await session.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS admin_mfa_settings (
-                user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-                mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-                mfa_secret TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        )
-    )
+    await auth_repo.ensure_admin_mfa_table(session)
 
 async def admin_mfa_row(session: AsyncSession, user_id: UUID) -> dict | None:
-    await ensure_admin_mfa_table(session)
-    row = (
-        await session.execute(
-            text("SELECT mfa_enabled, mfa_secret FROM admin_mfa_settings WHERE user_id = :user_id"),
-            {"user_id": user_id},
-        )
-    ).mappings().first()
-    return dict(row) if row else None
+    return await auth_repo.get_admin_mfa_row(session, user_id)
 
 def super_admin_ip_allowed(request: Request) -> bool:
     raw = settings.super_admin_ip_whitelist.strip()
@@ -290,11 +200,11 @@ def set_refresh_cookie(response: Response, token: str) -> None:
         secure=False,
         samesite="lax",
         max_age=REFRESH_TOKEN_DAYS * 24 * 60 * 60,
-        path="/api/v1/auth",
+        path="/api/auth",
     )
 
 def clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(key=REFRESH_COOKIE_NAME, path="/api/v1/auth")
+    response.delete_cookie(key=REFRESH_COOKIE_NAME, path="/api/auth")
 
 async def audit_log(
     session: AsyncSession,
@@ -304,64 +214,32 @@ async def audit_log(
     email: str | None = None,
     metadata: dict | None = None,
 ) -> None:
-    await ensure_session_security_tables(session)
-    await session.execute(
-        text(
-            """
-            INSERT INTO security_audit_logs
-                (user_id, event_type, email, ip_address, user_agent, metadata)
-            VALUES
-                (:user_id, :event_type, :email, :ip_address, :user_agent, CAST(:metadata AS jsonb))
-            """
-        ),
-        {
-            "user_id": user_id,
-            "event_type": event_type,
-            "email": email,
-            "ip_address": request_ip(request),
-            "user_agent": request.headers.get("user-agent"),
-            "metadata": json.dumps(metadata or {}) if 'json' in globals() else __import__("json").dumps(metadata or {}),
-        },
+    await auth_repo.insert_security_audit_log(
+        session,
+        user_id=user_id,
+        event_type=event_type,
+        email=email,
+        ip_address=request_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        metadata=metadata or {},
     )
 
 async def store_refresh_session(session: AsyncSession, request: Request, user_id: UUID, family_id: UUID | None = None) -> str:
-    await ensure_session_security_tables(session)
     raw_token = secrets.token_urlsafe(48)
-    await session.execute(
-        text(
-            """
-            INSERT INTO refresh_token_sessions
-                (id, user_id, token_hash, family_id, user_agent, ip_address, expires_at)
-            VALUES
-                (:id, :user_id, :token_hash, :family_id, :user_agent, :ip_address, :expires_at)
-            """
-        ),
-        {
-            "id": uuid4(),
-            "user_id": user_id,
-            "token_hash": hash_refresh_token(raw_token),
-            "family_id": family_id or uuid4(),
-            "user_agent": request.headers.get("user-agent"),
-            "ip_address": request_ip(request),
-            "expires_at": datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_DAYS),
-        },
+    await auth_repo.insert_refresh_session(
+        session,
+        session_id=uuid4(),
+        user_id=user_id,
+        token_hash=hash_refresh_token(raw_token),
+        family_id=family_id or uuid4(),
+        user_agent=request.headers.get("user-agent"),
+        ip_address=request_ip(request),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_DAYS),
     )
     return raw_token
 
 async def refresh_token_by_hash(session: AsyncSession, token_hash: str) -> str | None:
-    result = await session.execute(
-        text(
-            """
-            SELECT token_hash
-            FROM refresh_token_sessions
-            WHERE token_hash = :token_hash
-              AND revoked_at IS NULL
-              AND expires_at > NOW()
-            """
-        ),
-        {"token_hash": token_hash},
-    )
-    return result.scalar_one_or_none()
+    return await auth_repo.get_valid_refresh_token_hash(session, token_hash)
 
 def send_auth_email(email: str, name: str, code: str, link: str, purpose: str) -> None:
     if not settings.smtp_username or not settings.smtp_password:
@@ -471,17 +349,13 @@ def to_user_response(user: User, provider: str = "password") -> UserResponse:
     )
 
 async def role_code(session: AsyncSession, role_id: UUID) -> str:
-    result = await session.execute(select(Role.code).where(Role.id == role_id))
-    return result.scalar_one_or_none() or "CUSTOMER"
+    return await auth_repo.get_role_code(session, role_id) or "CUSTOMER"
 
 async def customer_role_id(session: AsyncSession) -> UUID:
-    result = await session.execute(select(Role.id).where(Role.code == "CUSTOMER"))
-    role_id = result.scalar_one_or_none()
+    role_id = await auth_repo.get_customer_role_id(session)
     if role_id is None:
-        role = Role(id=uuid4(), code="CUSTOMER", name="Customer")
-        session.add(role)
-        await session.flush()
-        return role.id
+        role_id = uuid4()
+        await auth_repo.add_customer_role(session, role_id=role_id)
     return role_id
 
 async def to_profile_response(session: AsyncSession, user: User) -> ProfileResponse:
@@ -511,32 +385,7 @@ async def to_profile_response(session: AsyncSession, user: User) -> ProfileRespo
     )
 
 async def list_permissions_for_user(session: AsyncSession, user_id: UUID) -> list[str]:
-    result = await session.execute(
-        text(
-            """
-            SELECT DISTINCT code
-            FROM (
-                SELECT p.code
-                FROM users u
-                JOIN roles r ON r.id = u.role_id
-                JOIN role_permissions rp ON rp.role_id = r.id
-                JOIN permissions p ON p.id = rp.permission_id
-                WHERE u.id = :user_id
-                  AND u.status = 'ACTIVE'
-                UNION
-                SELECT p.code
-                FROM users u
-                JOIN user_permissions up ON up.user_id = u.id
-                JOIN permissions p ON p.id = up.permission_id
-                WHERE u.id = :user_id
-                  AND u.status = 'ACTIVE'
-            ) effective_permissions
-            ORDER BY code
-            """
-        ),
-        {"user_id": user_id},
-    )
-    return [str(code) for code in result.scalars().all()]
+    return await auth_repo.list_permissions_for_user(session, user_id)
 
 def admin_login_key(request: Request, email: str) -> str:
     return f"admin_login:{email.lower()}:{request_ip(request)}"
@@ -609,8 +458,7 @@ async def issue_auth_response(
     return await auth_payload(session, user, provider, request)
 
 async def get_active_user(session: AsyncSession, user_id: UUID) -> User:
-    result = await session.execute(select(User).where(User.id == user_id, User.status == "ACTIVE"))
-    user = result.scalar_one_or_none()
+    user = await auth_repo.get_active_user(session, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is not active.")
     return user

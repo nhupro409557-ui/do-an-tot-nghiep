@@ -2,18 +2,17 @@ import json
 import re
 import unicodedata
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import httpx
 from fastapi import HTTPException, status
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ai.schemas import AIAssistantRequest, AIAssistantResponse
 from app.config import settings
-from app.infrastructure.database.models import AIContextLog
+from app.infrastructure.database.repositories import ai_repo
 
 
 REFUSAL_TEXT = (
@@ -259,22 +258,7 @@ class AIAssistantUseCase:
         tokens = [token for token in list(dict.fromkeys(tokens))[:7] if not re.search(r"\d", token)]
         min_price, max_price = price_intent_from_message(message)
 
-        result = await self._session.execute(
-            text(
-                """
-                SELECT p.id::text, p.slug, p.name, p.brand, p.price, p.sale_price AS "salePrice",
-                       p.image_url AS "imageUrl", p.description, p.specifications,
-                       c.name AS "categoryName", c.slug AS "categorySlug",
-                       p.rating, p.review_count AS "reviewCount", p.favorite_count AS "favoriteCount"
-                FROM products p
-                LEFT JOIN categories c ON c.id = p.category_id
-                WHERE p.status = 'ACTIVE'
-                ORDER BY p.is_featured DESC, p.rating DESC NULLS LAST, p.created_at DESC
-                LIMIT 200
-                """
-            )
-        )
-        products = [self._clean_row(dict(row._mapping)) for row in result]
+        products = [self._clean_row(row) for row in await ai_repo.list_active_products_for_ai(self._session)]
         ranked: list[tuple[int, dict]] = []
 
         wants_phone = "dien thoai" in normalized or "smartphone" in normalized or "phone" in normalized
@@ -323,28 +307,8 @@ class AIAssistantUseCase:
         if not code:
             return {"needs_order_code": True}
 
-        result = await self._session.execute(
-            text(
-                """
-                SELECT o.order_code AS "orderCode", o.status, o.payment_status AS "paymentStatus",
-                       o.total_amount AS "totalAmount", o.loyalty_points_earned AS "pointsEarned",
-                       o.loyalty_points_used AS "pointsUsed", o.created_at AS "createdAt",
-                       COALESCE(jsonb_agg(jsonb_build_object(
-                         'productName', oi.product_name,
-                         'quantity', oi.quantity,
-                         'totalPrice', oi.total_price
-                       )) FILTER (WHERE oi.id IS NOT NULL), '[]'::jsonb) AS items
-                FROM orders o
-                LEFT JOIN order_items oi ON oi.order_id = o.id
-                WHERE o.user_id = :user_id AND upper(o.order_code) = :order_code
-                GROUP BY o.id
-                LIMIT 1
-                """
-            ),
-            {"user_id": user_id, "order_code": code},
-        )
-        row = result.first()
-        return self._clean_row(dict(row._mapping)) if row else {"not_found": True, "order_code": code}
+        row = await ai_repo.get_user_order_for_ai(self._session, user_id=user_id, order_code=code)
+        return self._clean_row(row) if row else {"not_found": True, "order_code": code}
 
     async def _generate_answer(
         self,
@@ -471,11 +435,10 @@ class AIAssistantUseCase:
         except ValueError:
             parsed_user_id = None
 
-        log = AIContextLog(
-            id=uuid4(),
+        await ai_repo.add_ai_context_log(
+            self._session,
             user_id=parsed_user_id,
             conversation_id=request.conversation_id,
-            request_scope="SALES_ASSISTANT",
             user_message=request.message,
             assistant_response=response.answer,
             refusal_reason=response.refusal_reason,
@@ -487,5 +450,4 @@ class AIAssistantUseCase:
             model_provider=request.model_provider,
             model_name=request.model_name,
         )
-        self._session.add(log)
         await self._session.commit()

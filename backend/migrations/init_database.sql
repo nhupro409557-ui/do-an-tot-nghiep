@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS products (
     price NUMERIC(14, 2) NOT NULL CHECK (price >= 0),
     sale_price NUMERIC(14, 2) CHECK (sale_price IS NULL OR sale_price >= 0),
     stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+    hidden_by_category BOOLEAN NOT NULL DEFAULT FALSE,
+    hidden_by_brand BOOLEAN NOT NULL DEFAULT FALSE,
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE'
         CHECK (status IN ('ACTIVE', 'INACTIVE', 'OUT_OF_STOCK')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -272,6 +274,8 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS rating NUMERIC(3, 2);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS review_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS is_flash_sale BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS hidden_by_category BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS hidden_by_brand BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS product_variants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -294,6 +298,8 @@ CREATE INDEX IF NOT EXISTS idx_categories_parent_id ON categories(parent_id);
 CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_subcategory_id ON products(subcategory_id);
 CREATE INDEX IF NOT EXISTS idx_products_brand_id ON products(brand_id);
+CREATE INDEX IF NOT EXISTS idx_products_inherited_visibility
+    ON products(hidden_by_category, hidden_by_brand, status);
 CREATE INDEX IF NOT EXISTS idx_product_variants_product_id ON product_variants(product_id);
 
 INSERT INTO categories (code, slug, name, icon, sort_order)
@@ -1377,7 +1383,7 @@ ALTER TABLE products
 
 ALTER TABLE products
     ADD CONSTRAINT products_status_check
-    CHECK (status IN ('DRAFT', 'REVISION_DRAFT', 'PENDING', 'ACTIVE', 'INACTIVE', 'ARCHIVED'));
+    CHECK (status IN ('DRAFT', 'REVISION_DRAFT', 'PENDING', 'ACTIVE', 'INACTIVE', 'DISCONTINUED', 'ARCHIVED', 'MERGED'));
 
 CREATE TABLE IF NOT EXISTS product_bundles (
     product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,

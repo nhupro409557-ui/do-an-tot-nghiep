@@ -1,9 +1,9 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.session import get_session
+from app.infrastructure.database.repositories import catalog_search_repo
 from app.application.ai.search_intent import (
     ProductSearchIntentRequest,
     ProductSearchIntentResponse,
@@ -85,7 +85,7 @@ async def list_rankings(
             GROUP BY product_id
         ),
         period_solds AS (
-            SELECT oi.product_id, SUM(oi.quantity) AS sold_count, SUM(oi.quantity * oi.price) AS revenue
+            SELECT oi.product_id, SUM(oi.quantity) AS sold_count, SUM(oi.total_price) AS revenue
             FROM order_items oi
             JOIN orders o ON o.id = oi.order_id
             WHERE o.status = 'COMPLETED'
@@ -430,8 +430,7 @@ async def list_rankings(
             v1y.view_count, s1y.search_count, sl1y.sold_count, l1y.like_count, r1y.review_count, r1y.avg_rating,
             h.history
     """
-    result = await session.execute(text(sql), query_params)
-    rows = result.all()
+    rows = await catalog_search_repo.execute_rankings_query(session, sql, query_params)
     
     items = [ranking_row(row) for row in rows]
     
@@ -450,7 +449,19 @@ async def list_product_images(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     from app.api.v1.routers.catalog import list_products
-    products = await list_products(session=session)
+    products = await list_products(
+        q=None,
+        category=None,
+        brand=None,
+        min_price=None,
+        max_price=None,
+        sort=None,
+        limit=100,
+        offset=0,
+        flash_sale=None,
+        featured=None,
+        session=session,
+    )
     collection = build_product_image_collection(products, q, category)
     items = collection["items"]
     
@@ -486,16 +497,7 @@ async def resolve_product_image(
             img_index = 0
             
         if prod_id:
-            row = (await session.execute(
-                text(
-                    """
-                    SELECT id::text, name, brand, category, image_url AS "imageUrl", images, colors, capacities, promotions
-                    FROM products
-                    WHERE id = :id AND status = 'ACTIVE' AND deleted_at IS NULL
-                    """
-                ),
-                {"id": prod_id}
-            )).first()
+            row = await catalog_search_repo.get_active_product_image_source(session, prod_id)
             
             if row:
                 product = dict(row._mapping)
@@ -505,16 +507,11 @@ async def resolve_product_image(
                 target_url = all_urls[img_index] if img_index < len(all_urls) else (all_urls[0] if all_urls else None)
                 
                 # Fetch related products in the same category
-                rel_results = await session.execute(
-                    text(
-                        """
-                        SELECT id::text, name, brand, category, image_url AS "imageUrl", images, price, sale_price AS "discountPrice", stock_quantity AS stock, status, rating
-                        FROM products
-                        WHERE category = :category AND id != :id AND status = 'ACTIVE' AND deleted_at IS NULL
-                        LIMIT :limit
-                        """
-                    ),
-                    {"category": product.get("category"), "id": prod_id, "limit": limit}
+                rel_results = await catalog_search_repo.list_related_products_by_category(
+                    session,
+                    product_id=prod_id,
+                    category=product.get("category"),
+                    limit=limit,
                 )
                 related = [product_row(r) for r in rel_results]
                 
@@ -545,40 +542,27 @@ async def record_product_search(
     normalized_query = normalize_search_text(query)
     product_ids = payload.productIds[:50]
     if not product_ids:
-        await session.execute(
-            text(
-                """
-                INSERT INTO product_search_events (query, normalized_query, session_id, ip_address, user_agent, result_count)
-                VALUES (:query, :normalized_query, :session_id, :ip_address, :user_agent, :result_count)
-                """
-            ),
-            {
-                "query": query,
-                "normalized_query": normalized_query,
-                "session_id": payload.sessionId,
-                "ip_address": request_ip(request),
-                "user_agent": request.headers.get("user-agent"),
-                "result_count": payload.resultCount or 0,
-            },
+        await catalog_search_repo.insert_product_search_event(
+            session,
+            query=query,
+            normalized_query=normalized_query,
+            product_id=None,
+            session_id=payload.sessionId,
+            ip_address=request_ip(request),
+            user_agent=request.headers.get("user-agent"),
+            result_count=payload.resultCount or 0,
         )
     else:
         for product_id in product_ids:
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO product_search_events (query, normalized_query, product_id, session_id, ip_address, user_agent, result_count)
-                    VALUES (:query, :normalized_query, :product_id, :session_id, :ip_address, :user_agent, :result_count)
-                    """
-                ),
-                {
-                    "query": query,
-                    "normalized_query": normalized_query,
-                    "product_id": product_id,
-                    "session_id": payload.sessionId,
-                    "ip_address": request_ip(request),
-                    "user_agent": request.headers.get("user-agent"),
-                    "result_count": payload.resultCount or 0,
-                },
+            await catalog_search_repo.insert_product_search_event(
+                session,
+                query=query,
+                normalized_query=normalized_query,
+                product_id=product_id,
+                session_id=payload.sessionId,
+                ip_address=request_ip(request),
+                user_agent=request.headers.get("user-agent"),
+                result_count=payload.resultCount or 0,
             )
     await session.commit()
     return {"counted": True, "productCount": len(product_ids)}

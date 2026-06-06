@@ -1,4 +1,4 @@
-# Review Management Notes
+﻿# Review Management Notes
 
 ## Scope of the 2026-05 upgrade
 - Added pre-public moderation for new product reviews with default `PENDING` flow.
@@ -24,9 +24,9 @@
 - `backend/migrations/init_database.sql`
 - `backend/migrations/038_review_management_upgrade.sql`
 - `backend/migrations/039_review_resilience_and_user_controls.sql`
-- `frontend/src/services/apiDb.ts`
-- `frontend/src/components/product/ProductReviews.tsx`
-- `frontend/src/pages/AdminDashboard.tsx`
+- `legacy apiDb.ts`
+- `frontend/src/features/products/components/ProductReviews.tsx`
+- `frontend/src/features/admin-shell/pages/AdminDashboard.tsx`
 
 ## Design notes
 - New reviews are stored as `PENDING` so the shop can moderate before they appear publicly.
@@ -46,3 +46,11 @@
 - Add server-side pagination and filter params for admin review listing if volume grows.
 - Move review throttling to Redis for stronger distributed rate-limit behavior.
 - Add dedicated UML or BPMN artifacts for thesis documentation: use case, activity, and sequence diagram for review moderation.
+
+## Update 2026-06-05 Admin Review Service Refactor
+
+- Táº¡o `app/infrastructure/database/repositories/review_repo.py` Ä‘á»ƒ chá»©a truy váº¥n DB cho danh sÃ¡ch Ä‘Ã¡nh giÃ¡, thá»‘ng kÃª, cáº­p nháº­t tráº¡ng thÃ¡i, táº¡o thÃ´ng bÃ¡o vÃ  xÃ³a Ä‘Ã¡nh giÃ¡.
+- LÃ m má»ng `app/application/services/review_service.py`: service chá»‰ cÃ²n dá»±ng payload cáº­p nháº­t, kiá»ƒm tra nghiá»‡p vá»¥, táº¡o ná»™i dung thÃ´ng bÃ¡o, gá»i sync thá»‘ng kÃª sáº£n pháº©m vÃ  commit.
+- Cáº­p nháº­t `app/api/v1/routers/admin_reviews.py` Ä‘á»ƒ import `ReviewStatusPayload` trá»±c tiáº¿p tá»« `app.api.v1.schemas.admin` thay vÃ¬ file compatibility `admin_schemas.py`.
+- Sá»­a láº¡i ná»™i dung thÃ´ng bÃ¡o tiáº¿ng Viá»‡t khi Ä‘Ã¡nh giÃ¡ Ä‘Æ°á»£c duyá»‡t hoáº·c bá»‹ tá»« chá»‘i.
+- Káº¿t quáº£ kiá»ƒm tra: compile toÃ n bá»™ backend báº±ng `.venv` thÃ nh cÃ´ng; import `app.main`, admin review router, review service vÃ  review repository thÃ nh cÃ´ng.
