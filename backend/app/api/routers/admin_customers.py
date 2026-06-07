@@ -1,11 +1,11 @@
-from uuid import UUID
+﻿from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user_id, require_permission
-from app.api.v1.schemas.admin import *
+from app.api.dependencies import get_current_user_id, require_permission
+from app.api.schemas.admin import *
 from app.infrastructure.cache import get_redis
 from app.infrastructure.database.session import get_session
 from app.application.services import customer_service

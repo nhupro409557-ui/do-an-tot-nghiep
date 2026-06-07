@@ -1,10 +1,10 @@
-import json
+﻿import json
 from uuid import UUID, uuid4
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.admin import ProductBulkActionPayload
+from app.api.schemas.admin import ProductBulkActionPayload
 from app.infrastructure.database.repositories.category_repo import audit_product_event, find_running_migration_for_category_branch
 
 
@@ -14,7 +14,7 @@ async def ensure_approval_categories_not_migrating(session: AsyncSession, catego
         return
     migration = await find_running_migration_for_category_branch(session, active_ids)
     if migration:
-        raise HTTPException(status_code=409, detail="Danh mục của sản phẩm đang trong quá trình di chuyển. Vui lòng thử lại sau.")
+        raise HTTPException(status_code=409, detail="Danh má»¥c cá»§a sáº£n pháº©m Ä‘ang trong quÃ¡ trÃ¬nh di chuyá»ƒn. Vui lÃ²ng thá»­ láº¡i sau.")
 
 
 async def merge_revision_variants(session: AsyncSession, *, parent_id: UUID, revision_id: UUID) -> None:
@@ -61,7 +61,7 @@ async def merge_revision_variants(session: AsyncSession, *, parent_id: UUID, rev
     ).mappings().all()
     active_revision_rows = [row for row in revision_rows if row["is_active"] is not False and str(row["status"]).lower() not in {"deleted", "archived", "inactive"}]
     if not active_revision_rows:
-        raise HTTPException(status_code=400, detail="Không thể áp dụng bản chỉnh sửa nếu không có ít nhất một biến thể đang hoạt động.")
+        raise HTTPException(status_code=400, detail="KhÃ´ng thá»ƒ Ã¡p dá»¥ng báº£n chá»‰nh sá»­a náº¿u khÃ´ng cÃ³ Ã­t nháº¥t má»™t biáº¿n thá»ƒ Ä‘ang hoáº¡t Ä‘á»™ng.")
 
     live_by_id = {row["id"]: row for row in live_rows}
     live_by_sku = {str(row["sku"] or "").strip(): row for row in live_rows if str(row["sku"] or "").strip()}
@@ -221,7 +221,7 @@ async def merge_revision_variants(session: AsyncSession, *, parent_id: UUID, rev
             )
         ).scalar()
         if not first_active:
-            raise HTTPException(status_code=400, detail="Không thể áp dụng bản chỉnh sửa nếu không có ít nhất một biến thể đang hoạt động.")
+            raise HTTPException(status_code=400, detail="KhÃ´ng thá»ƒ Ã¡p dá»¥ng báº£n chá»‰nh sá»­a náº¿u khÃ´ng cÃ³ Ã­t nháº¥t má»™t biáº¿n thá»ƒ Ä‘ang hoáº¡t Ä‘á»™ng.")
         await session.execute(text("UPDATE product_variants SET is_default = FALSE WHERE product_id = :parent_id"), {"parent_id": parent_id})
         await session.execute(text("UPDATE product_variants SET is_default = TRUE WHERE id = :id"), {"id": first_active})
 
@@ -248,11 +248,11 @@ async def transition_product_status_data(
         )
     ).mappings().first()
     if not row:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
     await ensure_approval_categories_not_migrating(session, [row["category_id"], row["subcategory_id"]])
     current_status = str(row["status"])
     if current_status not in allowed_from:
-        raise HTTPException(status_code=400, detail=f"Không thể chuyển đổi trạng thái sản phẩm từ {current_status} sang {next_status}.")
+        raise HTTPException(status_code=400, detail=f"KhÃ´ng thá»ƒ chuyá»ƒn Ä‘á»•i tráº¡ng thÃ¡i sáº£n pháº©m tá»« {current_status} sang {next_status}.")
     variants = (
         await session.execute(
             text("SELECT price, sale_price, stock_quantity, is_active FROM product_variants WHERE product_id = :product_id AND deleted_at IS NULL"),
@@ -271,13 +271,13 @@ async def transition_product_status_data(
             missing.append("imageUrl")
         if missing:
             field_names = {
-                "name": "tên sản phẩm",
-                "sku": "mã SKU",
-                "category": "danh mục",
-                "imageUrl": "ảnh đại diện"
+                "name": "tÃªn sáº£n pháº©m",
+                "sku": "mÃ£ SKU",
+                "category": "danh má»¥c",
+                "imageUrl": "áº£nh Ä‘áº¡i diá»‡n"
             }
             missing_translated = [field_names.get(f, f) for f in missing]
-            raise HTTPException(status_code=400, detail=f"Thiếu các trường thông tin bắt buộc trước khi gửi duyệt: {', '.join(missing_translated)}.")
+            raise HTTPException(status_code=400, detail=f"Thiáº¿u cÃ¡c trÆ°á»ng thÃ´ng tin báº¯t buá»™c trÆ°á»›c khi gá»­i duyá»‡t: {', '.join(missing_translated)}.")
     if next_status == "ACTIVE":
         variant_keys = []
         sales_config = row["sales_config"] or {}
@@ -285,13 +285,13 @@ async def transition_product_status_data(
             variant_keys = sales_config.get("variantSpecKeys") or []
         active_variants = [variant for variant in variants if variant["is_active"] is not False]
         if variant_keys and not active_variants:
-            raise HTTPException(status_code=400, detail="Sản phẩm cần có ít nhất một biến thể hoạt động trước khi duyệt.")
+            raise HTTPException(status_code=400, detail="Sáº£n pháº©m cáº§n cÃ³ Ã­t nháº¥t má»™t biáº¿n thá»ƒ hoáº¡t Ä‘á»™ng trÆ°á»›c khi duyá»‡t.")
         if active_variants:
             invalid_variant = next((variant for variant in active_variants if float(variant["sale_price"] or variant["price"] or 0) <= 0), None)
             if invalid_variant:
-                raise HTTPException(status_code=400, detail="Mỗi biến thể hoạt động cần có giá hợp lệ trước khi duyệt.")
+                raise HTTPException(status_code=400, detail="Má»—i biáº¿n thá»ƒ hoáº¡t Ä‘á»™ng cáº§n cÃ³ giÃ¡ há»£p lá»‡ trÆ°á»›c khi duyá»‡t.")
         elif float(row["sale_price"] or row["price"] or 0) <= 0:
-            raise HTTPException(status_code=400, detail="Sản phẩm đơn lẻ cần có giá hợp lệ trước khi duyệt.")
+            raise HTTPException(status_code=400, detail="Sáº£n pháº©m Ä‘Æ¡n láº» cáº§n cÃ³ giÃ¡ há»£p lá»‡ trÆ°á»›c khi duyá»‡t.")
         if row["parent_product_id"]:
             parent_id = row["parent_product_id"]
             await session.execute(
@@ -367,7 +367,7 @@ async def transition_product_status_data(
             )
         ).scalar_one()
         if int(relation_count or 0) > 0 or row["is_flash_sale"]:
-            raise HTTPException(status_code=409, detail="Sản phẩm đang được sử dụng trong combo/phụ kiện bán kèm hoặc chương trình flash sale. Vui lòng kiểm tra lại các liên kết trước khi lưu trữ.")
+            raise HTTPException(status_code=409, detail="Sáº£n pháº©m Ä‘ang Ä‘Æ°á»£c sá»­ dá»¥ng trong combo/phá»¥ kiá»‡n bÃ¡n kÃ¨m hoáº·c chÆ°Æ¡ng trÃ¬nh flash sale. Vui lÃ²ng kiá»ƒm tra láº¡i cÃ¡c liÃªn káº¿t trÆ°á»›c khi lÆ°u trá»¯.")
     await session.execute(
         text("UPDATE products SET status = :status, updated_at = NOW() WHERE id = :id"),
         {"id": product_id, "status": next_status},
@@ -410,11 +410,11 @@ async def reactivate_product_data(product_id: UUID, session: AsyncSession) -> di
         )
     ).mappings().first()
     if not row:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
     await ensure_approval_categories_not_migrating(session, [row["category_id"], row["subcategory_id"]])
     current_status = str(row["status"])
     if current_status not in {"INACTIVE", "DISCONTINUED"}:
-        raise HTTPException(status_code=400, detail="Chỉ sản phẩm đang tạm ẩn hoặc ngừng kinh doanh mới được bật lại.")
+        raise HTTPException(status_code=400, detail="Chá»‰ sáº£n pháº©m Ä‘ang táº¡m áº©n hoáº·c ngá»«ng kinh doanh má»›i Ä‘Æ°á»£c báº­t láº¡i.")
 
     variants = (
         await session.execute(
@@ -438,13 +438,13 @@ async def reactivate_product_data(product_id: UUID, session: AsyncSession) -> di
     if isinstance(sales_config, dict):
         variant_keys = sales_config.get("variantSpecKeys") or []
     if variant_keys and not restorable_variants:
-        raise HTTPException(status_code=400, detail="Sản phẩm cần có ít nhất một biến thể còn hợp lệ trước khi bật lại.")
+        raise HTTPException(status_code=400, detail="Sáº£n pháº©m cáº§n cÃ³ Ã­t nháº¥t má»™t biáº¿n thá»ƒ cÃ²n há»£p lá»‡ trÆ°á»›c khi báº­t láº¡i.")
     if restorable_variants:
         invalid_variant = next((variant for variant in restorable_variants if float(variant["sale_price"] or variant["price"] or 0) <= 0), None)
         if invalid_variant:
-            raise HTTPException(status_code=400, detail="Mỗi biến thể hoạt động cần có giá hợp lệ trước khi bật lại.")
+            raise HTTPException(status_code=400, detail="Má»—i biáº¿n thá»ƒ hoáº¡t Ä‘á»™ng cáº§n cÃ³ giÃ¡ há»£p lá»‡ trÆ°á»›c khi báº­t láº¡i.")
     elif float(row["sale_price"] or row["price"] or 0) <= 0:
-        raise HTTPException(status_code=400, detail="Sản phẩm đơn lẻ cần có giá hợp lệ trước khi bật lại.")
+        raise HTTPException(status_code=400, detail="Sáº£n pháº©m Ä‘Æ¡n láº» cáº§n cÃ³ giÃ¡ há»£p lá»‡ trÆ°á»›c khi báº­t láº¡i.")
 
     await session.execute(
         text("UPDATE products SET status = 'ACTIVE', updated_at = NOW() WHERE id = :id"),
@@ -510,7 +510,7 @@ async def product_bulk_action_data(
                     {"id": product_id},
                 )
                 if result.rowcount == 0:
-                    raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+                    raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
                 await session.execute(text("UPDATE product_variants SET is_active = FALSE, updated_at = NOW() WHERE product_id = :id"), {"id": product_id})
                 await session.commit()
             updated += 1
@@ -527,18 +527,18 @@ async def hide_product_data(product_id: UUID, session: AsyncSession) -> dict:
         )
     ).mappings().first()
     if not product_category_row:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
     if product_category_row["status"] == "MERGED":
-        raise HTTPException(status_code=400, detail="Bản chỉnh sửa đã áp dụng không thể ẩn.")
+        raise HTTPException(status_code=400, detail="Báº£n chá»‰nh sá»­a Ä‘Ã£ Ã¡p dá»¥ng khÃ´ng thá»ƒ áº©n.")
     if product_category_row["status"] == "ARCHIVED":
-        raise HTTPException(status_code=400, detail="Sản phẩm đã lưu trữ không thể ẩn.")
+        raise HTTPException(status_code=400, detail="Sáº£n pháº©m Ä‘Ã£ lÆ°u trá»¯ khÃ´ng thá»ƒ áº©n.")
     await ensure_approval_categories_not_migrating(session, [product_category_row["category_id"], product_category_row["subcategory_id"]])
     result = await session.execute(
         text("UPDATE products SET status = 'INACTIVE', updated_at = NOW() WHERE id = :id AND status <> 'INACTIVE'"),
         {"id": product_id},
     )
     if result.rowcount == 0:
-        raise HTTPException(status_code=400, detail="Sản phẩm đã ở trạng thái ẩn.")
+        raise HTTPException(status_code=400, detail="Sáº£n pháº©m Ä‘Ã£ á»Ÿ tráº¡ng thÃ¡i áº©n.")
     await session.execute(
         text("UPDATE product_variants SET is_active = FALSE, updated_at = NOW() WHERE product_id = :id"),
         {"id": product_id},
@@ -560,11 +560,11 @@ async def deactivate_product_data(product_id: UUID, session: AsyncSession) -> di
         )
     ).mappings().first()
     if not product_category_row:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
     if product_category_row["status"] == "MERGED":
-        raise HTTPException(status_code=400, detail="Bản chỉnh sửa này đã được áp dụng vào sản phẩm gốc, không thể xóa hoặc lưu trữ lại.")
+        raise HTTPException(status_code=400, detail="Báº£n chá»‰nh sá»­a nÃ y Ä‘Ã£ Ä‘Æ°á»£c Ã¡p dá»¥ng vÃ o sáº£n pháº©m gá»‘c, khÃ´ng thá»ƒ xÃ³a hoáº·c lÆ°u trá»¯ láº¡i.")
     if product_category_row["status"] == "ARCHIVED":
-        raise HTTPException(status_code=400, detail="Sản phẩm đã được lưu trữ trước đó.")
+        raise HTTPException(status_code=400, detail="Sáº£n pháº©m Ä‘Ã£ Ä‘Æ°á»£c lÆ°u trá»¯ trÆ°á»›c Ä‘Ã³.")
     if product_category_row["status"] == "REVISION_DRAFT" and product_category_row["parent_product_id"]:
         await session.execute(text("DELETE FROM product_bundles WHERE product_id = :id"), {"id": product_id})
         await session.execute(text("DELETE FROM product_accessories WHERE product_id = :id"), {"id": product_id})
@@ -605,7 +605,7 @@ async def deactivate_product_data(product_id: UUID, session: AsyncSession) -> di
     if usage["order_count"] == 0 and usage["review_count"] == 0:
         result = await session.execute(text("UPDATE products SET status = 'ARCHIVED', updated_at = NOW() WHERE id = :id"), {"id": product_id})
         if result.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+            raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
         await session.commit()
         return {"ok": True, "action": "archived"}
 
@@ -622,11 +622,11 @@ async def deactivate_product_data(product_id: UUID, session: AsyncSession) -> di
         )
     ).mappings().first()
     if not product_category_row:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
     if product_category_row["status"] == "MERGED":
-        raise HTTPException(status_code=400, detail="Bản chỉnh sửa này đã được áp dụng vào sản phẩm gốc, không thể xóa hoặc lưu trữ lại.")
+        raise HTTPException(status_code=400, detail="Báº£n chá»‰nh sá»­a nÃ y Ä‘Ã£ Ä‘Æ°á»£c Ã¡p dá»¥ng vÃ o sáº£n pháº©m gá»‘c, khÃ´ng thá»ƒ xÃ³a hoáº·c lÆ°u trá»¯ láº¡i.")
     if product_category_row["status"] == "ARCHIVED":
-        raise HTTPException(status_code=400, detail="Sản phẩm đã được lưu trữ trước đó.")
+        raise HTTPException(status_code=400, detail="Sáº£n pháº©m Ä‘Ã£ Ä‘Æ°á»£c lÆ°u trá»¯ trÆ°á»›c Ä‘Ã³.")
 
     await ensure_approval_categories_not_migrating(session, [product_category_row["category_id"], product_category_row["subcategory_id"]])
     usage = (
@@ -666,7 +666,7 @@ async def deactivate_product_data(product_id: UUID, session: AsyncSession) -> di
     if usage["receipt_count"] > 0 or usage["inbound_transaction_count"] > 0:
         raise HTTPException(
             status_code=409,
-            detail="Không thể xóa sản phẩm đã có dữ liệu nhập kho thật. Hãy ẩn sản phẩm nếu cần ngừng bán.",
+            detail="KhÃ´ng thá»ƒ xÃ³a sáº£n pháº©m Ä‘Ã£ cÃ³ dá»¯ liá»‡u nháº­p kho tháº­t. HÃ£y áº©n sáº£n pháº©m náº¿u cáº§n ngá»«ng bÃ¡n.",
         )
 
     await session.execute(text("DELETE FROM product_bundles WHERE product_id = :id OR bundled_product_id = :id"), {"id": product_id})
@@ -674,6 +674,6 @@ async def deactivate_product_data(product_id: UUID, session: AsyncSession) -> di
     await session.execute(text("DELETE FROM product_attached_services WHERE product_id = :id"), {"id": product_id})
     result = await session.execute(text("DELETE FROM products WHERE id = :id"), {"id": product_id})
     if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
     await session.commit()
     return {"ok": True, "action": "deleted"}

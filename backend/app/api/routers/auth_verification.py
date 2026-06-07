@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+﻿from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -9,7 +9,7 @@ from app.infrastructure.database.models import User
 from app.infrastructure.database.repositories import auth_repo
 from app.infrastructure.database.session import get_session
 
-from app.api.v1.routers.auth_utils import (
+from app.api.routers.auth_utils import (
     pwd_context,
     RegisterRequest,
     StartVerificationResponse,
@@ -38,7 +38,7 @@ router = APIRouter()
 async def register(payload: RegisterRequest, session: AsyncSession = Depends(get_session)) -> AuthResponse:
     raise HTTPException(
         status_code=status.HTTP_410_GONE,
-        detail="Đăng ký trực tiếp đã tắt. Vui lòng dùng /auth/register/start và /auth/register/verify.",
+        detail="ÄÄƒng kÃ½ trá»±c tiáº¿p Ä‘Ã£ táº¯t. Vui lÃ²ng dÃ¹ng /auth/register/start vÃ  /auth/register/verify.",
     )
 
 
@@ -52,7 +52,7 @@ async def start_registration(
     email = payload.email.lower()
     enforce_rate_limit(rate_limit_key(request, "register_start", email), limit=3, window_seconds=3600)
     if await auth_repo.user_exists_by_email(session, email):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email này đã được đăng ký.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email nÃ y Ä‘Ã£ Ä‘Æ°á»£c Ä‘Äƒng kÃ½.")
 
     token = uuid4().hex
     code = make_six_digit_code()
@@ -83,11 +83,11 @@ async def resend_registration(
     enforce_rate_limit(rate_limit_key(request, "register_resend", email), limit=3, window_seconds=3600)
 
     if await auth_repo.user_exists_by_email(session, email):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email này đã được đăng ký.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email nÃ y Ä‘Ã£ Ä‘Æ°á»£c Ä‘Äƒng kÃ½.")
 
     pending = await auth_repo.get_registration_token_by_email_for_update(session, email)
     if pending is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy yêu cầu đăng ký đang chờ xác minh.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KhÃ´ng tÃ¬m tháº¥y yÃªu cáº§u Ä‘Äƒng kÃ½ Ä‘ang chá» xÃ¡c minh.")
 
     token = uuid4().hex
     code = make_six_digit_code()
@@ -117,7 +117,7 @@ async def verify_registration(
     identity = payload.email.lower() if payload.email else payload.token
     enforce_rate_limit(rate_limit_key(request, "register_verify", identity), limit=10, window_seconds=900)
     if not payload.token and not (payload.email and payload.code):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Thiếu mã xác nhận.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Thiáº¿u mÃ£ xÃ¡c nháº­n.")
 
     pending = await auth_repo.get_registration_token_for_verify(
         session,
@@ -126,13 +126,13 @@ async def verify_registration(
         code=payload.code,
     )
     if pending is None or pending["expires_at"] < datetime.now(timezone.utc):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mã xác nhận không hợp lệ hoặc đã hết hạn.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="MÃ£ xÃ¡c nháº­n khÃ´ng há»£p lá»‡ hoáº·c Ä‘Ã£ háº¿t háº¡n.")
 
     email = pending["email"]
     if await auth_repo.user_exists_by_email(session, email):
         await auth_repo.delete_registration_token_by_email(session, email)
         await session.commit()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email này đã được đăng ký.")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email nÃ y Ä‘Ã£ Ä‘Æ°á»£c Ä‘Äƒng kÃ½.")
 
     user = User(
         id=uuid4(),
@@ -160,7 +160,7 @@ async def forgot_password(
     enforce_rate_limit(rate_limit_key(request, "forgot_password", email), limit=3, window_seconds=3600)
     user = await auth_repo.get_active_user_by_email(session, email)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài khoản với email này.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KhÃ´ng tÃ¬m tháº¥y tÃ i khoáº£n vá»›i email nÃ y.")
 
     token = uuid4().hex
     verification_token = uuid4().hex
@@ -191,10 +191,10 @@ async def resend_password_reset(
 
     user = await auth_repo.get_active_user_by_email(session, email)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài khoản với email này.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KhÃ´ng tÃ¬m tháº¥y tÃ i khoáº£n vá»›i email nÃ y.")
 
     if await auth_repo.get_password_reset_by_email_for_update(session, email) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy yêu cầu đặt lại mật khẩu đang chờ xác minh.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KhÃ´ng tÃ¬m tháº¥y yÃªu cáº§u Ä‘áº·t láº¡i máº­t kháº©u Ä‘ang chá» xÃ¡c minh.")
 
     token = uuid4().hex
     verification_token = uuid4().hex
@@ -223,7 +223,7 @@ async def verify_password_reset(
     identity = payload.email.lower() if payload.email else payload.token
     enforce_rate_limit(rate_limit_key(request, "forgot_password_verify", identity), limit=10, window_seconds=900)
     if not payload.token and not (payload.email and payload.code):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Thiếu mã xác nhận.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Thiáº¿u mÃ£ xÃ¡c nháº­n.")
 
     reset = await auth_repo.get_password_reset_for_verify(
         session,
@@ -232,7 +232,7 @@ async def verify_password_reset(
         code=payload.code,
     )
     if reset is None or reset["expires_at"] < datetime.now(timezone.utc):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mã xác nhận không hợp lệ hoặc đã hết hạn.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="MÃ£ xÃ¡c nháº­n khÃ´ng há»£p lá»‡ hoáº·c Ä‘Ã£ háº¿t háº¡n.")
     return VerifyPasswordResetResponse(resetToken=reset["token"])
 
 
@@ -242,17 +242,17 @@ async def reset_password(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, bool]:
-    from app.api.v1.routers.auth_utils import ensure_session_security_tables, audit_log
+    from app.api.routers.auth_utils import ensure_session_security_tables, audit_log
     
     await ensure_session_security_tables(session)
     enforce_rate_limit(rate_limit_key(request, "reset_password", payload.token), limit=5, window_seconds=900)
     reset = await auth_repo.get_password_reset_by_token_for_update(session, payload.token)
     if reset is None or reset["expires_at"] < datetime.now(timezone.utc):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Liên kết đặt lại mật khẩu đã hết hạn.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="LiÃªn káº¿t Ä‘áº·t láº¡i máº­t kháº©u Ä‘Ã£ háº¿t háº¡n.")
     email = reset["email"]
     user = await auth_repo.get_active_user_by_email(session, email)
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài khoản.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KhÃ´ng tÃ¬m tháº¥y tÃ i khoáº£n.")
     user.password_hash = pwd_context.hash(payload.newPassword)
     await auth_repo.delete_password_reset_by_token(session, payload.token)
     await auth_repo.revoke_all_user_refresh_sessions(session, user.id)

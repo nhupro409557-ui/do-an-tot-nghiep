@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import type { Swiper as SwiperType } from 'swiper';
 import { Autoplay } from 'swiper/modules';
@@ -47,6 +48,11 @@ export const HomeBanner = () => {
   const displayBanners = useMemo(() => (banners.length ? banners : fallbackBanners), [banners]);
   const activeBanner = displayBanners[activeIndex] || displayBanners[0];
 
+  const scrollBannerTabs = (direction: 'left' | 'right') => {
+    const tabList = document.getElementById('home-banner-tabs');
+    tabList?.scrollBy({ left: direction === 'left' ? -220 : 220, behavior: 'smooth' });
+  };
+
   return (
     <div className="my-4 grid gap-3 lg:grid-cols-[274px_minmax(0,1fr)]">
       <div className="relative z-30 hidden lg:block">
@@ -54,21 +60,49 @@ export const HomeBanner = () => {
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <div className="grid grid-cols-2 overflow-hidden rounded-t-2xl bg-white text-center md:grid-cols-4">
-          {displayBanners.slice(0, 4).map((banner, index) => (
+        <div className="relative">
+          <div id="home-banner-tabs" className="flex overflow-x-auto rounded-t-2xl bg-white px-8 text-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {displayBanners.map((banner, index) => (
             <button
               key={banner.id}
               type="button"
               onClick={() => {
                 setActiveIndex(index);
-                swiper?.slideTo(index);
+                if (displayBanners.length > 1) {
+                  swiper?.slideToLoop(index);
+                } else {
+                  swiper?.slideTo(index);
+                }
               }}
-              className={`min-h-[64px] border-b px-2 py-2 transition ${activeIndex === index ? 'rounded-b-3xl bg-slate-100 text-red-600' : 'border-slate-100 text-slate-600 hover:bg-slate-50'}`}
+              className={`min-h-[58px] w-[150px] flex-none border-b px-3 py-2 transition sm:w-[180px] lg:min-h-[64px] lg:w-[210px] ${activeIndex === index ? 'rounded-b-3xl bg-slate-100 text-red-600' : 'border-slate-100 text-slate-600 hover:bg-slate-50'}`}
             >
-              <div className="line-clamp-1 text-sm font-black uppercase md:text-base">{banner.title}</div>
-              <div className="mt-0.5 line-clamp-1 text-xs font-medium text-slate-500 md:text-sm">{banner.description || 'Ưu đãi hôm nay'}</div>
+              <div className="line-clamp-1 text-[13px] font-black uppercase lg:text-base">{banner.title}</div>
+                <div className="mt-0.5 line-clamp-1 text-xs font-medium text-slate-500 lg:text-sm">{banner.description || 'Ưu đãi hôm nay'}</div>
             </button>
           ))}
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 left-0 w-7 bg-gradient-to-r from-white to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-7 bg-gradient-to-l from-white to-transparent" />
+          {displayBanners.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={() => scrollBannerTabs('left')}
+                aria-label="Lướt banner sang trái"
+                className="absolute left-1 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-600 shadow-sm transition hover:border-red-200 hover:text-primary"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollBannerTabs('right')}
+                aria-label="Lướt banner sang phải"
+                className="absolute right-1 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-600 shadow-sm transition hover:border-red-200 hover:text-primary"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </>
+          )}
         </div>
 
         <div className="relative">

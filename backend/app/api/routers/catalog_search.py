@@ -1,4 +1,4 @@
-from uuid import UUID
+﻿from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,7 +9,7 @@ from app.application.ai.search_intent import (
     ProductSearchIntentResponse,
     parse_product_search_intent,
 )
-from app.api.v1.routers.catalog_utils import (
+from app.api.routers.catalog_utils import (
     ProductAnalyticsEventRequest,
     normalize_search_text,
     request_ip,
@@ -19,6 +19,30 @@ from app.api.v1.routers.catalog_utils import (
 )
 
 router = APIRouter()
+
+def ranking_history_sql_config(period: str) -> dict[str, str]:
+    if period == "24h":
+        return {
+            "start": "date_trunc('hour', NOW()) - INTERVAL '23 hours'",
+            "series": "GENERATE_SERIES(date_trunc('hour', NOW()) - INTERVAL '23 hours', date_trunc('hour', NOW()), INTERVAL '1 hour')",
+            "bucket": "date_trunc('hour', created_at)",
+            "label": "to_char(d.bucket_date, 'YYYY-MM-DD HH24') || chr(58) || '00'",
+        }
+    if period == "1y":
+        return {
+            "start": "date_trunc('month', NOW()) - INTERVAL '11 months'",
+            "series": "GENERATE_SERIES(date_trunc('month', NOW()) - INTERVAL '11 months', date_trunc('month', NOW()), INTERVAL '1 month')",
+            "bucket": "date_trunc('month', created_at)",
+            "label": "to_char(d.bucket_date, 'YYYY-MM')",
+        }
+
+    history_days = 7 if period == "7d" else 30
+    return {
+        "start": f"CURRENT_DATE - INTERVAL '{history_days - 1} days'",
+        "series": f"CAST(GENERATE_SERIES(CURRENT_DATE - INTERVAL '{history_days - 1} days', CURRENT_DATE, INTERVAL '1 day') AS DATE)",
+        "bucket": "CAST(created_at AS DATE)",
+        "label": "d.bucket_date::text",
+    }
 
 @router.get("/rankings")
 async def list_rankings(
@@ -31,10 +55,11 @@ async def list_rankings(
     period_lower = period.lower()
     criteria_lower = criteria.lower()
     
-    from app.api.v1.routers.catalog_utils import RANKING_PERIODS, RANKING_ORDER_FIELDS
+    from app.api.routers.catalog_utils import RANKING_PERIODS, RANKING_ORDER_FIELDS
     
     days = RANKING_PERIODS.get(period_lower, 30)
     order_field = RANKING_ORDER_FIELDS.get(criteria_lower, "trendScore")
+    history_sql = ranking_history_sql_config(period_lower)
     
     category_filter_sql = ""
     category_id_param = None
@@ -261,37 +286,39 @@ async def list_rankings(
         historical_stats AS (
             SELECT
                 p_id,
-                jsonb_agg(jsonb_build_object('date', day_date, 'views', views, 'searches', searches, 'sales', sales)) AS history
+                jsonb_agg(jsonb_build_object('date', day_date, 'views', views, 'searches', searches, 'sales', sales) ORDER BY bucket_date) AS history
             FROM (
                 SELECT
                     p.id AS p_id,
-                    d.day_date::text AS day_date,
+                    d.bucket_date,
+                    {history_sql["label"]} AS day_date,
                     COALESCE(v.count, 0) AS views,
                     COALESCE(s.count, 0) AS searches,
                     COALESCE(sl.count, 0) AS sales
                 FROM products p
                 CROSS JOIN (
-                    SELECT CAST(GENERATE_SERIES(NOW() - (:days * INTERVAL '1 day'), NOW(), '1 day') AS DATE) AS day_date
+                    SELECT {history_sql["series"]} AS bucket_date
                 ) d
                 LEFT JOIN (
-                    SELECT product_id, CAST(created_at AS DATE) AS day_date, COUNT(*) AS count
+                    SELECT product_id, {history_sql["bucket"]} AS bucket_date, COUNT(*) AS count
                     FROM product_view_events
-                    GROUP BY product_id, CAST(created_at AS DATE)
-                ) v ON v.product_id = p.id AND v.day_date = d.day_date
+                    WHERE created_at >= {history_sql["start"]}
+                    GROUP BY product_id, {history_sql["bucket"]}
+                ) v ON v.product_id = p.id AND v.bucket_date = d.bucket_date
                 LEFT JOIN (
-                    SELECT product_id, CAST(created_at AS DATE) AS day_date, COUNT(*) AS count
+                    SELECT product_id, {history_sql["bucket"]} AS bucket_date, COUNT(*) AS count
                     FROM product_search_events
-                    WHERE product_id IS NOT NULL
-                    GROUP BY product_id, CAST(created_at AS DATE)
-                ) s ON s.product_id = p.id AND s.day_date = d.day_date
+                    WHERE product_id IS NOT NULL AND created_at >= {history_sql["start"]}
+                    GROUP BY product_id, {history_sql["bucket"]}
+                ) s ON s.product_id = p.id AND s.bucket_date = d.bucket_date
                 LEFT JOIN (
-                    SELECT oi.product_id, CAST(o.created_at AS DATE) AS day_date, SUM(oi.quantity) AS count
+                    SELECT oi.product_id, {history_sql["bucket"].replace('created_at', 'o.created_at')} AS bucket_date, SUM(oi.quantity) AS count
                     FROM order_items oi
                     JOIN orders o ON o.id = oi.order_id
-                    WHERE o.status = 'COMPLETED'
-                    GROUP BY oi.product_id, CAST(o.created_at AS DATE)
-                ) sl ON sl.product_id = p.id AND sl.day_date = d.day_date
-                ORDER BY d.day_date ASC
+                    WHERE o.status = 'COMPLETED' AND o.created_at >= {history_sql["start"]}
+                    GROUP BY oi.product_id, {history_sql["bucket"].replace('created_at', 'o.created_at')}
+                ) sl ON sl.product_id = p.id AND sl.bucket_date = d.bucket_date
+                ORDER BY d.bucket_date ASC
             ) daily
             GROUP BY p_id
         )
@@ -448,7 +475,7 @@ async def list_product_images(
     limit: int = Query(default=30, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    from app.api.v1.routers.catalog import list_products
+    from app.api.routers.catalog import list_products
     products = await list_products(
         q=None,
         category=None,

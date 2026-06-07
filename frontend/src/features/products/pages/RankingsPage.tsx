@@ -346,13 +346,19 @@ function RankingRow({ product, rank, criteria, timeRange, activeColor, activeBg 
       : (metricValue > 0 ? 100 : 0);
   const isUp = trendPercent >= 0;
   const historyData = Array.isArray(product.history)
-    ? product.history.map((point: any) => Number(
-        criteria === 'search' ? point.searchCount :
-        criteria === 'view' ? point.viewCount :
-        criteria === 'like' ? point.likeCount :
-        criteria === 'sold' ? point.periodSoldCount :
-        criteria === 'trending' ? point.trendScore :
-        metricValue
+    ? [...product.history]
+      .sort((a: any, b: any) => String(a.date || '').localeCompare(String(b.date || '')))
+      .map((point: any) => Number(
+        criteria === 'search' ? (point.searchCount ?? point.searches) :
+        criteria === 'view' ? (point.viewCount ?? point.views) :
+        criteria === 'like' ? (point.likeCount ?? point.likes ?? metricValue) :
+        criteria === 'sold' ? (point.periodSoldCount ?? point.soldCount ?? point.sales) :
+        criteria === 'trending' ? (point.trendScore ?? point.score ?? (
+          Number(point.views || 0) * 0.35 +
+          Number(point.searches || 0) * 0.25 +
+          Number(point.sales || 0) * 0.25
+        )) :
+        (point.rating ?? metricValue)
       ) || 0)
     : [];
 

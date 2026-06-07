@@ -1,9 +1,9 @@
-from uuid import UUID
+﻿from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import require_permission
+from app.api.dependencies import require_permission
 from app.application.services.product_variant_service import delete_product_variant
 from app.infrastructure.database.session import get_session
 

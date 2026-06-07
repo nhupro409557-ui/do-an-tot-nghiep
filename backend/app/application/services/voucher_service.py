@@ -1,10 +1,10 @@
-import json
+﻿import json
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.admin import VoucherPayload
+from app.api.schemas.admin import VoucherPayload
 from app.infrastructure.database.repositories import voucher_repo
 
 

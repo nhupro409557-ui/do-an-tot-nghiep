@@ -1,10 +1,10 @@
-from uuid import UUID
+﻿from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import require_permission
-from app.api.v1.schemas.admin import InventoryAdjustmentPayload, InventorySettingsPayload, VariantInventoryPayload
+from app.api.dependencies import require_permission
+from app.api.schemas.admin import InventoryAdjustmentPayload, InventorySettingsPayload, VariantInventoryPayload
 from app.infrastructure.database.session import get_session
 from app.application.services import inventory_service
 

@@ -61,11 +61,12 @@ export default function App() {
 function AppShell() {
   const location = useLocation();
   const isAdminArea = location.pathname === '/admin' || location.pathname.startsWith('/admin/');
+  const isCategoryArea = location.pathname === '/category' || location.pathname.startsWith('/category/');
 
   return (
     <div className="flex min-h-[100dvh] flex-col">
       {!isAdminArea && <Header />}
-      <main className={`flex-1 bg-background text-slate-800 ${isAdminArea ? '' : 'px-3 sm:px-4 lg:px-6'}`}>
+      <main className={`flex-1 bg-background text-slate-800 ${isAdminArea ? '' : 'px-3 sm:px-4 lg:px-6'} ${isCategoryArea ? 'overflow-hidden lg:overflow-visible' : ''}`}>
         <Suspense fallback={<div className="flex items-center justify-center p-20"><div className="h-8 w-8 animate-spin rounded-full border-4 border-[#d70018] border-t-transparent"></div></div>}>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -117,7 +118,9 @@ function AppShell() {
       </main>
       {!isAdminArea && (
         <>
-          <Footer />
+          <div className={isCategoryArea ? 'hidden lg:block' : ''}>
+            <Footer />
+          </div>
           <BottomNav />
           <AIChatWidget />
         </>

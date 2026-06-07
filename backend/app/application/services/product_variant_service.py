@@ -1,9 +1,9 @@
-from uuid import UUID, uuid4
+﻿from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.admin import ProductVariantPayload
+from app.api.schemas.admin import ProductVariantPayload
 from app.application.services.product_helper_service import (
     normalized_option_key,
     sync_parent_price_if_variants_exist,
@@ -12,18 +12,18 @@ from app.infrastructure.database.repositories import product_variant_repo
 
 
 COLOR_CODE_FALLBACK = {
-    "Ä‘en": "#000000", "black": "#000000",
-    "tráº¯ng": "#FFFFFF", "white": "#FFFFFF",
-    "Ä‘á»": "#FF0000", "red": "#FF0000",
-    "xanh lÃ¡": "#00FF00", "green": "#00FF00",
-    "xanh dÆ°Æ¡ng": "#0000FF", "blue": "#0000FF",
-    "vÃ ng": "#FFFF00", "yellow": "#FFFF00",
+    "Ã„â€˜en": "#000000", "black": "#000000",
+    "trÃ¡ÂºÂ¯ng": "#FFFFFF", "white": "#FFFFFF",
+    "Ã„â€˜Ã¡Â»Â": "#FF0000", "red": "#FF0000",
+    "xanh lÃƒÂ¡": "#00FF00", "green": "#00FF00",
+    "xanh dÃ†Â°Ã†Â¡ng": "#0000FF", "blue": "#0000FF",
+    "vÃƒÂ ng": "#FFFF00", "yellow": "#FFFF00",
     "cam": "#FFA500", "orange": "#FFA500",
-    "há»“ng": "#FFC0CB", "pink": "#FFC0CB",
-    "xÃ¡m": "#808080", "gray": "#808080", "grey": "#808080",
-    "tÃ­m": "#800080", "purple": "#800080",
-    "báº¡c": "#C0C0C0", "silver": "#C0C0C0",
-    "vÃ ng há»“ng": "#B76E79", "rose gold": "#B76E79",
+    "hÃ¡Â»â€œng": "#FFC0CB", "pink": "#FFC0CB",
+    "xÃƒÂ¡m": "#808080", "gray": "#808080", "grey": "#808080",
+    "tÃƒÂ­m": "#800080", "purple": "#800080",
+    "bÃ¡ÂºÂ¡c": "#C0C0C0", "silver": "#C0C0C0",
+    "vÃƒÂ ng hÃ¡Â»â€œng": "#B76E79", "rose gold": "#B76E79",
 }
 
 
@@ -41,12 +41,12 @@ def validate_variant_options(options: list[dict], variants_payload: list[Product
             if normalized_key not in options_dict:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Thuá»™c tÃ­nh '{k}' cá»§a biáº¿n thá»ƒ khÃ´ng náº±m trong cÃ¡c lá»±a chá»n cá»§a sáº£n pháº©m.",
+                    detail=f"ThuÃ¡Â»â„¢c tÃƒÂ­nh '{k}' cÃ¡Â»Â§a biÃ¡ÂºÂ¿n thÃ¡Â»Æ’ khÃƒÂ´ng nÃ¡ÂºÂ±m trong cÃƒÂ¡c lÃ¡Â»Â±a chÃ¡Â»Ân cÃ¡Â»Â§a sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m.",
                 )
             if normalized_option_key(v) not in options_dict[normalized_key]:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"GiÃ¡ trá»‹ '{v}' cá»§a thuá»™c tÃ­nh '{k}' khÃ´ng há»£p lá»‡.",
+                    detail=f"GiÃƒÂ¡ trÃ¡Â»â€¹ '{v}' cÃ¡Â»Â§a thuÃ¡Â»â„¢c tÃƒÂ­nh '{k}' khÃƒÂ´ng hÃ¡Â»Â£p lÃ¡Â»â€¡.",
                 )
         if options:
             for opt in options:
@@ -54,7 +54,7 @@ def validate_variant_options(options: list[dict], variants_payload: list[Product
                 if normalized_option_key(opt_name) not in normalized_var_attrs:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Biáº¿n thá»ƒ thiáº¿u thuá»™c tÃ­nh '{opt_name}' yÃªu cáº§u bá»Ÿi sáº£n pháº©m.",
+                        detail=f"BiÃ¡ÂºÂ¿n thÃ¡Â»Æ’ thiÃ¡ÂºÂ¿u thuÃ¡Â»â„¢c tÃƒÂ­nh '{opt_name}' yÃƒÂªu cÃ¡ÂºÂ§u bÃ¡Â»Å¸i sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m.",
                     )
 
 
@@ -63,7 +63,7 @@ def validate_default_variant_count(variants_payload: list[ProductVariantPayload]
     if variants_payload and default_count != 1:
         raise HTTPException(
             status_code=400,
-            detail="Má»—i sáº£n pháº©m chá»‰ Ä‘Æ°á»£c cÃ³ má»™t biáº¿n thá»ƒ máº·c Ä‘á»‹nh.",
+            detail="MÃ¡Â»â€”i sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m chÃ¡Â»â€° Ã„â€˜Ã†Â°Ã¡Â»Â£c cÃƒÂ³ mÃ¡Â»â„¢t biÃ¡ÂºÂ¿n thÃ¡Â»Æ’ mÃ¡ÂºÂ·c Ã„â€˜Ã¡Â»â€¹nh.",
             headers={"x-error-code": "MULTIPLE_DEFAULT_VARIANTS"},
         )
 
@@ -77,13 +77,13 @@ def resolve_variant_values(variant: ProductVariantPayload, *, is_revision: bool)
     var_attrs = variant.attributes or {}
     for key, value in var_attrs.items():
         key_lower = key.lower()
-        if key_lower in {"color", "mÃ u", "mÃ u sáº¯c"}:
+        if key_lower in {"color", "mÃƒÂ u", "mÃƒÂ u sÃ¡ÂºÂ¯c"}:
             color_val = str(value)
-        elif key_lower in {"storage", "dung lÆ°á»£ng", "bá»™ nhá»›"}:
+        elif key_lower in {"storage", "dung lÃ†Â°Ã¡Â»Â£ng", "bÃ¡Â»â„¢ nhÃ¡Â»â€º"}:
             storage_val = str(value)
-        elif key_lower in {"ram", "bá»™ nhá»› trong"}:
+        elif key_lower in {"ram", "bÃ¡Â»â„¢ nhÃ¡Â»â€º trong"}:
             ram_val = str(value)
-        elif key_lower in {"configuration", "cáº¥u hÃ¬nh", "phiÃªn báº£n"}:
+        elif key_lower in {"configuration", "cÃ¡ÂºÂ¥u hÃƒÂ¬nh", "phiÃƒÂªn bÃ¡ÂºÂ£n"}:
             config_val = str(value)
 
     normalized_attrs = {normalized_option_key(key): str(value) for key, value in var_attrs.items()}
@@ -145,7 +145,7 @@ async def validate_unique_variant_skus(
 ) -> None:
     sku_list = [variant.sku.strip() for variant in variants_payload if variant.sku]
     if len(sku_list) != len(set(sku_list)):
-        raise HTTPException(status_code=400, detail="TrÃ¹ng láº·p SKU trong danh sÃ¡ch biáº¿n thá»ƒ gá»­i lÃªn.")
+        raise HTTPException(status_code=400, detail="TrÃƒÂ¹ng lÃ¡ÂºÂ·p SKU trong danh sÃƒÂ¡ch biÃ¡ÂºÂ¿n thÃ¡Â»Æ’ gÃ¡Â»Â­i lÃƒÂªn.")
 
     for variant in variants_payload:
         if not variant.sku:
@@ -160,7 +160,7 @@ async def validate_unique_variant_skus(
         if existing:
             raise HTTPException(
                 status_code=400,
-                detail=f"SKU '{variant.sku}' Ä‘Ã£ Ä‘Æ°á»£c sá»­ dá»¥ng bá»Ÿi má»™t biáº¿n thá»ƒ khÃ¡c Ä‘ang hoáº¡t Ä‘á»™ng.",
+                detail=f"SKU '{variant.sku}' Ã„â€˜ÃƒÂ£ Ã„â€˜Ã†Â°Ã¡Â»Â£c sÃ¡Â»Â­ dÃ¡Â»Â¥ng bÃ¡Â»Å¸i mÃ¡Â»â„¢t biÃ¡ÂºÂ¿n thÃ¡Â»Æ’ khÃƒÂ¡c Ã„â€˜ang hoÃ¡ÂºÂ¡t Ã„â€˜Ã¡Â»â„¢ng.",
             )
 
 
@@ -176,7 +176,7 @@ async def upsert_product_variants(
     del product_name, default_price, default_sale_price, default_stock
     product_row = await product_variant_repo.get_product_variant_context(session, product_id)
     if not product_row:
-        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
+        raise HTTPException(status_code=404, detail="KhÃƒÂ´ng tÃƒÂ¬m thÃ¡ÂºÂ¥y sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m.")
 
     options = product_row["options"] or []
     product_status = product_row.get("status")
@@ -235,7 +235,7 @@ async def delete_product_variant(
         variant_id=variant_id,
     )
     if not variant:
-        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y biáº¿n thá»ƒ.")
+        raise HTTPException(status_code=404, detail="KhÃƒÂ´ng tÃƒÂ¬m thÃ¡ÂºÂ¥y biÃ¡ÂºÂ¿n thÃ¡Â»Æ’.")
 
     await product_variant_repo.soft_delete_variant(session, variant_id)
 

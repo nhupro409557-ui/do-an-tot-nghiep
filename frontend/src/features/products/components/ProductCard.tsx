@@ -24,7 +24,7 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-50px" }}
       transition={{ duration: 0.5, delay: index * 0.1, ease: "easeOut" }}
-      className="group relative flex h-full flex-col rounded-xl border border-slate-100 bg-white p-3 shadow-sm transition-all duration-300 hover:border-red-100 hover:shadow-xl md:p-4"
+      className="group relative flex h-full min-w-0 flex-col rounded-xl border border-slate-100 bg-white p-2.5 shadow-sm transition-all duration-300 hover:border-red-100 hover:shadow-xl sm:p-3 lg:p-4"
     >
       {p.badge && !p.flashSale && (
         <div className="absolute left-2 top-2 z-10 rounded-lg bg-red-500 px-2 py-1 text-[10px] font-bold uppercase text-white shadow-sm">
@@ -37,8 +37,8 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
         </div>
       )}
 
-      <div className="group/image relative -mx-1 -mt-1 md:-mx-2 md:-mt-2">
-        <Link to={`/product/${p.id}`} className="relative mb-3 flex h-48 items-center justify-center overflow-hidden rounded-lg bg-white p-0 md:h-52">
+      <div className="group/image relative -mx-0.5 -mt-0.5 sm:-mx-1 sm:-mt-1 lg:-mx-2 lg:-mt-2">
+        <Link to={`/product/${p.id}`} className="relative mb-2.5 flex h-40 items-center justify-center overflow-hidden rounded-lg bg-white p-0 sm:h-44 md:h-48 lg:h-56">
           {displayImage ? (
             <ImageWithFallback src={displayImage} alt={p.name} className="h-full w-full object-contain transition-transform duration-300 group-hover/image:scale-[1.03]" />
           ) : (
@@ -65,27 +65,27 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
       </div>
 
       <Link to={`/product/${p.id}`} className="flex flex-col">
-        <h4 className="mb-2 h-[40px] text-[13px] font-bold text-slate-800 line-clamp-2 transition-colors group-hover:text-primary md:text-sm">
+        <h4 className="mb-2 h-[38px] text-[12.5px] font-bold leading-[1.25] text-slate-800 line-clamp-2 transition-colors group-hover:text-primary sm:text-[13px] lg:text-sm">
           {p.name}
         </h4>
         {p.specs && (
-          <div className="mb-3 grid grid-cols-2 gap-x-2 gap-y-1 rounded-lg border border-gray-100 bg-gray-50 p-2 text-[10px] text-gray-600 md:text-[11px]">
+          <div className="mb-2 grid grid-cols-1 gap-x-2 gap-y-1 rounded-lg border border-gray-100 bg-gray-50 p-2 text-[10px] text-gray-600 sm:grid-cols-2 lg:text-[11px]">
             {p.specs.processor && <span className="truncate">CPU: {p.specs.processor}</span>}
             {p.specs.ram && <span className="truncate">RAM: {p.specs.ram}</span>}
-            {p.specs.screenSize && <span className="col-span-2 truncate">Màn hình: {p.specs.screenSize}</span>}
+            {p.specs.screenSize && <span className="truncate sm:col-span-2">Màn hình: {p.specs.screenSize}</span>}
           </div>
         )}
       </Link>
 
-      <div className="mt-auto flex flex-col justify-end pt-2">
-        <Link to={`/product/${p.id}`} className="mb-2 flex items-baseline gap-2">
+      <div className="mt-1 flex flex-col justify-end pt-1">
+        <Link to={`/product/${p.id}`} className="mb-2 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
           {isDiscontinued ? (
             <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-black uppercase text-slate-700">Ngừng kinh doanh</span>
           ) : (
             <>
-              <span className="text-sm font-bold text-primary md:text-base">{displayPrice.toLocaleString("vi-VN")}đ</span>
+              <span className="text-[13px] font-bold text-primary sm:text-sm lg:text-base">{displayPrice.toLocaleString("vi-VN")}đ</span>
               {hasSale && (
-                <span className="text-[11px] text-gray-400 line-through md:text-xs">{originalPrice.toLocaleString("vi-VN")}đ</span>
+                <span className="max-w-full truncate text-[10px] text-gray-400 line-through sm:text-[11px] lg:text-xs">{originalPrice.toLocaleString("vi-VN")}đ</span>
               )}
             </>
           )}
@@ -93,26 +93,26 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
 
         {p.memberDeal && (
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 rounded-[4px] border border-red-100/50 bg-red-50 px-2 py-1 text-[10px] font-semibold text-primary">
+            <div className="flex min-w-0 items-start gap-1 rounded-[4px] border border-red-100/50 bg-red-50 px-2 py-1 text-[10px] font-semibold text-primary">
               {p.memberDeal}
             </div>
           </div>
         )}
 
-        <div className="mt-1 flex items-center justify-between border-t border-gray-100 pt-3 text-[10px] text-gray-500 md:text-[11px]">
-          <div className="flex items-center gap-1">
+        <div className="mt-1 flex min-w-0 items-start justify-between gap-2 border-t border-gray-100 pt-3 text-[10px] text-gray-500 lg:text-[11px]">
+          <div className="flex min-w-0 items-start gap-1">
             <span className="text-yellow-400">★</span>
-            <span>{p.rating ? `${p.rating} (${p.reviewCount || 0} đánh giá)` : "Chưa có đánh giá"}</span>
+            <span className="line-clamp-2">{p.rating ? `${p.rating} (${p.reviewCount || 0} đánh giá)` : "Chưa có đánh giá"}</span>
           </div>
           {!isDiscontinued && (
-            <button className="flex items-center gap-1 transition-colors hover:text-red-600" type="button">
+            <button className="flex shrink-0 items-center gap-1 transition-colors hover:text-red-600" type="button">
               <Heart className="h-3.5 w-3.5" />
-              Yêu thích
+              <span className="hidden min-[390px]:inline">Yêu thích</span>
             </button>
           )}
         </div>
 
-        {!isDiscontinued && <div className="mt-3 border-t border-slate-100 pt-2">
+        {!isDiscontinued && <div className="mt-2 border-t border-slate-100 pt-2">
           <Link
             to={`/compare?product=${p.id}`}
             className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-red-100 bg-red-50 text-xs font-bold text-primary transition-colors hover:border-primary hover:bg-primary hover:text-white"

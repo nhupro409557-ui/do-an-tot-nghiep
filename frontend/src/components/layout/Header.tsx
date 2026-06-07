@@ -4,6 +4,7 @@ import {
   Bell,
   ChevronDown,
   Image as ImageIcon,
+  LayoutGrid,
   Menu,
   PackageSearch,
   ShoppingCart,
@@ -23,6 +24,10 @@ export const Header = () => {
   const { user } = useAuth();
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
 
+  const handleCategoryClick = () => {
+    setIsCategoryOpen((value) => !value);
+  };
+
   return (
     <header className="sticky top-0 z-50 bg-primary text-white shadow-md">
       <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-6">
@@ -38,8 +43,18 @@ export const Header = () => {
           <div className="relative hidden md:block">
             <button
               type="button"
-              onClick={() => setIsCategoryOpen((value) => !value)}
-              className={`flex h-10 items-center gap-2 rounded-xl border border-white/20 px-4 text-sm font-semibold transition ${isCategoryOpen ? 'bg-white/20 shadow-inner' : 'hover:bg-white/10'}`}
+              onClick={handleCategoryClick}
+              className={`flex h-12 w-16 flex-col items-center justify-center rounded-md text-[11px] font-bold transition lg:hidden ${isCategoryOpen ? 'bg-white/20 shadow-inner' : 'hover:bg-white/10'}`}
+              aria-expanded={isCategoryOpen}
+            >
+              <LayoutGrid className="mb-0.5 h-5 w-5" strokeWidth={1.8} />
+              <span className="whitespace-nowrap">Danh mục</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCategoryClick}
+              className={`hidden h-10 items-center gap-2 rounded-xl border border-white/20 px-4 text-sm font-semibold transition lg:flex ${isCategoryOpen ? 'bg-white/20 shadow-inner' : 'hover:bg-white/10'}`}
               aria-expanded={isCategoryOpen}
             >
               <Menu className="h-5 w-5" />

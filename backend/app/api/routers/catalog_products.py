@@ -1,11 +1,11 @@
-from uuid import UUID
+﻿from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user_id
-from app.api.v1.routers.catalog_utils import CreateProductRequest, ProductAnalyticsEventRequest
+from app.api.dependencies import get_current_user_id
+from app.api.routers.catalog_utils import CreateProductRequest, ProductAnalyticsEventRequest
 from app.application.services import catalog_product_service
 from app.infrastructure.cache import get_redis
 from app.infrastructure.database.session import get_session

@@ -1,4 +1,4 @@
-import json
+﻿import json
 import re
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.admin import (
+from app.api.schemas.admin import (
     ContentPayload,
     ContentCommentPayload,
     AdminVideoCommentReplyPayload,
@@ -264,7 +264,7 @@ async def delete_content(
 
 def prepare_banner_payload(payload: ContentPayload) -> ContentPayload:
     if not payload.categoryIds:
-        raise HTTPException(status_code=422, detail="Banner phải chọn ít nhất một danh mục.")
+        raise HTTPException(status_code=422, detail="Banner pháº£i chá»n Ã­t nháº¥t má»™t danh má»¥c.")
     payload.contentType = "BANNER"
     payload.videoUrl = None
     payload.thumbnailUrl = payload.thumbnailUrl or payload.bannerImageUrl

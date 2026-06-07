@@ -1,11 +1,11 @@
-from uuid import UUID
+﻿from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user_id
-from app.api.v1.schemas.content import (
+from app.api.dependencies import get_current_user_id
+from app.api.schemas.content import (
     ProductImageCommentRequest,
     ReviewRequest,
     ReviewUpdateRequest,

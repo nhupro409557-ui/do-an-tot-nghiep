@@ -179,7 +179,7 @@ export const AIChatWidget = () => {
   };
 
   return (
-    <div className="fixed bottom-24 lg:bottom-6 right-4 md:right-6 z-[60]">
+    <div className="fixed bottom-20 right-3 z-[60] md:bottom-24 md:right-5 lg:bottom-6 lg:right-6">
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -187,7 +187,7 @@ export const AIChatWidget = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.92 }}
             transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-            className="absolute bottom-20 right-0 w-[calc(100vw-2rem)] md:w-[400px] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[540px]"
+            className="absolute bottom-16 right-0 flex h-[min(520px,calc(100dvh-8.5rem))] w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl md:bottom-[4.5rem] md:h-[500px] md:w-[380px] md:rounded-3xl lg:bottom-20 lg:h-[540px] lg:w-[400px]"
             style={{ boxShadow: '0 25px 60px -15px rgba(220, 38, 38, 0.25), 0 10px 30px -10px rgba(0,0,0,0.1)' }}
           >
             {/* Header */}
@@ -349,7 +349,7 @@ export const AIChatWidget = () => {
             <div className="absolute inset-0 rounded-full bg-red-500/30 animate-ping"></div>
           )}
           {/* Main button */}
-          <div className={`relative w-16 h-16 rounded-full shadow-xl inline-flex items-center justify-center transition-all duration-300 ${
+          <div className={`relative inline-flex h-12 w-12 items-center justify-center rounded-full shadow-xl transition-all duration-300 md:h-14 md:w-14 lg:h-16 lg:w-16 ${
             isOpen
               ? 'bg-gradient-to-br from-red-600 to-red-500 scale-90'
               : 'bg-gradient-to-br from-red-600 to-rose-500 hover:scale-110 hover:shadow-2xl hover:shadow-red-300/40'
@@ -357,13 +357,13 @@ export const AIChatWidget = () => {
             {isOpen ? (
               <X className="w-6 h-6 text-white" />
             ) : (
-              <img src={robotAvatar} alt="Chat" className="w-12 h-12 rounded-full object-cover ring-1 ring-white/20" />
+              <img src={robotAvatar} alt="Chat" className="h-9 w-9 rounded-full object-cover ring-1 ring-white/20 md:h-10 md:w-10 lg:h-12 lg:w-12" />
             )}
           </div>
           {/* Unread badge (when closed) */}
           {!isOpen && (
-            <div className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center">
-              <span className="text-[9px] font-bold text-white">1</span>
+            <div className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-emerald-500 md:-right-1 md:-top-1 md:h-5 md:w-5">
+              <span className="text-[8px] font-bold text-white md:text-[9px]">1</span>
             </div>
           )}
         </div>

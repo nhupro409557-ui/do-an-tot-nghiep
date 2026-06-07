@@ -1,10 +1,10 @@
-import json
+﻿import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.routers.catalog import product_row
+from app.api.routers.catalog import product_row
 from app.infrastructure.cache import get_redis
 from app.infrastructure.database.repositories import storefront_repo
 from app.infrastructure.database.session import get_session

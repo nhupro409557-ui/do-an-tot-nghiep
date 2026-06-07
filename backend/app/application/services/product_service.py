@@ -1,4 +1,4 @@
-import csv
+﻿import csv
 import io
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.category_service import audit_product_event, ensure_categories_not_migrating
 from app.application.services import attached_service
-from app.api.v1.schemas.admin import *
+from app.api.schemas.admin import *
 from app.shared.admin_utils import (
     display_status,
     ensure_not_data_url,
@@ -295,10 +295,10 @@ async def import_products(
     session: AsyncSession | None = None,
 ) -> dict:
     if not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ nhập sản phẩm từ tệp CSV.")
+        raise HTTPException(status_code=400, detail="Chá»‰ há»— trá»£ nháº­p sáº£n pháº©m tá»« tá»‡p CSV.")
     content = await file.read()
     if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Tệp CSV quá lớn.")
+        raise HTTPException(status_code=400, detail="Tá»‡p CSV quÃ¡ lá»›n.")
     job_id = uuid4()
     await product_repo.create_product_import_job(session, job_id=job_id, source_filename=file.filename)
     await session.commit()
@@ -428,17 +428,17 @@ async def update_product(product_id: UUID, payload: ProductPayload, session: Asy
     clean_specs, seo_metadata, sales_config = extract_product_metadata(payload.specifications)
     current = await product_repo.get_product_current_for_update(session, product_id)
     if not current:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
     await ensure_categories_not_migrating(session, [current["category_id"], current["subcategory_id"], payload.categoryId, payload.subcategoryId])
     if payload.version is not None and int(current["version"] or 0) != payload.version:
-        raise HTTPException(status_code=409, detail="Sản phẩm đã được cập nhật bởi quản trị viên khác. Vui lòng tải lại trang.")
+        raise HTTPException(status_code=409, detail="Sáº£n pháº©m Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t bá»Ÿi quáº£n trá»‹ viÃªn khÃ¡c. Vui lÃ²ng táº£i láº¡i trang.")
     if payload.updatedAt and payload.version is None:
         if str(current["updated_at"].isoformat())[:19] != str(payload.updatedAt)[:19]:
-            raise HTTPException(status_code=409, detail="Sản phẩm đã được cập nhật bởi quản trị viên khác. Vui lòng tải lại trang.")
+            raise HTTPException(status_code=409, detail="Sáº£n pháº©m Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t bá»Ÿi quáº£n trá»‹ viÃªn khÃ¡c. Vui lÃ²ng táº£i láº¡i trang.")
     if current["status"] == "MERGED":
-        raise HTTPException(status_code=400, detail="Bản chỉnh sửa này đã được áp dụng vào sản phẩm gốc, không thể sửa hoặc khôi phục lại.")
+        raise HTTPException(status_code=400, detail="Báº£n chá»‰nh sá»­a nÃ y Ä‘Ã£ Ä‘Æ°á»£c Ã¡p dá»¥ng vÃ o sáº£n pháº©m gá»‘c, khÃ´ng thá»ƒ sá»­a hoáº·c khÃ´i phá»¥c láº¡i.")
     if current["status"] == "ARCHIVED" and normalize_status(payload.status) == "ACTIVE":
-        raise HTTPException(status_code=400, detail="Sản phẩm đã lưu trữ không thể khôi phục trực tiếp. Vui lòng tạo bản nháp mới nếu cần bán lại.")
+        raise HTTPException(status_code=400, detail="Sáº£n pháº©m Ä‘Ã£ lÆ°u trá»¯ khÃ´ng thá»ƒ khÃ´i phá»¥c trá»±c tiáº¿p. Vui lÃ²ng táº¡o báº£n nhÃ¡p má»›i náº¿u cáº§n bÃ¡n láº¡i.")
     if normalize_status(payload.status) == "ACTIVE":
         blocker = await product_repo.product_visibility_blocker(
             session,
@@ -476,7 +476,7 @@ async def update_product(product_id: UUID, payload: ProductPayload, session: Asy
         is_flash_sale=payload.isFlashSale,
     )
     if updated_count == 0:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
     await upsert_product_variants(session, product_id, payload.variants, payload.name, payload.price, payload.discountPrice, payload.stock)
     await sync_parent_price_if_variants_exist(session, product_id)
     if normalize_status(payload.status) == "INACTIVE":

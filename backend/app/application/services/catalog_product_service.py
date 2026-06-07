@@ -1,11 +1,11 @@
-from uuid import UUID, uuid4
+﻿from uuid import UUID, uuid4
 import time
 
 from fastapi import HTTPException, Request, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.routers.catalog_utils import (
+from app.api.routers.catalog_utils import (
     CreateProductRequest,
     ProductAnalyticsEventRequest,
     PRODUCT_VIEW_DEDUPE_SECONDS,
@@ -186,7 +186,7 @@ async def create_product(payload: CreateProductRequest, session: AsyncSession) -
         slug=slug,
         category=category,
         brand=payload.brand,
-        description=payload.description or "Mô tả chi tiết",
+        description=payload.description or "MÃ´ táº£ chi tiáº¿t",
         price=payload.price,
         sale_price=payload.discountPrice,
         image_url=payload.imageUrl,

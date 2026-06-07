@@ -56,7 +56,7 @@ export function CollapsibleSection({
         <button
           type="button"
           onClick={() => setSectionOpen(true)}
-          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-red-700"
+          className="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-red-700"
         >
           <Plus className="h-4 w-4" /> Thêm
         </button>

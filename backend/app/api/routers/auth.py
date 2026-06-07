@@ -1,15 +1,15 @@
-from uuid import UUID
+﻿from uuid import UUID
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user_id
+from app.api.dependencies import get_current_user_id
 from app.infrastructure.cache import get_redis
 from app.infrastructure.database.repositories import auth_repo
 from app.infrastructure.database.session import get_session
 
-from app.api.v1.routers.auth_utils import (
+from app.api.routers.auth_utils import (
     pwd_context,
     REFRESH_COOKIE_NAME,
     admin_login_key,
@@ -44,8 +44,8 @@ from app.api.v1.routers.auth_utils import (
     request_ip,
 )
 
-from app.api.v1.routers.auth_verification import router as verification_router
-from app.api.v1.routers.auth_social import router as social_router
+from app.api.routers.auth_verification import router as verification_router
+from app.api.routers.auth_social import router as social_router
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 router.include_router(verification_router)
@@ -63,7 +63,7 @@ async def login(
     if not user or not pwd_context.verify(payload.password, user.password_hash):
         await audit_log(session, "login_failed", request, email=payload.email.lower())
         await session.commit()
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email hoặc mật khẩu không đúng.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email hoáº·c máº­t kháº©u khÃ´ng Ä‘Ãºng.")
     return await issue_auth_response(session, response, request, user)
 
 
@@ -83,18 +83,18 @@ async def admin_login(
     if not user or not pwd_context.verify(payload.password, user.password_hash):
         await record_admin_login_failed(session, redis, key, request, email)
         await session.commit()
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email hoặc mật khẩu không đúng.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email hoáº·c máº­t kháº©u khÃ´ng Ä‘Ãºng.")
 
     permissions = set(await list_permissions_for_user(session, user.id))
     if not permissions:
         await record_admin_login_failed(session, redis, key, request, email)
         await session.commit()
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tài khoản này không có quyền quản trị.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="TÃ i khoáº£n nÃ y khÃ´ng cÃ³ quyá»n quáº£n trá»‹.")
     role = await role_code(session, user.role_id)
     if role == "SUPER_ADMIN" and not super_admin_ip_allowed(request):
         await audit_log(session, "admin_login_ip_blocked", request, user_id=user.id, email=email, metadata={"ip": request_ip(request)})
         await session.commit()
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="IP hiện tại không được phép đăng nhập Super Admin.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="IP hiá»‡n táº¡i khÃ´ng Ä‘Æ°á»£c phÃ©p Ä‘Äƒng nháº­p Super Admin.")
 
     await clear_admin_login_failed(redis, key)
     mfa = await admin_mfa_row(session, user.id)
@@ -128,12 +128,12 @@ async def verify_admin_mfa(
     redis: Redis = Depends(get_redis),
 ) -> AuthResponse:
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Thiếu phiên xác thực MFA.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Thiáº¿u phiÃªn xÃ¡c thá»±c MFA.")
     user_id, scope, token_jti = decode_admin_mfa_token(authorization.split(" ", 1)[1], request)
     used_token_key = f"admin_mfa_used:{token_jti}"
     try:
         if await redis.get(used_token_key):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Phiên MFA đã được sử dụng.")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="PhiÃªn MFA Ä‘Ã£ Ä‘Æ°á»£c sá»­ dá»¥ng.")
     except HTTPException:
         raise
     except Exception:
@@ -141,17 +141,17 @@ async def verify_admin_mfa(
     user = await get_active_user(session, user_id)
     mfa = await admin_mfa_row(session, user.id)
     if not mfa or not mfa.get("mfa_secret"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="MFA chưa được khởi tạo.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="MFA chÆ°a Ä‘Æ°á»£c khá»Ÿi táº¡o.")
     import pyotp
     totp = pyotp.TOTP(str(mfa["mfa_secret"]))
     if not totp.verify(payload.code.strip(), valid_window=1):
         await audit_log(session, "admin_mfa_failed", request, user_id=user.id, email=user.email, metadata={"scope": scope})
         await session.commit()
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Mã xác thực MFA không hợp lệ.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="MÃ£ xÃ¡c thá»±c MFA khÃ´ng há»£p lá»‡.")
     if scope == "mfa_setup":
         await auth_repo.enable_admin_mfa(session, user.id)
     elif scope != "mfa_verify":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Phiên MFA không hợp lệ.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="PhiÃªn MFA khÃ´ng há»£p lá»‡.")
     try:
         await redis.setex(used_token_key, 5 * 60, "1")
     except Exception:
@@ -265,7 +265,7 @@ async def revoke_session(
     current_hash = hash_refresh_token(refresh_token) if refresh_token else None
     target = await auth_repo.get_active_refresh_session_for_update(session, session_id=session_id, user_id=current_user_id)
     if target is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy phiên đăng nhập.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KhÃ´ng tÃ¬m tháº¥y phiÃªn Ä‘Äƒng nháº­p.")
 
     await auth_repo.revoke_refresh_session_by_id(session, session_id)
     await audit_log(
@@ -313,7 +313,7 @@ async def change_password(
     await ensure_session_security_tables(session)
     user = await get_active_user(session, current_user_id)
     if not pwd_context.verify(payload.currentPassword, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mật khẩu hiện tại không đúng.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Máº­t kháº©u hiá»‡n táº¡i khÃ´ng Ä‘Ãºng.")
     user.password_hash = pwd_context.hash(payload.newPassword)
     await auth_repo.revoke_all_user_refresh_sessions(session, user.id)
     await auth_repo.upsert_auth_session_revocation(session, user_id=user.id, reason="password_changed")

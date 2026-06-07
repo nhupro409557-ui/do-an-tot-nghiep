@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight, Flame, ShieldCheck, Truck, Zap } from 'lucide-react';
 import { CatalogGroup } from '../../data/categories';
@@ -141,6 +141,12 @@ const getMenuGroups = (slug: string, subcategoryGroups: CatalogGroup[], brands: 
   return [...brandGroup, ...demandGroups, ...configuredGroups].filter((group) => group.items.length > 0);
 };
 
+const quickLinks = [
+  { icon: Zap, title: 'Flash sale', text: 'Giá tốt hôm nay', href: '/search?flash_sale=true' },
+  { icon: Truck, title: 'Giao nhanh', text: 'Nội thành 2 giờ', href: '/delivery-policy' },
+  { icon: ShieldCheck, title: 'Bảo hành', text: 'Chính hãng rõ ràng', href: '/warranty' },
+];
+
 export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
   const { categories, loading } = useCatalog({ includeRankedFeatured: true });
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -149,6 +155,12 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
     () => categories.find(category => category.id === activeId || category.slug === activeId) || null,
     [activeId, categories]
   );
+
+  useEffect(() => {
+    if (!compact && !activeId && categories.length > 0) {
+      setActiveId(categories[0].id);
+    }
+  }, [activeId, categories, compact]);
 
   if (loading) {
     return (
@@ -170,14 +182,32 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
     ? getMenuGroups(activeCategory.slug, activeCategory.groups, activeCategory.brands)
     : [];
 
+  const handleCategoryClick = (event: React.MouseEvent<HTMLAnchorElement>, category: typeof categories[number]) => {
+    const isTouchLayout = window.matchMedia('(hover: none)').matches;
+
+    if (compact && !isTouchLayout) {
+      onNavigate?.();
+      return;
+    }
+
+    if (isTouchLayout || activeCategory?.id !== category.id) {
+      event.preventDefault();
+      setActiveId(category.id);
+    } else {
+      onNavigate?.();
+    }
+  };
+
   return (
     <div
-      onMouseLeave={() => setActiveId(null)}
+      onMouseLeave={() => {
+        if (compact) setActiveId(null);
+      }}
       className={`relative flex overflow-visible text-slate-900 ${
         compact ? 'h-full w-[274px]' : 'w-full'
-      }`}
+      } ${compact ? '' : 'flex-col gap-3 md:flex-row md:gap-4'}`}
     >
-      <nav className={`${compact ? 'h-full' : 'max-h-[min(640px,calc(100vh-96px))]'} flex w-[274px] shrink-0 flex-col overflow-hidden rounded-xl border border-slate-100 bg-white py-2 shadow-xl`}>
+      <nav className={`${compact ? 'h-full w-[274px]' : 'w-full md:max-h-[min(640px,calc(100vh-96px))] md:w-[248px] xl:w-[274px]'} flex shrink-0 flex-col overflow-hidden rounded-xl border border-slate-100 bg-white py-2 shadow-xl`}>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {categories.map((category) => {
             const Icon = category.icon;
@@ -189,8 +219,8 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
                 to={`/products/${category.slug}`}
                 onMouseEnter={() => setActiveId(category.id)}
                 onFocus={() => setActiveId(category.id)}
-                onClick={onNavigate}
-                className={`flex h-11 items-center justify-between px-5 text-[15px] font-semibold transition ${
+                onClick={(event) => handleCategoryClick(event, category)}
+                className={`flex h-11 min-w-[196px] items-center justify-between px-5 text-[15px] font-semibold transition md:min-w-0 ${
                   isActive ? 'bg-red-50 text-primary' : 'text-slate-800 hover:bg-slate-50 hover:text-primary'
                 }`}
               >
@@ -204,13 +234,8 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
           })}
         </div>
 
-        {compact && (
-          <div className="mx-3 mt-2 grid gap-2 border-t border-slate-100 pt-3">
-            {[
-              { icon: Zap, title: 'Flash sale', text: 'Giá tốt hôm nay', href: '/search?flash_sale=true' },
-              { icon: Truck, title: 'Giao nhanh', text: 'Nội thành 2 giờ', href: '/delivery-policy' },
-              { icon: ShieldCheck, title: 'Bảo hành', text: 'Chính hãng rõ ràng', href: '/warranty' },
-            ].map((item) => {
+        <div className="mx-3 mt-2 grid gap-2 border-t border-slate-100 pt-3">
+            {quickLinks.map((item) => {
               const Icon = item.icon;
               return (
                 <Link key={item.title} to={item.href} className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 transition hover:bg-red-50">
@@ -224,14 +249,13 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
                 </Link>
               );
             })}
-          </div>
-        )}
+        </div>
       </nav>
 
       {activeCategory && (
-        <div className={`${compact ? 'absolute left-[274px] top-0 w-[min(1000px,calc(100vw-322px))]' : 'flex-1'} h-[min(640px,calc(100vh-96px))] overflow-hidden rounded-xl border border-slate-100 bg-white shadow-xl`}>
-          <div className="grid h-full grid-cols-1 gap-6 overflow-y-auto p-5 lg:grid-cols-[1fr_260px]">
-            <div className="grid grid-cols-2 gap-x-8 gap-y-5 xl:grid-cols-4">
+        <div className={`${compact ? 'absolute left-[274px] top-0 h-[min(640px,calc(100vh-96px))] w-[min(1000px,calc(100vw-322px))]' : 'h-[560px] max-h-[calc(100vh-236px)] min-h-[360px] flex-1 md:h-[min(640px,calc(100vh-96px))] md:max-h-none'} overflow-hidden rounded-xl border border-slate-100 bg-white shadow-xl`}>
+          <div className="grid h-full grid-cols-1 gap-5 overflow-y-auto p-4 sm:p-5 lg:grid-cols-[1fr_260px]">
+            <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2 xl:grid-cols-4">
               {panelGroups.map((group) => (
                 <section key={group.title} className="min-w-0">
                   <h3 className="mb-2 text-[15px] font-bold text-slate-950">{group.title}</h3>

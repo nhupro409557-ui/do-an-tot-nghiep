@@ -1,4 +1,4 @@
-import json
+﻿import json
 import asyncio
 import logging
 import contextlib
@@ -10,23 +10,23 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from jose import JWTError, jwt
 
-from app.api.v1.routers.ai_assistant import router as ai_assistant_router
-from app.api.v1.routers.admin import router as admin_router
-from app.api.v1.routers.auth import router as auth_router
-from app.api.v1.routers.auth_email import router as auth_email_router
-from app.api.v1.routers.catalog import router as catalog_router
-from app.api.v1.routers.commerce import router as commerce_router
-from app.api.v1.routers.content import router as content_router
-from app.api.v1.routers.loyalty import router as loyalty_router
-from app.api.v1.routers.storefront import router as storefront_router
-from app.api.v1.routers.users import router as users_router
+from app.api.routers.ai_assistant import router as ai_assistant_router
+from app.api.routers.admin import router as admin_router
+from app.api.routers.auth import router as auth_router
+from app.api.routers.auth_email import router as auth_email_router
+from app.api.routers.catalog import router as catalog_router
+from app.api.routers.commerce import router as commerce_router
+from app.api.routers.content import router as content_router
+from app.api.routers.loyalty import router as loyalty_router
+from app.api.routers.storefront import router as storefront_router
+from app.api.routers.users import router as users_router
 from app.application.commerce.use_cases import CompleteOrderUseCase
 from app.config import settings
 from app.infrastructure.database.repositories import audit_repo
 from app.infrastructure.database.session import AsyncSessionFactory
 
 
-# Khởi tạo Logger chuẩn
+# Khá»Ÿi táº¡o Logger chuáº©n
 logger = logging.getLogger("ecommerce_app")
 logging.basicConfig(level=logging.INFO)
 

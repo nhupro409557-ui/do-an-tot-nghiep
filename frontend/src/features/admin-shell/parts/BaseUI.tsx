@@ -180,14 +180,14 @@ export function SubmitButtons({
 }) {
   return (
     <div className="flex items-end gap-2">
-      <button className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-red-700">
-        <Plus className="h-4 w-4" /> {editing ? 'LÆ°u' : 'ThÃªm'}
+      <button className="inline-flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-red-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-red-700">
+        <Plus className="h-4 w-4 shrink-0" /> {editing ? 'Lưu' : 'Thêm'}
       </button>
       {editing && (
         <button
           type="button"
           onClick={onCancel}
-          title="Há»§y chá»‰nh sá»­a"
+          title="Hủy chỉnh sửa"
           className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
         >
           <X className="h-4 w-4" />

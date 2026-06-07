@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+﻿from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks, HTTPException, status
@@ -6,7 +6,7 @@ from passlib.context import CryptContext
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.admin import *
+from app.api.schemas.admin import *
 from app.infrastructure.database.repositories import customer_repo
 from app.infrastructure.database.session import AsyncSessionFactory
 

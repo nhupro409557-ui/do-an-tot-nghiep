@@ -1,11 +1,11 @@
-import re
+﻿import re
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.api.v1.dependencies import get_user_permissions
+from app.api.dependencies import get_user_permissions
 from app.config import settings
 
 
@@ -33,7 +33,7 @@ class PresignedUploadPayload(BaseModel):
 def require_upload_permission(folder: str, permissions: set[str]) -> None:
     required_permission = UPLOAD_FOLDER_PERMISSIONS.get(folder)
     if not required_permission or required_permission not in permissions:
-        raise HTTPException(status_code=403, detail="Bạn không có quyền tải file cho khu vực này.")
+        raise HTTPException(status_code=403, detail="Báº¡n khÃ´ng cÃ³ quyá»n táº£i file cho khu vá»±c nÃ y.")
 
 
 @router.post("/presigned-url")

@@ -1,9 +1,9 @@
-from uuid import UUID
+﻿from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_user_id
+from app.api.dependencies import get_current_user_id
 from app.application.loyalty.schemas import RedeemPointsRequest, RedeemPointsResponse
 from app.application.loyalty.use_cases import RedeemPointsUseCase
 from app.infrastructure.database.session import get_session

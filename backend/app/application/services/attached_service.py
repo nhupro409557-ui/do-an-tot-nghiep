@@ -1,9 +1,9 @@
-from uuid import UUID, uuid4
+﻿from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.admin import AttachedServicePayload
+from app.api.schemas.admin import AttachedServicePayload
 from app.infrastructure.database.repositories import attached_service_repo
 
 
@@ -63,7 +63,7 @@ async def update_attached_service(
         **pricing,
     )
     if updated == 0:
-        raise HTTPException(status_code=404, detail="Không tìm thấy dịch vụ.")
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y dá»‹ch vá»¥.")
     await session.commit()
     return {"ok": True}
 
@@ -71,6 +71,6 @@ async def update_attached_service(
 async def deactivate_attached_service(session: AsyncSession, service_id: UUID) -> dict:
     updated = await attached_service_repo.deactivate_attached_service(session, service_id)
     if updated == 0:
-        raise HTTPException(status_code=404, detail="Không tìm thấy dịch vụ.")
+        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y dá»‹ch vá»¥.")
     await session.commit()
     return {"ok": True, "action": "deactivated"}

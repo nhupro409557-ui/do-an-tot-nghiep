@@ -1,4 +1,4 @@
-import csv
+﻿import csv
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -6,7 +6,7 @@ from fastapi import BackgroundTasks, HTTPException, UploadFile, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.admin import (
+from app.api.schemas.admin import (
     BrandBulkStatusPayload,
     BrandCodeCheckPayload,
     BrandPayload,
@@ -182,7 +182,7 @@ async def import_brands(
         raise HTTPException(status_code=400, detail="Mode must be skip or upsert.")
     filename = file.filename or "brands.csv"
     if not filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file CSV.")
+        raise HTTPException(status_code=400, detail="Chá»‰ há»— trá»£ file CSV.")
     import_dir = Path(settings.brand_import_dir)
     if not import_dir.is_absolute():
         import_dir = Path.cwd() / import_dir
@@ -194,15 +194,15 @@ async def import_brands(
         while chunk := await file.read(1024 * 1024):
             size += len(chunk)
             if size > 50 * 1024 * 1024:
-                raise HTTPException(status_code=413, detail="File import vượt quá 50MB.")
+                raise HTTPException(status_code=413, detail="File import vÆ°á»£t quÃ¡ 50MB.")
             output.write(chunk)
     with source_path.open("r", encoding="utf-8-sig", newline="") as csv_file:
         rows = list(csv.reader(csv_file))
     total_rows = len(rows)
-    if rows and rows[0] and rows[0][0].strip().lower() in {"tên", "ten", "name"}:
+    if rows and rows[0] and rows[0][0].strip().lower() in {"tÃªn", "ten", "name"}:
         total_rows -= 1
     if total_rows <= 0:
-        raise HTTPException(status_code=400, detail="File cần có ít nhất một dòng dữ liệu.")
+        raise HTTPException(status_code=400, detail="File cáº§n cÃ³ Ã­t nháº¥t má»™t dÃ²ng dá»¯ liá»‡u.")
     job_id = await enqueue_brand_import_job(
         session,
         redis,

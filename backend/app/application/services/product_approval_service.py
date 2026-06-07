@@ -1,8 +1,8 @@
-from uuid import UUID
+﻿from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.schemas.admin import ProductBulkActionPayload
+from app.api.schemas.admin import ProductBulkActionPayload
 from app.infrastructure.database.repositories import product_approval_repo
 from app.infrastructure.database.repositories import product_repo
 from app.application.services.product_helper_service import (

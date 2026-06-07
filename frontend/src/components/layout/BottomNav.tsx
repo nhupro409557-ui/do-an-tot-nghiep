@@ -1,6 +1,6 @@
-import React from 'react';
-import { Home, LayoutGrid, PlaySquare, Trophy, User } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import React, { useEffect, useRef } from 'react';
+import { Home, Image as ImageIcon, LayoutGrid, PlaySquare, Trophy, User } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -8,6 +8,15 @@ export const BottomNav = () => {
   const { totalQuantity } = useCart();
   const { user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
+  const lastNonCategoryPathRef = useRef('/');
+  const isCategoryPath = location.pathname.startsWith('/category');
+
+  useEffect(() => {
+    if (!isCategoryPath) {
+      lastNonCategoryPathRef.current = `${location.pathname}${location.search}${location.hash}`;
+    }
+  }, [isCategoryPath, location.hash, location.pathname, location.search]);
 
   const isActive = (path: string) => {
     if (path === '/' && location.pathname !== '/') return false;
@@ -18,6 +27,7 @@ export const BottomNav = () => {
     { path: '/', icon: <Home className="w-6 h-6 mb-1" strokeWidth={1.5} />, label: 'Trang chủ' },
     { path: '/category', icon: <LayoutGrid className="w-6 h-6 mb-1" strokeWidth={1.5} />, label: 'Danh mục' },
     { path: '/video', icon: <PlaySquare className="w-6 h-6 mb-1 fill-primary/10" strokeWidth={1.5} />, label: 'Video' },
+    { path: '/images', icon: <ImageIcon className="w-6 h-6 mb-1" strokeWidth={1.5} />, label: 'Hình ảnh' },
     { path: '/rankings', icon: <Trophy className="w-6 h-6 mb-1" strokeWidth={1.5} />, label: 'Xếp hạng' },
     {
       path: user ? '/dashboard' : '/login',
@@ -32,23 +42,31 @@ export const BottomNav = () => {
           )}
         </div>
       ),
-      label: user ? (user.displayName || 'Tài khoản') : 'Tài khoản'
+      label: user ? (user.displayName || 'Tài khoản') : 'Tài khoản',
     },
   ];
 
+  const handleNavClick = (event: React.MouseEvent<HTMLAnchorElement>, path: string) => {
+    if (path !== '/category' || !isCategoryPath) return;
+
+    event.preventDefault();
+    navigate(lastNonCategoryPathRef.current || '/');
+  };
+
   return (
-    // Hiển thị trên màn hình nhỏ và vừa (mobile, tablet), ẩn trên desktop (lg)
-    <div className="sticky bottom-0 w-full bg-white border-t border-gray-200 flex justify-around items-center px-1 pb-safe pt-2 lg:hidden z-50 shadow-[0_-4px_10px_rgba(0,0,0,0.03)]">
+    <div className="sticky bottom-0 z-50 flex w-full items-center justify-around border-t border-gray-200 bg-white px-1 pb-safe pt-2 shadow-[0_-4px_10px_rgba(0,0,0,0.03)] lg:hidden">
       {navItems.map((item) => {
-        const active = isActive(item.path.split('/')[1] ? `/${item.path.split('/')[1]}` : '/'); // roughly match
+        const active = isActive(item.path.split('/')[1] ? `/${item.path.split('/')[1]}` : '/');
+
         return (
-          <Link 
-            key={item.label} 
+          <Link
+            key={item.label}
             to={item.path}
-            className={`flex flex-col items-center flex-1 p-1 ${active ? 'text-primary' : 'text-gray-500 hover:text-primary transition-colors'}`}
+            onClick={(event) => handleNavClick(event, item.path)}
+            className={`flex flex-1 flex-col items-center p-1 ${active ? 'text-primary' : 'text-gray-500 transition-colors hover:text-primary'}`}
           >
             {item.icon}
-            <span className={`text-[10px] whitespace-nowrap ${active ? 'font-bold' : 'font-medium'}`}>
+            <span className={`whitespace-nowrap text-[10px] ${active ? 'font-bold' : 'font-medium'}`}>
               {item.label}
             </span>
           </Link>

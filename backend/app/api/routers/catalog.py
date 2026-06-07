@@ -1,12 +1,12 @@
-from fastapi import APIRouter, Depends, Query
+﻿from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.session import get_session
 from app.infrastructure.database.repositories import catalog_product_repo
-from app.api.v1.routers.catalog_categories import router as catalog_categories_router
-from app.api.v1.routers.catalog_products import router as catalog_products_router
-from app.api.v1.routers.catalog_search import router as catalog_search_router
-from app.api.v1.routers.catalog_utils import product_row
+from app.api.routers.catalog_categories import router as catalog_categories_router
+from app.api.routers.catalog_products import router as catalog_products_router
+from app.api.routers.catalog_search import router as catalog_search_router
+from app.api.routers.catalog_utils import product_row
 
 router = APIRouter(prefix="/catalog", tags=["Catalog"])
 router.include_router(catalog_categories_router)
@@ -60,7 +60,7 @@ async def list_products(
     
     items = [product_row(row) for row in rows]
     
-    from app.api.v1.routers.catalog_utils import product_matches_category, product_search_score, approximate_trend_score, current_price
+    from app.api.routers.catalog_utils import product_matches_category, product_search_score, approximate_trend_score, current_price
     
     # Category filter in python
     if category and category.lower() != "all":

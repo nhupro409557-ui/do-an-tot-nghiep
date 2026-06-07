@@ -1,10 +1,10 @@
-from uuid import UUID
+﻿from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import require_permission
-from app.api.v1.schemas.admin import AttachedServicePayload, ProductPayload
+from app.api.dependencies import require_permission
+from app.api.schemas.admin import AttachedServicePayload, ProductPayload
 from app.application.services import attached_service, product_service
 from app.infrastructure.database.session import get_session
 

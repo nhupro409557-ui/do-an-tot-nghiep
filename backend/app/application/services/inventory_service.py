@@ -1,4 +1,4 @@
-import csv
+﻿import csv
 import io
 from uuid import UUID, uuid4
 
@@ -6,7 +6,7 @@ from fastapi import HTTPException, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.product_helper_service import persisted_sales_config, sync_parent_price_from_variants
-from app.api.v1.schemas.admin import InventoryAdjustmentPayload, InventorySettingsPayload, VariantInventoryPayload
+from app.api.schemas.admin import InventoryAdjustmentPayload, InventorySettingsPayload, VariantInventoryPayload
 from app.infrastructure.database.repositories import inventory_repo
 from app.shared.admin_utils import generate_inventory_imei
 
@@ -86,9 +86,9 @@ async def export_inventory_snapshot(session: AsyncSession, search: str = "") -> 
                 "variantColor": row.get("colorName") or "",
                 "stockQuantity": stock_quantity,
                 "minimumStock": minimum_stock,
-                "stockAlert": "Cần nhập thêm" if stock_quantity <= minimum_stock else "Ổn định",
+                "stockAlert": "Cáº§n nháº­p thÃªm" if stock_quantity <= minimum_stock else "á»”n Ä‘á»‹nh",
                 "productStatus": row.get("productStatus"),
-                "blockSaleWhenOutOfStock": "Có" if sales_config.get("blockSaleWhenOutOfStock", True) else "Không",
+                "blockSaleWhenOutOfStock": "CÃ³" if sales_config.get("blockSaleWhenOutOfStock", True) else "KhÃ´ng",
             }
         )
     return Response(
@@ -123,12 +123,12 @@ async def adjust_product_inventory(
         elif len(active_variants) > 1:
             raise HTTPException(
                 status_code=400,
-                detail="Sản phẩm có nhiều biến thể. Vui lòng chọn biến thể cụ thể để điều chỉnh tồn kho."
+                detail="Sáº£n pháº©m cÃ³ nhiá»u biáº¿n thá»ƒ. Vui lÃ²ng chá»n biáº¿n thá»ƒ cá»¥ thá»ƒ Ä‘á»ƒ Ä‘iá»u chá»‰nh tá»“n kho."
             )
         else:
             raise HTTPException(
                 status_code=400,
-                detail="Sản phẩm không có biến thể hoạt động nào."
+                detail="Sáº£n pháº©m khÃ´ng cÃ³ biáº¿n thá»ƒ hoáº¡t Ä‘á»™ng nÃ o."
             )
 
     row = await inventory_repo.get_variant_inventory_for_update(

@@ -1,4 +1,4 @@
-from uuid import uuid4
+﻿from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,7 +7,7 @@ from app.infrastructure.database.models import User
 from app.infrastructure.database.repositories import auth_repo
 from app.infrastructure.database.session import get_session
 
-from app.api.v1.routers.auth_utils import (
+from app.api.routers.auth_utils import (
     pwd_context,
     GoogleLoginRequest,
     AuthResponse,

@@ -1,5 +1,12 @@
 ﻿# Product Management Notes
 
+## Update 2026-06-07 admin product submit button layout
+
+- Sửa nút submit dùng chung trong form admin để nhãn `Lưu`/`Thêm` hiển thị đúng Unicode và không bị xuống dòng hoặc co chữ khi vùng hiển thị hẹp.
+- `SubmitButtons` nay giữ nguyên dòng bằng `whitespace-nowrap`, không co nút/icon bằng `shrink-0`, giúp nút trong popup quản lý sản phẩm không còn bị vỡ chữ.
+- Bổ sung cùng nguyên tắc chống xuống dòng cho nút mở popup `Thêm` trong `CollapsibleSection`.
+- Verification: `npm run lint` trong `frontend` thành công.
+
 ## Update 2026-06-06 inherited category/brand visibility
 
 - ThÃªm hai cá»™t `products.hidden_by_category` vÃ  `products.hidden_by_brand` Ä‘á»ƒ phÃ¢n biá»‡t sáº£n pháº©m bá»‹ áº©n do danh má»¥c/thÆ°Æ¡ng hiá»‡u vá»›i sáº£n pháº©m do admin chá»§ Ä‘á»™ng táº¯t.

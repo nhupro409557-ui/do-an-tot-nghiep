@@ -1,10 +1,10 @@
-from uuid import UUID
+﻿from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.dependencies import get_current_role_code, require_permission
-from app.api.v1.schemas.admin import ProductBulkActionPayload
+from app.api.dependencies import get_current_role_code, require_permission
+from app.api.schemas.admin import ProductBulkActionPayload
 from app.application.services import product_approval_service
 from app.infrastructure.database.session import get_session
 
