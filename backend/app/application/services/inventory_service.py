@@ -86,9 +86,9 @@ async def export_inventory_snapshot(session: AsyncSession, search: str = "") -> 
                 "variantColor": row.get("colorName") or "",
                 "stockQuantity": stock_quantity,
                 "minimumStock": minimum_stock,
-                "stockAlert": "Cáº§n nháº­p thÃªm" if stock_quantity <= minimum_stock else "á»”n Ä‘á»‹nh",
+                "stockAlert": "Cần nhập thêm" if stock_quantity <= minimum_stock else "Ổn định",
                 "productStatus": row.get("productStatus"),
-                "blockSaleWhenOutOfStock": "CÃ³" if sales_config.get("blockSaleWhenOutOfStock", True) else "KhÃ´ng",
+                "blockSaleWhenOutOfStock": "Có" if sales_config.get("blockSaleWhenOutOfStock", True) else "Không",
             }
         )
     return Response(
@@ -123,12 +123,12 @@ async def adjust_product_inventory(
         elif len(active_variants) > 1:
             raise HTTPException(
                 status_code=400,
-                detail="Sáº£n pháº©m cÃ³ nhiá»u biáº¿n thá»ƒ. Vui lÃ²ng chá»n biáº¿n thá»ƒ cá»¥ thá»ƒ Ä‘á»ƒ Ä‘iá»u chá»‰nh tá»“n kho."
+                detail="Sản phẩm có nhiều biến thể. Vui lòng chọn biến thể cụ thể để điều chỉnh tồn kho."
             )
         else:
             raise HTTPException(
                 status_code=400,
-                detail="Sáº£n pháº©m khÃ´ng cÃ³ biáº¿n thá»ƒ hoáº¡t Ä‘á»™ng nÃ o."
+                detail="Sản phẩm không có biến thể hoạt động nào."
             )
 
     row = await inventory_repo.get_variant_inventory_for_update(

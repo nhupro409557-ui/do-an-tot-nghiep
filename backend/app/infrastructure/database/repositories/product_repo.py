@@ -173,7 +173,7 @@ async def list_admin_product_rows(
                 CASE WHEN p.stock_quantity > 0 THEN 'IN_STOCK' ELSE 'OUT_OF_STOCK' END AS "stockState",
                 CASE
                     WHEN p.status = 'ACTIVE' AND p.stock_quantity <= 0 THEN 'Hết hàng'
-                    WHEN p.status = 'DRAFT' THEN 'Nháp'
+                    WHEN p.status = 'DRAFT' THEN 'Nháp thêm'
                     WHEN p.status = 'PENDING' THEN 'Chờ duyệt'
                     WHEN p.status = 'ACTIVE' THEN 'Đang bán'
                     ELSE p.status
@@ -734,7 +734,7 @@ async def insert_product_record(
 async def get_product_current_for_update(session: AsyncSession, product_id: UUID) -> dict | None:
     row = (
         await session.execute(
-            text("SELECT status, version, updated_at, name, price, sale_price, category_id, subcategory_id FROM products WHERE id = :id"),
+            text("SELECT status, version, updated_at, name, price, sale_price, stock_quantity, category_id, subcategory_id FROM products WHERE id = :id"),
             {"id": product_id},
         )
     ).mappings().first()

@@ -123,7 +123,7 @@ async def retract_video_comment(session: AsyncSession, *, video_id: UUID, commen
     return int(result.rowcount or 0)
 
 
-async def list_product_image_comments(session: AsyncSession, product_id: UUID) -> list[dict]:
+async def list_product_image_comments(session: AsyncSession, product_id: UUID, interaction_type: str = "IMAGE_COMMENT") -> list[dict]:
     result = await session.execute(
         text(
             """
@@ -139,25 +139,29 @@ async def list_product_image_comments(session: AsyncSession, product_id: UUID) -
             FROM product_image_comments
             WHERE product_id = :product_id
               AND is_hidden = FALSE
+              AND interaction_type = :interaction_type
             ORDER BY created_at ASC
             """
         ),
-        {"product_id": product_id},
+        {"product_id": product_id, "interaction_type": interaction_type},
     )
     return [dict(row._mapping) for row in result]
 
 
-async def get_product_image_comment_parent(session: AsyncSession, *, parent_id: UUID, product_id: UUID) -> dict | None:
+async def get_product_image_comment_parent(session: AsyncSession, *, parent_id: UUID, product_id: UUID, interaction_type: str = "IMAGE_COMMENT") -> dict | None:
     row = (
         await session.execute(
             text(
                 """
                 SELECT id, parent_id, user_name
                 FROM product_image_comments
-                WHERE id = :parent_id AND product_id = :product_id AND is_hidden = FALSE
+                WHERE id = :parent_id
+                  AND product_id = :product_id
+                  AND is_hidden = FALSE
+                  AND interaction_type = :interaction_type
                 """
             ),
-            {"parent_id": parent_id, "product_id": product_id},
+            {"parent_id": parent_id, "product_id": product_id, "interaction_type": interaction_type},
         )
     ).mappings().first()
     return dict(row) if row else None
@@ -176,17 +180,18 @@ async def insert_product_image_comment(
     reply_to_user_name: str | None,
     is_hidden: bool,
     moderation_reason: str | None,
+    interaction_type: str = "IMAGE_COMMENT",
 ) -> None:
     await session.execute(
         text(
             """
             INSERT INTO product_image_comments (
                 id, product_id, image_url, user_id, user_name, body, parent_id, reply_to_user_name,
-                is_hidden, is_retracted, moderation_reason, created_at, updated_at
+                is_hidden, is_retracted, moderation_reason, interaction_type, created_at, updated_at
             )
             VALUES (
                 :id, :product_id, :image_url, :user_id, :user_name, :body, :parent_id, :reply_to_user_name,
-                :is_hidden, FALSE, :moderation_reason, NOW(), NOW()
+                :is_hidden, FALSE, :moderation_reason, :interaction_type, NOW(), NOW()
             )
             """
         ),
@@ -201,11 +206,12 @@ async def insert_product_image_comment(
             "reply_to_user_name": reply_to_user_name,
             "is_hidden": is_hidden,
             "moderation_reason": moderation_reason,
+            "interaction_type": interaction_type,
         },
     )
 
 
-async def retract_product_image_comment(session: AsyncSession, *, product_id: UUID, comment_id: UUID, user_id: UUID) -> int:
+async def retract_product_image_comment(session: AsyncSession, *, product_id: UUID, comment_id: UUID, user_id: UUID, interaction_type: str = "IMAGE_COMMENT") -> int:
     result = await session.execute(
         text(
             """
@@ -214,9 +220,10 @@ async def retract_product_image_comment(session: AsyncSession, *, product_id: UU
             WHERE id = :comment_id
               AND product_id = :product_id
               AND user_id = :user_id
+              AND interaction_type = :interaction_type
             """
         ),
-        {"comment_id": comment_id, "product_id": product_id, "user_id": user_id},
+        {"comment_id": comment_id, "product_id": product_id, "user_id": user_id, "interaction_type": interaction_type},
     )
     return int(result.rowcount or 0)
 
@@ -316,6 +323,7 @@ async def list_admin_image_comments(session: AsyncSession) -> list[dict]:
                 pic.is_hidden AS "isHidden",
                 pic.is_retracted AS "isRetracted",
                 pic.moderation_reason AS "moderationReason",
+                pic.interaction_type AS "interactionType",
                 pic.created_at AS "createdAt"
             FROM product_image_comments pic
             JOIN products p ON p.id = pic.product_id
@@ -331,7 +339,7 @@ async def get_image_comment_for_reply(session: AsyncSession, comment_id: UUID) -
         await session.execute(
             text(
                 """
-                SELECT id, product_id, image_url, parent_id, user_name
+                SELECT id, product_id, image_url, parent_id, user_name, interaction_type
                 FROM product_image_comments
                 WHERE id = :comment_id
                 """
@@ -353,17 +361,18 @@ async def insert_admin_image_comment_reply(
     body: str,
     parent_id: UUID,
     reply_to_user_name: str,
+    interaction_type: str = "IMAGE_COMMENT",
 ) -> None:
     await session.execute(
         text(
             """
             INSERT INTO product_image_comments (
                 id, product_id, image_url, user_id, user_name, body, parent_id, reply_to_user_name,
-                is_hidden, is_retracted, created_at, updated_at
+                is_hidden, is_retracted, interaction_type, created_at, updated_at
             )
             VALUES (
                 :id, :product_id, :image_url, :actor_id, :user_name, :body, :parent_id, :reply_to_user_name,
-                FALSE, FALSE, NOW(), NOW()
+                FALSE, FALSE, :interaction_type, NOW(), NOW()
             )
             """
         ),
@@ -376,6 +385,7 @@ async def insert_admin_image_comment_reply(
             "body": body,
             "parent_id": parent_id,
             "reply_to_user_name": reply_to_user_name,
+            "interaction_type": interaction_type,
         },
     )
 

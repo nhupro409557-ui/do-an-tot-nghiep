@@ -236,6 +236,14 @@ export const publicApi = {
   retractProductImageComment: (productId: string, commentId: string) => request<any>(`/products/${productId}/image-comments/${encodeURIComponent(commentId)}`, {
     method: 'DELETE',
   }),
+  listProductQuestions: (productId: string) => request<any[]>(`/products/${productId}/questions`),
+  createProductQuestion: (productId: string, data: any) => request<any>(`/products/${productId}/questions`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  retractProductQuestion: (productId: string, commentId: string) => request<any>(`/products/${productId}/questions/${encodeURIComponent(commentId)}`, {
+    method: 'DELETE',
+  }),
 
   listNotifications: () => request<any[]>('/notifications'),
   markNotificationsRead: () => request('/notifications/read-all', { method: 'PATCH' }),

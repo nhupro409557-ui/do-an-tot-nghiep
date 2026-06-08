@@ -16,14 +16,14 @@ def sale_price(base_price: float, discount_type: str, discount_value: float) -> 
 async def validate_flash_sale_price(session: AsyncSession, payload: FlashSalePayload) -> None:
     row = await flash_sale_repo.get_product_current_price(session, payload.productId)
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KhÃ´ng tÃ¬m tháº¥y sáº£n pháº©m.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy sản phẩm.")
 
     current_price = float(row["current_price"] or 0)
     computed_price = sale_price(current_price, payload.discountType, payload.discountValue)
     if current_price <= 0 or computed_price <= 0 or computed_price >= current_price:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="GiÃ¡ flash sale pháº£i lá»›n hÆ¡n 0 vÃ  nhá» hÆ¡n giÃ¡ bÃ¡n hiá»‡n táº¡i cá»§a sáº£n pháº©m.",
+            detail="Giá flash sale phải lớn hơn 0 và nhỏ hơn giá bán hiện tại của sản phẩm.",
         )
 
 
@@ -77,7 +77,7 @@ async def update_flash_sale(session: AsyncSession, sale_id: UUID, payload: Flash
     await validate_flash_sale_price(session, payload)
     updated = await flash_sale_repo.update_flash_sale(session, flash_sale_params(sale_id, payload))
     if updated == 0:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KhÃ´ng tÃ¬m tháº¥y flash sale.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flash sale.")
     await session.commit()
     return {"ok": True}
 
@@ -85,6 +85,6 @@ async def update_flash_sale(session: AsyncSession, sale_id: UUID, payload: Flash
 async def delete_flash_sale(session: AsyncSession, sale_id: UUID) -> dict:
     deleted = await flash_sale_repo.delete_flash_sale(session, sale_id)
     if deleted == 0:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="KhÃ´ng tÃ¬m tháº¥y flash sale.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flash sale.")
     await session.commit()
     return {"ok": True}

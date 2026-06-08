@@ -63,28 +63,28 @@
 ## Refactor Structure Notes (June 2026)
 
 ### 1. Backend Service Layer Pattern
-- Logic truy váº¥n SQL vÃ  database mapping cá»§a `list_orders` vÃ  `get_order_detail` Ä‘Ã£ Ä‘Æ°á»£c tÃ¡ch hoÃ n toÃ n ra khá»i Router Layer (`commerce.py`) vÃ  chuyá»ƒn sang Service Layer chuyÃªn biá»‡t: [order_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/order_service.py).
-- Router [commerce.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/api/v1/routers/commerce.py) hiá»‡n táº¡i chá»‰ cÃ²n khai bÃ¡o endpoints, nháº­n payload, Dependency Injection vÃ  chuyá»ƒn tiáº¿p xá»­ lÃ½ sang `order_service.py` hoáº·c cÃ¡c Use Cases khÃ¡c cá»§a Commerce.
+- Logic truy vấn SQL và database mapping của `list_orders` và `get_order_detail` đã được tách hoàn toàn ra khỏi Router Layer (`commerce.py`) và chuyển sang Service Layer chuyên biệt: [order_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/order_service.py).
+- Router [commerce.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/api/v1/routers/commerce.py) hiện tại chỉ còn khai báo endpoints, nhận payload, Dependency Injection và chuyển tiếp xử lý sang `order_service.py` hoặc các Use Cases khác của Commerce.
 
 ### 2. Frontend Feature-First Architecture
-- Module Quáº£n lÃ½ ÄÆ¡n hÃ ng Ä‘Ã£ Ä‘Æ°á»£c chuyá»ƒn dá»‹ch hoÃ n chá»‰nh vá» thÆ° má»¥c tÃ­nh nÄƒng Ä‘á»™c láº­p táº¡i: [src/features/admin-orders/](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/)
-  - **Services**: [adminOrdersApi.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/services/adminOrdersApi.ts) chá»©a cÃ¡c hÃ m gá»i API Ä‘Æ¡n hÃ ng (Ä‘Æ°á»£c bÃ³c tÃ¡ch tá»« `apiDb.ts` Ä‘á»ƒ giá»¯ tÃ­nh tÆ°Æ¡ng thÃ­ch ngÆ°á»£c thÃ´ng qua spread operator).
-  - **Hooks**: [useAdminOrdersLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/hooks/useAdminOrdersLogic.ts) xá»­ lÃ½ logic nghiá»‡p vá»¥ vÃ  state cá»§a UI.
-  - **Components**: [AdminOrdersTab.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/components/AdminOrdersTab.tsx) chá»©a UI hiá»ƒn thá»‹ danh sÃ¡ch vÃ  chi tiáº¿t Ä‘Æ¡n hÃ ng.
-- CÃ¡c file Ä‘iá»u phá»‘i chung nhÆ° [apiDb.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/legacy apiDb.ts), [useAdminLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/hooks/useAdminLogic.ts), vÃ  [AdminDashboardTabContent.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/components/AdminDashboardTabContent.tsx) Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t Ä‘Æ°á»ng dáº«n import má»›i.
+- Module Quản lý Đơn hàng đã được chuyển dịch hoàn chỉnh về thư mục tính năng độc lập tại: [src/features/admin-orders/](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/)
+  - **Services**: [adminOrdersApi.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/services/adminOrdersApi.ts) chứa các hàm gọi API đơn hàng (được bóc tách từ `apiDb.ts` để giữ tính tương thích ngược thông qua spread operator).
+  - **Hooks**: [useAdminOrdersLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/hooks/useAdminOrdersLogic.ts) xử lý logic nghiệp vụ và state của UI.
+  - **Components**: [AdminOrdersTab.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/components/AdminOrdersTab.tsx) chứa UI hiển thị danh sách và chi tiết đơn hàng.
+- Các file điều phối chung như [apiDb.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/legacy apiDb.ts), [useAdminLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/hooks/useAdminLogic.ts), và [AdminDashboardTabContent.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/components/AdminDashboardTabContent.tsx) đã được cập nhật đường dẫn import mới.
 
 
 
 ## Update 2026-06-05 Order Service Repository Split
 
-- TÃ¡ch truy váº¥n danh sÃ¡ch Ä‘Æ¡n hÃ ng vÃ  chi tiáº¿t Ä‘Æ¡n hÃ ng khá»i `app/application/services/order_service.py` sang `app/infrastructure/database/repositories/order_repo.py`.
-- `order_service.py` hiá»‡n chá»‰ cÃ²n gá»i repository vÃ  xá»­ lÃ½ lá»—i khÃ´ng tÃ¬m tháº¥y Ä‘Æ¡n hÃ ng.
-- Káº¿t quáº£ kiá»ƒm tra: compile backend thÃ nh cÃ´ng; import `app.main`, commerce router, order service vÃ  order repository thÃ nh cÃ´ng.
+- Tách truy vấn danh sách đơn hàng và chi tiết đơn hàng khỏi `app/application/services/order_service.py` sang `app/infrastructure/database/repositories/order_repo.py`.
+- `order_service.py` hiện chỉ còn gọi repository và xử lý lỗi không tìm thấy đơn hàng.
+- Kết quả kiểm tra: compile backend thành công; import `app.main`, commerce router, order service và order repository thành công.
 
 
 ## Update 2026-06-05 Commerce Router SQL Cleanup
 
-- TÃ¡ch hai truy váº¥n DB cÃ²n láº¡i trong `app/api/v1/routers/commerce.py` sang repository.
-- Danh sÃ¡ch voucher public chuyá»ƒn sang `voucher_repo.list_public_vouchers`; tra cá»©u Ä‘Æ¡n hÃ ng theo `order_code` cho MoMo IPN chuyá»ƒn sang `order_repo.get_order_id_by_code`.
-- `commerce.py` hiá»‡n khÃ´ng cÃ²n SQL trá»±c tiáº¿p; router chá»‰ Ä‘iá»u phá»‘i request, repository/service/use case xá»­ lÃ½ dá»¯ liá»‡u.
-- Káº¿t quáº£ kiá»ƒm tra: compile backend thÃ nh cÃ´ng; import `app.main`, commerce router, order repository vÃ  voucher repository thÃ nh cÃ´ng.
+- Tách hai truy vấn DB còn lại trong `app/api/v1/routers/commerce.py` sang repository.
+- Danh sách voucher public chuyển sang `voucher_repo.list_public_vouchers`; tra cứu đơn hàng theo `order_code` cho MoMo IPN chuyển sang `order_repo.get_order_id_by_code`.
+- `commerce.py` hiện không còn SQL trực tiếp; router chỉ điều phối request, repository/service/use case xử lý dữ liệu.
+- Kết quả kiểm tra: compile backend thành công; import `app.main`, commerce router, order repository và voucher repository thành công.

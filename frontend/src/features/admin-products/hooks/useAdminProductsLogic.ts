@@ -61,6 +61,7 @@ export function useAdminProductsLogic({
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [previewProduct, setPreviewProduct] = useState<any | null>(null);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [editingProductStatus, setEditingProductStatus] = useState<string | null>(null);
   const [productFormOpen, setProductFormOpen] = useState(false);
   const [productCloseSignal, setProductCloseSignal] = useState(0);
 
@@ -148,6 +149,7 @@ export function useAdminProductsLogic({
   function resetProductForm() {
     setProductFormOpen(false);
     setEditingProductId(null);
+    setEditingProductStatus(null);
     setProductForm({ ...emptyProduct, images: [], specifications: {}, variants: [] });
     setAccessorySearch('');
     setAccessoryCategoryFilter('');
@@ -156,6 +158,7 @@ export function useAdminProductsLogic({
 
   function openNewProductForm() {
     setEditingProductId(null);
+    setEditingProductStatus(null);
     setProductForm({ ...emptyProduct, images: [], specifications: {}, variants: [] });
     setAccessorySearch('');
     setAccessoryCategoryFilter('');
@@ -165,6 +168,7 @@ export function useAdminProductsLogic({
 
   function productPayload() {
     const hasVariants = productForm.variants.length > 0;
+    const selectedBrand = brands.find((brand) => sameId(brand.id, productForm.brandId));
     const specifications = {
       ...productForm.specifications,
       _variantSpecKeys: hasVariants ? productForm.variantSpecKeys : [],
@@ -178,6 +182,7 @@ export function useAdminProductsLogic({
         serviceId: item.serviceId,
       })),
       _warrantyPolicy: productForm.warrantyPolicy,
+      _targetProductStatus: productForm.status,
     };
     const sortedVariants = [...productForm.variants].sort((left, right) => {
       const leftColor = `${left.colorName || ''}`.toLowerCase();
@@ -189,9 +194,8 @@ export function useAdminProductsLogic({
     return {
       name: productForm.name,
       price: productForm.price,
-      brand: productForm.brand,
+      brand: selectedBrand?.name || '',
       category: productForm.category,
-      stock: Number(productForm.stock || 0),
       imageUrl: productForm.imageUrl || null,
       images: productForm.images || [],
       description: productForm.description || null,
@@ -202,7 +206,7 @@ export function useAdminProductsLogic({
       discountPrice: productForm.discountPrice || null,
       categoryId: productForm.categoryId || null,
       subcategoryId: productForm.subcategoryId || null,
-      brandId: productForm.brandId || null,
+      brandId: selectedBrand?.id || null,
       videoUrl: productForm.videoUrl || null,
       variants: sortedVariants.map((item) => ({
         ...item,
@@ -227,6 +231,13 @@ export function useAdminProductsLogic({
   function validateProductForm(): string | null {
     if (!productForm.name.trim()) {
       return 'Tên sản phẩm không được trống.';
+    }
+    if (!productForm.brandId || !brands.some((brand) => sameId(brand.id, productForm.brandId))) {
+      return 'Vui lòng chọn thương hiệu có trong database.';
+    }
+
+    if (false && editingProductStatus === 'ARCHIVED' && productForm.status === 'ACTIVE') {
+      return 'Sản phẩm đã lưu trữ không thể chuyển thẳng sang Đang bán. Vui lòng tạo bản nháp mới nếu cần bán lại.';
     }
 
     const activeOptions = deriveOptionsFromVariants(productForm.variants || [])
@@ -335,6 +346,7 @@ export function useAdminProductsLogic({
 
   function editProduct(product: any) {
     setEditingProductId(product.id);
+    setEditingProductStatus(product.status || null);
     const rawVariantSpecKeys = Array.isArray(product.salesConfig?.variantSpecKeys)
       ? product.salesConfig.variantSpecKeys
       : Array.isArray(product.specifications?._variantSpecKeys)
@@ -345,6 +357,9 @@ export function useAdminProductsLogic({
     const accessoryOffers = product.salesConfig?.accessoryOffers || product.specifications?._accessoryOffers || [];
     const attachedServices = product.salesConfig?.attachedServices || product.specifications?._attachedServices || [];
     const warrantyPolicy = product.salesConfig?.warrantyPolicy || product.specifications?._warrantyPolicy || defaultWarrantyPolicy;
+    const targetProductStatus = product.salesConfig?.targetProductStatus || product.specifications?._targetProductStatus || (
+      ['DRAFT', 'REVISION_DRAFT', 'PENDING'].includes(product.status) ? 'ACTIVE' : product.status
+    );
     productExtraKeys.forEach((key) => delete cleanSpecifications[key]);
     setProductForm({
       ...emptyProduct,
@@ -422,7 +437,7 @@ export function useAdminProductsLogic({
         };
       }),
       options: product.options || [],
-      status: product.status || 'ACTIVE',
+      status: targetProductStatus || 'ACTIVE',
       isFeatured: Boolean(product.isFeatured),
       isFlashSale: Boolean(product.isFlashSale),
     });
@@ -430,7 +445,7 @@ export function useAdminProductsLogic({
   }
 
   async function reactivateProduct(product: any) {
-    if (!['INACTIVE', 'DISCONTINUED'].includes(product.status)) {
+    if (!['INACTIVE', 'DISCONTINUED', 'ARCHIVED'].includes(product.status)) {
       window.alert('Chỉ sản phẩm đang tạm ẩn mới được khôi phục.');
       return;
     }
@@ -503,13 +518,14 @@ export function useAdminProductsLogic({
   }
 
   async function bulkApproveProducts() {
-    const ids = selectedProductIds.filter((id) => products.find((product) => product.id === id)?.status === 'PENDING');
+    const approvableStatuses = ['DRAFT', 'REVISION_DRAFT', 'PENDING'];
+    const ids = selectedProductIds.filter((id) => approvableStatuses.includes(products.find((product) => product.id === id)?.status));
     if (ids.length > 500) {
       window.alert('Mỗi lần chỉ duyệt tối đa 500 sản phẩm. Vui lòng chia nhỏ danh sách.');
       return;
     }
     if (!ids.length) {
-      window.alert('Chọn ít nhất một sản phẩm đang chờ duyệt.');
+      window.alert('Chọn ít nhất một sản phẩm nháp hoặc đang chờ duyệt.');
       return;
     }
     const result = await productApi.adminBulkApproveProducts(ids);
@@ -525,7 +541,7 @@ export function useAdminProductsLogic({
     const ids = selectedProducts
       .filter((product) => {
         if (action === 'HIDE') return product.status !== 'INACTIVE' && product.status !== 'ARCHIVED' && product.status !== 'MERGED';
-        if (action === 'RESTORE') return ['INACTIVE', 'DISCONTINUED'].includes(product.status);
+        if (action === 'RESTORE') return ['INACTIVE', 'DISCONTINUED', 'ARCHIVED'].includes(product.status);
         return product.status !== 'MERGED';
       })
       .map((product) => product.id);

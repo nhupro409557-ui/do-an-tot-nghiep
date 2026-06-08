@@ -264,7 +264,7 @@ async def delete_content(
 
 def prepare_banner_payload(payload: ContentPayload) -> ContentPayload:
     if not payload.categoryIds:
-        raise HTTPException(status_code=422, detail="Banner pháº£i chá»n Ã­t nháº¥t má»™t danh má»¥c.")
+        raise HTTPException(status_code=422, detail="Banner phải chọn ít nhất một danh mục.")
     payload.contentType = "BANNER"
     payload.videoUrl = None
     payload.thumbnailUrl = payload.thumbnailUrl or payload.bannerImageUrl
@@ -419,6 +419,7 @@ async def reply_admin_image_comment(
         body=sanitize_review_text(payload.body).strip(),
         parent_id=parent_uuid,
         reply_to_user_name=target["user_name"],
+        interaction_type=target.get("interaction_type") or "IMAGE_COMMENT",
     )
     await admin_content_repo.audit_admin_event(session, actor_id=actor_id, event_type="image_comment_replied", resource="review", metadata={"commentId": str(comment_id), "replyId": str(reply_id)})
     await session.commit()

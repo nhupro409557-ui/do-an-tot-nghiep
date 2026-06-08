@@ -50,6 +50,9 @@ async def update_attached_service(
     session: AsyncSession, service_id: UUID, payload: AttachedServicePayload
 ) -> dict:
     pricing = _normalize_attached_service_pricing(payload)
+    metadata = payload.metadata
+    if payload.serviceType == "PRODUCT_SERVICE" and not metadata:
+        metadata = await attached_service_repo.get_attached_service_metadata(session, service_id) or {}
     updated = await attached_service_repo.update_attached_service(
         session,
         service_id=service_id,
@@ -59,18 +62,39 @@ async def update_attached_service(
         attribute_group=payload.attributeGroup or None,
         duration_months=payload.durationMonths,
         is_active=payload.isActive,
-        metadata=payload.metadata,
+        metadata=metadata,
         **pricing,
     )
     if updated == 0:
-        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y dá»‹ch vá»¥.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy dịch vụ.")
     await session.commit()
     return {"ok": True}
+
+
+async def delete_attached_service(session: AsyncSession, service_id: UUID) -> dict:
+    relation_count = await attached_service_repo.attached_service_relation_count(session, service_id)
+    if relation_count is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dịch vụ.")
+    if relation_count > 0:
+        raise HTTPException(status_code=409, detail="Không thể xóa dịch vụ đang được gắn với sản phẩm. Hãy tắt dịch vụ nếu cần ngừng sử dụng.")
+    deleted = await attached_service_repo.hard_delete_attached_service(session, service_id)
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dịch vụ.")
+    await session.commit()
+    return {"ok": True, "action": "deleted"}
 
 
 async def deactivate_attached_service(session: AsyncSession, service_id: UUID) -> dict:
     updated = await attached_service_repo.deactivate_attached_service(session, service_id)
     if updated == 0:
-        raise HTTPException(status_code=404, detail="KhÃ´ng tÃ¬m tháº¥y dá»‹ch vá»¥.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy dịch vụ.")
     await session.commit()
     return {"ok": True, "action": "deactivated"}
+
+
+async def reactivate_attached_service(session: AsyncSession, service_id: UUID) -> dict:
+    updated = await attached_service_repo.reactivate_attached_service(session, service_id)
+    if updated == 0:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dịch vụ.")
+    await session.commit()
+    return {"ok": True, "action": "reactivated"}

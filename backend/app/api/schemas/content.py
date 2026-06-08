@@ -30,6 +30,12 @@ class ProductImageCommentRequest(BaseModel):
     replyToUserName: str | None = Field(default=None, max_length=120)
 
 
+class ProductQuestionRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=1000)
+    parentId: UUID | None = None
+    replyToUserName: str | None = Field(default=None, max_length=120)
+
+
 class VideoViewHeartbeatRequest(BaseModel):
     watchedSeconds: int = Field(ge=1, le=30)
     positionSeconds: float | None = Field(default=None, ge=0)

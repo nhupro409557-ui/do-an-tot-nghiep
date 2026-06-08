@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image } from 'lucide-react';
+import { ChevronDown, Image, Search } from 'lucide-react';
 import {
   Checkbox,
   FileInput,
@@ -12,6 +12,113 @@ import {
 import ProductAccessoriesSection from './ProductAccessoriesSection';
 import ProductVariantsSection from './ProductVariantsSection';
 
+function SearchableBrandSelect({
+  brands,
+  value,
+  onChange,
+}: {
+  brands: any[];
+  value: string;
+  onChange: (brandId: string) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState('');
+  const wrapperRef = React.useRef<HTMLDivElement | null>(null);
+  const selectedBrand = brands.find((item) => item.id === value);
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredBrands = React.useMemo(() => {
+    if (!normalizedSearch) return brands;
+    return brands.filter((item) => {
+      const name = String(item.name || '').toLowerCase();
+      const code = String(item.code || '').toLowerCase();
+      return name.includes(normalizedSearch) || code.includes(normalizedSearch);
+    });
+  }, [brands, normalizedSearch]);
+
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  const handleSelect = (brandId: string) => {
+    onChange(brandId);
+    setSearch('');
+    setOpen(false);
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative block w-full sm:w-auto">
+      <span className="mb-1.5 block text-xs font-bold text-slate-500">Thương hiệu</span>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="flex h-10 w-full min-w-44 items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+      >
+        <span className={selectedBrand ? 'truncate' : 'truncate text-slate-400'}>
+          {selectedBrand?.name || 'Chọn thương hiệu'}
+        </span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-2 w-full min-w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div className="border-b border-slate-100 p-2">
+            <div className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2">
+              <Search className="h-4 w-4 shrink-0 text-slate-400" />
+              <input
+                autoFocus
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Tìm thương hiệu"
+                className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+              />
+            </div>
+          </div>
+          <div role="listbox" aria-label="Thương hiệu" className="max-h-72 overflow-y-auto p-1">
+            {filteredBrands.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-slate-500">Không có thương hiệu phù hợp</div>
+            ) : (
+              filteredBrands.map((brand) => {
+                const selected = brand.id === value;
+                return (
+                  <button
+                    key={brand.id}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    onClick={() => handleSelect(brand.id)}
+                    className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-sm font-semibold transition ${
+                      selected ? 'bg-red-50 text-red-700' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-950'
+                    }`}
+                  >
+                    <span className="truncate">{brand.name}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ProductFormSectionProps {
   productForm: any;
   setProductForm: React.Dispatch<React.SetStateAction<any>>;
@@ -23,7 +130,6 @@ interface ProductFormSectionProps {
   categories: any[];
   brands: any[];
   categoryWarrantyPolicy: (cat: any, parent?: any) => any;
-  productStatusOptions: [string, string][];
   uploadFiles: (files: FileList | null, type: string) => Promise<string[]>;
   productSpecFields: any[];
   groupedProductSpecFields: any[];
@@ -73,7 +179,6 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
     categories,
     brands,
     categoryWarrantyPolicy,
-    productStatusOptions,
     uploadFiles,
     productSpecFields,
     groupedProductSpecFields,
@@ -110,6 +215,14 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
     patchVariant,
     confirmDelete,
   } = props;
+  const filteredSubCategories = productForm.categoryId
+    ? subCategories.filter((item) => item.parentId === productForm.categoryId)
+    : subCategories;
+  const productPublicationStatusOptions: [string, string][] = [
+    ['ACTIVE', 'Đang bán'],
+    ['INACTIVE', 'Tạm ẩn'],
+    ['DISCONTINUED', 'Ngừng kinh doanh'],
+  ];
 
   return (
     <form
@@ -138,28 +251,20 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
           setProductForm({ ...productForm, discountPrice: Number(value) })
         }
       />
-      <Input
-        label="Tồn kho chung"
-        type="number"
-        value={productForm.stock}
-        onChange={(value) =>
-          setProductForm({
-            ...productForm,
-            stock: Math.max(0, Number(value) || 0),
-          })
-        }
-      />
       <Select
         label="Danh mục cha"
         value={productForm.categoryId}
         onChange={(value) => {
           const category = rootCategories.find((item) => item.id === value);
+          const selectedChild = subCategories.find((item) => item.id === productForm.subcategoryId);
+          const keepSubcategory = Boolean(value && selectedChild?.parentId === value);
           const nextWarranty = productForm.warrantyPolicy.inheritWarrantyPolicy
-            ? categoryWarrantyPolicy(category)
+            ? categoryWarrantyPolicy(keepSubcategory ? selectedChild : category, category)
             : productForm.warrantyPolicy;
           setProductForm({
             ...productForm,
             categoryId: value,
+            subcategoryId: keepSubcategory ? productForm.subcategoryId : '',
             category: (category?.code || category?.slug || productForm.category).toUpperCase(),
             warrantyPolicy: nextWarranty,
             specifications: {},
@@ -183,49 +288,51 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
           const parent = rootCategories.find(
             (item) => item.id === (child?.parentId || productForm.categoryId)
           );
+          const parentChanged = Boolean(child?.parentId && child.parentId !== productForm.categoryId);
           const nextWarranty = productForm.warrantyPolicy.inheritWarrantyPolicy
             ? categoryWarrantyPolicy(child || parent, parent)
             : productForm.warrantyPolicy;
           setProductForm({
             ...productForm,
+            categoryId: parent?.id || productForm.categoryId,
+            category: (parent?.code || parent?.slug || productForm.category).toUpperCase(),
             subcategoryId: value,
             warrantyPolicy: nextWarranty,
+            specifications: parentChanged ? {} : productForm.specifications,
+            variantSpecKeys: parentChanged ? [] : productForm.variantSpecKeys,
+            variants: parentChanged
+              ? productForm.variants.map((variant: any) => ({
+                  ...variant,
+                  specs: {},
+                }))
+              : productForm.variants,
           });
         }}
         options={[
           ['', 'Chưa chọn'],
-          ...subCategories.map((item) => [
+          ...filteredSubCategories.map((item) => [
             item.id,
             `${item.parentName || 'Khác'} / ${item.name}`,
           ] as [string, string]),
         ]}
       />
-      <Select
-        label="Thương hiệu"
+      <SearchableBrandSelect
+        brands={brands}
         value={productForm.brandId}
         onChange={(value) => {
           const brand = brands.find((item) => item.id === value);
           setProductForm({
             ...productForm,
             brandId: value,
-            brand: brand?.name || productForm.brand,
+            brand: brand?.name || '',
           });
         }}
-        options={[
-          ['', 'Nhập tay'],
-          ...brands.map((item) => [item.id, item.name] as [string, string]),
-        ]}
       />
       <Select
-        label="Trạng thái"
+        label="Trạng thái sau duyệt"
         value={productForm.status}
         onChange={(value) => setProductForm({ ...productForm, status: value })}
-        options={productStatusOptions}
-      />
-      <Input
-        label="Thương hiệu nhập tay"
-        value={productForm.brand}
-        onChange={(value) => setProductForm({ ...productForm, brand: value })}
+        options={productPublicationStatusOptions}
       />
       <FileInput
         label="Ảnh đại diện chung"

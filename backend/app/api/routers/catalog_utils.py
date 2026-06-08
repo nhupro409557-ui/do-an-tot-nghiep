@@ -178,7 +178,7 @@ def product_row(row) -> dict:
     stock_state = "IN_STOCK" if int(stock) > 0 else "OUT_OF_STOCK"
     status_value = item.get("status") or "ACTIVE"
     display_status_val = "Hết hàng" if status_value == "ACTIVE" and stock_state == "OUT_OF_STOCK" else {
-        "DRAFT": "Nháp",
+        "DRAFT": "Nháp thêm",
         "PENDING": "Chờ duyệt",
         "ACTIVE": "Đang bán",
         "INACTIVE": "Tạm ẩn",

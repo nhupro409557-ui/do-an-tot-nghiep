@@ -67,7 +67,7 @@ function formatCount(value: unknown) {
 
 function SkeletonTile() {
   return (
-    <div className="h-full min-h-[260px] overflow-hidden rounded-2xl border border-gray-200/80 bg-gray-100 animate-pulse">
+    <div className="h-full min-h-0 overflow-hidden rounded-xl border border-gray-200/80 bg-gray-100 animate-pulse lg:rounded-2xl">
       <div className="relative h-full w-full">
         <div className="absolute inset-0 bg-gradient-to-t from-gray-200 via-gray-100/40 to-transparent" />
         <div className="absolute left-3 top-3 h-5 w-16 rounded-full bg-gray-200" />
@@ -83,7 +83,7 @@ function SkeletonTile() {
 
 function SkeletonGrid() {
   return (
-    <div className="grid auto-rows-[9rem] grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid auto-rows-[clamp(7.5rem,34vw,9rem)] grid-cols-2 gap-[clamp(0.5rem,2.2vw,1rem)] sm:auto-rows-[clamp(8.25rem,21vw,10rem)] sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] lg:auto-rows-[9rem] lg:grid-cols-4 lg:gap-5">
       {Array.from({ length: 12 }).map((_, i) => <SkeletonTile key={i} />)}
     </div>
   );
@@ -91,14 +91,14 @@ function SkeletonGrid() {
 
 function tileSpanClass(index: number) {
   const pattern = [
-    'sm:row-span-2 lg:row-span-3',
-    'sm:row-span-2 lg:row-span-2',
-    'sm:row-span-2 lg:row-span-2',
-    'sm:row-span-2 lg:row-span-3',
-    'sm:row-span-2 lg:row-span-2',
-    'sm:row-span-2 lg:row-span-3',
-    'sm:row-span-2 lg:row-span-2',
-    'sm:row-span-2 lg:row-span-2',
+    'row-span-2 sm:row-span-3 lg:row-span-3',
+    'row-span-2 sm:row-span-2 lg:row-span-2',
+    'row-span-2 sm:row-span-2 lg:row-span-2',
+    'row-span-2 sm:row-span-3 lg:row-span-3',
+    'row-span-2 sm:row-span-2 lg:row-span-2',
+    'row-span-2 sm:row-span-3 lg:row-span-3',
+    'row-span-2 sm:row-span-2 lg:row-span-2',
+    'row-span-2 sm:row-span-2 lg:row-span-2',
   ];
   return pattern[index % pattern.length];
 }
@@ -122,7 +122,7 @@ function ImageTile({ item, index, onOpen }: { item: ProductCard; index: number; 
 
   return (
     <article
-      className={`group relative min-h-[260px] cursor-pointer overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-all duration-500 hover:-translate-y-1 hover:border-red-200 hover:shadow-xl hover:shadow-red-100/40 ${tileSpanClass(index)}`}
+      className={`group relative min-h-0 cursor-pointer overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.08)] transition-all duration-300 hover:-translate-y-0.5 hover:border-red-200 hover:shadow-[0_10px_24px_rgba(220,38,38,0.12)] lg:rounded-2xl lg:shadow-sm lg:duration-500 lg:hover:-translate-y-1 lg:hover:shadow-xl lg:hover:shadow-red-100/40 ${tileSpanClass(index)}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onClick={onOpen}
@@ -131,42 +131,42 @@ function ImageTile({ item, index, onOpen }: { item: ProductCard; index: number; 
         <ImageWithFallback
           src={item.mainUrl}
           alt={item.productName}
-          className={`h-full w-full object-contain p-3 transition-all duration-700 ease-out ${hovered ? 'scale-105 brightness-105' : 'scale-100'}`}
+          className={`h-full w-full object-contain p-2 transition-all duration-700 ease-out lg:p-3 ${hovered ? 'scale-105 brightness-105' : 'scale-100'}`}
           loading="lazy"
           draggable={false}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent transition-opacity duration-300" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent transition-opacity duration-300 lg:from-black/70" />
       </div>
 
-      <div className="pointer-events-none absolute left-3 right-3 top-3 z-20 flex items-start justify-between">
-        <span className="rounded-full border border-gray-200 bg-white/90 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-red-600 shadow-sm backdrop-blur-md transition-all duration-300 group-hover:border-red-500 group-hover:bg-red-600 group-hover:text-white">
+      <div className="pointer-events-none absolute left-2 right-2 top-2 z-20 flex items-start justify-between gap-1.5 lg:left-3 lg:right-3 lg:top-3">
+        <span className="max-w-[78%] truncate rounded-md border border-red-100 bg-white/95 px-1.5 py-0.5 text-[8px] font-black uppercase text-red-600 shadow-sm transition-all duration-300 group-hover:border-red-500 group-hover:bg-red-600 group-hover:text-white sm:px-2 sm:py-1 sm:text-[9px] lg:rounded-full lg:border-gray-200 lg:bg-white/90 lg:px-2.5 lg:text-[10px] lg:tracking-widest lg:backdrop-blur-md">
           {item.category || item.brand || 'Sản phẩm'}
         </span>
         {item.imageCount > 1 && (
-          <span className="flex items-center gap-1 rounded-full border border-gray-200 bg-white/90 px-2 py-1 text-[10px] font-bold text-gray-600 shadow-sm backdrop-blur-md">
-            <Layers className="h-3 w-3" />
+          <span className="flex items-center gap-0.5 rounded-md border border-slate-200 bg-white/95 px-1.5 py-0.5 text-[8px] font-black text-gray-700 shadow-sm sm:px-2 sm:py-1 sm:text-[9px] lg:gap-1 lg:rounded-full lg:bg-white/90 lg:text-[10px] lg:font-bold lg:backdrop-blur-md">
+            <Layers className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
             {item.imageCount}
           </span>
         )}
       </div>
 
-      <div className={`absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1.5 p-4 transition-all duration-500 ease-out ${hovered ? 'translate-y-0 opacity-100' : 'translate-y-16 opacity-95'}`}>
-        <h3 className="line-clamp-2 text-sm font-bold leading-snug text-white drop-shadow-lg transition-colors duration-300 group-hover:text-red-300">
+      <div className={`absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1 p-2 transition-all duration-300 ease-out sm:p-3 lg:gap-1.5 lg:p-4 lg:duration-500 ${hovered ? 'translate-y-0 opacity-100' : 'translate-y-0 opacity-100 lg:translate-y-16 lg:opacity-95'}`}>
+        <h3 className="line-clamp-2 text-[11px] font-black leading-tight text-white drop-shadow-lg transition-colors duration-300 group-hover:text-red-300 sm:text-sm lg:leading-snug">
           {item.productName}
         </h3>
 
-        <span className="text-xs font-black text-red-300 drop-shadow-md">
+        <span className="text-[10px] font-black text-red-300 drop-shadow-md lg:text-xs">
           {priceOf(item.product)}đ
         </span>
 
-        <div className={`flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-semibold text-white/75 transition-all duration-500 ${hovered ? 'opacity-100' : 'opacity-0'}`}>
+        <div className={`hidden flex-wrap gap-x-3 gap-y-1 text-[11px] font-semibold text-white/75 transition-all duration-500 lg:flex ${hovered ? 'opacity-100' : 'opacity-0'}`}>
           <span className="inline-flex items-center gap-1"><Eye className="h-3 w-3" />{formatCount(productMetric(item, 'viewCount'))} lượt xem</span>
           <span className="inline-flex items-center gap-1"><Heart className="h-3 w-3" />{formatCount(productMetric(item, 'favoriteCount'))} lượt thích</span>
         </div>
 
         <Link
           to={`/product/${item.productId}`}
-          className={`mt-1 flex items-center gap-2.5 rounded-xl border border-white/30 bg-white/20 p-1.5 backdrop-blur-lg transition-all duration-500 ease-out hover:border-white/50 hover:bg-white/35 ${hovered ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`}
+          className={`mt-1 hidden items-center gap-2.5 rounded-xl border border-white/30 bg-white/20 p-1.5 backdrop-blur-lg transition-all duration-500 ease-out hover:border-white/50 hover:bg-white/35 lg:flex ${hovered ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`}
           onClick={(event) => event.stopPropagation()}
         >
           <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white p-0.5 shadow-sm">
@@ -326,26 +326,26 @@ export default function ImagesPage() {
         <div className="absolute -right-32 -bottom-32 h-64 w-64 rounded-full bg-violet-100/50 blur-[100px]" />
         <div className="absolute left-1/2 top-0 h-48 w-48 -translate-x-1/2 rounded-full bg-blue-100/40 blur-[80px]" />
 
-        <div className="relative z-10 mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-3">
+        <div className="relative z-10 mx-auto max-w-7xl px-3 py-6 sm:px-5 sm:py-8 lg:px-8 lg:py-10">
+          <div className="flex flex-col gap-4 sm:gap-5 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
+            <div className="space-y-2.5 sm:space-y-3">
               <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-red-500 to-red-600 shadow-lg shadow-red-200">
-                  <ImageIcon className="h-6 w-6 text-white" />
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-red-200 bg-red-600 shadow-lg shadow-red-100 sm:h-12 sm:w-12 sm:rounded-2xl sm:border-0 sm:bg-gradient-to-br sm:from-red-500 sm:to-red-600 sm:shadow-red-200">
+                  <ImageIcon className="h-5 w-5 text-white sm:h-6 sm:w-6" />
                 </div>
-                <div>
-                  <h1 className="text-3xl font-black tracking-tight text-gray-900">Thư viện ảnh 3D</h1>
-                  <p className="mt-0.5 text-sm font-medium text-gray-500">Trải nghiệm xem sản phẩm 360° chất lượng cao</p>
+                <div className="min-w-0">
+                  <h1 className="text-2xl font-black tracking-tight text-gray-900 sm:text-3xl">Thư viện ảnh 3D</h1>
+                  <p className="mt-0.5 text-xs font-medium text-gray-500 sm:text-sm">Trải nghiệm xem sản phẩm 360° chất lượng cao</p>
                 </div>
               </div>
 
               {!loading && (
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-red-100 bg-red-50 px-3 py-1.5 text-[11px] font-bold text-red-600">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-red-100 bg-red-50 px-2.5 py-1.5 text-[10px] font-black text-red-600 shadow-sm sm:rounded-full sm:px-3 sm:text-[11px] sm:font-bold sm:shadow-none">
                     <Sparkles className="h-3 w-3 text-red-500" />
                     {totalImages} hình ảnh
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-blue-600">
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[10px] font-black text-blue-600 shadow-sm sm:rounded-full sm:px-3 sm:text-[11px] sm:font-bold sm:shadow-none">
                     <SlidersHorizontal className="h-3 w-3 text-blue-500" />
                     {totalProducts} sản phẩm
                   </span>
@@ -353,14 +353,14 @@ export default function ImagesPage() {
               )}
             </div>
 
-            <div className="grid w-full max-w-xl gap-2 sm:grid-cols-[minmax(0,1fr)_160px]">
+            <div className="grid w-full gap-2 sm:max-w-xl sm:grid-cols-[minmax(0,1fr)_160px]">
               <label className="group relative block">
-                <Search className="absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-400 transition-colors group-focus-within:text-red-500" />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 transition-colors group-focus-within:text-red-500 sm:left-4 sm:h-[18px] sm:w-[18px]" />
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Tìm ảnh theo tên sản phẩm, thương hiệu..."
-                  className="h-12 w-full rounded-2xl border border-gray-200 bg-gray-50 pl-12 pr-10 text-sm text-gray-900 outline-none placeholder:text-gray-400 transition-all duration-300 focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100 shadow-sm"
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-gray-50 pl-10 pr-9 text-sm text-gray-900 shadow-sm outline-none transition-all duration-300 placeholder:text-gray-400 focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-100 sm:h-12 sm:rounded-2xl sm:pl-12 sm:pr-10"
                 />
                 {query && (
                   <button type="button" onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-400 transition-all hover:bg-gray-100 hover:text-gray-700">
@@ -371,7 +371,7 @@ export default function ImagesPage() {
               <select
                 value={sort}
                 onChange={(event) => setSort(event.target.value as SortMode)}
-                className="h-12 rounded-2xl border border-gray-200 bg-white px-4 text-sm font-bold text-gray-700 shadow-sm outline-none transition-all hover:border-gray-300 focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-gray-700 shadow-sm outline-none transition-all hover:border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100 sm:h-12 sm:rounded-2xl sm:px-4 sm:font-bold sm:hover:border-gray-300"
               >
                 <option value="trending">Nổi bật</option>
                 <option value="views">Xem nhiều</option>
@@ -385,12 +385,12 @@ export default function ImagesPage() {
 
       {!loading && categories.length > 0 && (
         <div className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur-sm">
-          <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-7xl px-3 py-2.5 sm:px-5 sm:py-3 lg:px-8">
             <div className="relative inline-block w-full sm:w-64">
               <select
                 value={activeCategory}
                 onChange={(e) => setActiveCategory(e.target.value)}
-                className="w-full appearance-none rounded-2xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-bold text-gray-700 shadow-sm transition-all hover:border-gray-300 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100"
+                className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-black text-gray-700 shadow-sm transition-all hover:border-red-300 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100 sm:rounded-2xl sm:px-4 sm:font-bold sm:hover:border-gray-300"
               >
                 <option value="all">Tất cả danh mục ({totalProducts})</option>
                 {categories.map((cat) => (
@@ -409,11 +409,11 @@ export default function ImagesPage() {
         </div>
       )}
 
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-2.5 py-4 sm:px-5 sm:py-6 lg:px-8 lg:py-8">
         {loading ? (
           <SkeletonGrid />
         ) : filteredCards.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-gray-300 bg-white py-24 text-center shadow-sm">
+          <div className="mx-1 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-900 bg-white px-4 py-16 text-center shadow-[4px_4px_0_rgba(17,24,39,0.10)] sm:rounded-3xl sm:border-gray-300 sm:py-24 sm:shadow-sm">
             <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl border border-gray-200 bg-gray-100">
               <ImageIcon className="h-10 w-10 text-gray-300" />
             </div>
@@ -437,12 +437,12 @@ export default function ImagesPage() {
         ) : (
           <>
             {(query || activeCategory !== 'all') && (
-              <p className="mb-5 text-xs font-semibold text-gray-400">
+              <p className="mb-3 px-1 text-xs font-semibold text-gray-400 sm:mb-5">
                 Hiển thị trang {page} / {totalPages} · {filteredCards.length} / {totalProducts} sản phẩm
               </p>
             )}
 
-            <div className="grid auto-rows-[9rem] grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid auto-rows-[clamp(7.5rem,34vw,9rem)] grid-cols-2 gap-[clamp(0.5rem,2.2vw,1rem)] sm:auto-rows-[clamp(8.25rem,21vw,10rem)] sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] lg:auto-rows-[9rem] lg:grid-cols-4 lg:gap-5">
               {filteredCards.map((card, index) => (
                 <ImageTile
                   key={card.id}
@@ -458,23 +458,23 @@ export default function ImagesPage() {
             </div>
 
             {totalPages > 1 && (
-              <div className="mt-8 flex items-center justify-center gap-3">
+              <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-1 sm:mt-8 sm:flex sm:justify-center sm:gap-3 sm:px-0">
                 <button
                   type="button"
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
                   disabled={page <= 1}
-                  className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-red-300 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-xl border-2 border-gray-900 bg-white px-2 py-2 text-xs font-black text-slate-700 shadow-[3px_3px_0_rgba(17,24,39,0.10)] transition hover:border-red-500 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 sm:rounded-full sm:border-slate-200 sm:px-5 sm:py-2.5 sm:text-sm sm:font-bold sm:shadow-sm sm:hover:border-red-300"
                 >
                   Trang trước
                 </button>
-                <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">
+                <span className="rounded-xl border-2 border-gray-900 bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 sm:rounded-full sm:border-0 sm:px-4 sm:text-sm sm:font-bold">
                   {page} / {totalPages}
                 </span>
                 <button
                   type="button"
                   onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                   disabled={!hasMore}
-                  className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-red-300 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-xl border-2 border-gray-900 bg-white px-2 py-2 text-xs font-black text-slate-700 shadow-[3px_3px_0_rgba(17,24,39,0.10)] transition hover:border-red-500 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 sm:rounded-full sm:border-slate-200 sm:px-5 sm:py-2.5 sm:text-sm sm:font-bold sm:shadow-sm sm:hover:border-red-300"
                 >
                   Trang sau
                 </button>

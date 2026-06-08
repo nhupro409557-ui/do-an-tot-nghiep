@@ -30,8 +30,23 @@ async def get_product(product_id: str, session: AsyncSession) -> dict:
     sales_config = p_dict.get("salesConfig") or {}
     if p_dict.get("status") == "DISCONTINUED":
         sales_config["accessoryOffers"] = []
+        sales_config["attachedServices"] = []
         p_dict["salesConfig"] = sales_config
         return p_dict
+
+    product_uuid = UUID(str(p_dict["id"]))
+    attached_services = await catalog_product_repo.list_product_attached_services(session, product_uuid)
+    if not attached_services:
+        fallback_service_ids = []
+        for item in sales_config.get("attachedServices", []) or []:
+            if not isinstance(item, dict) or not item.get("serviceId"):
+                continue
+            try:
+                fallback_service_ids.append(UUID(str(item["serviceId"])))
+            except ValueError:
+                continue
+        attached_services = await catalog_product_repo.list_active_attached_services_by_ids(session, fallback_service_ids)
+    sales_config["attachedServices"] = attached_services
 
     offers = sales_config.get("accessoryOffers", []) or []
     if offers:
@@ -186,7 +201,7 @@ async def create_product(payload: CreateProductRequest, session: AsyncSession) -
         slug=slug,
         category=category,
         brand=payload.brand,
-        description=payload.description or "MÃ´ táº£ chi tiáº¿t",
+        description=payload.description or "Mô tả chi tiết",
         price=payload.price,
         sale_price=payload.discountPrice,
         image_url=payload.imageUrl,

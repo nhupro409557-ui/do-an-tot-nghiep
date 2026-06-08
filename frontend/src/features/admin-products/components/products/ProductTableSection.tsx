@@ -19,7 +19,6 @@ interface ProductTableSectionProps {
   reactivateProduct: (product: any) => void;
   hideProduct: (product: any) => void;
   deleteProduct: (product: any) => void;
-  submitProduct: (product: any) => void;
   isSuperAdmin: boolean;
   approveProduct: (product: any) => void;
   archiveProduct: (product: any) => void;
@@ -43,11 +42,23 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
     reactivateProduct,
     hideProduct,
     deleteProduct,
-    submitProduct,
     isSuperAdmin,
     approveProduct,
     archiveProduct,
   } = props;
+  const publicationStatusLabels: Record<string, string> = {
+    ACTIVE: 'Đang bán',
+    INACTIVE: 'Tạm ẩn',
+    DISCONTINUED: 'Ngừng kinh doanh',
+  };
+  const productStatusText = (product: any) => {
+    const workflowLabel = productStatusLabel[product.status] || product.status || 'Nháp thêm';
+    if (['DRAFT', 'REVISION_DRAFT', 'PENDING'].includes(product.status)) {
+      const targetStatus = product.salesConfig?.targetProductStatus || product.specifications?._targetProductStatus || 'ACTIVE';
+      return `${workflowLabel} -> ${publicationStatusLabels[targetStatus] || targetStatus}`;
+    }
+    return workflowLabel;
+  };
 
   return (
     <>
@@ -163,7 +174,7 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
                     : 'slate'
                 }
               >
-                {productStatusLabel[product.status] || product.status || 'Nháp'}
+                {productStatusText(product)}
               </AdminBadge>
             </td>
             <td className="px-4 py-3">
@@ -178,7 +189,7 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
                     onHide={product.status !== 'INACTIVE' && product.status !== 'ARCHIVED' ? () => hideProduct(product) : undefined}
                     onDelete={() => deleteProduct(product)}
                     onRestore={
-                      ['INACTIVE', 'DISCONTINUED'].includes(product.status)
+                      ['INACTIVE', 'DISCONTINUED', 'ARCHIVED'].includes(product.status)
                         ? () => reactivateProduct(product)
                         : undefined
                     }
@@ -186,13 +197,6 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
                 )}
                 {(product.status === 'DRAFT' || product.status === 'REVISION_DRAFT') && (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => submitProduct(product)}
-                      className="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-bold text-sky-700"
-                    >
-                      Gửi duyệt
-                    </button>
                     {isSuperAdmin && (
                       <button
                         type="button"

@@ -99,7 +99,7 @@ function useColumns(containerRef: React.RefObject<HTMLDivElement | null>) {
     if (!containerRef.current) return;
     const obs = new ResizeObserver(([entry]) => {
       const w = entry.contentRect.width;
-      setCols(w >= 1024 ? 4 : w >= 768 ? 3 : 2);
+      setCols(w >= 1024 ? 4 : Math.max(2, Math.min(3, Math.floor(w / 220))));
     });
     obs.observe(containerRef.current);
     return () => obs.disconnect();
@@ -178,8 +178,8 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
 
   return (
     <article
-      style={{ height: h }}
-      className="relative mb-4 cursor-pointer overflow-hidden rounded-xl bg-gray-900 shadow-md transition-all duration-300 hover:shadow-2xl"
+      style={{ '--tile-height': `${h}px` } as React.CSSProperties}
+      className="relative mb-[clamp(0.5rem,2.2vw,1rem)] h-[clamp(15rem,62vw,20rem)] cursor-pointer overflow-hidden rounded-xl border border-slate-200 bg-gray-900 shadow-[0_8px_20px_rgba(15,23,42,0.08)] transition-all duration-300 hover:-translate-y-0.5 hover:border-red-200 hover:shadow-[0_10px_24px_rgba(220,38,38,0.12)] sm:h-[clamp(16.5rem,40vw,24rem)] lg:mb-4 lg:h-[var(--tile-height)] lg:border-0 lg:shadow-md lg:hover:translate-y-0 lg:hover:shadow-2xl"
       onClick={onOpen}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -225,16 +225,16 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
         </div>
       </div>
 
-      <div className={`absolute left-3 right-3 top-3 z-20 flex items-start justify-between transition-opacity duration-300 ${isActive ? 'opacity-0' : 'opacity-100'}`}>
-        <span className="rounded-full bg-white/95 px-2.5 py-1 text-xs font-bold text-primary shadow-sm">{inferCategory(video)}</span>
-        {(durationLabel || isYouTubeVideo(video)) && <span className="rounded-full bg-black/70 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-md">{durationLabel || 'YouTube'}</span>}
+      <div className={`absolute left-2 right-2 top-2 z-20 flex items-start justify-between gap-1.5 transition-opacity duration-300 sm:left-3 sm:right-3 sm:top-3 ${isActive ? 'opacity-0' : 'opacity-100'}`}>
+        <span className="max-w-[70%] truncate rounded-md border border-red-100 bg-white/95 px-1.5 py-0.5 text-[8px] font-black uppercase text-primary shadow-sm sm:px-2 sm:py-1 sm:text-[9px] lg:rounded-full lg:border-0 lg:px-2.5 lg:text-xs lg:normal-case">{inferCategory(video)}</span>
+        {(durationLabel || isYouTubeVideo(video)) && <span className="rounded-md bg-black/70 px-1.5 py-0.5 text-[8px] font-bold text-white shadow-sm backdrop-blur-md sm:px-2 sm:py-1 sm:text-[9px] lg:rounded-full lg:px-2.5 lg:text-xs lg:font-medium">{durationLabel || 'YouTube'}</span>}
       </div>
 
-      <div className={`absolute inset-x-0 bottom-0 z-20 transition-transform duration-300 ease-out ${isActive ? 'translate-y-0' : 'translate-y-full'}`}>
-        <div className="flex flex-col gap-1.5 px-3 pb-3 pt-10" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.35) 55%, transparent 100%)' }}>
+      <div className={`absolute inset-x-0 bottom-0 z-20 transition-transform duration-300 ease-out ${isActive ? 'translate-y-0' : 'translate-y-0 lg:translate-y-full'}`}>
+        <div className="flex flex-col gap-1 px-2 pb-2 pt-10 sm:gap-1.5 sm:px-3 sm:pb-3" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.35) 55%, transparent 100%)' }}>
           <div className="flex items-start justify-between gap-2">
-            <h3 className="line-clamp-2 flex-1 text-sm font-medium leading-snug text-white">{video.title || 'Video sản phẩm'}</h3>
-            <div className="flex shrink-0 gap-2 pt-0.5">
+            <h3 className="line-clamp-2 flex-1 text-[11px] font-bold leading-tight text-white sm:text-sm sm:font-medium sm:leading-snug">{video.title || 'Video sản phẩm'}</h3>
+            <div className="flex shrink-0 gap-1.5 pt-0.5 sm:gap-2">
               <button
                 type="button"
                 onClick={(event) => { event.stopPropagation(); onLike(); }}
@@ -255,7 +255,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
             </div>
           </div>
 
-          <div className="-mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-medium text-gray-400">
+          <div className="-mt-0.5 hidden flex-wrap gap-x-3 gap-y-1 text-[11px] font-medium text-gray-400 sm:flex">
             <span>{video.commentCount} bình luận</span>
             <span className="inline-flex items-center gap-1"><Eye className="h-3 w-3" />{formatCount(video.viewCount)} lượt xem</span>
             <span>{demoLikeCount(video, index)} lượt thích</span>
@@ -265,7 +265,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
             <Link
               to={`/product/${video.product.id}`}
               onClick={(event) => event.stopPropagation()}
-              className="mt-1 flex w-max max-w-full items-center gap-2 rounded-full border border-white/15 bg-white/10 px-2 py-1.5 backdrop-blur-md transition-colors hover:bg-white/20"
+              className="mt-1 hidden w-max max-w-full items-center gap-2 rounded-full border border-white/15 bg-white/10 px-2 py-1.5 backdrop-blur-md transition-colors hover:bg-white/20 sm:flex"
             >
               {video.product.imageUrl ? (
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white">
@@ -308,7 +308,7 @@ function MasonryGrid({ videos, likedIds, onOpen, onLike, onShare }: MasonryGridP
   );
 
   return (
-    <div ref={containerRef} className="flex gap-4">
+    <div ref={containerRef} className="flex gap-[clamp(0.5rem,2.2vw,1rem)] lg:gap-4">
       {columns.map((col, colIdx) => (
         <div key={colIdx} className="flex-1 min-w-0">
           {col.map((video: any) => (
@@ -498,15 +498,15 @@ export default function VideoPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mb-5 rounded-lg border border-red-100 bg-white px-4 py-4 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="mx-auto max-w-7xl px-2.5 py-4 sm:px-5 sm:py-6 lg:px-8">
+        <div className="mb-4 rounded-xl border border-red-100 bg-white px-3 py-4 shadow-sm sm:px-4 lg:mb-5 lg:rounded-lg">
+          <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <div className="flex items-center gap-2 border-b-2 border-primary pb-3 text-2xl font-black text-primary">
-                <Video className="h-6 w-6" />
+              <div className="flex items-center gap-2 border-b-2 border-primary pb-2.5 text-xl font-black text-primary sm:pb-3 sm:text-2xl">
+                <Video className="h-5 w-5 sm:h-6 sm:w-6" />
                 Video
               </div>
-              <p className="mt-3 text-sm font-medium text-slate-500">Kho video sản phẩm, mẹo chọn mua và hướng dẫn dịch vụ từ Echophone.</p>
+              <p className="mt-2 text-xs font-medium text-slate-500 sm:mt-3 sm:text-sm">Kho video sản phẩm, mẹo chọn mua và hướng dẫn dịch vụ từ Echophone.</p>
             </div>
 
             <div className="grid gap-2 sm:grid-cols-[minmax(0,320px)_150px]">
@@ -516,10 +516,10 @@ export default function VideoPage() {
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Tìm video, chủ đề..."
-                  className="h-10 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-red-100"
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-red-100 sm:h-10 sm:rounded-md lg:shadow-none"
                 />
               </label>
-              <select value={sort} onChange={(event) => setSort(event.target.value as SortMode)} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-primary">
+              <select value={sort} onChange={(event) => setSort(event.target.value as SortMode)} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-sm outline-none focus:border-primary sm:h-10 sm:rounded-md sm:font-semibold lg:shadow-none">
                 <option value="newest">Mới nhất</option>
                 <option value="views">Xem nhiều</option>
                 <option value="likes">Thích nhiều</option>
@@ -530,7 +530,7 @@ export default function VideoPage() {
           </div>
         </div>
 
-        <div className="sticky top-0 z-10 mb-5 flex items-center gap-2 rounded-lg border border-slate-100 bg-white/95 px-3 py-3 shadow-sm backdrop-blur">
+        <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 rounded-xl border border-slate-100 bg-white/95 px-2.5 py-2.5 shadow-sm backdrop-blur sm:mb-5 sm:px-3 sm:py-3 lg:rounded-lg">
           <button type="button" className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-50 text-slate-700 ring-1 ring-slate-100 sm:flex" aria-label="Cuộn trái">
             <ChevronLeft className="h-5 w-5" />
           </button>
@@ -539,7 +539,7 @@ export default function VideoPage() {
               <button
                 key={category}
                 onClick={() => setActiveTab(category)}
-                className={`h-9 shrink-0 whitespace-nowrap rounded-md px-4 text-sm font-bold transition-colors ${
+                className={`h-9 shrink-0 whitespace-nowrap rounded-lg px-3 text-xs font-bold transition-colors sm:rounded-md sm:px-4 sm:text-sm ${
                   activeTab === category ? 'bg-primary text-white shadow-sm shadow-red-100' : 'bg-slate-50 text-slate-700 ring-1 ring-slate-100 hover:bg-slate-100'
                 }`}
               >

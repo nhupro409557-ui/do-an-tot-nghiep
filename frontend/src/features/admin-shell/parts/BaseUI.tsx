@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Bell, Edit2, KeyRound, LogOut, Menu, MoreHorizontal, Plus, RefreshCw, ShieldCheck, Trash2, RotateCcw, UserCircle, X } from 'lucide-react';
 import { signOut } from '../../../services/authDb';
@@ -34,7 +34,7 @@ export function AdminTopBar({
           <button
             type="button"
             onClick={onToggleSidebar}
-            title={sidebarOpen ? 'áº¨n menu quáº£n trá»‹' : 'Hiá»‡n menu quáº£n trá»‹'}
+            title={sidebarOpen ? 'Ẩn menu quản trị' : 'Hiện menu quản trị'}
             className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
           >
             <Menu className="h-5 w-5" />
@@ -44,10 +44,10 @@ export function AdminTopBar({
               <ShieldCheck className="h-4 w-4" /> Admin Console
             </div>
             <h1 className="truncate text-xl font-bold text-slate-955 sm:text-2xl">
-              Quáº£n lÃ½ cá»­a hÃ ng
+              Quản lý cửa hàng
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              Báº£ng Ä‘iá»u khiá»ƒn sÃ¡ng hÆ¡n, Æ°u tiÃªn dá»¯ liá»‡u vÃ  thao tÃ¡c quan trá»ng.
+              Bảng điều khiển sáng hơn, ưu tiên dữ liệu và thao tác quan trọng.
             </p>
           </div>
         </div>
@@ -70,20 +70,20 @@ export function AdminTopBar({
             to="/"
             className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-red-100 px-4 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-200"
           >
-            <span>Trang chá»§</span>
+            <span>Trang chủ</span>
           </Link>
           <button
             type="button"
             onClick={onRefresh}
-            title="LÃ m má»›i dá»¯ liá»‡u"
+            title="Làm mới dữ liệu"
             className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             <RefreshCw className="h-4 w-4" />
-            <span className="hidden xl:inline">LÃ m má»›i</span>
+            <span className="hidden xl:inline">Làm mới</span>
           </button>
           <button
             type="button"
-            title="ThÃ´ng bÃ¡o"
+            title="Thông báo"
             className="relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-700 transition hover:bg-slate-50"
           >
             <Bell className="h-5 w-5" />
@@ -92,7 +92,7 @@ export function AdminTopBar({
           <div className="relative">
             <button
               type="button"
-              title="Há»“ sÆ¡ admin"
+              title="Hồ sơ admin"
               onClick={() => setProfileOpen((value) => !value)}
               className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-700 transition hover:bg-white"
             >
@@ -107,7 +107,7 @@ export function AdminTopBar({
                   className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
                 >
                   <KeyRound className="h-4 w-4" />
-                  Äá»•i máº­t kháº©u
+                  Đổi mật khẩu
                 </Link>
                 <button
                   type="button"
@@ -115,7 +115,7 @@ export function AdminTopBar({
                   className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50"
                 >
                   <LogOut className="h-4 w-4" />
-                  ÄÄƒng xuáº¥t
+                  Đăng xuất
                 </button>
               </div>
             )}
@@ -209,63 +209,79 @@ export function RowActions({
   onRestore?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const hasExtraActions = Boolean(onHide || onRestore);
+
   return (
     <div className="relative flex items-center gap-2">
       <button
         type="button"
         onClick={onEdit}
-        title="Sá»­a"
+        title="Sửa"
         className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
       >
         <Edit2 className="h-4 w-4" />
       </button>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        title="Thao tÃ¡c khÃ¡c"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white/90 text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
-      >
-        <MoreHorizontal className="h-4 w-4" />
-      </button>
-      {open && (
-        <div className="absolute right-0 top-10 z-20 min-w-[150px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-          {onHide && (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onHide();
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-amber-700 transition hover:bg-amber-50"
-            >
-              <RefreshCw className="h-4 w-4" /> Ẩn
-            </button>
-          )}
+      {hasExtraActions ? (
+        <>
           <button
             type="button"
-            onClick={() => {
-              setOpen(false);
-              onDelete();
-            }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50"
+            onClick={() => setOpen((value) => !value)}
+            title="Thao tác khác"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white/90 text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
           >
-            <Trash2 className="h-4 w-4" /> Xóa
+            <MoreHorizontal className="h-4 w-4" />
           </button>
-          {onRestore && (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onRestore();
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
-            >
-              <RotateCcw className="h-4 w-4" /> Báº­t láº¡i
-            </button>
+          {open && (
+            <div className="absolute right-0 top-10 z-20 min-w-[150px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+              {onHide && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    onHide();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-amber-700 transition hover:bg-amber-50"
+                >
+                  <RefreshCw className="h-4 w-4" /> Ẩn
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onDelete();
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4" /> Xóa
+              </button>
+              {onRestore && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    onRestore();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                >
+                  <RotateCcw className="h-4 w-4" /> Bật lại
+                </button>
+              )}
+            </div>
           )}
-        </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={onDelete}
+          title="Xóa"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-red-600 transition hover:border-red-300 hover:bg-red-50"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
       )}
     </div>
   );
 }
+
 

@@ -70,8 +70,18 @@ async def update_attached_service(service_id: UUID, payload: AttachedServicePayl
 
 
 @router.delete("/attached-services/{service_id}", dependencies=[Depends(require_permission("product:update"))])
+async def delete_attached_service(service_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
+    return await attached_service.delete_attached_service(session, service_id)
+
+
+@router.patch("/attached-services/{service_id}/deactivate", dependencies=[Depends(require_permission("product:update"))])
 async def deactivate_attached_service(service_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
     return await attached_service.deactivate_attached_service(session, service_id)
+
+
+@router.patch("/attached-services/{service_id}/reactivate", dependencies=[Depends(require_permission("product:update"))])
+async def reactivate_attached_service(service_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
+    return await attached_service.reactivate_attached_service(session, service_id)
 
 
 @router.post("/products/import", dependencies=[Depends(require_permission("product:create"))])

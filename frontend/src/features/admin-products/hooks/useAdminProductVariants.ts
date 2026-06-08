@@ -95,7 +95,7 @@ export function useAdminProductVariants({
           ...emptyVariant,
           price: prev.price,
           salePrice: prev.discountPrice,
-          stockQuantity: Number(prev.stock || 0),
+          stockQuantity: 0,
           isDefault: prev.variants.length === 0,
         },
       ],

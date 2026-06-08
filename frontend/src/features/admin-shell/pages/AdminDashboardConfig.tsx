@@ -8,6 +8,7 @@ import {
   Image,
   KeyRound,
   LayoutDashboard,
+  MessagesSquare,
   Megaphone,
   Package,
   ScrollText,
@@ -17,7 +18,7 @@ import {
   Zap,
 } from 'lucide-react';
 
-export type AdminTab = 'overview' | 'products' | 'flashSales' | 'categories' | 'brands' | 'services' | 'orders' | 'vouchers' | 'customers' | 'inventory' | 'reviews' | 'content' | 'banners' | 'audit' | 'permissions';
+export type AdminTab = 'overview' | 'products' | 'flashSales' | 'categories' | 'brands' | 'services' | 'orders' | 'vouchers' | 'customers' | 'inventory' | 'reviews' | 'interactions' | 'content' | 'banners' | 'audit' | 'permissions';
 export type AdminTabGroup = 'Tổng quan' | 'Kinh doanh' | 'Catalog' | 'Vận hành' | 'Khách hàng' | 'Hệ thống';
 export type SpecField = { key: string; label: string; group?: string; type: string; required: boolean; variant: boolean; isFilterable?: boolean; filterType?: string; filterEnabled?: boolean };
 export type CategoryFilterField = { key: string; label: string; type: string; enabled: boolean; source?: string };
@@ -190,6 +191,7 @@ export const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = 
   { id: 'customers', label: 'Khách hàng', icon: Users },
   { id: 'inventory', label: 'Tồn kho', icon: Boxes },
   { id: 'reviews', label: 'Đánh giá', icon: Star },
+  { id: 'interactions', label: 'Bình luận & hỏi đáp', icon: MessagesSquare },
   { id: 'content', label: 'Video & nội dung', icon: Megaphone },
   { id: 'banners', label: 'Banner', icon: Image },
   { id: 'audit', label: 'Nhật ký', icon: ScrollText },
@@ -296,6 +298,15 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
     title: 'Quản lý đánh giá',
     description: 'Khu vực kiểm duyệt phản hồi và chất lượng trải nghiệm sau mua.',
   },
+  interactions: {
+    active: 'bg-sky-600 text-white shadow-sm shadow-sky-200',
+    item: 'border-cyan-100 bg-cyan-50/75 text-cyan-950 hover:bg-cyan-100/80',
+    icon: 'bg-sky-50 text-sky-700 ring-sky-100',
+    surface: 'border-sky-100 bg-sky-50/80 text-sky-900',
+    label: 'Khách hàng',
+    title: 'Quản lý bình luận & hỏi đáp',
+    description: 'Khu vực quản lý bình luận vui và hỏi đáp sản phẩm theo cấu trúc 2 tầng rõ ràng.',
+  },
   content: {
     active: 'bg-teal-600 text-white shadow-sm shadow-teal-200',
     item: 'border-teal-100 bg-teal-50/75 text-teal-950 hover:bg-teal-100/80',
@@ -348,6 +359,7 @@ export const adminTabs: { id: AdminTab; label: string; group: AdminTabGroup; ico
   { id: 'banners', label: 'Banner', group: 'Vận hành', icon: Image },
   { id: 'customers', label: 'Khách hàng', group: 'Khách hàng', icon: Users },
   { id: 'reviews', label: 'Đánh giá', group: 'Khách hàng', icon: Star },
+  { id: 'interactions', label: 'Bình luận & hỏi đáp', group: 'Khách hàng', icon: MessagesSquare },
   { id: 'audit', label: 'Nhật ký', group: 'Hệ thống', icon: ScrollText },
   { id: 'permissions', label: 'Phân quyền', group: 'Hệ thống', icon: KeyRound },
 ];
@@ -453,6 +465,15 @@ export const adminTabTone: Record<AdminTab, { active: string; item: string; icon
     title: 'Quản lý đánh giá',
     description: 'Khu vực kiểm duyệt phản hồi và chất lượng trải nghiệm sau mua.',
   },
+  interactions: {
+    active: 'border-cyan-200 bg-cyan-100 text-slate-800 shadow-sm shadow-cyan-50',
+    item: 'border-cyan-100 bg-cyan-50/75 text-slate-700 hover:bg-cyan-100/80',
+    icon: 'bg-sky-50 text-sky-700 ring-sky-100',
+    surface: 'border-sky-100 bg-sky-50/80 text-sky-900',
+    label: 'Khách hàng',
+    title: 'Quản lý bình luận & hỏi đáp',
+    description: 'Khu vực quản lý bình luận vui và hỏi đáp sản phẩm theo cấu trúc 2 tầng rõ ràng.',
+  },
   content: {
     active: 'border-emerald-200 bg-emerald-100 text-slate-800 shadow-sm shadow-emerald-50',
     item: 'border-emerald-100 bg-emerald-50/75 text-slate-700 hover:bg-emerald-100/80',
@@ -503,6 +524,7 @@ export const searchPlaceholderByTab: Record<AdminTab, string> = {
   customers: 'Tìm khách hàng, email, hạng',
   inventory: 'Tìm sản phẩm, SKU, trạng thái kho',
   reviews: 'Tìm sản phẩm, khách hàng, nội dung',
+  interactions: 'Tìm sản phẩm, khách hàng, bình luận hoặc câu hỏi',
   content: 'Tìm tiêu đề, loại, mô tả',
   banners: 'Tìm banner theo tiêu đề hoặc mô tả',
   audit: 'Tìm sự kiện, tài nguyên hoặc IP',
@@ -524,7 +546,7 @@ export const statusLabel: Record<string, string> = {
   ACTIVE: 'Đang bán',
   INACTIVE: 'Tạm ẩn',
   DISCONTINUED: 'Ngừng kinh doanh',
-  DRAFT: 'Nháp',
+  DRAFT: 'Nháp thêm',
   REVISION_DRAFT: 'Nháp chỉnh sửa',
   ARCHIVED: 'Lưu trữ',
 };
@@ -554,13 +576,19 @@ export const orderTransitionMap: Record<string, string[]> = {
 };
 
 export const productStatusOptions: [string, string][] = [
-  ['DRAFT', 'Nháp'],
+  ['DRAFT', 'Nháp thêm'],
   ['REVISION_DRAFT', 'Nháp chỉnh sửa'],
   ['PENDING', 'Chờ duyệt'],
   ['ACTIVE', 'Đang bán'],
   ['INACTIVE', 'Tạm ẩn'],
   ['DISCONTINUED', 'Ngừng kinh doanh'],
   ['ARCHIVED', 'Lưu trữ'],
+];
+
+export const productPublicationStatusOptions: [string, string][] = [
+  ['ACTIVE', 'Đang bán'],
+  ['INACTIVE', 'Tạm ẩn'],
+  ['DISCONTINUED', 'Ngừng kinh doanh'],
 ];
 
 export const productStatusLabel: Record<string, string> = {
@@ -598,7 +626,7 @@ export const emptyContentForm = {
   contentType: 'VIDEO',
   videoSource: 'UPLOAD',
   videoCategory: 'PRODUCT',
-  status: 'DRAFT',
+  status: 'ACTIVE',
   videoUrl: '',
   thumbnailUrl: '',
   bannerImageUrl: '',
@@ -695,7 +723,7 @@ export const emptyProduct = {
   isFlashSale: false,
 };
 
-export const productExtraKeys = ['_variantSpecKeys', '_seoTitle', '_seoDescription', '_seoSlug', '_accessoryProducts', '_accessoryOffers', '_attachedServices', '_warrantyPolicy'];
+export const productExtraKeys = ['_variantSpecKeys', '_seoTitle', '_seoDescription', '_seoSlug', '_accessoryProducts', '_accessoryOffers', '_attachedServices', '_warrantyPolicy', '_targetProductStatus'];
 
 export function buildVariantSku(productName: string, colorName: string, index: number) {
   const part = (value: string, fallback: string) => slugifyText(value || fallback).split('-').map((item) => item.charAt(0)).join('').slice(0, 5).toUpperCase() || fallback;

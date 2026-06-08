@@ -51,12 +51,12 @@ def build_review_update(payload: ReviewStatusPayload) -> tuple[list[str], dict[s
 def build_review_notification(next_status: str, product_name: str) -> tuple[str, str]:
     notification_copy = {
         "PUBLISHED": (
-            "ÄÃ¡nh giÃ¡ Ä‘Ã£ Ä‘Æ°á»£c duyá»‡t",
-            f"ÄÃ¡nh giÃ¡ cá»§a báº¡n cho sáº£n pháº©m {product_name} Ä‘Ã£ Ä‘Æ°á»£c hiá»ƒn thá»‹ cÃ´ng khai.",
+            "Đánh giá đã được duyệt",
+            f"Đánh giá của bạn cho sản phẩm {product_name} đã được hiển thị công khai.",
         ),
         "REJECTED": (
-            "ÄÃ¡nh giÃ¡ chÆ°a Ä‘Æ°á»£c duyá»‡t",
-            f"ÄÃ¡nh giÃ¡ cá»§a báº¡n cho sáº£n pháº©m {product_name} chÆ°a Ä‘Æ°á»£c duyá»‡t. Vui lÃ²ng kiá»ƒm tra ná»™i dung vÃ  gá»­i láº¡i náº¿u cáº§n.",
+            "Đánh giá chưa được duyệt",
+            f"Đánh giá của bạn cho sản phẩm {product_name} chưa được duyệt. Vui lòng kiểm tra nội dung và gửi lại nếu cần.",
         ),
     }
     return notification_copy[next_status]

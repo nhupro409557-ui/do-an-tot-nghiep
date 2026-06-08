@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user_id
 from app.api.schemas.content import (
     ProductImageCommentRequest,
+    ProductQuestionRequest,
     ReviewRequest,
     ReviewUpdateRequest,
     VideoCommentRequest,
@@ -170,3 +171,28 @@ async def retract_product_image_comment(
     current_user_id: UUID = Depends(get_current_user_id),
 ) -> dict:
     return await public_content_service.retract_product_image_comment(product_id, comment_id, session, current_user_id)
+
+
+@router.get("/products/{product_id}/questions")
+async def list_product_questions(product_id: UUID, session: AsyncSession = Depends(get_session)) -> list[dict]:
+    return await public_content_service.list_product_questions(product_id, session)
+
+
+@router.post("/products/{product_id}/questions", status_code=status.HTTP_201_CREATED)
+async def create_product_question(
+    product_id: UUID,
+    payload: ProductQuestionRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await public_content_service.create_product_question(product_id, payload, session, current_user_id)
+
+
+@router.delete("/products/{product_id}/questions/{comment_id}")
+async def retract_product_question(
+    product_id: UUID,
+    comment_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await public_content_service.retract_product_question(product_id, comment_id, session, current_user_id)

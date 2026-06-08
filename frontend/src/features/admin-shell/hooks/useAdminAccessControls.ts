@@ -38,6 +38,7 @@ export function useAdminAccessControls(
     customers: canReadCustomers,
     inventory: canReadInventory,
     reviews: canReadReviews,
+    interactions: canReadReviews,
     content: canReadContent,
     banners: canReadContent,
     audit: canReadAudit,

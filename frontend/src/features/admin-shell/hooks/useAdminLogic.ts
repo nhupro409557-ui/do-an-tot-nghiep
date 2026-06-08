@@ -508,13 +508,15 @@ export function useAdminLogic() {
         setCustomerTotal(Array.isArray(customerData) ? customerData.length : customerData.total || 0);
       };
       const loadReviews = async () => {
-        const [reviewData, reviewSummaryData, imageCommentData] = await Promise.all([
+        const [reviewData, reviewSummaryData] = await Promise.all([
           adminReviewsApi.adminListReviews().catch(() => []),
           adminReviewsApi.adminListReviewSummary().catch(() => []),
-          adminContentApi.adminListImageComments().catch(() => []),
         ]);
         setReviews(reviewData);
         setReviewSummary(reviewSummaryData);
+      };
+      const loadProductInteractions = async () => {
+        const imageCommentData = await adminContentApi.adminListImageComments().catch(() => []);
         setImageComments(imageCommentData);
       };
       const loadContent = async () => {
@@ -552,6 +554,7 @@ export function useAdminLogic() {
         }
         if (targetTab === 'categories') loadedAdminResourcesRef.current.delete('categories');
         if (targetTab === 'services') loadedAdminResourcesRef.current.delete('attached-services');
+        if (targetTab === 'interactions') loadedAdminResourcesRef.current.delete('product-interactions');
         if (targetTab === 'banners') loadedAdminResourcesRef.current.delete('banners');
         if (targetTab === 'flashSales') {
           loadedAdminResourcesRef.current.delete('flash-sales');
@@ -589,6 +592,8 @@ export function useAdminLogic() {
         await loadProducts();
       } else if (targetTab === 'reviews') {
         await loadReviews();
+      } else if (targetTab === 'interactions') {
+        await loadProductInteractions();
       } else if (targetTab === 'content') {
         await Promise.all([loadContent(), loadProducts(), loadCategories(), loadBrands()]);
       } else if (targetTab === 'banners') {

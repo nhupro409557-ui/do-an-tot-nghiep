@@ -4,9 +4,9 @@ This file records the non-obvious decisions added while hardening category manag
 
 ## Update 2026-06-06 inherited product visibility
 
-- Khi admin áº©n danh má»¥c qua cáº­p nháº­t tráº¡ng thÃ¡i `INACTIVE`, sáº£n pháº©m Ä‘ang bÃ¡n trong nhÃ¡nh danh má»¥c Ä‘Æ°á»£c chuyá»ƒn sang `INACTIVE` kÃ¨m `hidden_by_category = TRUE`.
-- Khi danh má»¥c báº­t láº¡i hoáº·c Ä‘Æ°á»£c khÃ´i phá»¥c, backend chá»‰ báº­t láº¡i sáº£n pháº©m tá»«ng bá»‹ áº©n bá»Ÿi danh má»¥c vÃ  khÃ´ng bá»‹ thÆ°Æ¡ng hiá»‡u/danh má»¥c khÃ¡c cháº·n; sáº£n pháº©m Ä‘Ã£ bá»‹ admin táº¯t trÆ°á»›c Ä‘Ã³ váº«n giá»¯ `INACTIVE`.
-- Luá»“ng cáº­p nháº­t hÃ ng loáº¡t danh má»¥c dÃ¹ng cÃ¹ng quy táº¯c nÃ y Ä‘á»ƒ trÃ¡nh máº¥t tráº¡ng thÃ¡i gá»‘c cá»§a sáº£n pháº©m.
+- Khi admin ẩn danh mục qua cập nhật trạng thái `INACTIVE`, sản phẩm đang bán trong nhánh danh mục được chuyển sang `INACTIVE` kèm `hidden_by_category = TRUE`.
+- Khi danh mục bật lại hoặc được khôi phục, backend chỉ bật lại sản phẩm từng bị ẩn bởi danh mục và không bị thương hiệu/danh mục khác chặn; sản phẩm đã bị admin tắt trước đó vẫn giữ `INACTIVE`.
+- Luồng cập nhật hàng loạt danh mục dùng cùng quy tắc này để tránh mất trạng thái gốc của sản phẩm.
 
 ## Files to review first
 
@@ -117,17 +117,17 @@ This file records the non-obvious decisions added while hardening category manag
 
 ## Update 2026-06-06 admin category status filter
 
-- MÃ n quáº£n lÃ½ danh má»¥c cá»§a admin cÃ³ thÃªm bá»™ lá»c tráº¡ng thÃ¡i á»Ÿ thanh lá»c phÃ­a trÃªn.
-- Bá»™ lá»c há»— trá»£: táº¥t cáº£, Ä‘ang hiá»ƒn thá»‹ vÃ  Ä‘Ã£ áº©n.
-- Frontend lá»c theo `isActive` trÃªn dá»¯ liá»‡u danh má»¥c Ä‘Ã£ táº£i sáºµn, nÃªn khÃ´ng thay Ä‘á»•i API/backend.
+- Màn quản lý danh mục của admin có thêm bộ lọc trạng thái ở thanh lọc phía trên.
+- Bộ lọc hỗ trợ: tất cả, đang hiển thị và đã ẩn.
+- Frontend lọc theo `isActive` trên dữ liệu danh mục đã tải sẵn, nên không thay đổi API/backend.
 
 ## Update 2026-06-05 backend admin category refactor
 
-- Báº¯t Ä‘áº§u tÃ¡ch `backend/app/api/v1/routers/admin_categories.py` theo mÃ´ hÃ¬nh Controller - Service - Repository.
-- Router `admin_categories.py` hiá»‡n chá»‰ giá»¯ route decorator, dependency FastAPI vÃ  chuyá»ƒn tiáº¿p request sang service.
-- Logic quáº£n lÃ½ danh má»¥c, cache, audit log, sitemap refresh, migration guard vÃ  cÃ¡c use case create/update/delete/restore/reorder/bulk Ä‘Ã£ Ä‘Æ°á»£c chuyá»ƒn sang `backend/app/application/services/category_service.py`.
-- Táº¡o `backend/app/infrastructure/database/repositories/category_repo.py` lÃ m Ä‘iá»ƒm Ä‘áº·t táº§ng repository cho truy váº¥n category; cÃ¡c truy váº¥n má»›i nÃªn Ä‘Æ°á»£c thÃªm vÃ o Ä‘Ã¢y trÆ°á»›c, sau Ä‘Ã³ tiáº¿p tá»¥c chuyá»ƒn dáº§n SQL cÅ© tá»« service sang repository theo tá»«ng nhÃ³m nhá» Ä‘á»ƒ trÃ¡nh Ä‘á»•i hÃ nh vi.
-- Láº§n tÃ¡ch nÃ y giá»¯ nguyÃªn hÃ nh vi API, status code vÃ  transaction boundary hiá»‡n cÃ³: service váº«n lÃ  nÆ¡i commit transaction vÃ  Ä‘iá»u phá»‘i cache/background task sau khi ghi dá»¯ liá»‡u.
+- Bắt đầu tách `backend/app/api/v1/routers/admin_categories.py` theo mô hình Controller - Service - Repository.
+- Router `admin_categories.py` hiện chỉ giữ route decorator, dependency FastAPI và chuyển tiếp request sang service.
+- Logic quản lý danh mục, cache, audit log, sitemap refresh, migration guard và các use case create/update/delete/restore/reorder/bulk đã được chuyển sang `backend/app/application/services/category_service.py`.
+- Tạo `backend/app/infrastructure/database/repositories/category_repo.py` làm điểm đặt tầng repository cho truy vấn category; các truy vấn mới nên được thêm vào đây trước, sau đó tiếp tục chuyển dần SQL cũ từ service sang repository theo từng nhóm nhỏ để tránh đổi hành vi.
+- Lần tách này giữ nguyên hành vi API, status code và transaction boundary hiện có: service vẫn là nơi commit transaction và điều phối cache/background task sau khi ghi dữ liệu.
 
 ## Business assumptions introduced in this pass
 
@@ -139,13 +139,13 @@ This file records the non-obvious decisions added while hardening category manag
 
 ## Update 2026-06-04 admin category slug validation
 
-- Slug danh má»¥c Ä‘Æ°á»£c chuáº©n hÃ³a tiáº¿ng Viá»‡t Ä‘Ãºng dáº¥u khi tá»± sinh tá»« tÃªn, bao gá»“m trÆ°á»ng há»£p cÃ³ chá»¯ `Ä‘`/`Ä`.
-- Khi thÃªm danh má»¥c mÃ  Ä‘á»ƒ trá»‘ng slug, backend tá»± sinh slug dáº¡ng `ten-danh-muc-xxxxx` Ä‘á»ƒ háº¡n cháº¿ trÃ¹ng.
-- Khi sá»­a danh má»¥c, kiá»ƒm tra trÃ¹ng slug/mÃ£ váº«n loáº¡i trá»« chÃ­nh danh má»¥c Ä‘ang sá»­a; lá»—i tráº£ vá» Ä‘Æ°á»£c tÃ¡ch rÃµ giá»¯a `Slug danh má»¥c Ä‘Ã£ tá»“n táº¡i.` vÃ  `MÃ£ danh má»¥c Ä‘Ã£ tá»“n táº¡i.`.
-- Frontend hiá»ƒn thá»‹ trá»±c tiáº¿p thÃ´ng bÃ¡o lá»—i backend khi lÆ°u danh má»¥c tháº¥t báº¡i Ä‘á»ƒ admin biáº¿t Ä‘ang trÃ¹ng slug hay trÃ¹ng mÃ£.
-- Sá»­a lá»—i lÆ°u danh má»¥c bá»‹ backend tráº£ 500/CORS giáº£ do cÃ¡c helper async gá»i `.scalar()` trÃªn coroutine `session.execute`; nay káº¿t quáº£ execute Ä‘Æ°á»£c await trÆ°á»›c khi Ä‘á»c scalar.
-- ÄÃ£ khá»Ÿi Ä‘á»™ng láº¡i backend local trÃªn port 8000 Ä‘á»ƒ process Ä‘ang cháº¡y dÃ¹ng code má»›i.
-- CORS middleware Ä‘Æ°á»£c Ä‘áº·t bá»c ngoÃ i audit middleware Ä‘á»ƒ khi backend cÃ³ lá»—i tháº­t, trÃ¬nh duyá»‡t váº«n nháº­n `Access-Control-Allow-Origin` vÃ  frontend tháº¥y lá»—i API thay vÃ¬ thÃ´ng bÃ¡o CORS gÃ¢y nhiá»…u.
+- Slug danh mục được chuẩn hóa tiếng Việt đúng dấu khi tự sinh từ tên, bao gồm trường hợp có chữ `đ`/`Đ`.
+- Khi thêm danh mục mà để trống slug, backend tự sinh slug dạng `ten-danh-muc-xxxxx` để hạn chế trùng.
+- Khi sửa danh mục, kiểm tra trùng slug/mã vẫn loại trừ chính danh mục đang sửa; lỗi trả về được tách rõ giữa `Slug danh mục đã tồn tại.` và `Mã danh mục đã tồn tại.`.
+- Frontend hiển thị trực tiếp thông báo lỗi backend khi lưu danh mục thất bại để admin biết đang trùng slug hay trùng mã.
+- Sửa lỗi lưu danh mục bị backend trả 500/CORS giả do các helper async gọi `.scalar()` trên coroutine `session.execute`; nay kết quả execute được await trước khi đọc scalar.
+- Đã khởi động lại backend local trên port 8000 để process đang chạy dùng code mới.
+- CORS middleware được đặt bọc ngoài audit middleware để khi backend có lỗi thật, trình duyệt vẫn nhận `Access-Control-Allow-Origin` và frontend thấy lỗi API thay vì thông báo CORS gây nhiễu.
 
 ## Update 2026-05-23
 
@@ -171,9 +171,9 @@ This file records the non-obvious decisions added while hardening category manag
 
 ## Update 2026-06-01 admin form completion feedback
 
-- Sau khi thÃªm hoáº·c chá»‰nh sá»­a danh má»¥c thÃ nh cÃ´ng, popup danh má»¥c tá»± Ä‘Ã³ng báº±ng `closeSignal`.
-- Admin nháº­n thÃ´ng bÃ¡o thÃ nh cÃ´ng rÃµ rÃ ng sau khi thÃªm hoáº·c lÆ°u thay Ä‘á»•i danh má»¥c.
-- Viá»‡c reset form váº«n Ä‘Æ°á»£c giá»¯ nguyÃªn, nhÆ°ng chá»‰ diá»…n ra sau khi popup Ä‘Ã£ Ä‘Æ°á»£c yÃªu cáº§u Ä‘Ã³ng Ä‘á»ƒ trÃ¡nh cáº£m giÃ¡c popup chá»‰nh sá»­a chuyá»ƒn thÃ nh popup thÃªm má»›i.
+- Sau khi thêm hoặc chỉnh sửa danh mục thành công, popup danh mục tự đóng bằng `closeSignal`.
+- Admin nhận thông báo thành công rõ ràng sau khi thêm hoặc lưu thay đổi danh mục.
+- Việc reset form vẫn được giữ nguyên, nhưng chỉ diễn ra sau khi popup đã được yêu cầu đóng để tránh cảm giác popup chỉnh sửa chuyển thành popup thêm mới.
 
 ## Update 2026-06-01 storefront specs alignment
 
@@ -184,15 +184,15 @@ This file records the non-obvious decisions added while hardening category manag
 
 ## Update 2026-06-02 storefront category brand menu
 
-- Thanh danh má»¥c storefront chá»‰ hiá»ƒn thá»‹ thÆ°Æ¡ng hiá»‡u theo sáº£n pháº©m thá»±c táº¿ thuá»™c danh má»¥c cha/con hoáº·c thÆ°Æ¡ng hiá»‡u Ä‘Æ°á»£c gáº¯n rÃµ vá»›i danh má»¥c Ä‘Ã³.
-- KhÃ´ng cÃ²n Ä‘Æ°a cÃ¡c thÆ°Æ¡ng hiá»‡u chÆ°a gáº¯n danh má»¥c vÃ o má»i danh má»¥c, trÃ¡nh trÆ°á»ng há»£p Äiá»‡n thoáº¡i hiá»ƒn thá»‹ láº«n Acer, Dell, Canon, DJI.
-- `frontend/src/hooks/useCatalog.ts` Ä‘Ã£ tÃ­nh cáº£ `subcategoryId`/`subcategorySlug` khi gom sáº£n pháº©m cho danh má»¥c cha, nÃªn hÃ£ng cá»§a danh má»¥c con váº«n xuáº¥t hiá»‡n Ä‘Ãºng trong menu danh má»¥c cha.
+- Thanh danh mục storefront chỉ hiển thị thương hiệu theo sản phẩm thực tế thuộc danh mục cha/con hoặc thương hiệu được gắn rõ với danh mục đó.
+- Không còn đưa các thương hiệu chưa gắn danh mục vào mọi danh mục, tránh trường hợp Điện thoại hiển thị lẫn Acer, Dell, Canon, DJI.
+- `frontend/src/hooks/useCatalog.ts` đã tính cả `subcategoryId`/`subcategorySlug` khi gom sản phẩm cho danh mục cha, nên hãng của danh mục con vẫn xuất hiện đúng trong menu danh mục cha.
 
 ## Update 2026-06-02 storefront category ranking suggestions
 
-- `frontend/src/hooks/useCatalog.ts` nay láº¥y danh sÃ¡ch "Sáº£n pháº©m ná»•i báº­t" trong mega menu tá»« `GET /catalog/rankings` theo tá»«ng danh má»¥c.
-- Nguá»“n xáº¿p háº¡ng dÃ¹ng `criteria=trending`, `period=7d`, `limit=10` Ä‘á»ƒ Æ°u tiÃªn sáº£n pháº©m Ä‘ang cÃ³ háº¡ng trong danh má»¥c Ä‘Ã³.
-- Náº¿u ranking trá»‘ng hoáº·c API lá»—i, menu fallback vá» danh sÃ¡ch sáº£n pháº©m active Ä‘Ã£ khá»›p vá»›i danh má»¥c Ä‘á»ƒ khu Ä‘á» xuáº¥t khÃ´ng bá»‹ rá»—ng.
+- `frontend/src/hooks/useCatalog.ts` nay lấy danh sách "Sản phẩm nổi bật" trong mega menu từ `GET /catalog/rankings` theo từng danh mục.
+- Nguồn xếp hạng dùng `criteria=trending`, `period=7d`, `limit=10` để ưu tiên sản phẩm đang có hạng trong danh mục đó.
+- Nếu ranking trống hoặc API lỗi, menu fallback về danh sách sản phẩm active đã khớp với danh mục để khu đề xuất không bị rỗng.
 
 ## Update 2026-06-02 storefront category mega menu layout
 
@@ -213,14 +213,14 @@ This file records the non-obvious decisions added while hardening category manag
 
 ## Update 2026-06-05 admin category duplicate guard
 
-- Kiá»ƒm tra trÃ¹ng slug/mÃ£ danh má»¥c khÃ´ng cÃ²n bá» qua báº£n ghi Ä‘Ã£ xÃ³a má»m, vÃ¬ database váº«n giá»¯ unique constraint trÃªn `categories.slug` vÃ  `categories.code`.
-- Khi admin táº¡o hoáº·c sá»­a danh má»¥c dÃ¹ng láº¡i mÃ£/slug Ä‘Ã£ tá»“n táº¡i trong database, service tráº£ lá»—i nghiá»‡p vá»¥ `409` thay vÃ¬ Ä‘á»ƒ insert/update rÆ¡i xuá»‘ng lá»—i database `500`.
+- Kiểm tra trùng slug/mã danh mục không còn bỏ qua bản ghi đã xóa mềm, vì database vẫn giữ unique constraint trên `categories.slug` và `categories.code`.
+- Khi admin tạo hoặc sửa danh mục dùng lại mã/slug đã tồn tại trong database, service trả lỗi nghiệp vụ `409` thay vì để insert/update rơi xuống lỗi database `500`.
 
 ## Update 2026-06-05 hard delete empty categories
 
-- Khi admin xÃ³a danh má»¥c khÃ´ng cÃ³ danh má»¥c con, sáº£n pháº©m, thÆ°Æ¡ng hiá»‡u, ná»™i dung, migration job hoáº·c redirect SEO liÃªn quan, backend xÃ³a cá»©ng báº£n ghi khá»i `categories`.
-- Náº¿u danh má»¥c cÃ²n rÃ ng buá»™c nghiá»‡p vá»¥, backend giá»¯ luá»“ng xÃ³a má»m hiá»‡n cÃ³ Ä‘á»ƒ trÃ¡nh lÃ m Ä‘á»©t dá»¯ liá»‡u sáº£n pháº©m vÃ  quan há»‡ danh má»¥c.
-- Audit log cá»§a riÃªng danh má»¥c trá»‘ng Ä‘Æ°á»£c dá»n trÆ°á»›c khi xÃ³a cá»©ng vÃ¬ Ä‘Ã¢y lÃ  dá»¯ liá»‡u ká»¹ thuáº­t phá»¥ vÃ  cÃ³ khÃ³a ngoáº¡i vá» `categories`.
+- Khi admin xóa danh mục không có danh mục con, sản phẩm, thương hiệu, nội dung, migration job hoặc redirect SEO liên quan, backend xóa cứng bản ghi khỏi `categories`.
+- Nếu danh mục còn ràng buộc nghiệp vụ, backend giữ luồng xóa mềm hiện có để tránh làm đứt dữ liệu sản phẩm và quan hệ danh mục.
+- Audit log của riêng danh mục trống được dọn trước khi xóa cứng vì đây là dữ liệu kỹ thuật phụ và có khóa ngoại về `categories`.
 
 ## Update 2026-05-30 frontend refactor
 
@@ -229,9 +229,9 @@ This file records the non-obvious decisions added while hardening category manag
 
 ## Update 2026-06-01 admin form completion feedback
 
-- Sau khi thÃªm hoáº·c chá»‰nh sá»­a danh má»¥c thÃ nh cÃ´ng, popup danh má»¥c tá»± Ä‘Ã³ng báº±ng `closeSignal`.
-- Admin nháº­n thÃ´ng bÃ¡o thÃ nh cÃ´ng rÃµ rÃ ng sau khi thÃªm hoáº·c lÆ°u thay Ä‘á»•i danh má»¥c.
-- Viá»‡c reset form váº«n Ä‘Æ°á»£c giá»¯ nguyÃªn, nhÆ°ng chá»‰ diá»…n ra sau khi popup Ä‘Ã£ Ä‘Æ°á»£c yÃªu cáº§u Ä‘Ã³ng Ä‘á»ƒ trÃ¡nh cáº£m giÃ¡c popup chá»‰nh sá»­a chuyá»ƒn thÃ nh popup thÃªm má»›i.
+- Sau khi thêm hoặc chỉnh sửa danh mục thành công, popup danh mục tự đóng bằng `closeSignal`.
+- Admin nhận thông báo thành công rõ ràng sau khi thêm hoặc lưu thay đổi danh mục.
+- Việc reset form vẫn được giữ nguyên, nhưng chỉ diễn ra sau khi popup đã được yêu cầu đóng để tránh cảm giác popup chỉnh sửa chuyển thành popup thêm mới.
 
 ## Update 2026-06-01 storefront specs alignment
 
@@ -242,71 +242,84 @@ This file records the non-obvious decisions added while hardening category manag
 
 ## Update 2026-06-02 storefront category brand menu
 
-- Thanh danh má»¥c storefront chá»‰ hiá»ƒn thá»‹ thÆ°Æ¡ng hiá»‡u theo sáº£n pháº©m thá»±c táº¿ thuá»™c danh má»¥c cha/con hoáº·c thÆ°Æ¡ng hiá»‡u Ä‘Æ°á»£c gáº¯n rÃµ vá»›i danh má»¥c Ä‘Ã³.
-- KhÃ´ng cÃ²n Ä‘Æ°a cÃ¡c thÆ°Æ¡ng hiá»‡u chÆ°a gáº¯n danh má»¥c vÃ o má»i danh má»¥c, trÃ¡nh trÆ°á»ng há»£p Äiá»‡n thoáº¡i hiá»ƒn thá»‹ láº«n Acer, Dell, Canon, DJI.
-- `frontend/src/hooks/useCatalog.ts` Ä‘Ã£ tÃ­nh cáº£ `subcategoryId`/`subcategorySlug` khi gom sáº£n pháº©m cho danh má»¥c cha, nÃªn hÃ£ng cá»§a danh má»¥c con váº«n xuáº¥t hiá»‡n Ä‘Ãºng trong menu danh má»¥c cha.
+- Thanh danh mục storefront chỉ hiển thị thương hiệu theo sản phẩm thực tế thuộc danh mục cha/con hoặc thương hiệu được gắn rõ với danh mục đó.
+- Không còn đưa các thương hiệu chưa gắn danh mục vào mọi danh mục, tránh trường hợp Điện thoại hiển thị lẫn Acer, Dell, Canon, DJI.
+- `frontend/src/hooks/useCatalog.ts` đã tính cả `subcategoryId`/`subcategorySlug` khi gom sản phẩm cho danh mục cha, nên hãng của danh mục con vẫn xuất hiện đúng trong menu danh mục cha.
 
 ## Update 2026-06-02 storefront category ranking suggestions
 
-- `frontend/src/hooks/useCatalog.ts` nay láº¥y danh sÃ¡ch "Sáº£n pháº©m ná»•i báº­t" trong mega menu tá»« `GET /catalog/rankings` theo tá»«ng danh má»¥c.
-- Nguá»“n xáº¿p háº¡ng dÃ¹ng `criteria=trending`, `period=7d`, `limit=10` Ä‘á»ƒ Æ°u tiÃªn sáº£n pháº©m Ä‘ang cÃ³ háº¡ng trong danh má»¥c Ä‘Ã³.
-- Náº¿u ranking trá»‘ng hoáº·c API lá»—i, menu fallback vá» danh sÃ¡ch sáº£n pháº©m active Ä‘Ã£ khá»›p vá»›i danh má»¥c Ä‘á»ƒ khu Ä‘á» xuáº¥t khÃ´ng bá»‹ rá»—ng.
+- `frontend/src/hooks/useCatalog.ts` nay lấy danh sách "Sản phẩm nổi bật" trong mega menu từ `GET /catalog/rankings` theo từng danh mục.
+- Nguồn xếp hạng dùng `criteria=trending`, `period=7d`, `limit=10` để ưu tiên sản phẩm đang có hạng trong danh mục đó.
+- Nếu ranking trống hoặc API lỗi, menu fallback về danh sách sản phẩm active đã khớp với danh mục để khu đề xuất không bị rỗng.
 
 ## Update 2026-06-02 storefront category mega menu layout
 
-- `frontend/src/components/layout/CategoryMegaMenu.tsx` Ä‘á»•i panel danh má»¥c sang layout nhiá»u cá»™t dáº¡ng danh sÃ¡ch gá»n hÆ¡n, tham kháº£o CellphoneS.
-- Panel vÃ  thanh danh má»¥c cÃ³ `max-height` theo viewport vÃ  cuá»™n riÃªng bÃªn trong, trÃ¡nh che máº¥t ná»™i dung phÃ­a dÆ°á»›i khi cÃ³ nhiá»u hÃ£ng, phÃ¢n khÃºc hoáº·c sáº£n pháº©m Ä‘á» xuáº¥t.
-- NhÃ³m "Danh má»¥c con" trong mega menu Ä‘Æ°á»£c Ä‘á»•i cÃ¡ch hiá»ƒn thá»‹ thÃ nh "Theo nhu cáº§u" khi render storefront.
-- Bá»• sung cÃ¡c nhÃ³m phÃ¢n khÃºc phÃ¹ há»£p theo danh má»¥c: giÃ¡, nhu cáº§u sá»­ dá»¥ng, dÃ²ng mÃ¡y/chip, kÃ­ch thÆ°á»›c mÃ n hÃ¬nh, tÃ­nh nÄƒng ná»•i báº­t.
+- `frontend/src/components/layout/CategoryMegaMenu.tsx` đổi panel danh mục sang layout nhiều cột dạng danh sách gọn hơn, tham khảo CellphoneS.
+- Panel và thanh danh mục có `max-height` theo viewport và cuộn riêng bên trong, tránh che mất nội dung phía dưới khi có nhiều hãng, phân khúc hoặc sản phẩm đề xuất.
+- Nhóm "Danh mục con" trong mega menu được đổi cách hiển thị thành "Theo nhu cầu" khi render storefront.
+- Bổ sung các nhóm phân khúc phù hợp theo danh mục: giá, nhu cầu sử dụng, dòng máy/chip, kích thước màn hình, tính năng nổi bật.
 
 ## Update 2026-06-02 storefront category price filter links
 
-- CÃ¡c má»¥c "PhÃ¢n khÃºc giÃ¡" trong mega menu nay trá» vá» trang sáº£n pháº©m cá»§a danh má»¥c vá»›i query `min_price`/`max_price`, thay vÃ¬ tÃ¬m kiáº¿m theo chá»¯.
-- `frontend/src/features/products/pages/ProductListPage.tsx` há»— trá»£ Ä‘á»c `min_price`/`max_price` trá»±c tiáº¿p tá»« URL vÃ  truyá»n vÃ o API lá»c sáº£n pháº©m.
-- Khi vÃ o tá»« mega menu báº±ng khoáº£ng giÃ¡ tÃ¹y chá»‰nh, bá»™ lá»c giÃ¡ hiá»ƒn thá»‹ nhÃ£n khoáº£ng giÃ¡ Ä‘ang Ã¡p dá»¥ng.
+- Các mục "Phân khúc giá" trong mega menu nay trỏ về trang sản phẩm của danh mục với query `min_price`/`max_price`, thay vì tìm kiếm theo chữ.
+- `frontend/src/features/products/pages/ProductListPage.tsx` hỗ trợ đọc `min_price`/`max_price` trực tiếp từ URL và truyền vào API lọc sản phẩm.
+- Khi vào từ mega menu bằng khoảng giá tùy chỉnh, bộ lọc giá hiển thị nhãn khoảng giá đang áp dụng.
 
-## Update 2026-06-04 Kháº¯c phá»¥c lá»—i backend khi thÃªm/sá»­a danh má»¥c
+## Update 2026-06-04 Khắc phục lỗi backend khi thêm/sửa danh mục
 
-- Kháº¯c phá»¥c lá»—i `NameError` do thiáº¿u import cÃ¡c helper: `ensure_not_data_url` tá»« `admin_utils.py`, `enqueue_category_cache_refresh` vÃ  `process_category_migration_job` tá»« `admin_customers.py` vÃ o `admin_categories.py`.
-- Sá»­a lá»—i `AmbiguousParameterError` (PostgreSQL/asyncpg) khi kiá»ƒm tra trÃ¹ng slug/mÃ£ báº±ng cÃ¡ch cast explicit kiá»ƒu dá»¯ liá»‡u cá»§a tham sá»‘ loáº¡i trá»« ID trong SQL: `CAST(:exclude_id AS UUID)` vÃ  `CAST(:category_id AS UUID)`. Viá»‡c nÃ y giÃºp PostgreSQL nháº­n dáº¡ng Ä‘Ãºng kiá»ƒu dá»¯ liá»‡u ká»ƒ cáº£ khi tham sá»‘ truyá»n vÃ o lÃ  `None` (NULL).
-- Kháº¯c phá»¥c lá»—i `AttributeError: 'coroutine' object has no attribute 'scalar'` báº±ng cÃ¡ch tÃ¡ch cÃ¡c lá»‡nh gá»™p `(await session.execute(...)).scalar()` thÃ nh 2 bÆ°á»›c (gÃ¡n káº¿t quáº£ thá»±c thi rá»“i má»›i gá»i `.scalar()`), trÃ¡nh viá»‡c Python gá»i `.scalar()` trá»±c tiáº¿p trÃªn Ä‘á»‘i tÆ°á»£ng coroutine trÆ°á»›c khi await do Ä‘á»™ Æ°u tiÃªn toÃ¡n tá»­.
-- Kháº¯c phá»¥c lá»—i `AmbiguousParameterError` khi thÃªm/sá»­a danh má»¥c cÃ³ `parent_id` trong biá»ƒu thá»©c dá»±ng `path` báº±ng cÃ¡ch Ã©p kiá»ƒu `CAST(:parent_id AS uuid)` á»Ÿ cáº£ cÃ¢u SQL `INSERT` vÃ  `UPDATE`.
-- CORS khÃ´ng pháº£i nguyÃªn nhÃ¢n gá»‘c cá»§a lá»—i lÆ°u danh má»¥c: khi backend phÃ¡t sinh exception trÆ°á»›c Ä‘Ã³, trÃ¬nh duyá»‡t hiá»ƒn thá»‹ thÃ nh lá»—i CORS. Sau khi xá»­ lÃ½ exception vÃ  sá»­a SQL, request `PATCH /api/v1/admin/categories/{id}` tá»« `http://localhost:3000` tráº£ `200 OK` kÃ¨m `Access-Control-Allow-Origin`.
-- Kháº¯c phá»¥c lá»—i frontend khi xÃ³a danh má»¥c `Cannot read properties of undefined (reading 'adminDeleteCategory')` báº±ng cÃ¡ch truyá»n `apiDb` vÃ o `sharedProps` cá»§a `AdminDashboard`; cÃ¡c tab admin Ä‘ang gá»i API qua props nay nháº­n Ä‘Ãºng service.
-- Báº¯t Ä‘áº§u tÃ¡ch frontend API theo miá»n: thÃªm `frontend/src/services/categoryApi.ts` cho cÃ¡c endpoint danh má»¥c vÃ  chuyá»ƒn hook/tab danh má»¥c sang dÃ¹ng service nÃ y trá»±c tiáº¿p, giáº£m phá»¥ thuá»™c vÃ o object `apiDb` tá»•ng.
-- TÃ¡ch tiáº¿p frontend API: thÃªm `frontend/src/services/apiClient.ts` chá»©a `request`/`requestBlob`, thÃªm `frontend/src/services/brandApi.ts` cho endpoint thÆ°Æ¡ng hiá»‡u, vÃ  chuyá»ƒn hook/tab brand cÃ¹ng pháº§n load brand/category trong `useAdminLogic` sang service theo miá»n.
-- Dá»n khá»‘i SEO Metadata khá»i quáº£n lÃ½ danh má»¥c: frontend khÃ´ng hiá»ƒn thá»‹/khÃ´ng gá»­i `seoTitle`, `seoDescription`, `seoKeywords`; backend category payload vÃ  SQL khÃ´ng Ä‘á»c/ghi cÃ¡c cá»™t nÃ y; migration `052_remove_category_seo_metadata.sql` drop cÃ¡c cá»™t SEO khá»i báº£ng `categories`.
-- Dá»n SEO khá»i quáº£n lÃ½ thÆ°Æ¡ng hiá»‡u: frontend chá»‰ giá»¯ `landingTitle`, backend brand payload/API khÃ´ng Ä‘á»c/ghi `seoTitle` vÃ  `seoDescription`; migration `053_remove_brand_seo_metadata.sql` drop cÃ¡c cá»™t SEO khá»i báº£ng `brands`.
+- Khắc phục lỗi `NameError` do thiếu import các helper: `ensure_not_data_url` từ `admin_utils.py`, `enqueue_category_cache_refresh` và `process_category_migration_job` từ `admin_customers.py` vào `admin_categories.py`.
+- Sửa lỗi `AmbiguousParameterError` (PostgreSQL/asyncpg) khi kiểm tra trùng slug/mã bằng cách cast explicit kiểu dữ liệu của tham số loại trừ ID trong SQL: `CAST(:exclude_id AS UUID)` và `CAST(:category_id AS UUID)`. Việc này giúp PostgreSQL nhận dạng đúng kiểu dữ liệu kể cả khi tham số truyền vào là `None` (NULL).
+- Khắc phục lỗi `AttributeError: 'coroutine' object has no attribute 'scalar'` bằng cách tách các lệnh gộp `(await session.execute(...)).scalar()` thành 2 bước (gán kết quả thực thi rồi mới gọi `.scalar()`), tránh việc Python gọi `.scalar()` trực tiếp trên đối tượng coroutine trước khi await do độ ưu tiên toán tử.
+- Khắc phục lỗi `AmbiguousParameterError` khi thêm/sửa danh mục có `parent_id` trong biểu thức dựng `path` bằng cách ép kiểu `CAST(:parent_id AS uuid)` ở cả câu SQL `INSERT` và `UPDATE`.
+- CORS không phải nguyên nhân gốc của lỗi lưu danh mục: khi backend phát sinh exception trước đó, trình duyệt hiển thị thành lỗi CORS. Sau khi xử lý exception và sửa SQL, request `PATCH /api/v1/admin/categories/{id}` từ `http://localhost:3000` trả `200 OK` kèm `Access-Control-Allow-Origin`.
+- Khắc phục lỗi frontend khi xóa danh mục `Cannot read properties of undefined (reading 'adminDeleteCategory')` bằng cách truyền `apiDb` vào `sharedProps` của `AdminDashboard`; các tab admin đang gọi API qua props nay nhận đúng service.
+- Bắt đầu tách frontend API theo miền: thêm `frontend/src/services/categoryApi.ts` cho các endpoint danh mục và chuyển hook/tab danh mục sang dùng service này trực tiếp, giảm phụ thuộc vào object `apiDb` tổng.
+- Tách tiếp frontend API: thêm `frontend/src/services/apiClient.ts` chứa `request`/`requestBlob`, thêm `frontend/src/services/brandApi.ts` cho endpoint thương hiệu, và chuyển hook/tab brand cùng phần load brand/category trong `useAdminLogic` sang service theo miền.
+- Dọn khối SEO Metadata khỏi quản lý danh mục: frontend không hiển thị/không gửi `seoTitle`, `seoDescription`, `seoKeywords`; backend category payload và SQL không đọc/ghi các cột này; migration `052_remove_category_seo_metadata.sql` drop các cột SEO khỏi bảng `categories`.
+- Dọn SEO khỏi quản lý thương hiệu: frontend chỉ giữ `landingTitle`, backend brand payload/API không đọc/ghi `seoTitle` và `seoDescription`; migration `053_remove_brand_seo_metadata.sql` drop các cột SEO khỏi bảng `brands`.
 
-## Update 2026-06-05 Tá»‘i Æ°u hÃ³a Ä‘Ã³ng form danh má»¥c vÃ  reset tráº¡ng thÃ¡i
+## Update 2026-06-05 Tối ưu hóa đóng form danh mục và reset trạng thái
 
-- HÃ m `resetCategoryForm` tá»± Ä‘á»™ng tÄƒng `categoryCloseSignal` giÃºp táº¯t popup ngay láº­p tá»©c khi nháº¥n nÃºt Há»§y.
-- HÃ m `handleCategorySubmit` khi thÃ nh cÃ´ng sáº½ tÄƒng `categoryCloseSignal` trÆ°á»›c, trÃ¬ hoÃ£n gá»i `resetCategoryForm` (250ms) vÃ  trÃ¬ hoÃ£n alert thÃ nh cÃ´ng (100ms) Ä‘á»ƒ Ä‘Ã³ng modal mÆ°á»£t mÃ , khÃ´ng block hoáº¡t cáº£nh vÃ  khÃ´ng bá»‹ reset form trÆ°á»›c khi táº¯t.
-- Giáº£i quyáº¿t triá»‡t Ä‘á»ƒ lá»—i form chuyá»ƒn vá» tráº¡ng thÃ¡i ThÃªm má»›i trÆ°á»›c khi biáº¿n máº¥t.
+- Hàm `resetCategoryForm` tự động tăng `categoryCloseSignal` giúp tắt popup ngay lập tức khi nhấn nút Hủy.
+- Hàm `handleCategorySubmit` khi thành công sẽ tăng `categoryCloseSignal` trước, trì hoãn gọi `resetCategoryForm` (250ms) và trì hoãn alert thành công (100ms) để đóng modal mượt mà, không block hoạt cảnh và không bị reset form trước khi tắt.
+- Giải quyết triệt để lỗi form chuyển về trạng thái Thêm mới trước khi biến mất.
 
 ## Update 2026-06-05 Category Service Repository Split
 
 
-- TÃ¡ch thÃªm SQL tá»« `app/application/services/category_service.py` xuá»‘ng `app/infrastructure/database/repositories/category_repo.py`.
-- NhÃ³m Ä‘Ã£ chuyá»ƒn gá»“m: danh sÃ¡ch admin categories, kiá»ƒm tra slug, audit logs, migration jobs, operational metrics, kiá»ƒm tra vÃ²ng láº·p danh má»¥c, kiá»ƒm tra Ä‘á»™ sÃ¢u cÃ¢y, kiá»ƒm tra trÃ¹ng spec inherited, Ä‘áº¿m sáº£n pháº©m dÃ¹ng spec keys, watchdog migration stale, tÃ¬m root category vÃ  danh sÃ¡ch root category hiá»ƒn thá»‹.
-- `category_service.py` tiáº¿p tá»¥c giá»¯ logic nghiá»‡p vá»¥, raise lá»—i HTTP, cache refresh, audit orchestration vÃ  background job.
-- Káº¿t quáº£ kiá»ƒm tra: compile backend báº±ng `.venv` thÃ nh cÃ´ng; import `app.main`, `category_service` vÃ  `category_repo` Ä‘á»u hoáº¡t Ä‘á»™ng.
+- Tách thêm SQL từ `app/application/services/category_service.py` xuống `app/infrastructure/database/repositories/category_repo.py`.
+- Nhóm đã chuyển gồm: danh sách admin categories, kiểm tra slug, audit logs, migration jobs, operational metrics, kiểm tra vòng lặp danh mục, kiểm tra độ sâu cây, kiểm tra trùng spec inherited, đếm sản phẩm dùng spec keys, watchdog migration stale, tìm root category và danh sách root category hiển thị.
+- `category_service.py` tiếp tục giữ logic nghiệp vụ, raise lỗi HTTP, cache refresh, audit orchestration và background job.
+- Kết quả kiểm tra: compile backend bằng `.venv` thành công; import `app.main`, `category_service` và `category_repo` đều hoạt động.
 
 ## Update 2026-06-05 Category Service Full SQL Cleanup
 
-- Má»Ÿ rá»™ng `app/infrastructure/database/repositories/category_repo.py` Ä‘á»ƒ chá»©a cÃ¡c truy váº¥n DB cÃ²n láº¡i cá»§a `category_service.py`: cache branch, deactivate product theo nhÃ¡nh, sitemap refresh, audit product/category, redirect slug, create/update category, reorder, bulk update, restore vÃ  soft delete.
-- LÃ m sáº¡ch `app/application/services/category_service.py`: bá» toÃ n bá»™ `session.execute`, `session.scalar`, `text`, `bindparam`; service chá»‰ giá»¯ chuáº©n hÃ³a payload, kiá»ƒm tra nghiá»‡p vá»¥, gá»i repository, audit orchestration, cache refresh vÃ  background job.
-- Giá»¯ nguyÃªn chá»¯ kÃ½ cÃ¡c helper Ä‘ang Ä‘Æ°á»£c module khÃ¡c import nhÆ° `audit_product_event`, `ensure_categories_not_migrating`, `rebuild_category_branch_cache` Ä‘á»ƒ khÃ´ng lÃ m gÃ£y product/category flow.
-- Káº¿t quáº£ kiá»ƒm tra: compile toÃ n bá»™ backend báº±ng `.venv` thÃ nh cÃ´ng; import `app.main`, admin categories router, category service vÃ  category repository thÃ nh cÃ´ng.
-## Update 2026-06-06 tÃ¡ch thao tÃ¡c áº©n vÃ  xÃ³a danh má»¥c
+- Mở rộng `app/infrastructure/database/repositories/category_repo.py` để chứa các truy vấn DB còn lại của `category_service.py`: cache branch, deactivate product theo nhánh, sitemap refresh, audit product/category, redirect slug, create/update category, reorder, bulk update, restore và soft delete.
+- Làm sạch `app/application/services/category_service.py`: bỏ toàn bộ `session.execute`, `session.scalar`, `text`, `bindparam`; service chỉ giữ chuẩn hóa payload, kiểm tra nghiệp vụ, gọi repository, audit orchestration, cache refresh và background job.
+- Giữ nguyên chữ ký các helper đang được module khác import như `audit_product_event`, `ensure_categories_not_migrating`, `rebuild_category_branch_cache` để không làm gãy product/category flow.
+- Kết quả kiểm tra: compile toàn bộ backend bằng `.venv` thành công; import `app.main`, admin categories router, category service và category repository thành công.
+## Update 2026-06-06 tách thao tác ẩn và xóa danh mục
 
-- Frontend quáº£n lÃ½ danh má»¥c tÃ¡ch nÃºt thao tÃ¡c thÃ nh `áº¨n`, `KhÃ´i phá»¥c` vÃ  `XÃ³a`, thá»‘ng nháº¥t vá»›i mÃ n quáº£n lÃ½ thÆ°Æ¡ng hiá»‡u.
-- NÃºt `áº¨n` gá»i API cáº­p nháº­t danh má»¥c vá»›i `status = 'INACTIVE'` vÃ  `isActive = false`, khÃ´ng Ä‘áº·t `is_deleted` vÃ  khÃ´ng dÃ¹ng luá»“ng xÃ³a má»m.
-- API `DELETE /admin/categories/{id}` chá»‰ xÃ³a cá»©ng khi danh má»¥c khÃ´ng cÃ³ rÃ ng buá»™c. Náº¿u cÃ²n danh má»¥c con, sáº£n pháº©m, thÆ°Æ¡ng hiá»‡u, ná»™i dung, migration job hoáº·c redirect liÃªn quan, backend tráº£ `409` vÃ  yÃªu cáº§u dÃ¹ng thao tÃ¡c áº©n thay vÃ¬ tá»± chuyá»ƒn sang xÃ³a má»m.
+- Frontend quản lý danh mục tách nút thao tác thành `Ẩn`, `Khôi phục` và `Xóa`, thống nhất với màn quản lý thương hiệu.
+- Nút `Ẩn` gọi API cập nhật danh mục với `status = 'INACTIVE'` và `isActive = false`, không đặt `is_deleted` và không dùng luồng xóa mềm.
+- API `DELETE /admin/categories/{id}` chỉ xóa cứng khi danh mục không có ràng buộc. Nếu còn danh mục con, sản phẩm, thương hiệu, nội dung, migration job hoặc redirect liên quan, backend trả `409` và yêu cầu dùng thao tác ẩn thay vì tự chuyển sang xóa mềm.
 
 ## Update 2026-06-06 admin category popup close timing
 
-- Sau khi thÃªm hoáº·c chá»‰nh sá»­a danh má»¥c thÃ nh cÃ´ng, frontend dÃ¹ng `flushSync` Ä‘á»ƒ Ã¡p dá»¥ng tÃ­n hiá»‡u Ä‘Ã³ng popup trÆ°á»›c khi refresh dá»¯ liá»‡u, reset form vÃ  hiá»‡n thÃ´ng bÃ¡o thÃ nh cÃ´ng.
-- Má»¥c tiÃªu lÃ  trÃ¡nh trÆ°á»ng há»£p `window.alert` cháº·n trÃ¬nh duyá»‡t khiáº¿n popup chÆ°a ká»‹p Ä‘Ã³ng nhÆ°ng form Ä‘Ã£ reset thÃ nh form thÃªm má»›i trá»‘ng.
-- ThÃ´ng bÃ¡o thÃ nh cÃ´ng cá»§a luá»“ng thÃªm/sá»­a danh má»¥c Ä‘Æ°á»£c chuyá»ƒn sang toast ná»•i trong tab danh má»¥c, khÃ´ng dÃ¹ng `window.alert` Ä‘á»ƒ trÃ¡nh cháº·n UI.
-- Káº¿t quáº£ kiá»ƒm tra: `npm run lint` trong `frontend` thÃ nh cÃ´ng.
+- Sau khi thêm hoặc chỉnh sửa danh mục thành công, frontend dùng `flushSync` để áp dụng tín hiệu đóng popup trước khi refresh dữ liệu, reset form và hiện thông báo thành công.
+- Mục tiêu là tránh trường hợp `window.alert` chặn trình duyệt khiến popup chưa kịp đóng nhưng form đã reset thành form thêm mới trống.
+- Thông báo thành công của luồng thêm/sửa danh mục được chuyển sang toast nổi trong tab danh mục, không dùng `window.alert` để tránh chặn UI.
+- Kết quả kiểm tra: `npm run lint` trong `frontend` thành công.
+
+## Update 2026-06-08 sửa lỗi redirect khi đổi slug danh mục
+
+- Khi chỉnh sửa danh mục và đổi slug, backend ghi redirect SEO từ slug cũ sang slug mới.
+- Sửa lỗi PostgreSQL/asyncpg `DatatypeMismatchError` trong recursive CTE kiểm tra vòng lặp redirect: mảng `visited` nay ép kiểu `text[]` rõ ràng bằng `ARRAY[source_path::text]` và nối `r.source_path::text`.
+- Áp dụng cùng cách ép kiểu cho CTE cập nhật upstream redirect để tránh lỗi tương tự sau bước kiểm tra vòng lặp.
+- Lưu ý: `409 Conflict` ở API `check-slug` hoặc cập nhật danh mục vẫn là lỗi nghiệp vụ hợp lệ khi slug/mã đã tồn tại trong database, kể cả record đã xóa mềm vì unique constraint vẫn còn giữ.
+
+## Update 2026-06-08 xóa cứng danh mục rỗng đã từng đổi slug
+
+- Redirect SEO sinh ra khi đổi slug danh mục không còn được xem là ràng buộc nghiệp vụ chặn xóa cứng.
+- Khi danh mục không có danh mục con, sản phẩm, thương hiệu, content hoặc migration job, luồng xóa cứng sẽ dọn `url_redirects` và `category_audit_logs` liên quan trước khi xóa record trong `categories`.
+- Mục tiêu: danh mục mới thêm rồi chỉnh sửa slug vẫn có thể xóa cứng nếu thực tế chưa được dữ liệu nghiệp vụ nào sử dụng.

@@ -136,6 +136,76 @@ function BundleOffers({ offers, price }: { offers?: any[]; price: number }) {
   );
 }
 
+function tieredServicePrice(service: any, productPrice: number) {
+  const tiers = Array.isArray(service.metadata?.priceTiers) ? service.metadata.priceTiers : [];
+  const price = Number(productPrice || 0);
+  if (!tiers.length || !price) return null;
+
+  const matchedTier = tiers.find((tier: any) => {
+    const min = Number(tier.min || 0);
+    const max = tier.max === null || tier.max === undefined ? Number.POSITIVE_INFINITY : Number(tier.max);
+    return price >= min && price <= max;
+  });
+  const tierPrice = Number(matchedTier?.price);
+  return Number.isFinite(tierPrice) && tierPrice > 0 ? tierPrice : null;
+}
+
+function attachedServicePrice(service: any, productPrice: number) {
+  const overridePrice = Number(service.overridePrice);
+  if (Number.isFinite(overridePrice) && overridePrice > 0) return formatPrice(overridePrice);
+
+  const priceMode = String(service.priceMode || '').toUpperCase();
+  if (priceMode === 'FIXED') return formatPrice(Number(service.fixedPrice || 0));
+  if (priceMode === 'PERCENT') {
+    const percentValue = Number(service.percentValue || 0);
+    const baseAmount = Number(service.baseAmount || productPrice || 0);
+    return `${percentValue}%${baseAmount ? ` - khoảng ${formatPrice(Math.round(baseAmount * percentValue / 100))}` : ''}`;
+  }
+  if (priceMode === 'TIERED_AMOUNT') {
+    const tierPrice = tieredServicePrice(service, productPrice);
+    return tierPrice ? formatPrice(tierPrice) : 'Theo mức giá sản phẩm';
+  }
+  return 'Liên hệ';
+}
+
+function attachedServiceMeta(service: any) {
+  const parts = [
+    service.durationMonths ? `${service.durationMonths} tháng` : '',
+    service.serviceType === 'SUPPORT_SERVICE' ? 'Hỗ trợ' : 'Dịch vụ sản phẩm',
+  ].filter(Boolean);
+  return parts.join(' · ');
+}
+
+function AttachedServices({ services, price }: { services?: any[]; price: number }) {
+  if (!services || services.length === 0) return null;
+
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="mb-3.5 flex items-center gap-2">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+          <ShieldCheck className="h-4 w-4" />
+        </span>
+        <h2 className="text-base font-bold text-gray-900">Dịch vụ đi kèm</h2>
+      </div>
+      <div className="space-y-2.5">
+        {services.map((service) => (
+          <label key={service.serviceId || service.code} className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-100 p-3 transition-all hover:border-blue-100 hover:bg-blue-50/30">
+            <input type="checkbox" className="mt-1 h-4 w-4 accent-primary" />
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-bold text-gray-800">{service.name}</div>
+              <div className="mt-0.5 text-xs text-gray-500">{attachedServiceMeta(service)}</div>
+            </div>
+            <div className="shrink-0 text-right text-sm font-bold text-primary">{attachedServicePrice(service, price)}</div>
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/50 px-3 py-2.5 text-xs leading-relaxed text-gray-500">
+        Có thể chọn thêm khi mua, phí dịch vụ sẽ được tính cùng đơn hàng.
+      </div>
+    </section>
+  );
+}
+
 const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
   const { addToCart } = useCart();
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
@@ -509,6 +579,7 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
               ))}
             </div>
             {!isDiscontinued && <BundleOffers offers={product.salesConfig?.accessoryOffers} price={displayPrice} />}
+            {!isDiscontinued && <AttachedServices services={product.salesConfig?.attachedServices} price={displayPrice} />}
 
             {(features.length > 0 || cleanDescription) && (
               <section className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4">

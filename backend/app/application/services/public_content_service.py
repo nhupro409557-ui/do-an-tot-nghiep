@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.content import (
     ProductImageCommentRequest,
+    ProductQuestionRequest,
     ReviewRequest,
     ReviewUpdateRequest,
     VideoCommentRequest,
@@ -34,7 +35,7 @@ from app.shared.reviews import (
 
 
 SENSITIVE_COMMENT_TERMS = {
-    "chá»­i", "Ä‘á»‹t", "Ä‘á»¥", "cáº·c", "lá»“n", "Ä‘Ã©o", "dm", "Ä‘m", "fuck", "shit", "scam", "lá»«a Ä‘áº£o"
+    "chửi", "địt", "đụ", "cặc", "lồn", "đéo", "dm", "đm", "fuck", "shit", "scam", "lừa đảo"
 }
 
 
@@ -76,7 +77,7 @@ def detect_sensitive_comment(value: str) -> str | None:
     lowered = value.lower()
     for term in SENSITIVE_COMMENT_TERMS:
         if term in lowered:
-            return f"Tá»± Ä‘á»™ng áº©n do chá»©a tá»« nháº¡y cáº£m: {term}"
+            return f"Tự động ẩn do chứa từ nhạy cảm: {term}"
     spam_reason = detect_spam_reason(value, [])
     return spam_reason
 
@@ -101,17 +102,17 @@ async def get_review_eligibility(product_id: UUID, user_id: UUID, session: Async
     can_delete = can_edit
 
     if existing_review:
-        message = "Báº¡n Ä‘Ã£ Ä‘Ã¡nh giÃ¡ sáº£n pháº©m nÃ y. Báº¡n cÃ³ thá»ƒ sá»­a hoáº·c xÃ³a trong thá»i gian cho phÃ©p."
+        message = "Bạn đã đánh giá sản phẩm này. Bạn có thể sửa hoặc xóa trong thời gian cho phép."
     elif order_outcome == "DA_HOAN_TIEN":
-        message = "ÄÆ¡n hÃ ng liÃªn quan Ä‘Ã£ hoÃ n tiá»n, Ä‘Ã¡nh giÃ¡ má»›i khÃ´ng cÃ²n kháº£ dá»¥ng."
+        message = "Đơn hàng liên quan đã hoàn tiền, đánh giá mới không còn khả dụng."
     elif order_outcome == "DA_TRA_HANG":
-        message = "ÄÆ¡n hÃ ng liÃªn quan Ä‘Ã£ tráº£ hÃ ng, Ä‘Ã¡nh giÃ¡ má»›i khÃ´ng cÃ²n kháº£ dá»¥ng."
+        message = "Đơn hàng liên quan đã trả hàng, đánh giá mới không còn khả dụng."
     elif has_completed_order and not within_window:
-        message = f"ÄÃ£ háº¿t háº¡n Ä‘Ã¡nh giÃ¡. Chá»‰ cho phÃ©p Ä‘Ã¡nh giÃ¡ trong vÃ²ng {REVIEW_WINDOW_DAYS} ngÃ y sau khi hoÃ n thÃ nh Ä‘Æ¡n."
+        message = f"Đã hết hạn đánh giá. Chỉ cho phép đánh giá trong vòng {REVIEW_WINDOW_DAYS} ngày sau khi hoàn thành đơn."
     elif has_completed_order:
-        message = "Báº¡n cÃ³ thá»ƒ Ä‘Ã¡nh giÃ¡ sáº£n pháº©m nÃ y."
+        message = "Bạn có thể đánh giá sản phẩm này."
     else:
-        message = "Chá»‰ khÃ¡ch hÃ ng cÃ³ Ä‘Æ¡n hÃ ng Ä‘Ã£ hoÃ n thÃ nh má»›i cÃ³ thá»ƒ Ä‘Ã¡nh giÃ¡ sáº£n pháº©m nÃ y."
+        message = "Chỉ khách hàng có đơn hàng đã hoàn thành mới có thể đánh giá sản phẩm này."
 
     return {
         "canReview": can_review,
@@ -162,13 +163,13 @@ async def create_review(
         normalized_comment=normalized_comment,
     )
     if duplicate_review:
-        raise HTTPException(status_code=409, detail="ÄÃ¡nh giÃ¡ trÃ¹ng ná»™i dung trÆ°á»›c Ä‘Ã³. Vui lÃ²ng chá»‰nh sá»­a nháº­n xÃ©t trÆ°á»›c khi gá»­i láº¡i.")
+        raise HTTPException(status_code=409, detail="Đánh giá trùng nội dung trước đó. Vui lòng chỉnh sửa nhận xét trước khi gửi lại.")
 
     # Suspicious reviews are kept in moderation so the shop can inspect them instead of losing traceability.
     spam_reason = detect_spam_reason(safe_comment, media_urls)
-    moderation_note = "Tá»± Ä‘á»™ng chá» duyá»‡t trÆ°á»›c khi public."
+    moderation_note = "Tự động chờ duyệt trước khi public."
     if spam_reason:
-        moderation_note = f"Tá»± Ä‘á»™ng giá»¯ láº¡i Ä‘á»ƒ kiá»ƒm tra spam: {spam_reason}"
+        moderation_note = f"Tự động giữ lại để kiểm tra spam: {spam_reason}"
 
     latest_order = await get_latest_reviewable_order(session=session, user_id=current_user_id, product_id=product_id)
     _, expires_at = compute_review_window(latest_order)
@@ -194,7 +195,7 @@ async def create_review(
     return {
         "id": str(review_id),
         "status": "PENDING",
-        "message": "ÄÃ¡nh giÃ¡ Ä‘Ã£ Ä‘Æ°á»£c gá»­i vÃ  Ä‘ang chá» kiá»ƒm duyá»‡t trÆ°á»›c khi hiá»ƒn thá»‹ cÃ´ng khai.",
+        "message": "Đánh giá đã được gửi và đang chờ kiểm duyệt trước khi hiển thị công khai.",
     }
 
 
@@ -215,11 +216,11 @@ async def update_own_review(
         raise HTTPException(status_code=404, detail="Review not found.")
     expires_at = review["review_window_expires_at"]
     if not expires_at or datetime.now(timezone.utc) > expires_at:
-        raise HTTPException(status_code=403, detail="ÄÃ£ háº¿t háº¡n chá»‰nh sá»­a Ä‘Ã¡nh giÃ¡.")
+        raise HTTPException(status_code=403, detail="Đã hết hạn chỉnh sửa đánh giá.")
 
     eligibility = await get_review_eligibility(product_id, current_user_id, session)
     if eligibility.get("orderOutcome") is not None:
-        raise HTTPException(status_code=403, detail="ÄÃ¡nh giÃ¡ nÃ y gáº¯n vá»›i Ä‘Æ¡n hÃ ng Ä‘Ã£ tráº£/hoÃ n, khÃ´ng thá»ƒ chá»‰nh sá»­a.")
+        raise HTTPException(status_code=403, detail="Đánh giá này gắn với đơn hàng đã trả/hoàn, không thể chỉnh sửa.")
 
     media_urls = sanitize_media_urls(payload.mediaUrls)
     safe_user_name = sanitize_review_text(payload.userName)[:255]
@@ -233,12 +234,12 @@ async def update_own_review(
         exclude_review_id=review_id,
     )
     if duplicate_review:
-        raise HTTPException(status_code=409, detail="Ná»™i dung Ä‘Ã¡nh giÃ¡ bá»‹ trÃ¹ng vá»›i má»™t Ä‘Ã¡nh giÃ¡ khÃ¡c cá»§a báº¡n.")
+        raise HTTPException(status_code=409, detail="Nội dung đánh giá bị trùng với một đánh giá khác của bạn.")
 
     spam_reason = detect_spam_reason(safe_comment, media_urls)
-    moderation_note = "NgÆ°á»i dÃ¹ng Ä‘Ã£ sá»­a Ä‘Ã¡nh giÃ¡, cáº§n duyá»‡t láº¡i."
+    moderation_note = "Người dùng đã sửa đánh giá, cần duyệt lại."
     if spam_reason:
-        moderation_note = f"Báº£n sá»­a Ä‘Ã¡nh giÃ¡ bá»‹ giá»¯ láº¡i Ä‘á»ƒ kiá»ƒm tra spam: {spam_reason}"
+        moderation_note = f"Bản sửa đánh giá bị giữ lại để kiểm tra spam: {spam_reason}"
 
     await public_content_repo.update_review_for_moderation(
         session,
@@ -253,7 +254,7 @@ async def update_own_review(
     )
     await sync_product_review_stats(session=session, product_id=product_id)
     await session.commit()
-    return {"ok": True, "status": "PENDING", "message": "ÄÃ¡nh giÃ¡ Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t vÃ  quay láº¡i hÃ ng Ä‘á»£i kiá»ƒm duyá»‡t."}
+    return {"ok": True, "status": "PENDING", "message": "Đánh giá đã được cập nhật và quay lại hàng đợi kiểm duyệt."}
 
 
 async def delete_own_review(
@@ -272,7 +273,7 @@ async def delete_own_review(
         raise HTTPException(status_code=404, detail="Review not found.")
     expires_at = review["review_window_expires_at"]
     if not expires_at or datetime.now(timezone.utc) > expires_at:
-        raise HTTPException(status_code=403, detail="ÄÃ£ háº¿t háº¡n xÃ³a Ä‘Ã¡nh giÃ¡.")
+        raise HTTPException(status_code=403, detail="Đã hết hạn xóa đánh giá.")
 
     deleted_count = await public_content_repo.delete_review(session, review_id)
     if deleted_count == 0:
@@ -448,7 +449,7 @@ async def create_video_comment(
             parent_id = parent["parent_id"]
         reply_to_user_name = reply_to_user_name or parent["user_name"]
 
-    user_name = await public_content_repo.get_user_full_name(session, current_user_id) or "KhÃ¡ch hÃ ng"
+    user_name = await public_content_repo.get_user_full_name(session, current_user_id) or "Khách hàng"
     clean_body = sanitize_review_text(payload.body).strip()
     moderation_reason = detect_sensitive_comment(clean_body)
     comment_id = uuid4()
@@ -490,7 +491,7 @@ async def retract_video_comment(
 
 
 async def list_product_image_comments(product_id: UUID, session: AsyncSession) -> list[dict]:
-    return await content_comment_repo.list_product_image_comments(session, product_id)
+    return await content_comment_repo.list_product_image_comments(session, product_id, interaction_type="IMAGE_COMMENT")
 
 
 async def create_product_image_comment(
@@ -511,7 +512,7 @@ async def create_product_image_comment(
         if parent["parent_id"]:
             parent_id = parent["parent_id"]
             reply_to_user_name = reply_to_user_name or parent["user_name"]
-    user_name = await public_content_repo.get_user_full_name(session, current_user_id) or "KhÃ¡ch hÃ ng"
+    user_name = await public_content_repo.get_user_full_name(session, current_user_id) or "Khách hàng"
     clean_body = sanitize_review_text(payload.body).strip()
     moderation_reason = detect_sensitive_comment(clean_body)
     comment_id = uuid4()
@@ -527,12 +528,13 @@ async def create_product_image_comment(
         reply_to_user_name=reply_to_user_name,
         is_hidden=bool(moderation_reason),
         moderation_reason=moderation_reason,
+        interaction_type="IMAGE_COMMENT",
     )
     await session.commit()
     return {
         "id": str(comment_id),
         "userName": user_name,
-        "content": clean_body if not moderation_reason else "BÃ¬nh luáº­n Ä‘ang chá» kiá»ƒm duyá»‡t.",
+        "content": clean_body if not moderation_reason else "Bình luận đang chờ kiểm duyệt.",
         "parentId": str(parent_id) if parent_id else None,
         "replyToUserName": reply_to_user_name,
         "isHidden": bool(moderation_reason),
@@ -549,5 +551,81 @@ async def retract_product_image_comment(
     updated_count = await content_comment_repo.retract_product_image_comment(session, product_id=product_id, comment_id=comment_id, user_id=current_user_id)
     if updated_count == 0:
         raise HTTPException(status_code=404, detail="Comment not found.")
+    await session.commit()
+    return {"ok": True}
+
+
+async def list_product_questions(product_id: UUID, session: AsyncSession) -> list[dict]:
+    return await content_comment_repo.list_product_image_comments(session, product_id, interaction_type="PRODUCT_QA")
+
+
+async def create_product_question(
+    product_id: UUID,
+    payload: ProductQuestionRequest,
+    session: AsyncSession,
+    current_user_id: UUID,
+) -> dict:
+    exists = await public_content_repo.product_exists(session, product_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail="Product not found.")
+    parent_id = payload.parentId
+    reply_to_user_name = payload.replyToUserName
+    if parent_id:
+        parent = await content_comment_repo.get_product_image_comment_parent(
+            session,
+            parent_id=parent_id,
+            product_id=product_id,
+            interaction_type="PRODUCT_QA",
+        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent question not found.")
+        if parent["parent_id"]:
+            parent_id = parent["parent_id"]
+            reply_to_user_name = reply_to_user_name or parent["user_name"]
+    user_name = await public_content_repo.get_user_full_name(session, current_user_id) or "Khách hàng"
+    clean_body = sanitize_review_text(payload.body).strip()
+    moderation_reason = detect_sensitive_comment(clean_body)
+    comment_id = uuid4()
+    await content_comment_repo.insert_product_image_comment(
+        session,
+        comment_id=comment_id,
+        product_id=product_id,
+        image_url=None,
+        user_id=current_user_id,
+        user_name=user_name,
+        body=clean_body,
+        parent_id=parent_id,
+        reply_to_user_name=reply_to_user_name,
+        is_hidden=bool(moderation_reason),
+        moderation_reason=moderation_reason,
+        interaction_type="PRODUCT_QA",
+    )
+    await session.commit()
+    return {
+        "id": str(comment_id),
+        "userName": user_name,
+        "content": clean_body if not moderation_reason else "Câu hỏi đang chờ kiểm duyệt.",
+        "parentId": str(parent_id) if parent_id else None,
+        "replyToUserName": reply_to_user_name,
+        "isHidden": bool(moderation_reason),
+        "isRetracted": False,
+    }
+
+
+async def retract_product_question(
+    product_id: UUID,
+    comment_id: UUID,
+    session: AsyncSession,
+    current_user_id: UUID,
+) -> dict:
+    updated_count = await content_comment_repo.retract_product_image_comment(
+        session,
+        product_id=product_id,
+        comment_id=comment_id,
+        user_id=current_user_id,
+        interaction_type="PRODUCT_QA",
+    )
+    if updated_count == 0:
+        raise HTTPException(status_code=404, detail="Question not found.")
     await session.commit()
     return {"ok": True}

@@ -49,8 +49,8 @@
 
 ## Update 2026-06-05 Admin Review Service Refactor
 
-- Táº¡o `app/infrastructure/database/repositories/review_repo.py` Ä‘á»ƒ chá»©a truy váº¥n DB cho danh sÃ¡ch Ä‘Ã¡nh giÃ¡, thá»‘ng kÃª, cáº­p nháº­t tráº¡ng thÃ¡i, táº¡o thÃ´ng bÃ¡o vÃ  xÃ³a Ä‘Ã¡nh giÃ¡.
-- LÃ m má»ng `app/application/services/review_service.py`: service chá»‰ cÃ²n dá»±ng payload cáº­p nháº­t, kiá»ƒm tra nghiá»‡p vá»¥, táº¡o ná»™i dung thÃ´ng bÃ¡o, gá»i sync thá»‘ng kÃª sáº£n pháº©m vÃ  commit.
-- Cáº­p nháº­t `app/api/v1/routers/admin_reviews.py` Ä‘á»ƒ import `ReviewStatusPayload` trá»±c tiáº¿p tá»« `app.api.v1.schemas.admin` thay vÃ¬ file compatibility `admin_schemas.py`.
-- Sá»­a láº¡i ná»™i dung thÃ´ng bÃ¡o tiáº¿ng Viá»‡t khi Ä‘Ã¡nh giÃ¡ Ä‘Æ°á»£c duyá»‡t hoáº·c bá»‹ tá»« chá»‘i.
-- Káº¿t quáº£ kiá»ƒm tra: compile toÃ n bá»™ backend báº±ng `.venv` thÃ nh cÃ´ng; import `app.main`, admin review router, review service vÃ  review repository thÃ nh cÃ´ng.
+- Tạo `app/infrastructure/database/repositories/review_repo.py` để chứa truy vấn DB cho danh sách đánh giá, thống kê, cập nhật trạng thái, tạo thông báo và xóa đánh giá.
+- Làm mỏng `app/application/services/review_service.py`: service chỉ còn dựng payload cập nhật, kiểm tra nghiệp vụ, tạo nội dung thông báo, gọi sync thống kê sản phẩm và commit.
+- Cập nhật `app/api/v1/routers/admin_reviews.py` để import `ReviewStatusPayload` trực tiếp từ `app.api.v1.schemas.admin` thay vì file compatibility `admin_schemas.py`.
+- Sửa lại nội dung thông báo tiếng Việt khi đánh giá được duyệt hoặc bị từ chối.
+- Kết quả kiểm tra: compile toàn bộ backend bằng `.venv` thành công; import `app.main`, admin review router, review service và review repository thành công.

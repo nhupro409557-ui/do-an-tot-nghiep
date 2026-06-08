@@ -10,9 +10,14 @@ CREATE TABLE IF NOT EXISTS product_image_comments (
     is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
     is_retracted BOOLEAN NOT NULL DEFAULT FALSE,
     moderation_reason VARCHAR(255),
+    interaction_type VARCHAR(30) NOT NULL DEFAULT 'IMAGE_COMMENT',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE product_image_comments
+ADD COLUMN IF NOT EXISTS interaction_type VARCHAR(30) NOT NULL DEFAULT 'IMAGE_COMMENT';
+
 CREATE INDEX IF NOT EXISTS idx_product_image_comments_product_id ON product_image_comments(product_id);
 CREATE INDEX IF NOT EXISTS idx_product_image_comments_parent_id ON product_image_comments(parent_id);
+CREATE INDEX IF NOT EXISTS idx_product_image_comments_type ON product_image_comments(interaction_type);

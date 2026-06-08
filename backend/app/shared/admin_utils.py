@@ -87,7 +87,7 @@ def display_status(status_value: str | None, quantity: int | None) -> str:
         return "Hết hàng"
     labels = {
         "DISCONTINUED": "Ngừng kinh doanh",
-        "DRAFT": "Nháp",
+        "DRAFT": "Nháp thêm",
         "PENDING": "Chờ duyệt",
         "ACTIVE": "Đang bán",
         "INACTIVE": "Tạm ẩn",

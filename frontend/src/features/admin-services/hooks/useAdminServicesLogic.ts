@@ -13,6 +13,7 @@ export type ServiceForm = {
   percentValue: number;
   baseAmount: number;
   isActive: boolean;
+  metadata: Record<string, any>;
 };
 
 const initialServiceForm: ServiceForm = {
@@ -26,6 +27,7 @@ const initialServiceForm: ServiceForm = {
   percentValue: 0,
   baseAmount: 0,
   isActive: true,
+  metadata: {},
 };
 
 type UseAdminServicesLogicParams = {
@@ -51,6 +53,7 @@ export function useAdminServicesLogic({ reloadCurrentTab }: UseAdminServicesLogi
       percentValue: Number(service.percentValue || 0),
       baseAmount: Number(service.baseAmount || 0),
       isActive: service.isActive !== false,
+      metadata: service.metadata && typeof service.metadata === 'object' ? service.metadata : {},
     });
   }
 
@@ -83,6 +86,38 @@ export function useAdminServicesLogic({ reloadCurrentTab }: UseAdminServicesLogi
     }
   }
 
+  async function deleteService(service: any) {
+    if (!window.confirm(`Xóa dịch vụ "${service.name}"? Chỉ dịch vụ chưa được gắn với sản phẩm mới được xóa.`)) return;
+    try {
+      await adminServicesApi.adminDeleteAttachedService(service.id);
+      await reloadCurrentTab();
+      notifyAdmin('Đã xóa dịch vụ.');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Không thể xóa dịch vụ. Vui lòng thử lại.');
+    }
+  }
+
+  async function deactivateService(service: any) {
+    if (!window.confirm(`Tắt dịch vụ "${service.name}"? Dịch vụ sẽ không còn được chọn cho sản phẩm mới.`)) return;
+    try {
+      await adminServicesApi.adminDeactivateAttachedService(service.id);
+      await reloadCurrentTab();
+      notifyAdmin('Đã tắt dịch vụ.', 'info');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Không thể tắt dịch vụ. Vui lòng thử lại.');
+    }
+  }
+
+  async function reactivateService(service: any) {
+    try {
+      await adminServicesApi.adminReactivateAttachedService(service.id);
+      await reloadCurrentTab();
+      notifyAdmin('Đã bật lại dịch vụ.');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Không thể bật lại dịch vụ. Vui lòng thử lại.');
+    }
+  }
+
   return {
     serviceForm,
     setServiceForm,
@@ -91,6 +126,9 @@ export function useAdminServicesLogic({ reloadCurrentTab }: UseAdminServicesLogi
     serviceFormOpen,
     setServiceFormOpen,
     editService,
+    deleteService,
+    deactivateService,
+    reactivateService,
     resetServiceForm,
     handleServiceSubmit,
   };

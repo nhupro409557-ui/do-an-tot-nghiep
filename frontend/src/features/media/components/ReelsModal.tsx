@@ -117,12 +117,18 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
   const activeSize = videoSizes[activeIdx];
   const activeRatio = activeSize ? activeSize.width / activeSize.height : 9 / 16;
   const isPortraitVideo = activeRatio < 1;
+  const isLandscapeVideo = !isPortraitVideo;
   const isYoutube = Boolean(youtubeEmbedUrl(currentVideo));
   const frameClassName = isYoutube
     ? 'w-full max-w-6xl max-h-[86vh]'
     : isPortraitVideo
       ? 'h-[92vh] max-h-[92vh] w-auto max-w-[calc(100vw-1.5rem)]'
-      : 'w-full max-w-5xl max-h-[92vh]';
+      : 'h-[72vh] max-h-[72vh] w-full max-w-[calc(100vw-1.5rem)] md:h-auto md:max-w-5xl md:max-h-[92vh]';
+  const frameStyle = isYoutube
+    ? { aspectRatio: '16 / 9' }
+    : isPortraitVideo
+      ? { aspectRatio: `${activeSize?.width || 9} / ${activeSize?.height || 16}` }
+      : undefined;
 
   function toggleMuted() {
     setMuted((value) => {
@@ -255,8 +261,8 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
       </button>
 
       <div
-        className={`relative overflow-hidden rounded-2xl bg-black shadow-2xl transition-[width,height] duration-300 border border-white/10 ${frameClassName}`}
-        style={{ aspectRatio: isYoutube ? '16 / 9' : `${activeSize?.width || 9} / ${activeSize?.height || 16}` }}
+        className={`relative overflow-hidden rounded-2xl bg-black shadow-2xl transition-[width,height] duration-300 border border-white/10 ${isLandscapeVideo ? 'md:aspect-video' : ''} ${frameClassName}`}
+        style={frameStyle}
       >
         <Swiper
           direction="vertical"
@@ -296,7 +302,7 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
                   loop
                   muted={muted}
                   playsInline
-                  className="relative z-0 h-full w-full cursor-pointer object-contain"
+                  className={`relative z-0 h-full w-full cursor-pointer object-contain ${isLandscapeVideo ? 'pb-32 md:pb-0' : ''}`}
                   onClick={togglePlay}
                   onLoadedMetadata={(event) => {
                     const el = event.currentTarget;
@@ -337,7 +343,7 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
                 </div>
               )}
 
-              <div className="absolute right-4 bottom-28 z-30 flex flex-col items-center gap-4">
+              <div className={`absolute z-30 flex flex-col items-center ${isLandscapeVideo ? 'right-3 bottom-16 gap-2 sm:right-4 sm:bottom-28 sm:gap-4' : 'right-4 bottom-28 gap-4'}`}>
                 <div className="flex flex-col items-center">
                   <button
                     type="button"
@@ -397,8 +403,8 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
                 </div>
               </div>
 
-              <div className={`absolute inset-x-0 bottom-0 z-20 ${isPortraitVideo ? 'p-4' : 'p-6'} bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-20 pointer-events-none`}>
-                <div className="flex flex-col gap-2.5 max-w-[85%] pointer-events-auto">
+              <div className={`absolute inset-x-0 bottom-0 z-20 ${isPortraitVideo ? 'p-4' : 'p-2.5 sm:p-6'} bg-gradient-to-t from-black/85 via-black/45 to-transparent ${isLandscapeVideo ? 'pt-12 sm:pt-20' : 'pt-20'} pointer-events-none`}>
+                <div className={`flex flex-col pointer-events-auto ${isLandscapeVideo ? 'max-w-[78%] gap-1.5 sm:max-w-[85%] sm:gap-2.5' : 'max-w-[85%] gap-2.5'}`}>
                   <div className="flex items-center gap-2">
                     <span className="rounded-full bg-red-600/90 border border-red-500/30 px-3 py-1 text-[11px] font-black uppercase tracking-wider text-white shadow-sm shadow-red-900/20 backdrop-blur-sm">
                       {inferCategory(video)}
@@ -409,7 +415,7 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
                   </div>
 
                   <h3 className={`font-bold text-white tracking-wide leading-snug drop-shadow-lg ${
-                    isPortraitVideo ? 'line-clamp-2 text-base' : 'line-clamp-2 text-lg sm:text-xl'
+                    isPortraitVideo ? 'line-clamp-2 text-base' : 'line-clamp-2 text-sm sm:text-xl'
                   }`}>
                     {video.title || 'Video sản phẩm'}
                   </h3>
@@ -417,10 +423,10 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
                   {video.product && (
                     <Link
                       to={video.product.url || `/product/${video.product.id}`}
-                      className="mt-1 flex items-center gap-3 rounded-xl border border-white/10 bg-zinc-950/60 p-2 shadow-lg backdrop-blur-md transition duration-300 hover:bg-zinc-950/80 hover:border-red-500/40 w-full group/prod max-w-md"
+                      className={`mt-1 flex items-center rounded-xl border border-white/10 bg-zinc-950/60 shadow-lg backdrop-blur-md transition duration-300 hover:bg-zinc-950/80 hover:border-red-500/40 group/prod ${isLandscapeVideo ? 'w-fit max-w-[min(78vw,22rem)] gap-2 p-1.5 sm:w-full sm:max-w-md sm:gap-3 sm:p-2' : 'w-full max-w-md gap-3 p-2'}`}
                       onClick={(event) => event.stopPropagation()}
                     >
-                      <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-white p-0.5">
+                      <div className={`relative shrink-0 overflow-hidden rounded-lg bg-white p-0.5 ${isLandscapeVideo ? 'h-9 w-9 sm:h-11 sm:w-11' : 'h-11 w-11'}`}>
                         {(video.product.imageUrl || video.product.image) ? (
                           <img src={video.product.imageUrl || video.product.image} alt="" className="h-full w-full object-contain" />
                         ) : (
@@ -430,7 +436,7 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
                         )}
                       </div>
                       <div className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-xs font-bold text-white group-hover/prod:text-red-400 transition-colors">
+                        <span className={`${isLandscapeVideo ? 'max-w-[7rem] sm:max-w-none' : ''} truncate text-xs font-bold text-white group-hover/prod:text-red-400 transition-colors`}>
                           {video.product.name}
                         </span>
                         <div className="flex items-baseline gap-2 mt-0.5">
@@ -442,7 +448,7 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
                           )}
                         </div>
                       </div>
-                      <div className="shrink-0 rounded-full bg-red-600 px-3 py-1.5 text-[10px] font-black uppercase text-white shadow-md transition group-hover/prod:bg-red-500">
+                      <div className={`shrink-0 rounded-full bg-red-600 font-black uppercase text-white shadow-md transition group-hover/prod:bg-red-500 ${isLandscapeVideo ? 'px-2 py-1 text-[9px] sm:px-3 sm:py-1.5 sm:text-[10px]' : 'px-3 py-1.5 text-[10px]'}`}>
                         Mua ngay ➔
                       </div>
                     </Link>

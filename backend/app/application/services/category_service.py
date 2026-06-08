@@ -204,8 +204,8 @@ async def rebuild_category_branch_cache(
 
 
 async def deactivate_products_in_category_branch(session: AsyncSession, category_id: UUID) -> int:
-    # Khi má»™t nhÃ¡nh danh má»¥c bá»‹ áº©n/xÃ³a má»m, toÃ n bá»™ sáº£n pháº©m trong nhÃ¡nh Ä‘Æ°á»£c chuyá»ƒn
-    # sang INACTIVE Ä‘á»ƒ storefront khÃ´ng giá»¯ tráº¡ng thÃ¡i "active nhÆ°ng khÃ´ng cÃ²n taxonomy".
+    # Khi một nhánh danh mục bị ẩn/xóa mềm, toàn bộ sản phẩm trong nhánh được chuyển
+    # sang INACTIVE để storefront không giữ trạng thái "active nhưng không còn taxonomy".
     product_ids = await category_repo.list_visible_product_ids_in_category_branch(session, category_id)
     if not product_ids:
         return 0
@@ -276,8 +276,8 @@ async def create_category(
     duplicate = await category_repo.find_category_slug_or_code_duplicate(session, slug=slug, code=code)
     if duplicate:
         if duplicate["slug_match"]:
-            raise HTTPException(status_code=409, detail="Slug danh má»¥c Ä‘Ã£ tá»“n táº¡i.")
-        raise HTTPException(status_code=409, detail="MÃ£ danh má»¥c Ä‘Ã£ tá»“n táº¡i.")
+            raise HTTPException(status_code=409, detail="Slug danh mục đã tồn tại.")
+        raise HTTPException(status_code=409, detail="Mã danh mục đã tồn tại.")
     await ensure_categories_not_migrating(session, [payload.parentId])
     await ensure_category_depth(session, None, payload.parentId)
     await ensure_spec_inheritance_safe(session, None, payload.parentId, payload.specFields)
@@ -322,14 +322,14 @@ async def reorder_categories(
     await ensure_categories_not_migrating(session, ids)
     rows = await category_repo.list_category_parent_rows(session, ids)
     if len(rows) != len(set(ids)):
-        raise HTTPException(status_code=404, detail="Má»™t hoáº·c nhiá»u danh má»¥c khÃ´ng tá»“n táº¡i.")
+        raise HTTPException(status_code=404, detail="Một hoặc nhiều danh mục không tồn tại.")
     parent_by_id = {row["id"]: row["parent_id"] for row in rows}
     for item in payload.items:
         if parent_by_id[item.id] != item.parentId:
-            raise HTTPException(status_code=422, detail="Chá»‰ Ä‘Æ°á»£c sáº¯p xáº¿p danh má»¥c trong cÃ¹ng má»™t cáº¥p.")
+            raise HTTPException(status_code=422, detail="Chỉ được sắp xếp danh mục trong cùng một cấp.")
     parent_keys = {str(item.parentId or "root") for item in payload.items}
     if len(parent_keys) != 1:
-        raise HTTPException(status_code=422, detail="Chá»‰ Ä‘Æ°á»£c sáº¯p xáº¿p má»™t nhÃ³m danh má»¥c trong má»—i láº§n thao tÃ¡c.")
+        raise HTTPException(status_code=422, detail="Chỉ được sắp xếp một nhóm danh mục trong mỗi lần thao tác.")
     await category_repo.lock_category_reorder_group(session, f"category-reorder:{next(iter(parent_keys))}")
     for item in payload.items:
         await category_repo.update_category_sort_order(session, category_id=item.id, sort_order=item.order)
@@ -354,11 +354,11 @@ async def bulk_update_categories(
         await ensure_categories_not_migrating(session, ids)
         rows = await category_repo.list_category_parent_rows(session, ids)
         if len(rows) != len(set(ids)):
-            raise HTTPException(status_code=404, detail="Má»™t hoáº·c nhiá»u danh má»¥c khÃ´ng tá»“n táº¡i.")
+            raise HTTPException(status_code=404, detail="Một hoặc nhiều danh mục không tồn tại.")
         parent_by_id = {row["id"]: row["parent_id"] for row in rows}
         for item in payload.items:
             if parent_by_id[item.id] != item.parentId:
-                raise HTTPException(status_code=422, detail="Chá»‰ Ä‘Æ°á»£c cáº­p nháº­t thá»© tá»± trong cÃ¹ng má»™t cáº¥p.")
+                raise HTTPException(status_code=422, detail="Chỉ được cập nhật thứ tự trong cùng một cấp.")
         for item in payload.items:
             updated += await category_repo.update_category_sort_order(session, category_id=item.id, sort_order=item.order, require_not_deleted=True)
             await audit_category_event(session, item.id, "CATEGORY_BULK_REORDERED", new_value={"order": item.order}, actor_id=actor_id)
@@ -418,7 +418,7 @@ async def update_category(
             status_code=409,
             detail={
                 "code": "SPEC_TYPE_CHANGE_REQUIRES_CONFIRMATION",
-                "message": f"Thay Ä‘á»•i kiá»ƒu thÃ´ng sá»‘ sáº½ áº£nh hÆ°á»Ÿng {impacted_spec_products} sáº£n pháº©m hiá»‡n táº¡i.",
+                "message": f"Thay đổi kiểu thông số sẽ ảnh hưởng {impacted_spec_products} sản phẩm hiện tại.",
                 "impactedProducts": impacted_spec_products,
                 "changes": changed_spec_types,
             },
@@ -426,8 +426,8 @@ async def update_category(
     duplicate = await category_repo.find_category_slug_or_code_duplicate(session, slug=slug, code=code, exclude_id=category_id)
     if duplicate:
         if duplicate["slug_match"]:
-            raise HTTPException(status_code=409, detail="Slug danh má»¥c Ä‘Ã£ tá»“n táº¡i.")
-        raise HTTPException(status_code=409, detail="MÃ£ danh má»¥c Ä‘Ã£ tá»“n táº¡i.")
+            raise HTTPException(status_code=409, detail="Slug danh mục đã tồn tại.")
+        raise HTTPException(status_code=409, detail="Mã danh mục đã tồn tại.")
     ensure_not_data_url(payload.iconUrl, "iconUrl")
     ensure_not_data_url(payload.bannerUrl, "bannerUrl")
     if await category_repo.update_category(
@@ -546,7 +546,7 @@ async def deactivate_category(
 
     raise HTTPException(
         status_code=409,
-        detail="KhÃ´ng thá»ƒ xÃ³a danh má»¥c Ä‘ang cÃ³ dá»¯ liá»‡u liÃªn quan. HÃ£y áº©n danh má»¥c náº¿u cáº§n ngá»«ng hiá»ƒn thá»‹.",
+        detail="Không thể xóa danh mục đang có dữ liệu liên quan. Hãy ẩn danh mục nếu cần ngừng hiển thị.",
     )
 
 

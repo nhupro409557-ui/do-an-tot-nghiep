@@ -43,7 +43,7 @@ Các nguyên tắc này được chắt lọc từ bộ hướng dẫn `andrej-k
 ### Sửa đúng phạm vi
 
 - Chỉ sửa những dòng/file liên quan trực tiếp đến yêu cầu.
-- Không refactor, đổi format, đổi comment hoặc “dọn dẹp” code lân cận nếu không cần để hoàn thành việc chính.
+- Không refactor, đổi format, đổi comment hoặc dọn dẹp code lân cận nếu không cần để hoàn thành việc chính.
 - Giữ phong cách code hiện có của project, kể cả khi có thể viết theo style khác.
 - Nếu thay đổi của mình làm phát sinh import/biến/hàm không dùng nữa thì dọn phần đó.
 - Nếu thấy code chết hoặc vấn đề không liên quan, chỉ ghi nhận hoặc báo lại, không tự xóa khi chưa được yêu cầu.
@@ -69,6 +69,19 @@ Các nguyên tắc này được chắt lọc từ bộ hướng dẫn `andrej-k
 - Không viết tiếng Việt không dấu cho nội dung mới, trừ khi đó là mã định danh kỹ thuật bắt buộc như tên biến, tên file, slug, key JSON hoặc lệnh hệ thống.
 - Tránh làm hỏng mã hóa tiếng Việt. Nếu thấy nội dung bị lỗi font/mã hóa, sửa lại sang Unicode UTF-8 đúng dấu khi đang chỉnh cùng khu vực đó.
 - Trước khi hoàn tất các thay đổi có chữ tiếng Việt, kiểm tra nhanh nội dung vừa sửa để bảo đảm không có lỗi ký tự như `Ä`, `á»`, `Æ`.
+
+## UTF-8 Runtime Defaults
+
+- Mọi file văn bản trong repo phải được lưu bằng UTF-8 theo `.editorconfig`.
+- Khi chạy backend/frontend trên Windows, ưu tiên dùng:
+  - `.\scripts\run-backend.ps1`
+  - `.\scripts\run-frontend.ps1`
+- Khi phải chạy Python trực tiếp trong PowerShell, đặt encoding trước lệnh:
+  - `$env:PYTHONUTF8="1"`
+  - `$env:PYTHONIOENCODING="utf-8"`
+  - `[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)`
+  - `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)`
+- Không ghi log hoặc xuất file tiếng Việt bằng encoding mặc định của Windows nếu có thể chỉ định UTF-8 rõ ràng.
 
 ## Git Constraints (Quy định Git)
 

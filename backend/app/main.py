@@ -26,7 +26,7 @@ from app.infrastructure.database.repositories import audit_repo
 from app.infrastructure.database.session import AsyncSessionFactory
 
 
-# Khá»Ÿi táº¡o Logger chuáº©n
+# Khởi tạo Logger chuẩn
 logger = logging.getLogger("ecommerce_app")
 logging.basicConfig(level=logging.INFO)
 

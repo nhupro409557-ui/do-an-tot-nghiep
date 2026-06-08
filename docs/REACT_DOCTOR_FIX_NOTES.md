@@ -1,269 +1,269 @@
-﻿# Ghi chÃº sá»­a lá»—i React Doctor
+﻿# Ghi chú sửa lỗi React Doctor
 
-NgÃ y cáº­p nháº­t: 2026-06-03
+Ngày cập nhật: 2026-06-03
 
-## Má»¥c tiÃªu
+## Mục tiêu
 
-- Cháº¡y `react-doctor` theo cÃ¡ch táº¡m thá»i, khÃ´ng cÃ i package vÃ o Ä‘á»“ Ã¡n.
-- Æ¯u tiÃªn sá»­a nhÃ³m `Bugs errors` trÆ°á»›c, vÃ¬ Ä‘Ã¢y lÃ  nhÃ³m cÃ³ nguy cÆ¡ gÃ¢y lá»—i runtime hoáº·c hÃ nh vi React khÃ´ng á»•n Ä‘á»‹nh.
-- Giá»¯ nguyÃªn giao diá»‡n hiá»‡n táº¡i, chá»‰ chá»‰nh logic ná»n, thá»© tá»± hook, cleanup async/timer vÃ  lá»—i mÃ£ hÃ³a tiáº¿ng Viá»‡t trong cÃ¡c vÃ¹ng Ä‘Ã£ cháº¡m.
+- Chạy `react-doctor` theo cách tạm thời, không cài package vào đồ án.
+- Ưu tiên sửa nhóm `Bugs errors` trước, vì đây là nhóm có nguy cơ gây lỗi runtime hoặc hành vi React không ổn định.
+- Giữ nguyên giao diện hiện tại, chỉ chỉnh logic nền, thứ tự hook, cleanup async/timer và lỗi mã hóa tiếng Việt trong các vùng đã chạm.
 
-## CÃ¡ch Ä‘Ã£ cháº¡y React Doctor
+## Cách đã chạy React Doctor
 
-Cháº¡y trong thÆ° má»¥c `frontend`:
+Chạy trong thư mục `frontend`:
 
 ```powershell
 npx react-doctor@latest --no-telemetry --offline
 ```
 
-LÃ½ do dÃ¹ng cÃ¡ch nÃ y:
+Lý do dùng cách này:
 
-- KhÃ´ng thÃªm dependency vÃ o `package.json`.
-- KhÃ´ng sá»­a `package-lock.json`.
-- KhÃ´ng cÃ i hook hay skill vÃ o project.
-- `--no-telemetry` táº¯t telemetry.
-- `--offline` khÃ´ng gá»­i score/share API.
+- Không thêm dependency vào `package.json`.
+- Không sửa `package-lock.json`.
+- Không cài hook hay skill vào project.
+- `--no-telemetry` tắt telemetry.
+- `--offline` không gửi score/share API.
 
-KhÃ´ng dÃ¹ng:
+Không dùng:
 
 ```powershell
 npx react-doctor@latest install
 ```
 
-VÃ¬ lá»‡nh nÃ y cÃ³ thá»ƒ táº¡o skill/hook/config vÃ  lÃ m Ä‘á»“ Ã¡n cÃ³ thÃªm file ngoÃ i Ã½ muá»‘n.
+Vì lệnh này có thể tạo skill/hook/config và làm đồ án có thêm file ngoài ý muốn.
 
-## Káº¿t quáº£ kiá»ƒm tra
+## Kết quả kiểm tra
 
-TrÆ°á»›c khi sá»­a:
+Trước khi sửa:
 
-- React Doctor bÃ¡o `Bugs > 29 errors`.
+- React Doctor báo `Bugs > 29 errors`.
 
-Sau khi sá»­a:
+Sau khi sửa:
 
-- React Doctor bÃ¡o `Bugs > 0 errors`.
-- Váº«n cÃ²n optional warnings nhÆ° accessibility, maintainability, performance, security warning.
+- React Doctor báo `Bugs > 0 errors`.
+- Vẫn còn optional warnings như accessibility, maintainability, performance, security warning.
 - `npm run lint` pass.
 
-Lá»‡nh kiá»ƒm tra Ä‘Ã£ dÃ¹ng:
+Lệnh kiểm tra đã dùng:
 
 ```powershell
 npm run lint
 npx react-doctor@latest --no-telemetry --offline
 ```
 
-## CÃ¡c file Ä‘Ã£ chá»‰nh
+## Các file đã chỉnh
 
 ### `frontend/src/features/products/components/ProductDetail.tsx`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- Sá»­a lá»—i hook bá»‹ gá»i cÃ³ Ä‘iá»u kiá»‡n báº±ng cÃ¡ch Ä‘Æ°a effect xá»­ lÃ½ phÃ­m media viewer lÃªn trÆ°á»›c nhÃ¡nh `return` sá»›m.
-- ThÃªm cleanup cho timer thÃ´ng bÃ¡o thÃªm vÃ o giá» hÃ ng.
+- Sửa lỗi hook bị gọi có điều kiện bằng cách đưa effect xử lý phím media viewer lên trước nhánh `return` sớm.
+- Thêm cleanup cho timer thông báo thêm vào giỏ hàng.
 - Cleanup `document.body.style.overflow` khi component unmount.
-- Chuyá»ƒn reset lá»±a chá»n sáº£n pháº©m/media tá»« `useEffect` sang cáº­p nháº­t cÃ³ Ä‘iá»u kiá»‡n theo `product.id` vÃ  `activeVariant.id`.
-- Effect Swiper chá»‰ cÃ²n Ä‘iá»u khiá»ƒn slide, khÃ´ng set state React.
+- Chuyển reset lựa chọn sản phẩm/media từ `useEffect` sang cập nhật có điều kiện theo `product.id` và `activeVariant.id`.
+- Effect Swiper chỉ còn điều khiển slide, không set state React.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- Vá»›i state phá»¥ thuá»™c trá»±c tiáº¿p vÃ o `product` hoáº·c `activeVariant`, trÃ¡nh reset trong `useEffect` náº¿u má»¥c tiÃªu chá»‰ lÃ  Ä‘á»“ng bá»™ state theo prop.
-- Náº¿u cáº§n reset state khi Ä‘á»•i product, dÃ¹ng key theo `product.id` hoáº·c cáº­p nháº­t cÃ³ Ä‘iá»u kiá»‡n trong render theo máº«u `prevId !== currentId`.
+- Với state phụ thuộc trực tiếp vào `product` hoặc `activeVariant`, tránh reset trong `useEffect` nếu mục tiêu chỉ là đồng bộ state theo prop.
+- Nếu cần reset state khi đổi product, dùng key theo `product.id` hoặc cập nhật có điều kiện trong render theo mẫu `prevId !== currentId`.
 
 ### `frontend/src/features/account/pages/VerifyEmailPage.tsx`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- ThÃªm cleanup cho timer chuyá»ƒn hÆ°á»›ng sau khi xÃ¡c nháº­n email.
-- Cháº·n cáº­p nháº­t state náº¿u component Ä‘Ã£ unmount.
-- Sá»­a láº¡i tiáº¿ng Viá»‡t bá»‹ lá»—i mÃ£ hÃ³a trong file.
+- Thêm cleanup cho timer chuyển hướng sau khi xác nhận email.
+- Chặn cập nhật state nếu component đã unmount.
+- Sửa lại tiếng Việt bị lỗi mã hóa trong file.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- Má»i `setTimeout` trong effect nÃªn cÃ³ `clearTimeout`.
-- Promise trong effect nÃªn cÃ³ cá» `isActive` hoáº·c cÆ¡ cháº¿ há»§y tÆ°Æ¡ng Ä‘Æ°Æ¡ng.
+- Mọi `setTimeout` trong effect nên có `clearTimeout`.
+- Promise trong effect nên có cờ `isActive` hoặc cơ chế hủy tương đương.
 
 ### `frontend/src/features/storefront-commerce/pages/CheckoutPage.tsx`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- Sá»­a lá»—i hook bá»‹ gá»i cÃ³ Ä‘iá»u kiá»‡n do return giá» hÃ ng trá»‘ng náº±m trÆ°á»›c `useEffect`.
-- Chuyá»ƒn nhÃ¡nh UI giá» hÃ ng trá»‘ng xuá»‘ng sau hook.
-- Phá»¥c há»“i chá»¯ tiáº¿ng Viá»‡t bá»‹ lá»—i mÃ£ hÃ³a trong file.
+- Sửa lỗi hook bị gọi có điều kiện do return giỏ hàng trống nằm trước `useEffect`.
+- Chuyển nhánh UI giỏ hàng trống xuống sau hook.
+- Phục hồi chữ tiếng Việt bị lỗi mã hóa trong file.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- KhÃ´ng Ä‘áº·t `return` sá»›m trÆ°á»›c cÃ¡c hook trong cÃ¹ng component.
-- Náº¿u UI rá»—ng cáº§n return sá»›m, váº«n pháº£i Ä‘áº·t táº¥t cáº£ hook trÆ°á»›c nhÃ¡nh return Ä‘Ã³.
+- Không đặt `return` sớm trước các hook trong cùng component.
+- Nếu UI rỗng cần return sớm, vẫn phải đặt tất cả hook trước nhánh return đó.
 
 ### `frontend/src/features/admin-overview/components/AdminOverviewTab.tsx`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- Sá»­a cáº£nh bÃ¡o component Ä‘Æ°á»£c Ä‘á»‹nh nghÄ©a bÃªn trong component cha.
-- Äá»•i tooltip ná»™i bá»™ sang hÃ m render thÆ°á»ng Ä‘á»ƒ Recharts dÃ¹ng, trÃ¡nh táº¡o component má»›i má»—i render.
+- Sửa cảnh báo component được định nghĩa bên trong component cha.
+- Đổi tooltip nội bộ sang hàm render thường để Recharts dùng, tránh tạo component mới mỗi render.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- KhÃ´ng Ä‘á»‹nh nghÄ©a component viáº¿t hoa bÃªn trong component khÃ¡c náº¿u component Ä‘Ã³ Ä‘Æ°á»£c render nhÆ° JSX.
-- Náº¿u thÆ° viá»‡n nháº­n render function, dÃ¹ng function thÆ°á»ng lÃ  Ä‘á»§.
+- Không định nghĩa component viết hoa bên trong component khác nếu component đó được render như JSX.
+- Nếu thư viện nhận render function, dùng function thường là đủ.
 
 ### `frontend/src/features/admin-customers/components/AdminCustomersTab.tsx`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- ÄÆ°a `usePermission('sys:manage_users')` ra biáº¿n top-level trong component.
-- KhÃ´ng gá»i hook trá»±c tiáº¿p trong JSX.
-- Sá»­a láº¡i tiáº¿ng Viá»‡t bá»‹ lá»—i mÃ£ hÃ³a trong file.
+- Đưa `usePermission('sys:manage_users')` ra biến top-level trong component.
+- Không gọi hook trực tiếp trong JSX.
+- Sửa lại tiếng Việt bị lỗi mã hóa trong file.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- DÃ¹ `usePermission` Ä‘Æ°á»£c truyá»n qua props, náº¿u báº£n cháº¥t nÃ³ lÃ  hook thÃ¬ váº«n pháº£i gá»i á»Ÿ top-level cá»§a component.
+- Dù `usePermission` được truyền qua props, nếu bản chất nó là hook thì vẫn phải gọi ở top-level của component.
 
 ### `frontend/src/features/admin-permissions/components/AdminPermissionsTab.tsx`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- ÄÆ°a cÃ¡c lá»i gá»i `usePermission('customer:loyalty_adjust')` vÃ  `usePermission('customer:issue_voucher')` ra biáº¿n top-level.
-- JSX chá»‰ dÃ¹ng biáº¿n boolean Ä‘Ã£ tÃ­nh.
+- Đưa các lời gọi `usePermission('customer:loyalty_adjust')` và `usePermission('customer:issue_voucher')` ra biến top-level.
+- JSX chỉ dùng biến boolean đã tính.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- KhÃ´ng gá»i hook trong Ä‘iá»u kiá»‡n JSX nhÆ° `{usePermission(...) && (...)}`.
+- Không gọi hook trong điều kiện JSX như `{usePermission(...) && (...)}`.
 
 ### `frontend/src/features/admin-shell/hooks/useAdminLogic.ts`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- Sá»­a lá»—i `useAnyPermission` bá»‹ gá»i bÃªn trong callback cá»§a `useMemo`.
-- TÃ­nh tá»«ng quyá»n báº±ng hook á»Ÿ top-level.
-- Táº¡o `tabAccess` báº±ng `useMemo` tá»« cÃ¡c boolean quyá»n Ä‘Ã£ cÃ³.
+- Sửa lỗi `useAnyPermission` bị gọi bên trong callback của `useMemo`.
+- Tính từng quyền bằng hook ở top-level.
+- Tạo `tabAccess` bằng `useMemo` từ các boolean quyền đã có.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- KhÃ´ng gá»i hook trong callback cá»§a `useMemo`, `useCallback`, `.filter`, `.map`, hoáº·c helper function thÃ´ng thÆ°á»ng.
-- Náº¿u cáº§n lá»c theo quyá»n, gá»i hook trÆ°á»›c Ä‘á»ƒ ra boolean, sau Ä‘Ã³ lá»c báº±ng boolean.
+- Không gọi hook trong callback của `useMemo`, `useCallback`, `.filter`, `.map`, hoặc helper function thông thường.
+- Nếu cần lọc theo quyền, gọi hook trước để ra boolean, sau đó lọc bằng boolean.
 
 ### `frontend/src/hooks/useCatalog.ts`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- Chá»‘t `includeRankedFeatured` á»Ÿ láº§n mount Ä‘áº§u báº±ng `useRef`.
-- ThÃªm cleanup cho async load catalog.
-- TrÃ¡nh cáº­p nháº­t state sau khi component Ä‘Ã£ unmount.
+- Chốt `includeRankedFeatured` ở lần mount đầu bằng `useRef`.
+- Thêm cleanup cho async load catalog.
+- Tránh cập nhật state sau khi component đã unmount.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- Vá»›i option chá»‰ dÃ¹ng Ä‘á»ƒ cáº¥u hÃ¬nh láº§n mount Ä‘áº§u, dÃ¹ng `useRef(Boolean(option))` giÃºp trÃ¡nh effect bá»‹ xem nhÆ° sync state theo prop.
-- Vá»›i fetch async trong effect, luÃ´n kiá»ƒm tra component cÃ²n active trÆ°á»›c khi `setState`.
+- Với option chỉ dùng để cấu hình lần mount đầu, dùng `useRef(Boolean(option))` giúp tránh effect bị xem như sync state theo prop.
+- Với fetch async trong effect, luôn kiểm tra component còn active trước khi `setState`.
 
 ### `frontend/src/features/media/components/ImagesModal.tsx`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- TÃ¡ch outer modal vÃ  inner content.
-- Outer kiá»ƒm tra `isOpen` vÃ  `playlist.length`.
-- Inner Ä‘Æ°á»£c remount báº±ng `key` theo `initialIndex` vÃ  danh sÃ¡ch áº£nh.
-- Bá» effect reset hÃ ng loáº¡t state khi má»Ÿ modal.
-- ThÃªm cleanup URL query `view` khi modal Ä‘Ã³ng/unmount.
+- Tách outer modal và inner content.
+- Outer kiểm tra `isOpen` và `playlist.length`.
+- Inner được remount bằng `key` theo `initialIndex` và danh sách ảnh.
+- Bỏ effect reset hàng loạt state khi mở modal.
+- Thêm cleanup URL query `view` khi modal đóng/unmount.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- Vá»›i modal cáº§n reset nhiá»u state khi má»Ÿ, Æ°u tiÃªn remount inner content báº±ng `key` thay vÃ¬ gá»i nhiá»u `setState` trong `useEffect`.
-- CÃ¡ch nÃ y giáº£m nháº¥p nhÃ¡y UI vÃ  trÃ¡nh cáº£nh bÃ¡o state sync.
+- Với modal cần reset nhiều state khi mở, ưu tiên remount inner content bằng `key` thay vì gọi nhiều `setState` trong `useEffect`.
+- Cách này giảm nhấp nháy UI và tránh cảnh báo state sync.
 
 ### `frontend/src/features/media/components/ReelsModal.tsx`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- TÃ¡ch outer modal vÃ  inner content giá»‘ng `ImagesModal`.
-- Bá» effect reset state khi má»Ÿ modal.
-- ThÃªm cleanup URL query `watch` khi modal Ä‘Ã³ng/unmount.
+- Tách outer modal và inner content giống `ImagesModal`.
+- Bỏ effect reset state khi mở modal.
+- Thêm cleanup URL query `watch` khi modal đóng/unmount.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- Modal video cÃ³ nhiá»u state nhÆ° pause, progress, comment, active slide. Remount inner content lÃ  cÃ¡ch gá»n vÃ  Ã­t rá»§i ro hÆ¡n reset thá»§ cÃ´ng.
+- Modal video có nhiều state như pause, progress, comment, active slide. Remount inner content là cách gọn và ít rủi ro hơn reset thủ công.
 
 ### `frontend/src/features/products/components/ProductReviews.tsx`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- TÃ¡ch content theo key `productId + user`.
-- ThÃªm cleanup cho fetch reviews vÃ  eligibility.
-- Bá» effect sync form tá»« `eligibility.existingReview`.
-- Prefill form review ngay khi nháº­n eligibility.
+- Tách content theo key `productId + user`.
+- Thêm cleanup cho fetch reviews và eligibility.
+- Bỏ effect sync form từ `eligibility.existingReview`.
+- Prefill form review ngay khi nhận eligibility.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- Náº¿u form cáº§n prefill tá»« dá»¯ liá»‡u async, nÃªn prefill táº¡i thá»i Ä‘iá»ƒm nháº­n dá»¯ liá»‡u thay vÃ¬ thÃªm effect riÃªng chá»‰ Ä‘á»ƒ copy dá»¯ liá»‡u sang state.
+- Nếu form cần prefill từ dữ liệu async, nên prefill tại thời điểm nhận dữ liệu thay vì thêm effect riêng chỉ để copy dữ liệu sang state.
 
 ### `frontend/src/features/shipping/components/VietnamAddressSelector.tsx`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- Bá» state `wards`.
-- Derive danh sÃ¡ch phÆ°á»ng/xÃ£ báº±ng `useMemo` tá»« `provinces` vÃ  `value.provinceId`.
-- Sá»­a má»™t sá»‘ nhÃ£n tiáº¿ng Viá»‡t cÃ³ dáº¥u.
+- Bỏ state `wards`.
+- Derive danh sách phường/xã bằng `useMemo` từ `provinces` và `value.provinceId`.
+- Sửa một số nhãn tiếng Việt có dấu.
 
-LÆ°u Ã½:
+Lưu ý:
 
-- State nÃ o cÃ³ thá»ƒ suy ra tá»« props/state khÃ¡c thÃ¬ khÃ´ng nÃªn lÆ°u thÃªm.
-- TrÃ¡nh pattern `useEffect(() => setDerivedState(...), [source])` náº¿u giÃ¡ trá»‹ cÃ³ thá»ƒ tÃ­nh báº±ng `useMemo`.
+- State nào có thể suy ra từ props/state khác thì không nên lưu thêm.
+- Tránh pattern `useEffect(() => setDerivedState(...), [source])` nếu giá trị có thể tính bằng `useMemo`.
 
 ### `backend/PRODUCT_MANAGEMENT_NOTES.md`
 
-Ná»™i dung chÃ­nh:
+Nội dung chính:
 
-- Ghi láº¡i cÃ¡c thay Ä‘á»•i React Doctor safe fixes.
-- Ghi láº¡i káº¿t quáº£ Ä‘Ã£ giáº£m `Bugs errors` vá» 0.
+- Ghi lại các thay đổi React Doctor safe fixes.
+- Ghi lại kết quả đã giảm `Bugs errors` về 0.
 
-## Kinh nghiá»‡m cho phiÃªn sau
+## Kinh nghiệm cho phiên sau
 
-### 1. KhÃ´ng cÃ i React Doctor vÃ o project náº¿u chá»‰ cáº§n audit
+### 1. Không cài React Doctor vào project nếu chỉ cần audit
 
-NÃªn cháº¡y:
+Nên chạy:
 
 ```powershell
 npx react-doctor@latest --no-telemetry --offline
 ```
 
-Chá»‰ cÃ¢n nháº¯c `install` khi tháº­t sá»± muá»‘n thÃªm workflow/hook cho agent hoáº·c CI.
+Chỉ cân nhắc `install` khi thật sự muốn thêm workflow/hook cho agent hoặc CI.
 
-### 2. Sá»­a `Bugs errors` trÆ°á»›c optional warnings
+### 2. Sửa `Bugs errors` trước optional warnings
 
-React Doctor cÃ³ ráº¥t nhiá»u warning vá» style, accessibility, performance. KhÃ´ng nÃªn sá»­a Ä‘áº¡i trÃ  trong cÃ¹ng lÆ°á»£t vÃ¬ dá»… lÃ m Ä‘á»•i giao diá»‡n hoáº·c táº¡o diff lá»›n.
+React Doctor có rất nhiều warning về style, accessibility, performance. Không nên sửa đại trà trong cùng lượt vì dễ làm đổi giao diện hoặc tạo diff lớn.
 
-Thá»© tá»± Æ°u tiÃªn nÃªn lÃ :
+Thứ tự ưu tiên nên là:
 
-1. Hook gá»i sai vá»‹ trÃ­.
-2. Timer/subscription thiáº¿u cleanup.
-3. State sync tá»« prop/effect gÃ¢y nháº¥p nhÃ¡y hoáº·c stale UI.
-4. Component Ä‘á»‹nh nghÄ©a bÃªn trong component khÃ¡c.
+1. Hook gọi sai vị trí.
+2. Timer/subscription thiếu cleanup.
+3. State sync từ prop/effect gây nhấp nháy hoặc stale UI.
+4. Component định nghĩa bên trong component khác.
 5. Accessibility/performance/maintainability optional warnings.
 
-### 3. Vá»›i hook, nguyÃªn táº¯c lÃ  top-level
+### 3. Với hook, nguyên tắc là top-level
 
-KhÃ´ng gá»i hook trong:
+Không gọi hook trong:
 
 - JSX condition.
 - `useMemo` callback.
 - `useCallback` callback.
 - `.map`, `.filter`, `.reduce`.
-- `if`, `for`, function phá»¥ thÃ´ng thÆ°á»ng.
+- `if`, `for`, function phụ thông thường.
 
-NÃªn gá»i hook trÆ°á»›c, lÆ°u vÃ o biáº¿n:
+Nên gọi hook trước, lưu vào biến:
 
 ```tsx
 const canManageUsers = usePermission('sys:manage_users');
 ```
 
-Sau Ä‘Ã³ JSX chá»‰ dÃ¹ng biáº¿n:
+Sau đó JSX chỉ dùng biến:
 
 ```tsx
-title={canManageUsers ? 'Quáº£n lÃ½ khÃ¡ch hÃ ng' : 'Tra cá»©u khÃ¡ch hÃ ng'}
+title={canManageUsers ? 'Quản lý khách hàng' : 'Tra cứu khách hàng'}
 ```
 
-### 4. Vá»›i modal nhiá»u state, Æ°u tiÃªn remount báº±ng `key`
+### 4. Với modal nhiều state, ưu tiên remount bằng `key`
 
-Náº¿u modal cáº§n reset nhiá»u state má»—i láº§n má»Ÿ:
+Nếu modal cần reset nhiều state mỗi lần mở:
 
 - `paused`
 - `showComments`
@@ -273,9 +273,9 @@ Náº¿u modal cáº§n reset nhiá»u state má»—i láº§n má»Ÿ:
 - `replyTarget`
 - `progress`
 
-KhÃ´ng nÃªn reset báº±ng má»™t effect chá»©a nhiá»u `setState`.
+Không nên reset bằng một effect chứa nhiều `setState`.
 
-NÃªn tÃ¡ch:
+Nên tách:
 
 ```tsx
 function ModalOuter({ isOpen, items, initialIndex }) {
@@ -284,9 +284,9 @@ function ModalOuter({ isOpen, items, initialIndex }) {
 }
 ```
 
-### 5. Vá»›i state suy ra Ä‘Æ°á»£c, dÃ¹ng `useMemo`
+### 5. Với state suy ra được, dùng `useMemo`
 
-KhÃ´ng nÃªn:
+Không nên:
 
 ```tsx
 const [wards, setWards] = useState([]);
@@ -296,15 +296,15 @@ useEffect(() => {
 }, [provinceId]);
 ```
 
-NÃªn:
+Nên:
 
 ```tsx
 const wards = useMemo(() => findWards(provinceId), [provinceId, provinces]);
 ```
 
-### 6. Vá»›i async effect, luÃ´n cÃ³ cleanup
+### 6. Với async effect, luôn có cleanup
 
-Máº«u nÃªn dÃ¹ng:
+Mẫu nên dùng:
 
 ```tsx
 useEffect(() => {
@@ -321,9 +321,9 @@ useEffect(() => {
 }, []);
 ```
 
-### 7. Vá»›i timer, luÃ´n clear timer
+### 7. Với timer, luôn clear timer
 
-Máº«u nÃªn dÃ¹ng:
+Mẫu nên dùng:
 
 ```tsx
 useEffect(() => {
@@ -332,15 +332,15 @@ useEffect(() => {
 }, []);
 ```
 
-### 8. Cáº©n tháº­n vá»›i mÃ£ hÃ³a tiáº¿ng Viá»‡t
+### 8. Cẩn thận với mã hóa tiếng Việt
 
-Náº¿u Ä‘ang chá»‰nh file cÃ³ tiáº¿ng Viá»‡t bá»‹ lá»—i nhÆ° `Ãƒ`, `Ã„`, `Ã¡Â»`, `Ã†`, nÃªn sá»­a láº¡i trong vÃ¹ng Ä‘ang cháº¡m.
+Nếu đang chỉnh file có tiếng Việt bị lỗi như `Ã`, `Ä`, `á»`, `Æ`, nên sửa lại trong vùng đang chạm.
 
-TrÆ°á»›c khi hoÃ n táº¥t, kiá»ƒm tra nhanh cÃ¡c file vá»«a sá»­a Ä‘á»ƒ trÃ¡nh cÃ²n mojibake.
+Trước khi hoàn tất, kiểm tra nhanh các file vừa sửa để tránh còn mojibake.
 
-### 9. KhÃ´ng dÃ¹ng Git khi chÆ°a Ä‘Æ°á»£c yÃªu cáº§u
+### 9. Không dùng Git khi chưa được yêu cầu
 
-Theo quy Ä‘á»‹nh cá»§a project, khÃ´ng tá»± Ã½ cháº¡y:
+Theo quy định của project, không tự ý chạy:
 
 - `git status`
 - `git diff`
@@ -348,16 +348,16 @@ Theo quy Ä‘á»‹nh cá»§a project, khÃ´ng tá»± Ã½ cháº¡y:
 - `git commit`
 - `git push`
 
-Chá»‰ dÃ¹ng Git khi user yÃªu cáº§u trá»±c tiáº¿p.
+Chỉ dùng Git khi user yêu cầu trực tiếp.
 
-## Tráº¡ng thÃ¡i hiá»‡n táº¡i
+## Trạng thái hiện tại
 
 - `npm run lint`: pass.
-- React Doctor: khÃ´ng cÃ²n `Bugs errors`.
-- CÃ²n optional warnings, chá»§ yáº¿u thuá»™c cÃ¡c nhÃ³m:
+- React Doctor: không còn `Bugs errors`.
+- Còn optional warnings, chủ yếu thuộc các nhóm:
   - Accessibility.
   - Maintainability.
   - Performance.
   - Security warnings.
 
-CÃ¡c optional warnings nÃ y nÃªn xá»­ lÃ½ theo tá»«ng nhÃ³m nhá» riÃªng Ä‘á»ƒ trÃ¡nh Ä‘á»•i giao diá»‡n quÃ¡ rá»™ng.
+Các optional warnings này nên xử lý theo từng nhóm nhỏ riêng để tránh đổi giao diện quá rộng.

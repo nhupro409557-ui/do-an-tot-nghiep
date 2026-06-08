@@ -11,4 +11,6 @@ export const adminServicesApi = {
     body: JSON.stringify(data),
   }),
   adminDeleteAttachedService: (id: string) => request(`/admin/attached-services/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  adminDeactivateAttachedService: (id: string) => request(`/admin/attached-services/${encodeURIComponent(id)}/deactivate`, { method: 'PATCH' }),
+  adminReactivateAttachedService: (id: string) => request(`/admin/attached-services/${encodeURIComponent(id)}/reactivate`, { method: 'PATCH' }),
 };

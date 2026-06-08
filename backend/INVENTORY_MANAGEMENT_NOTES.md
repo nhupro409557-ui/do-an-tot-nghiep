@@ -257,43 +257,49 @@
 - API admin cung enforce rule nay khi tao/sua `attached_services`, tranh payload cu ghi de ve gia thu cong.
 - Khi gan dich vu vao san pham, he thong chi luu `service_id`; phi bao hanh se tra theo bieu phi chinh sach cua goi dich vu.
 
-## 19. Update 2026-05-31 tá»± Ä‘á»™ng phÃ¢n giáº£i tá»“n kho cáº¥p sáº£n pháº©m
+## 19. Update 2026-05-31 tự động phân giải tồn kho cấp sản phẩm
 
-- Kháº¯c phá»¥c lá»—i Ä‘iá»u chá»‰nh tá»“n kho cáº¥p sáº£n pháº©m (khi `variantId` lÃ  NULL) bá»‹ ghi Ä‘Ã¨ trá»Ÿ láº¡i giÃ¡ trá»‹ cÅ© bá»Ÿi hÃ m `sync_parent_price_from_variants`.
-- Khi nháº­n yÃªu cáº§u Ä‘iá»u chá»‰nh tá»“n kho khÃ´ng chá»©a `variantId`:
-  - Há»‡ thá»‘ng tá»± Ä‘á»™ng truy váº¥n danh sÃ¡ch cÃ¡c biáº¿n thá»ƒ hoáº¡t Ä‘á»™ng cá»§a sáº£n pháº©m.
-  - Náº¿u sáº£n pháº©m chá»‰ cÃ³ duy nháº¥t 1 biáº¿n thá»ƒ hoáº¡t Ä‘á»™ng (sáº£n pháº©m Ä‘Æ¡n giáº£n): tá»± Ä‘á»™ng Ã¡p dá»¥ng Ä‘iá»u chá»‰nh lÃªn chÃ­nh biáº¿n thá»ƒ Ä‘Ã³ vÃ  Ä‘á»“ng bá»™ ngÆ°á»£c láº¡i sáº£n pháº©m cha.
-  - Náº¿u sáº£n pháº©m cÃ³ tá»« 2 biáº¿n thá»ƒ hoáº¡t Ä‘á»™ng trá»Ÿ lÃªn: nÃ©m lá»—i `HTTPException(400)` yÃªu cáº§u ngÆ°á»i dÃ¹ng pháº£i chá»‰ Ä‘á»‹nh biáº¿n thá»ƒ cá»¥ thá»ƒ cáº§n nháº­p/Ä‘iá»u chá»‰nh kho nháº±m Ä‘áº£m báº£o tÃ­nh chÃ­nh xÃ¡c nghiá»‡p vá»¥.
-  - Náº¿u khÃ´ng cÃ³ biáº¿n thá»ƒ hoáº¡t Ä‘á»™ng nÃ o: nÃ©m lá»—i `HTTPException(400)`.
+- Khắc phục lỗi điều chỉnh tồn kho cấp sản phẩm (khi `variantId` là NULL) bị ghi đè trở lại giá trị cũ bởi hàm `sync_parent_price_from_variants`.
+- Khi nhận yêu cầu điều chỉnh tồn kho không chứa `variantId`:
+  - Hệ thống tự động truy vấn danh sách các biến thể hoạt động của sản phẩm.
+  - Nếu sản phẩm chỉ có duy nhất 1 biến thể hoạt động (sản phẩm đơn giản): tự động áp dụng điều chỉnh lên chính biến thể đó và đồng bộ ngược lại sản phẩm cha.
+  - Nếu sản phẩm có từ 2 biến thể hoạt động trở lên: ném lỗi `HTTPException(400)` yêu cầu người dùng phải chỉ định biến thể cụ thể cần nhập/điều chỉnh kho nhằm đảm bảo tính chính xác nghiệp vụ.
+  - Nếu không có biến thể hoạt động nào: ném lỗi `HTTPException(400)`.
 
 ## 20. Update 2026-06-01 admin service form completion feedback
 
-- Sau khi thÃªm hoáº·c chá»‰nh sá»­a dá»‹ch vá»¥ Ä‘i kÃ¨m thÃ nh cÃ´ng, popup dá»‹ch vá»¥ Ä‘Æ°á»£c Ä‘Ã³ng nhÆ° cÅ© vÃ  nay cÃ³ thÃªm thÃ´ng bÃ¡o thÃ nh cÃ´ng rÃµ rÃ ng.
-- Thay Ä‘á»•i nÃ y giá»¯ nháº¥t quÃ¡n vá»›i cÃ¡c form quáº£n trá»‹ khÃ¡c sau khi lÆ°u xong, trÃ¡nh Ä‘á»ƒ admin pháº£i tá»± suy Ä‘oÃ¡n thao tÃ¡c Ä‘Ã£ hoÃ n táº¥t hay chÆ°a.
+- Sau khi thêm hoặc chỉnh sửa dịch vụ đi kèm thành công, popup dịch vụ được đóng như cũ và nay có thêm thông báo thành công rõ ràng.
+- Thay đổi này giữ nhất quán với các form quản trị khác sau khi lưu xong, tránh để admin phải tự suy đoán thao tác đã hoàn tất hay chưa.
 
-## 21. Update 2026-06-04 nháº­p kho má»™t chi nhÃ¡nh
+## 21. Update 2026-06-04 nhập kho một chi nhánh
 
-- MÃ n nháº­p kho admin Ä‘Ã£ bá» hai Ã´ `MÃ£ kho / chi nhÃ¡nh` vÃ  `TÃªn kho / chi nhÃ¡nh` vÃ¬ cá»­a hÃ ng Ä‘ang váº­n hÃ nh má»™t chi nhÃ¡nh.
-- Frontend khÃ´ng cÃ²n lÆ°u cáº¥u hÃ¬nh `preferredLocationCode` vÃ  `preferredLocationName` trong pháº§n cÃ i Ä‘áº·t tá»“n kho cá»§a sáº£n pháº©m.
-- Backend khÃ´ng cÃ²n nháº­n/tráº£ hai trÆ°á»ng kho Æ°u tiÃªn trong payload cáº¥u hÃ¬nh tá»“n kho vÃ  file xuáº¥t CSV tá»“n kho.
-- CÃ¡c cá»™t `location_code` vÃ  `location_name` trong lá»‹ch sá»­ Ä‘iá»u chá»‰nh kho váº«n Ä‘Æ°á»£c giá»¯ láº¡i Ä‘á»ƒ ghi nháº­n máº·c Ä‘á»‹nh `MAIN` / `Kho chÃ­nh` cho giao dá»‹ch nháº­p/xuáº¥t, trÃ¡nh máº¥t kháº£ nÄƒng truy váº¿t dá»¯ liá»‡u cÅ©.
+- Màn nhập kho admin đã bỏ hai ô `Mã kho / chi nhánh` và `Tên kho / chi nhánh` vì cửa hàng đang vận hành một chi nhánh.
+- Frontend không còn lưu cấu hình `preferredLocationCode` và `preferredLocationName` trong phần cài đặt tồn kho của sản phẩm.
+- Backend không còn nhận/trả hai trường kho ưu tiên trong payload cấu hình tồn kho và file xuất CSV tồn kho.
+- Các cột `location_code` và `location_name` trong lịch sử điều chỉnh kho vẫn được giữ lại để ghi nhận mặc định `MAIN` / `Kho chính` cho giao dịch nhập/xuất, tránh mất khả năng truy vết dữ liệu cũ.
+
+## 22. Update 2026-06-08 tách tồn kho khỏi form sản phẩm
+
+- Form quản trị sản phẩm không còn nhập `Tồn kho chung`.
+- Lưu sản phẩm không được ghi đè `products.stock_quantity`; số lượng tồn kho do module Tồn kho/Nhập kho và luồng đơn hàng cập nhật.
+- Biến thể mới tạo từ form catalog bắt đầu với tồn kho `0`, sau đó nhập kho qua màn tồn kho để đảm bảo có lịch sử giao dịch.
 
 ## Refactor Structure Notes (June 2026)
 
 ### 1. Backend Service Layer Pattern
-- Logic nghiá»‡p vá»¥, cÃ¡c truy váº¥n database SQL, xá»­ lÃ½ Ä‘á»“ng bá»™ giÃ¡ trá»‹, quáº£n lÃ½ IMEI, idempotency vÃ  xuáº¥t bÃ¡o cÃ¡o tá»“n kho (CSV) Ä‘Ã£ Ä‘Æ°á»£c tÃ¡ch hoÃ n toÃ n ra khá»i Router Layer (`admin_inventory.py`) vÃ  chuyá»ƒn giao sang Service Layer chuyÃªn biá»‡t: [inventory_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/inventory_service.py).
-- Router [admin_inventory.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/api/v1/routers/admin_inventory.py) Ä‘Æ°á»£c tá»‘i giáº£n hÃ³a tá»‘i Ä‘a, chá»‰ giá»¯ vai trÃ² Ä‘á»‹nh nghÄ©a endpoints FastAPI, Dependency Injection vÃ  chuyá»ƒn tiáº¿p lá»i gá»i cho `inventory_service.py`.
+- Logic nghiệp vụ, các truy vấn database SQL, xử lý đồng bộ giá trị, quản lý IMEI, idempotency và xuất báo cáo tồn kho (CSV) đã được tách hoàn toàn ra khỏi Router Layer (`admin_inventory.py`) và chuyển giao sang Service Layer chuyên biệt: [inventory_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/inventory_service.py).
+- Router [admin_inventory.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/api/v1/routers/admin_inventory.py) được tối giản hóa tối đa, chỉ giữ vai trò định nghĩa endpoints FastAPI, Dependency Injection và chuyển tiếp lời gọi cho `inventory_service.py`.
 
 ### 2. Frontend Feature-First Architecture
-- Module Quáº£n lÃ½ Tá»“n kho Ä‘Æ°á»£c Ä‘Ã³ng gÃ³i hoÃ n chá»‰nh vá» thÆ° má»¥c tÃ­nh nÄƒng Ä‘á»™c láº­p táº¡i: [src/features/admin-inventory/](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/)
-  - **Services**: [adminInventoryApi.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/services/adminInventoryApi.ts) chá»©a cÃ¡c hÃ m API tá»“n kho (Ä‘Æ°á»£c bÃ³c tÃ¡ch tá»« `adminProductsApi.ts`).
-  - **Hooks**: [useAdminInventoryLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/hooks/useAdminInventoryLogic.ts) xá»­ lÃ½ logic nghiá»‡p vá»¥ vÃ  state cá»§a UI.
-  - **Components**: [AdminInventoryTab.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/components/AdminInventoryTab.tsx) chá»©a UI tab Tá»“n kho.
-- CÃ¡c file Ä‘iá»u phá»‘i chung nhÆ° [apiDb.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/legacy apiDb.ts), [useAdminLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/hooks/useAdminLogic.ts), vÃ  [AdminDashboardTabContent.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/components/AdminDashboardTabContent.tsx) Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t Ä‘Æ°á»ng dáº«n import má»›i.
+- Module Quản lý Tồn kho được đóng gói hoàn chỉnh về thư mục tính năng độc lập tại: [src/features/admin-inventory/](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/)
+  - **Services**: [adminInventoryApi.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/services/adminInventoryApi.ts) chứa các hàm API tồn kho (được bóc tách từ `adminProductsApi.ts`).
+  - **Hooks**: [useAdminInventoryLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/hooks/useAdminInventoryLogic.ts) xử lý logic nghiệp vụ và state của UI.
+  - **Components**: [AdminInventoryTab.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/components/AdminInventoryTab.tsx) chứa UI tab Tồn kho.
+- Các file điều phối chung như [apiDb.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/legacy apiDb.ts), [useAdminLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/hooks/useAdminLogic.ts), và [AdminDashboardTabContent.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/components/AdminDashboardTabContent.tsx) đã được cập nhật đường dẫn import mới.
 ## Update 2026-06-05 Inventory Service Repository Split
 
-- Táº¡o `app/infrastructure/database/repositories/inventory_repo.py` Ä‘á»ƒ gom truy váº¥n DB cá»§a module tá»“n kho.
-- Chuyá»ƒn SQL khá»i `app/application/services/inventory_service.py`, gá»“m: Ä‘á»c tá»“n kho sáº£n pháº©m, danh sÃ¡ch biáº¿n thá»ƒ, lá»‹ch sá»­ Ä‘iá»u chá»‰nh, cáº­p nháº­t cáº¥u hÃ¬nh tá»“n kho, xuáº¥t snapshot CSV, idempotency, cáº­p nháº­t tá»“n kho biáº¿n thá»ƒ, ghi IMEI vÃ  ghi log Ä‘iá»u chá»‰nh tá»“n kho.
-- `inventory_service.py` hiá»‡n giá»¯ logic nghiá»‡p vá»¥: tÃ­nh cáº£nh bÃ¡o tá»“n kho, merge `sales_config`, xuáº¥t CSV, chá»n biáº¿n thá»ƒ khi sáº£n pháº©m Ä‘Æ¡n giáº£n, sinh IMEI, kiá»ƒm tra sá»‘ lÆ°á»£ng Ã¢m vÃ  Ä‘á»“ng bá»™ láº¡i giÃ¡/tá»“n kho sáº£n pháº©m cha.
-- Sá»­a láº¡i nhÃ£n tiáº¿ng Viá»‡t trong CSV tá»“n kho sang Unicode Ä‘Ãºng dáº¥u.
-- Káº¿t quáº£ kiá»ƒm tra: compile backend báº±ng `.venv` thÃ nh cÃ´ng; import `app.main`, `inventory_service` vÃ  `inventory_repo` Ä‘á»u hoáº¡t Ä‘á»™ng; `inventory_service.py` khÃ´ng cÃ²n SQL trá»±c tiáº¿p.
+- Tạo `app/infrastructure/database/repositories/inventory_repo.py` để gom truy vấn DB của module tồn kho.
+- Chuyển SQL khỏi `app/application/services/inventory_service.py`, gồm: đọc tồn kho sản phẩm, danh sách biến thể, lịch sử điều chỉnh, cập nhật cấu hình tồn kho, xuất snapshot CSV, idempotency, cập nhật tồn kho biến thể, ghi IMEI và ghi log điều chỉnh tồn kho.
+- `inventory_service.py` hiện giữ logic nghiệp vụ: tính cảnh báo tồn kho, merge `sales_config`, xuất CSV, chọn biến thể khi sản phẩm đơn giản, sinh IMEI, kiểm tra số lượng âm và đồng bộ lại giá/tồn kho sản phẩm cha.
+- Sửa lại nhãn tiếng Việt trong CSV tồn kho sang Unicode đúng dấu.
+- Kết quả kiểm tra: compile backend bằng `.venv` thành công; import `app.main`, `inventory_service` và `inventory_repo` đều hoạt động; `inventory_service.py` không còn SQL trực tiếp.

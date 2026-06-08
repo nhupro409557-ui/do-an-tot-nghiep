@@ -196,6 +196,75 @@ async def list_active_accessories(session: AsyncSession, accessory_ids: list[UUI
     return {row["id"]: dict(row) for row in result.mappings().all()}
 
 
+async def list_product_attached_services(session: AsyncSession, product_id: UUID) -> list[dict]:
+    result = await session.execute(
+        text(
+            """
+            SELECT s.id::text AS "serviceId",
+                   s.code,
+                   s.name,
+                   s.service_type AS "serviceType",
+                   s.attribute_group AS "attributeGroup",
+                   s.duration_months AS "durationMonths",
+                   s.price_mode AS "priceMode",
+                   s.fixed_price AS "fixedPrice",
+                   s.percent_value AS "percentValue",
+                   s.base_amount AS "baseAmount",
+                   s.metadata,
+                   pas.override_price AS "overridePrice"
+            FROM product_attached_services pas
+            JOIN attached_services s ON s.id = pas.service_id
+            WHERE pas.product_id = :product_id
+              AND s.is_active = TRUE
+            ORDER BY s.service_type ASC, s.attribute_group ASC NULLS LAST, s.duration_months ASC, s.name ASC
+            """
+        ),
+        {"product_id": product_id},
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
+async def list_active_attached_services_by_ids(session: AsyncSession, service_ids: list[UUID]) -> list[dict]:
+    if not service_ids:
+        return []
+    result = await session.execute(
+        text(
+            """
+            WITH requested_services AS (
+                SELECT id,
+                       CASE
+                           WHEN code LIKE 'BHMR-PHONE-%' THEN REPLACE(code, 'BHMR-PHONE-', 'S24-MOBILE-')
+                           WHEN code LIKE 'BHMR-LAPTOP-%' THEN REPLACE(code, 'BHMR-LAPTOP-', 'S24-LAPTOP-')
+                           WHEN code LIKE 'VIP-1D1-PHONE-%' THEN REPLACE(code, 'VIP-1D1-PHONE-', 'VIP-1D1-MOBILE-')
+                           WHEN code = 'RVVN-PHONE-12M' THEN 'RVVN-MOBILE-12M'
+                           ELSE code
+                       END AS resolved_code
+                FROM attached_services
+                WHERE id IN :ids
+            )
+            SELECT s.id::text AS "serviceId",
+                   s.code,
+                   s.name,
+                   s.service_type AS "serviceType",
+                   s.attribute_group AS "attributeGroup",
+                   s.duration_months AS "durationMonths",
+                   s.price_mode AS "priceMode",
+                   s.fixed_price AS "fixedPrice",
+                   s.percent_value AS "percentValue",
+                   s.base_amount AS "baseAmount",
+                   s.metadata,
+                   NULL::numeric AS "overridePrice"
+            FROM attached_services s
+            WHERE (s.id IN :ids OR s.code IN (SELECT resolved_code FROM requested_services))
+              AND s.is_active = TRUE
+            ORDER BY s.service_type ASC, s.attribute_group ASC NULLS LAST, s.duration_months ASC, s.name ASC
+            """
+        ).bindparams(bindparam("ids", expanding=True)),
+        {"ids": service_ids},
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
 async def get_active_product_uuid(session: AsyncSession, product_id: str) -> UUID | None:
     return await session.scalar(
         text("SELECT id FROM products WHERE status IN ('ACTIVE', 'DISCONTINUED') AND (id::text = :product_id OR slug = :product_id)"),

@@ -12,18 +12,18 @@ from app.infrastructure.database.repositories import product_variant_repo
 
 
 COLOR_CODE_FALLBACK = {
-    "Ã„â€˜en": "#000000", "black": "#000000",
-    "trÃ¡ÂºÂ¯ng": "#FFFFFF", "white": "#FFFFFF",
-    "Ã„â€˜Ã¡Â»Â": "#FF0000", "red": "#FF0000",
-    "xanh lÃƒÂ¡": "#00FF00", "green": "#00FF00",
-    "xanh dÃ†Â°Ã†Â¡ng": "#0000FF", "blue": "#0000FF",
-    "vÃƒÂ ng": "#FFFF00", "yellow": "#FFFF00",
+    "đen": "#000000", "black": "#000000",
+    "trắng": "#FFFFFF", "white": "#FFFFFF",
+    "đỏ": "#FF0000", "red": "#FF0000",
+    "xanh lá": "#00FF00", "green": "#00FF00",
+    "xanh dương": "#0000FF", "blue": "#0000FF",
+    "vàng": "#FFFF00", "yellow": "#FFFF00",
     "cam": "#FFA500", "orange": "#FFA500",
-    "hÃ¡Â»â€œng": "#FFC0CB", "pink": "#FFC0CB",
-    "xÃƒÂ¡m": "#808080", "gray": "#808080", "grey": "#808080",
-    "tÃƒÂ­m": "#800080", "purple": "#800080",
-    "bÃ¡ÂºÂ¡c": "#C0C0C0", "silver": "#C0C0C0",
-    "vÃƒÂ ng hÃ¡Â»â€œng": "#B76E79", "rose gold": "#B76E79",
+    "hồng": "#FFC0CB", "pink": "#FFC0CB",
+    "xám": "#808080", "gray": "#808080", "grey": "#808080",
+    "tím": "#800080", "purple": "#800080",
+    "bạc": "#C0C0C0", "silver": "#C0C0C0",
+    "vàng hồng": "#B76E79", "rose gold": "#B76E79",
 }
 
 
@@ -41,12 +41,12 @@ def validate_variant_options(options: list[dict], variants_payload: list[Product
             if normalized_key not in options_dict:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"ThuÃ¡Â»â„¢c tÃƒÂ­nh '{k}' cÃ¡Â»Â§a biÃ¡ÂºÂ¿n thÃ¡Â»Æ’ khÃƒÂ´ng nÃ¡ÂºÂ±m trong cÃƒÂ¡c lÃ¡Â»Â±a chÃ¡Â»Ân cÃ¡Â»Â§a sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m.",
+                    detail=f"Thuộc tính '{k}' của biến thể không nằm trong các lựa chọn của sản phẩm.",
                 )
             if normalized_option_key(v) not in options_dict[normalized_key]:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"GiÃƒÂ¡ trÃ¡Â»â€¹ '{v}' cÃ¡Â»Â§a thuÃ¡Â»â„¢c tÃƒÂ­nh '{k}' khÃƒÂ´ng hÃ¡Â»Â£p lÃ¡Â»â€¡.",
+                    detail=f"Giá trị '{v}' của thuộc tính '{k}' không hợp lệ.",
                 )
         if options:
             for opt in options:
@@ -54,7 +54,7 @@ def validate_variant_options(options: list[dict], variants_payload: list[Product
                 if normalized_option_key(opt_name) not in normalized_var_attrs:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"BiÃ¡ÂºÂ¿n thÃ¡Â»Æ’ thiÃ¡ÂºÂ¿u thuÃ¡Â»â„¢c tÃƒÂ­nh '{opt_name}' yÃƒÂªu cÃ¡ÂºÂ§u bÃ¡Â»Å¸i sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m.",
+                        detail=f"Biến thể thiếu thuộc tính '{opt_name}' yêu cầu bởi sản phẩm.",
                     )
 
 
@@ -63,7 +63,7 @@ def validate_default_variant_count(variants_payload: list[ProductVariantPayload]
     if variants_payload and default_count != 1:
         raise HTTPException(
             status_code=400,
-            detail="MÃ¡Â»â€”i sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m chÃ¡Â»â€° Ã„â€˜Ã†Â°Ã¡Â»Â£c cÃƒÂ³ mÃ¡Â»â„¢t biÃ¡ÂºÂ¿n thÃ¡Â»Æ’ mÃ¡ÂºÂ·c Ã„â€˜Ã¡Â»â€¹nh.",
+            detail="Mỗi sản phẩm chỉ được có một biến thể mặc định.",
             headers={"x-error-code": "MULTIPLE_DEFAULT_VARIANTS"},
         )
 
@@ -77,13 +77,13 @@ def resolve_variant_values(variant: ProductVariantPayload, *, is_revision: bool)
     var_attrs = variant.attributes or {}
     for key, value in var_attrs.items():
         key_lower = key.lower()
-        if key_lower in {"color", "mÃƒÂ u", "mÃƒÂ u sÃ¡ÂºÂ¯c"}:
+        if key_lower in {"color", "màu", "màu sắc"}:
             color_val = str(value)
-        elif key_lower in {"storage", "dung lÃ†Â°Ã¡Â»Â£ng", "bÃ¡Â»â„¢ nhÃ¡Â»â€º"}:
+        elif key_lower in {"storage", "dung lượng", "bộ nhớ"}:
             storage_val = str(value)
-        elif key_lower in {"ram", "bÃ¡Â»â„¢ nhÃ¡Â»â€º trong"}:
+        elif key_lower in {"ram", "bộ nhớ trong"}:
             ram_val = str(value)
-        elif key_lower in {"configuration", "cÃ¡ÂºÂ¥u hÃƒÂ¬nh", "phiÃƒÂªn bÃ¡ÂºÂ£n"}:
+        elif key_lower in {"configuration", "cấu hình", "phiên bản"}:
             config_val = str(value)
 
     normalized_attrs = {normalized_option_key(key): str(value) for key, value in var_attrs.items()}
@@ -145,7 +145,7 @@ async def validate_unique_variant_skus(
 ) -> None:
     sku_list = [variant.sku.strip() for variant in variants_payload if variant.sku]
     if len(sku_list) != len(set(sku_list)):
-        raise HTTPException(status_code=400, detail="TrÃƒÂ¹ng lÃ¡ÂºÂ·p SKU trong danh sÃƒÂ¡ch biÃ¡ÂºÂ¿n thÃ¡Â»Æ’ gÃ¡Â»Â­i lÃƒÂªn.")
+        raise HTTPException(status_code=400, detail="Trùng lặp SKU trong danh sách biến thể gửi lên.")
 
     for variant in variants_payload:
         if not variant.sku:
@@ -160,7 +160,7 @@ async def validate_unique_variant_skus(
         if existing:
             raise HTTPException(
                 status_code=400,
-                detail=f"SKU '{variant.sku}' Ã„â€˜ÃƒÂ£ Ã„â€˜Ã†Â°Ã¡Â»Â£c sÃ¡Â»Â­ dÃ¡Â»Â¥ng bÃ¡Â»Å¸i mÃ¡Â»â„¢t biÃ¡ÂºÂ¿n thÃ¡Â»Æ’ khÃƒÂ¡c Ã„â€˜ang hoÃ¡ÂºÂ¡t Ã„â€˜Ã¡Â»â„¢ng.",
+                detail=f"SKU '{variant.sku}' đã được sử dụng bởi một biến thể khác đang hoạt động.",
             )
 
 
@@ -176,7 +176,7 @@ async def upsert_product_variants(
     del product_name, default_price, default_sale_price, default_stock
     product_row = await product_variant_repo.get_product_variant_context(session, product_id)
     if not product_row:
-        raise HTTPException(status_code=404, detail="KhÃƒÂ´ng tÃƒÂ¬m thÃ¡ÂºÂ¥y sÃ¡ÂºÂ£n phÃ¡ÂºÂ©m.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
 
     options = product_row["options"] or []
     product_status = product_row.get("status")
@@ -235,7 +235,7 @@ async def delete_product_variant(
         variant_id=variant_id,
     )
     if not variant:
-        raise HTTPException(status_code=404, detail="KhÃƒÂ´ng tÃƒÂ¬m thÃ¡ÂºÂ¥y biÃ¡ÂºÂ¿n thÃ¡Â»Æ’.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy biến thể.")
 
     await product_variant_repo.soft_delete_variant(session, variant_id)
 

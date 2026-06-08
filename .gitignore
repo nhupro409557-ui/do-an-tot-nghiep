@@ -37,6 +37,8 @@ backend-run.log
 backend-run.err.log
 *.pyc
 *.log
+*.bak
+backend/exports/
 
 # Temporary extraction / patch helper files
 extracted*.txt

@@ -7,6 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.database.repositories import product_repo
 
 
+PRODUCT_PUBLICATION_STATUSES = {"ACTIVE", "INACTIVE", "DISCONTINUED"}
+
+
+def normalize_target_product_status(value: object) -> str:
+    status = str(value or "ACTIVE").upper()
+    return status if status in PRODUCT_PUBLICATION_STATUSES else "ACTIVE"
+
+
 def persisted_sales_config(sales_config: dict) -> dict:
     normalized_accessory_offers: list[dict] = []
     for item in sales_config.get("accessoryOffers", []) or []:
@@ -34,6 +42,7 @@ def persisted_sales_config(sales_config: dict) -> dict:
         normalized_attached_services.append({"serviceId": service_id})
     return {
         "variantSpecKeys": sales_config.get("variantSpecKeys", []) or [],
+        "targetProductStatus": normalize_target_product_status(sales_config.get("targetProductStatus")),
         "accessoryOffers": normalized_accessory_offers,
         "warrantyPolicy": sales_config.get("warrantyPolicy", {}) if isinstance(sales_config.get("warrantyPolicy"), dict) else {},
         "attachedServices": normalized_attached_services,
@@ -103,6 +112,8 @@ def extract_product_metadata(specifications: dict) -> tuple[dict, dict, dict]:
             sales_config["attachedServices"] = value
         elif key in {"_warrantyPolicy", "warrantyPolicy"}:
             sales_config["warrantyPolicy"] = value
+        elif key in {"_targetProductStatus", "targetProductStatus"}:
+            sales_config["targetProductStatus"] = value
         elif key in {"_variantSpecKeys", "variantSpecKeys"}:
             sales_config["variantSpecKeys"] = value
             clean_specs[key] = value

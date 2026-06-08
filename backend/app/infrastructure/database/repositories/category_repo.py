@@ -450,12 +450,12 @@ async def category_redirect_loop_exists(session: AsyncSession, *, source_path: s
                 text(
                     """
                     WITH RECURSIVE chain AS (
-                        SELECT source_path, target_path, ARRAY[source_path] AS visited
+                        SELECT source_path, target_path, ARRAY[source_path::text] AS visited
                         FROM url_redirects
                         WHERE source_path = :target_path
                           AND entity_type = 'category'
                         UNION ALL
-                        SELECT r.source_path, r.target_path, chain.visited || r.source_path
+                        SELECT r.source_path, r.target_path, chain.visited || r.source_path::text
                         FROM url_redirects r
                         JOIN chain ON r.source_path = chain.target_path
                         WHERE r.entity_type = 'category'
@@ -484,12 +484,12 @@ async def update_upstream_category_redirects(session: AsyncSession, *, category_
                 updated_at = NOW()
             WHERE source_path IN (
                 WITH RECURSIVE upstream AS (
-                    SELECT source_path, target_path, ARRAY[source_path] AS visited
+                    SELECT source_path, target_path, ARRAY[source_path::text] AS visited
                     FROM url_redirects
                     WHERE target_path = :source_path
                       AND entity_type = 'category'
                     UNION ALL
-                    SELECT r.source_path, r.target_path, upstream.visited || r.source_path
+                    SELECT r.source_path, r.target_path, upstream.visited || r.source_path::text
                     FROM url_redirects r
                     JOIN upstream ON r.target_path = upstream.source_path
                     WHERE r.entity_type = 'category'
@@ -794,12 +794,16 @@ async def get_category_delete_blockers(session: AsyncSession, category_id: UUID)
     blockers["exists"] = True
     blockers["can_hard_delete"] = not any(
         blockers[key]
-        for key in ("has_children", "has_products", "has_brands", "has_content", "has_migration_jobs", "has_redirects")
+        for key in ("has_children", "has_products", "has_brands", "has_content", "has_migration_jobs")
     )
     return blockers
 
 
 async def hard_delete_category(session: AsyncSession, category_id: UUID) -> int:
+    await session.execute(
+        text("DELETE FROM url_redirects WHERE entity_type = 'category' AND entity_id = :id"),
+        {"id": category_id},
+    )
     await session.execute(
         text("DELETE FROM category_audit_logs WHERE category_id = :id"),
         {"id": category_id},

@@ -22,6 +22,15 @@ async def list_attached_services(session: AsyncSession) -> list[dict]:
     return [dict(row._mapping) for row in result]
 
 
+async def get_attached_service_metadata(session: AsyncSession, service_id: UUID) -> dict | None:
+    result = await session.execute(
+        text("SELECT metadata FROM attached_services WHERE id = :id"),
+        {"id": service_id},
+    )
+    value = result.scalar_one_or_none()
+    return value if isinstance(value, dict) else None
+
+
 async def insert_attached_service(
     session: AsyncSession,
     *,
@@ -117,6 +126,40 @@ async def update_attached_service(
 async def deactivate_attached_service(session: AsyncSession, service_id: UUID) -> int:
     result = await session.execute(
         text("UPDATE attached_services SET is_active = FALSE, updated_at = NOW() WHERE id = :id"),
+        {"id": service_id},
+    )
+    return int(result.rowcount or 0)
+
+
+async def reactivate_attached_service(session: AsyncSession, service_id: UUID) -> int:
+    result = await session.execute(
+        text("UPDATE attached_services SET is_active = TRUE, updated_at = NOW() WHERE id = :id"),
+        {"id": service_id},
+    )
+    return int(result.rowcount or 0)
+
+
+async def attached_service_relation_count(session: AsyncSession, service_id: UUID) -> int | None:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    EXISTS(SELECT 1 FROM attached_services WHERE id = :id) AS exists,
+                    (SELECT COUNT(*) FROM product_attached_services WHERE service_id = :id) AS relation_count
+                """
+            ),
+            {"id": service_id},
+        )
+    ).mappings().first()
+    if not row or not row["exists"]:
+        return None
+    return int(row["relation_count"] or 0)
+
+
+async def hard_delete_attached_service(session: AsyncSession, service_id: UUID) -> int:
+    result = await session.execute(
+        text("DELETE FROM attached_services WHERE id = :id"),
         {"id": service_id},
     )
     return int(result.rowcount or 0)

@@ -33,7 +33,7 @@ class PresignedUploadPayload(BaseModel):
 def require_upload_permission(folder: str, permissions: set[str]) -> None:
     required_permission = UPLOAD_FOLDER_PERMISSIONS.get(folder)
     if not required_permission or required_permission not in permissions:
-        raise HTTPException(status_code=403, detail="Báº¡n khÃ´ng cÃ³ quyá»n táº£i file cho khu vá»±c nÃ y.")
+        raise HTTPException(status_code=403, detail="Bạn không có quyền tải file cho khu vực này.")
 
 
 @router.post("/presigned-url")
