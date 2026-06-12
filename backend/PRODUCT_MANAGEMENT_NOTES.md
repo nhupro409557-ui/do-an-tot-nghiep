@@ -1,4 +1,99 @@
-﻿# Product Management Notes
+# Product Management Notes
+
+## Update 2026-06-10 iPad A16 Wifi video content draft
+
+- Tạo script `backend/scripts/seed_ipad_a16_wifi_video_content.py` để tạo hoặc cập nhật nội dung video nháp cho sản phẩm `iPad A16 Wifi` (SKU `IPADA16`).
+- Nội dung video tập trung vào màn hình Liquid Retina 10.9 inch, chip Apple A16 Bionic, Apple Pencil USB-C, Touch ID, camera trước/sau 12MP, loa stereo và các phiên bản A16 Wifi/5G.
+- Script gắn video với sản phẩm và các danh mục liên quan qua `content_product_relations` và `content_category_relations`; video được để `status = 'DRAFT'`, `is_active = FALSE`, `video_source = 'UPLOAD'`.
+- Đã chạy script trên DB local, tạo/cập nhật video ID `f52656f6-6376-4ba0-b254-04f8c5491719`.
+- Verification: `python -m py_compile backend/scripts/seed_ipad_a16_wifi_video_content.py` pass; truy vấn DB xác nhận video có liên kết sản phẩm và 2 liên kết danh mục.
+
+## Update 2026-06-10 Samsung Galaxy S26 Ultra video content draft
+
+- Tạo script `backend/scripts/seed_samsung_galaxy_s26_ultra_video_content.py` để tạo hoặc cập nhật nội dung video nháp cho sản phẩm `Samsung Galaxy S26 Ultra` (SKU `S26U`).
+- Nội dung video tập trung vào khung Titanium, màn hình Dynamic AMOLED 2X QHD+ 1-120Hz, Galaxy AI, S Pen tích hợp, camera 200MP/Space Zoom 100x, Snapdragon 8 Elite Gen 5 for Galaxy, Samsung DeX, Knox Security, pin 5000 mAh và sạc nhanh 60W.
+- Script gắn video với sản phẩm và các danh mục liên quan qua `content_product_relations` và `content_category_relations`; video được để `status = 'DRAFT'`, `is_active = FALSE`, `video_source = 'UPLOAD'`.
+- Đã chạy script trên DB local, tạo/cập nhật video ID `d7ebad55-33ca-42e7-9cb6-2464593a1e68`.
+- Verification: `python -m py_compile backend/scripts/seed_samsung_galaxy_s26_ultra_video_content.py` pass; truy vấn DB xác nhận video có liên kết sản phẩm và 2 liên kết danh mục.
+
+## Update 2026-06-10 admin product image deletion persistence
+
+- Sửa lỗi trong màn quản trị sản phẩm: sau khi xóa toàn bộ `Ảnh đại diện chung` và `Bộ ảnh sản phẩm chung`, lưu xong mở lại vẫn thấy ảnh cũ đối với các SKU có ảnh demo.
+- Nguyên nhân: `adminProductsApi.adminListProducts` dùng chung `formatProductDemoData`, hàm này tự gán ảnh demo theo SKU và ghi đè dữ liệu `imageUrl`/`images` thật từ backend, làm trạng thái `NULL`/`[]` sau khi xóa bị hiển thị như chưa xóa.
+- Thêm `formatProductAdminMedia` để màn admin chỉ chuẩn hóa URL ảnh từ backend, không tự fallback ảnh demo theo SKU. Storefront/public API vẫn giữ `formatProductDemoData`.
+- Verification: `npm run lint` trong `frontend` pass.
+
+## Update 2026-06-10 published product image override fix
+
+- Sửa tiếp lỗi sau khi duyệt bản chỉnh sửa: backend đã publish `image_url` và `images` từ `REVISION_DRAFT` sang sản phẩm gốc, nhưng storefront/public API vẫn hiển thị ảnh cũ do `formatProductDemoData` ghi đè ảnh thật bằng bảng ảnh demo theo SKU.
+- Xóa bảng fallback ảnh demo theo SKU khỏi `productMedia.ts`; cả admin và public formatter nay chỉ chuẩn hóa URL từ dữ liệu backend. Vì vậy ảnh mới, ảnh đã xóa và gallery rỗng sau duyệt đều được giữ nguyên khi hiển thị.
+- Verification: `npm run lint` trong `frontend` pass.
+
+## Update 2026-06-10 batch product image galleries
+
+- Thêm script `backend/scripts/update_batch_product_images.py` để copy ảnh người dùng cung cấp vào `frontend/public/images/products/` theo cấu trúc URL ổn định `cover.*` và `gallery-xx.*`.
+- Script nhận diện ảnh đại diện theo tên file có chứa biến thể của `ảnh đại diện`/`ảnh địa diện`; các ảnh còn lại được đưa vào gallery.
+- Đã cập nhật `products.image_url`, `products.images`, `product_variants.image_url` và `product_variants.images` cho các sản phẩm: AirPods Pro 2 USB-C, Apple Watch Ultra 2, iPad A16 Wifi, iPad Pro M4 11 inch, MacBook Air M3 13 inch, MacBook Neo 13 inch A18 Pro 2026, Samsung Galaxy A17 5G, Samsung Galaxy A57 5G, Samsung Galaxy S26 và Samsung Galaxy S26 Ultra.
+- Các thư mục không phân màu được gắn ảnh dùng chung cho toàn bộ biến thể active; các thư mục phân màu được map theo `color_name` trong database.
+- Lưu ý: thư mục `Samsung Galaxy A57 5G/Đen` đã được copy vào public assets nhưng không gắn vào biến thể vì DB hiện không có biến thể active màu Đen cho sản phẩm này.
+- Verification: `python -m py_compile backend/scripts/update_batch_product_images.py` pass; chạy script thành công; kiểm tra DB xác nhận 10 sản phẩm có `image_url` mới và các sản phẩm có biến thể active đều không còn biến thể thiếu `image_url`.
+
+## Update 2026-06-10 Samsung Galaxy S26 Ultra color variants update
+
+- Cập nhật tên màu sắc cho Samsung Galaxy S26 Ultra (SKU: `S26U`) theo yêu cầu:
+  - Đổi `Đen Titan` (#2f3133) → `Đen Classic`
+  - Đổi `Trắng Titan` (#f1f0ee) → `Trắng Classic`
+  - Đổi `Xanh Thiên Thanh` (#9ebed2) → `Xanh Sky Blue` (#87ceeb)
+  - Thêm mới `Tím Cobalt` (#726b8e)
+- Thêm 3 biến thể mới cho màu `Tím Cobalt`:
+  - `S26U-CV-256GB`: 12GB RAM, 256GB, giá 33.990.000đ (sale 31.990.000đ)
+  - `S26U-CV-512GB`: 12GB RAM, 512GB, giá 37.990.000đ (sale 35.990.000đ)
+  - `S26U-CV-1TB`: 16GB RAM, 1TB, giá 44.990.000đ (sale 42.990.000đ)
+- Cập nhật `color_name`, `color_code` và `attributes` JSON trong 9 biến thể cũ.
+- Tổng biến thể hiện tại: 12 (4 màu × 3 dung lượng).
+- Script: `backend/scripts/update_s26u_colors.py`.
+- Verification: truy vấn DB xác nhận 12 biến thể active với tên màu đúng.
+
+## Update 2026-06-10 Samsung Galaxy S26 color variants update
+
+- Cập nhật tên màu sắc cho Samsung Galaxy S26 (SKU: `S26`) theo yêu cầu:
+  - Đổi `Đen` (#1a1a1a) → `Đen Classic`
+  - Đổi `Trắng` (#fdfdfd) → `Trắng Classic`
+  - Giữ nguyên `Tím Cobalt` (#726b8e)
+  - Thêm mới `Xanh Sky Blue` (#87ceeb)
+- Thêm 2 biến thể mới cho màu `Xanh Sky Blue`:
+  - `S26-SB-256GB`: 12GB RAM, 256GB, giá 22.990.000đ (sale 21.990.000đ)
+  - `S26-SB-512GB`: 12GB RAM, 512GB, giá 26.990.000đ (sale 25.990.000đ)
+- Cập nhật `color_name` và `attributes` JSON trong 4 biến thể cũ (BK, WH) để đồng bộ tên mới.
+- Cập nhật `products.colors` và `products.options` với 4 màu mới.
+- Cập nhật seed data trong `init_database.sql` dòng sản phẩm S26.
+- Tổng biến thể hiện tại: 8 (4 màu × 2 dung lượng).
+- Script: `backend/scripts/update_s26_colors.py`.
+- Verification: truy vấn DB xác nhận 8 biến thể active với tên màu và attributes đúng.
+
+## Update 2026-06-10 OPPO Find X9 Ultra video content draft
+
+- Tạo script `backend/scripts/seed_oppo_find_x9_ultra_video_content.py` để tạo hoặc cập nhật nội dung video nháp cho sản phẩm `OPPO Find X9 Ultra` (SKU `OP-FX9U`).
+- Nội dung video tập trung vào mặt lưng da sinh thái, màn hình LTPO AMOLED QHD+ 144Hz, hệ thống camera Hasselblad đa tiêu cự, quay video 8K/4K, pin 7050 mAh, sạc nhanh 100W và chuẩn IP68/IP69.
+- Script gắn video với sản phẩm và các danh mục liên quan qua `content_product_relations` và `content_category_relations`; video được để `status = 'DRAFT'`, `is_active = FALSE`, `video_source = 'UPLOAD'`.
+- Đã chạy script trên DB local, tạo/cập nhật video ID `ecde02d4-a756-472a-be50-c2d42cd70b27`.
+- Verification: `python -m py_compile backend/scripts/seed_oppo_find_x9_ultra_video_content.py` pass; truy vấn DB xác nhận video có liên kết sản phẩm và 2 liên kết danh mục.
+
+## Update 2026-06-10 MacBook Neo A18 Pro video content draft
+
+- Tạo script `backend/scripts/seed_macbook_neo_a18_pro_video_content.py` để tạo hoặc cập nhật nội dung video nháp cho sản phẩm `MacBook Neo 13 inch A18 Pro 2026` (SKU `MBNEOA18P`).
+- Nội dung video tập trung vào thiết kế 13 inch gọn nhẹ, màu sắc trẻ trung, chip Apple A18 Pro, màn hình Liquid Retina, pin dài, Magic Keyboard với Touch ID và nhu cầu học tập/văn phòng linh hoạt.
+- Script gắn video với sản phẩm và các danh mục liên quan qua `content_product_relations` và `content_category_relations`; video được để `status = 'DRAFT'`, `is_active = FALSE`, `video_source = 'UPLOAD'`.
+- Đã chạy script trên DB local, tạo/cập nhật video ID `1bcbcc60-e15c-4aaf-8085-1dd50882fe8b`.
+- Verification: `python -m py_compile backend/scripts/seed_macbook_neo_a18_pro_video_content.py` pass; truy vấn DB xác nhận video có liên kết sản phẩm và 2 liên kết danh mục.
+
+## Update 2026-06-10 MacBook Air M3 video content draft
+
+- Tạo script `backend/scripts/seed_macbook_air_m3_video_content.py` để tạo hoặc cập nhật nội dung video nháp cho sản phẩm `MacBook Air M3 13 inch` (SKU `MBAIRM3`).
+- Nội dung video tập trung vào thiết kế mỏng nhẹ, chip M3, màn hình Liquid Retina 13.6 inch, thời lượng pin dài và nhu cầu học tập/văn phòng/sáng tạo nhẹ.
+- Script gắn video với sản phẩm và các danh mục liên quan qua `content_product_relations` và `content_category_relations`; video được để `status = 'DRAFT'`, `is_active = FALSE`, `video_source = 'UPLOAD'`.
+- Đã chạy script trên DB local, tạo/cập nhật video ID `be2b41a3-f30a-4e0d-af16-8232edc84370`.
+- Verification: `python -m py_compile backend/scripts/seed_macbook_air_m3_video_content.py` pass; truy vấn DB xác nhận video có liên kết sản phẩm và 2 liên kết danh mục.
 
 ## Update 2026-06-08 product comments and Q&A management split
 
@@ -838,3 +933,54 @@
 - Trang chi tiết sản phẩm tự tính giá dịch vụ `TIERED_AMOUNT` theo `metadata.priceTiers` và giá sản phẩm/biến thể đang chọn, thay vì chỉ hiện “Theo mức giá sản phẩm”.
 - Sửa luồng cập nhật dịch vụ đi kèm để form admin không ghi đè `metadata` rỗng lên dịch vụ sản phẩm đã có biểu phí.
 - Chạy lại seed `scripts/seed_attached_services.py` để khôi phục biểu phí bảo hành và cập nhật reference cũ `BHMR-PHONE-12M` sang dịch vụ active `S24-MOBILE-12M`; API iPhone 16 Pro Max hiện trả 17 tier và phí 1.600.000đ cho giá 33.990.000đ.
+
+## Update 2026-06-10 Add iPad Pro M4 11 inch Wi-Fi + Cellular (5G) Variants
+
+- Cập nhật dòng sản phẩm iPad Pro M4 11 inch (SKU gốc: `IPADM4`) trên cả cơ sở dữ liệu (PostgreSQL) và tệp khởi tạo dữ liệu seed (`init_database.sql`):
+  - Cập nhật `products.options` của sản phẩm cha để bổ sung tuỳ chọn "Kết nối" với 2 giá trị `"Wi-Fi"` và `"Wi-Fi + Cellular"`.
+  - Cập nhật `capacities` của sản phẩm cha bao gồm 6 mức dung lượng: `"256GB"`, `"512GB"`, `"1TB"`, `"1TB Nano"`, `"2TB"`, `"2TB Nano"`.
+  - Đồng bộ hóa 12 biến thể Wi-Fi cũ: Cập nhật `configuration` thành `"Wi-Fi"`, đồng thời chuẩn hóa `specs` và `attributes` để có key `"Kết nối": "Wi-Fi"` và `"ram": "8GB"` (hoặc `"16GB"` cho bản 1TB/2TB).
+  - Thêm mới 12 biến thể Wi-Fi + Cellular (5G) mới (ví dụ SKU `IPADM4-256-SILVER-5G`) với giá bán cao hơn bản Wi-Fi tương ứng **6.000.000đ**, số lượng tồn kho mặc định là **10** chiếc, trạng thái hoạt động.
+- Sửa đổi tệp `init_database.sql`: Khôi phục phần chèn thương hiệu, sản phẩm và biến thể bị hỏng cú pháp trước đó, đồng bộ hóa 24 biến thể của iPad Pro M4 vào dữ liệu seed ban đầu.
+- Kết quả kiểm tra:
+  - Backend compile thành công không có lỗi cú pháp.
+  - CSDL thực tế được cập nhật đầy đủ và chính xác 24 biến thể thông qua script `update_ipad_m4_variants.py`.
+
+## Update 2026-06-10 Add Apple Watch Ultra 2 Variants and Options
+
+- Cập nhật sản phẩm Apple Watch Ultra 2 (SKU gốc: `AWU2`) trên cơ sở dữ liệu (PostgreSQL) và tệp seed `init_database.sql`:
+  - Cập nhật sản phẩm cha `AWU2`: Thiết lập `colors` thành màu `"Titan Đen"` (`#2a2b2d`), bổ sung tùy chọn `"Phiên bản"` gồm 9 giá trị tương ứng với 9 loại dây đeo kích thước 49mm, và đồng bộ `capacities` chứa danh sách 9 tên dây đeo. Cập nhật giá bán là `16.990.000đ` và tồn kho là `90`.
+  - Bổ sung 9 biến thể mới trong bảng `product_variants` ứng với các loại dây đeo:
+    1. `AWU2-49-BLACK-ALPINEL` (49mm Dây Alpine Size L)
+    2. `AWU2-49-BLACK-ALPINES` (49mm Dây Alpine Size S) - Biến thể mặc định (`is_default = true`)
+    3. `AWU2-49-BLACK-TRAILSM` (49mm Dây Trail Size S/M)
+    4. `AWU2-49-BLACK-CAOSU` (49mm Dây Cao Su)
+    5. `AWU2-49-BLACK-TRAILML` (49mm Dây Trail Size M/L)
+    6. `AWU2-49-BLACK-TITANM` (49mm Dây Titan Size M)
+    7. `AWU2-49-BLACK-TITANS` (49mm Dây Titan Size S)
+    8. `AWU2-49-BLACK-TITANL` (49mm Dây Titan Size L)
+    9. `AWU2-49-BLACK-ALPINEM` (49mm Dây Alpine Size M)
+  - Mỗi biến thể được gán màu sắc `"Titan Đen"`, tồn kho mặc định là `10` chiếc, trạng thái `"active"`, và đồng bộ hóa chi tiết trong trường `specs` và `attributes` theo định dạng của frontend.
+- Đồng bộ hóa dữ liệu seed: Chèn 9 biến thể này vào phần `variant_seed` và cập nhật thông số sản phẩm cha trong phần `product_seed` của tệp `init_database.sql`.
+- Kết quả kiểm tra:
+  - CSDL thực tế được cập nhật đầy đủ và chính xác thông qua kịch bản `update_awu2_variants.py`.
+  - Chạy thử nghiệm thành công, frontend hiển thị đúng bộ chọn dây đeo và giá tiền.
+
+## Update 2026-06-10 Update iPad A16 Wifi Variants and Options
+
+- Cập nhật cấu hình và biến thể cho dòng sản phẩm iPad A16 Wifi (SKU gốc: `IPADA16`) trên cơ sở dữ liệu (PostgreSQL) và tệp seed `init_database.sql`:
+  - Cập nhật sản phẩm cha `IPADA16`:
+    - Thiết lập `colors` gồm 4 màu mới: `"Bạc"` (`#d1d5db`), `"Vàng"` (`#f5e08c`), `"Hồng"` (`#e57c91`), `"Xanh"` (`#4b9cd3`).
+    - Bổ sung tùy chọn `"Phiên bản"` gồm 5 cấu hình mới: `"A16 Wifi 128GB"`, `"A16 Wifi 256GB"`, `"A16 5G 128GB"`, `"A16 5G 256GB"`, `"A16 Wifi 512GB"`.
+    - Đồng bộ `capacities` chứa danh sách 5 cấu hình trên.
+    - Cập nhật giá cơ bản của sản phẩm cha thành `9.290.000đ` và tổng tồn kho là `200` (20 variants * 10).
+  - Quản lý biến thể cũ: Đánh dấu xóa (soft-delete bằng cách đặt `deleted_at = NOW()`, `status = 'archived'`) đối với 4 biến thể cũ (bản 64GB và bản màu Xám Space Gray).
+  - Bổ sung 20 biến thể mới ứng với 5 cấu hình × 4 màu sắc:
+    - Các SKU mới theo định dạng `IPADA16-[CONFIG_CODE]-[COLOR_SUFFIX]` (ví dụ: `IPADA16-W128-SILVER`).
+    - Thiết lập giá bán: `A16 Wifi 128GB` có giá là `9.290.000đ`, các bản cao hơn lần lượt là `11.290.000đ`, `12.290.000đ`, `14.290.000đ` và `15.290.000đ`.
+    - Mỗi biến thể được gán tồn kho mặc định là `10` chiếc, trạng thái `"active"`, và đồng bộ hóa `specs`/`attributes` tương thích với frontend.
+    - Đặt biến thể `IPADA16-W128-SILVER` (A16 Wifi 128GB màu Bạc) làm mặc định (`is_default = true`).
+- Đồng bộ hóa dữ liệu seed: Cập nhật thông số sản phẩm cha trong phần `product_seed` và thay thế các biến thể cũ bằng 20 biến thể mới trong phần `variant_seed` của tệp `init_database.sql`.
+- Kết quả kiểm tra:
+  - CSDL thực tế được cập nhật đầy đủ và chính xác thông qua kịch bản `update_ipad_a16_variants.py`.
+  - Chạy thử nghiệm thành công, các tùy chọn màu và phiên bản hiển thị khớp với hình ảnh.

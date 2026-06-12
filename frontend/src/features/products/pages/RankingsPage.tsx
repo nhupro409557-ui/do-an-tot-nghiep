@@ -217,9 +217,9 @@ export default function RankingsPage() {
       <div className="mx-auto mt-8 max-w-5xl px-4 sm:px-6 lg:px-8">
         
         {/* Controls: Time & Category */}
-        <div className="mb-5 flex flex-col gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-100 sm:mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4">
+        <div className="mb-5 grid gap-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-100 sm:mb-6 sm:p-4 lg:grid-cols-[minmax(0,15rem)_minmax(0,16rem)_minmax(0,1fr)] lg:items-center lg:gap-4">
           {/* Custom Category Dropdown */}
-          <div className="relative w-full sm:w-64">
+          <div className="relative min-w-0 w-full">
             <button
               type="button"
               onClick={() => setIsCatOpen(!isCatOpen)}
@@ -266,7 +266,7 @@ export default function RankingsPage() {
             )}
           </div>
 
-          <div className="relative w-full sm:w-64">
+          <div className="relative min-w-0 w-full">
             <button
               type="button"
               onClick={() => setIsCriteriaOpen(!isCriteriaOpen)}
@@ -310,7 +310,7 @@ export default function RankingsPage() {
           </div>
 
           {/* Time Range Tabs */}
-          <div className="flex w-full gap-1 overflow-x-auto rounded-xl bg-slate-100/80 p-1.5 [scrollbar-width:none] sm:w-auto sm:overflow-visible [&::-webkit-scrollbar]:hidden">
+          <div className="grid w-full min-w-0 grid-cols-2 gap-1 rounded-xl bg-slate-100/80 p-1.5 sm:grid-cols-4">
             {timeRangeOptions.map((opt) => {
               const isActive = timeRange === opt.value;
               return (
@@ -318,7 +318,7 @@ export default function RankingsPage() {
                   key={opt.value}
                   type="button"
                   onClick={() => setTimeRange(opt.value)}
-                  className={`min-w-max shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold transition-all duration-200 sm:flex-none ${
+                  className={`min-w-0 whitespace-nowrap rounded-lg px-3 py-2 text-center text-sm font-bold transition-all duration-200 ${
                     isActive
                       ? 'bg-white text-red-600 shadow-sm'
                       : 'text-slate-500 hover:text-slate-800'

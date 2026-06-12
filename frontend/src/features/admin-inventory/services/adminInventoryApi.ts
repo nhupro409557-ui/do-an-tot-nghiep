@@ -6,6 +6,11 @@ export const adminInventoryApi = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
+  adminCreateReceipt: (data: any) => request<any>('/admin/inventory/receipts', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  adminListReceipts: (search = '') => request<any[]>(`/admin/inventory/receipts${search ? `?search=${encodeURIComponent(search)}` : ''}`),
   adminUpdateInventorySettings: (id: string, data: any) => request<any>(`/admin/products/${encodeURIComponent(id)}/inventory/settings`, {
     method: 'PATCH',
     body: JSON.stringify(data),

@@ -18,6 +18,12 @@ from app.infrastructure.database.repositories import (
     content_comment_repo,
     public_content_repo,
 )
+from app.infrastructure.cache import (
+    safe_redis_expire,
+    safe_redis_get,
+    safe_redis_sadd,
+    safe_redis_setex,
+)
 from app.shared.reviews import (
     REVIEW_WINDOW_DAYS,
     compute_review_window,
@@ -309,11 +315,7 @@ async def list_banners(
     redis: Redis,
 ) -> list[dict]:
     cache_key = banner_cache_key(limit)
-    cached = None
-    try:
-        cached = await redis.get(cache_key)
-    except Exception:
-        cached = None
+    cached = await safe_redis_get(redis, cache_key)
     if cached:
         return json.loads(cached)
 
@@ -329,12 +331,9 @@ async def list_banners(
         else:
             item["href"] = "/products"
         items.append(item)
-    try:
-        await redis.setex(cache_key, 300, json.dumps(items, ensure_ascii=False, default=str))
-        await redis.sadd("storefront:content:videos:keys", cache_key)
-        await redis.expire("storefront:content:videos:keys", 24 * 60 * 60)
-    except Exception:
-        pass
+    if await safe_redis_setex(redis, cache_key, 300, json.dumps(items, ensure_ascii=False, default=str)):
+        await safe_redis_sadd(redis, "storefront:content:videos:keys", cache_key)
+        await safe_redis_expire(redis, "storefront:content:videos:keys", 24 * 60 * 60)
     return items
 
 
@@ -345,11 +344,7 @@ async def list_videos(
     redis: Redis,
 ) -> dict:
     cache_key = content_cache_key(page, limit)
-    cached = None
-    try:
-        cached = await redis.get(cache_key)
-    except Exception:
-        cached = None
+    cached = await safe_redis_get(redis, cache_key)
     if cached:
         return json.loads(cached)
 
@@ -366,12 +361,9 @@ async def list_videos(
         "total": int(total),
         "hasMore": offset + len(items) < int(total),
     }
-    try:
-        await redis.setex(cache_key, 300, json.dumps(payload, ensure_ascii=False, default=str))
-        await redis.sadd("storefront:content:videos:keys", cache_key)
-        await redis.expire("storefront:content:videos:keys", 24 * 60 * 60)
-    except Exception:
-        pass
+    if await safe_redis_setex(redis, cache_key, 300, json.dumps(payload, ensure_ascii=False, default=str)):
+        await safe_redis_sadd(redis, "storefront:content:videos:keys", cache_key)
+        await safe_redis_expire(redis, "storefront:content:videos:keys", 24 * 60 * 60)
     return payload
 
 

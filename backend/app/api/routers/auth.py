@@ -237,6 +237,8 @@ async def list_active_sessions(
 ) -> list[ActiveSessionResponse]:
     await ensure_session_security_tables(session)
     current_hash = hash_refresh_token(refresh_token) if refresh_token else None
+    await auth_repo.revoke_duplicate_active_refresh_sessions(session, current_user_id)
+    await session.commit()
     rows = await auth_repo.list_active_refresh_sessions(session, current_user_id)
     return [
         ActiveSessionResponse(

@@ -14,6 +14,7 @@ export function useAdminAccessControls(
   const canReadProducts = useAnyPermission(['product:read']);
   const canReadCategories = useAnyPermission(['category:read']);
   const canReadBrands = useAnyPermission(['brand:read']);
+  const canReadSuppliers = useAnyPermission(['supplier:read']);
   const canReadOrders = useAnyPermission(['order:read']);
   const canReadVouchers = useAnyPermission(['voucher:read']);
   const canReadCustomers = useAnyPermission(['customer:read']);
@@ -31,11 +32,13 @@ export function useAdminAccessControls(
     products: canReadProducts,
     categories: canReadCategories,
     brands: canReadBrands,
+    suppliers: canReadSuppliers,
     services: canReadProducts,
     orders: canReadOrders,
     vouchers: canReadVouchers,
     flashSales: canReadProducts,
     customers: canReadCustomers,
+    inventoryReceipts: canReadInventory,
     inventory: canReadInventory,
     reviews: canReadReviews,
     interactions: canReadReviews,
@@ -55,6 +58,7 @@ export function useAdminAccessControls(
     canReadOverview,
     canReadProducts,
     canReadReviews,
+    canReadSuppliers,
     canReadVouchers,
   ]);
 

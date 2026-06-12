@@ -1,7 +1,8 @@
 from .category import CategoryPayload, CategorySlugCheckPayload, CategoryReorderItem, CategoryReorderPayload, CategoryBulkPayload
 from .brand import BrandPayload, BrandCodeCheckPayload, BrandImportItem, BrandImportPayload, BrandStatusPayload, BrandBulkStatusPayload
+from .supplier import SupplierPayload, SupplierCodeCheckPayload, SupplierStatusPayload, SupplierBulkStatusPayload
 from .product import ProductBulkActionPayload, ProductImportPayload, ProductVariantPayload, ProductAccessoryOfferPayload, ProductAttachedServicePayload, AttachedServicePayload, ProductPayload
-from .inventory import InventoryAdjustmentPayload, InventorySettingsPayload, VariantInventoryPayload
+from .inventory import InventoryAdjustmentPayload, InventoryReceiptPayload, InventorySettingsPayload, VariantInventoryPayload
 from .voucher import VoucherPayload
 from .content import ContentCommentPayload, ContentPayload, AdminVideoCommentReplyPayload, AdminVideoCommentVisibilityPayload
 from .review import ReviewStatusPayload
@@ -21,6 +22,10 @@ __all__ = [
     "BrandImportPayload",
     "BrandStatusPayload",
     "BrandBulkStatusPayload",
+    "SupplierPayload",
+    "SupplierCodeCheckPayload",
+    "SupplierStatusPayload",
+    "SupplierBulkStatusPayload",
     "ProductBulkActionPayload",
     "ProductImportPayload",
     "ProductVariantPayload",
@@ -29,6 +34,7 @@ __all__ = [
     "AttachedServicePayload",
     "ProductPayload",
     "InventoryAdjustmentPayload",
+    "InventoryReceiptPayload",
     "InventorySettingsPayload",
     "VariantInventoryPayload",
     "VoucherPayload",

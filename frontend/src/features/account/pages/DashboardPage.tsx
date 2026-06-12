@@ -20,6 +20,7 @@ export default function DashboardPage() {
   const { user, userData, loading } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<AccountTab>('overview');
+  const [isDashboardMenuOpen, setIsDashboardMenuOpen] = useState(false);
   const addresses = useMemo<AccountAddress[]>(() => userData?.addresses || [], [userData]);
 
   const { orders } = useAccountOrders(user?.uid);
@@ -80,6 +81,11 @@ export default function DashboardPage() {
     navigate(`/product/${product.slug || product.id}`);
   };
 
+  const handleChangeTab = (tab: AccountTab) => {
+    setActiveTab(tab);
+    setIsDashboardMenuOpen(false);
+  };
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-[1200px]">
       <DeleteAccountModal
@@ -105,7 +111,9 @@ export default function DashboardPage() {
         <AccountDashboardSidebar
           activeTab={activeTab}
           items={accountNavItems}
-          onChangeTab={(tab) => setActiveTab(tab)}
+          isOpen={isDashboardMenuOpen}
+          onChangeTab={handleChangeTab}
+          onToggle={() => setIsDashboardMenuOpen(isOpen => !isOpen)}
         />
 
         <AccountDashboardContent

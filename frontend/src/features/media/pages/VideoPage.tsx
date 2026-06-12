@@ -88,34 +88,19 @@ function findRelatedProduct(video: any, products: any[]) {
 }
 
 
-function heightForTile(index: number) {
-  const heights = [420, 300, 360, 280, 400, 320, 340, 380, 260, 440];
-  return heights[index % heights.length];
+function fallbackRatioForTile(index: number) {
+  const ratios = [16 / 10, 4 / 5, 16 / 9, 1, 3 / 4, 16 / 11, 5 / 4, 9 / 12];
+  return ratios[index % ratios.length];
 }
 
-function useColumns(containerRef: React.RefObject<HTMLDivElement | null>) {
-  const [cols, setCols] = useState(3);
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const obs = new ResizeObserver(([entry]) => {
-      const w = entry.contentRect.width;
-      setCols(w >= 1024 ? 4 : Math.max(2, Math.min(3, Math.floor(w / 220))));
-    });
-    obs.observe(containerRef.current);
-    return () => obs.disconnect();
-  }, [containerRef]);
-  return cols;
+function clampRatio(ratio: number) {
+  return Math.max(0.72, Math.min(ratio, 1.85));
 }
 
-function distributeToColumns<T>(items: T[], colCount: number, getHeight: (item: T, i: number) => number) {
-  const columns: T[][] = Array.from({ length: colCount }, () => []);
-  const heights = new Array(colCount).fill(0);
-  items.forEach((item, i) => {
-    const shortest = heights.indexOf(Math.min(...heights));
-    columns[shortest].push(item);
-    heights[shortest] += getHeight(item, i);
-  });
-  return columns;
+function rowSpanForRatio(ratio: number, wide: boolean) {
+  const columnWidth = wide ? 568 : 276;
+  const visualHeight = Math.round(columnWidth / ratio);
+  return Math.max(12, Math.min(30, Math.round((visualHeight + 16) / 24)));
 }
 
 function shortDescription(video: any) {
@@ -134,12 +119,31 @@ interface VideoTileProps {
 function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTileProps) {
   const previewRef = React.useRef<HTMLVideoElement | null>(null);
   const image = videoImage(video);
-  const h = heightForTile(index);
+  const [posterRatio, setPosterRatio] = useState<number | null>(null);
+  const [videoRatio, setVideoRatio] = useState<number | null>(null);
   const [durationLabel, setDurationLabel] = useState(video.duration || '');
   const [touched, setTouched] = useState(false);
   const [hovered, setHovered] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isActive = hovered || touched;
+  const resolvedRatio = clampRatio(videoRatio ?? posterRatio ?? fallbackRatioForTile(index));
+  const tileColumnSpan = 'span 1';
+  const tileRowSpan = `span ${rowSpanForRatio(resolvedRatio, false)}`;
+  const imageMediaClassName = 'relative z-10 h-full w-full object-contain transition-opacity duration-300';
+  const videoMediaClassName = 'relative z-10 h-full w-full object-contain transition-opacity duration-300';
+
+  function handleImageLoad(event: React.SyntheticEvent<HTMLImageElement>) {
+    const { naturalWidth, naturalHeight } = event.currentTarget;
+    if (naturalWidth && naturalHeight) setPosterRatio(naturalWidth / naturalHeight);
+  }
+
+  function handleVideoMetadata(event: React.SyntheticEvent<HTMLVideoElement>) {
+    const videoEl = event.currentTarget;
+    setDurationLabel(formatDuration(videoEl.duration));
+    if (videoEl.videoWidth && videoEl.videoHeight) {
+      setVideoRatio(videoEl.videoWidth / videoEl.videoHeight);
+    }
+  }
 
   function handleMouseEnter() {
     hoverTimer.current = setTimeout(() => {
@@ -178,8 +182,8 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
 
   return (
     <article
-      style={{ '--tile-height': `${h}px` } as React.CSSProperties}
-      className="relative mb-[clamp(0.5rem,2.2vw,1rem)] h-[clamp(15rem,62vw,20rem)] cursor-pointer overflow-hidden rounded-xl border border-slate-200 bg-gray-900 shadow-[0_8px_20px_rgba(15,23,42,0.08)] transition-all duration-300 hover:-translate-y-0.5 hover:border-red-200 hover:shadow-[0_10px_24px_rgba(220,38,38,0.12)] sm:h-[clamp(16.5rem,40vw,24rem)] lg:mb-4 lg:h-[var(--tile-height)] lg:border-0 lg:shadow-md lg:hover:translate-y-0 lg:hover:shadow-2xl"
+      style={{ aspectRatio: resolvedRatio, gridColumn: tileColumnSpan, gridRowEnd: tileRowSpan } as React.CSSProperties}
+      className="group relative min-h-60 w-full min-w-0 cursor-pointer overflow-hidden rounded-2xl border border-white/70 bg-slate-950 shadow-[0_10px_28px_rgba(15,23,42,0.10)] ring-1 ring-slate-900/5 transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-0.5 hover:border-red-200 hover:shadow-[0_18px_36px_rgba(15,23,42,0.18)] lg:h-full lg:min-h-0 lg:hover:translate-y-0"
       onClick={onOpen}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -187,7 +191,27 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
       role="group"
       aria-label={video.title || 'Video sản phẩm'}
     >
-      <div className="absolute inset-0">
+      <div className="absolute inset-0 bg-slate-950">
+        {video.videoUrl && !isYouTubeVideo(video) && !videoRatio && (
+          <video
+            src={video.videoUrl}
+            preload="metadata"
+            muted
+            playsInline
+            className="hidden"
+            onLoadedMetadata={handleVideoMetadata}
+          />
+        )}
+        {image && (
+          <img
+            src={image}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full scale-110 object-cover opacity-45 blur-2xl saturate-125 transition-transform duration-700 group-hover:scale-[1.14]"
+            loading="lazy"
+          />
+        )}
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_36%,rgba(255,255,255,0.10),transparent_34%),linear-gradient(to_bottom,rgba(2,6,23,0.10),rgba(2,6,23,0.28))]" />
         {video.videoUrl && !isYouTubeVideo(video) && isActive ? (
           <video
             ref={previewRef}
@@ -196,23 +220,25 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
             muted
             loop
             playsInline
-            preload="none"
-            onLoadedMetadata={(event) => setDurationLabel(formatDuration(event.currentTarget.duration))}
-            className={`h-full w-full object-cover transition-all duration-500 ${isActive ? 'scale-[1.03] blur-[2px]' : ''}`}
+            preload="metadata"
+            onLoadedMetadata={handleVideoMetadata}
+            className={videoMediaClassName}
           />
         ) : video.videoUrl && !isYouTubeVideo(video) && image ? (
           <img
             src={image}
             alt={video.title || 'Video'}
-            className="h-full w-full object-cover transition-all duration-500"
+            className={imageMediaClassName}
             loading="lazy"
+            onLoad={handleImageLoad}
           />
         ) : image ? (
           <img
             src={image}
             alt={video.title || 'Video'}
-            className={`h-full w-full object-cover transition-all duration-500 ${isActive ? 'scale-[1.03] blur-[2px]' : ''}`}
+            className={imageMediaClassName}
             loading="lazy"
+            onLoad={handleImageLoad}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-sm font-bold text-slate-400">Chưa có ảnh</div>
@@ -220,14 +246,14 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
       </div>
 
       <div className={`absolute inset-0 z-10 flex items-center justify-center transition-opacity duration-300 ${isActive ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
-        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/30 bg-white/20 shadow-lg backdrop-blur-sm">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/40 bg-white/25 shadow-[0_10px_30px_rgba(15,23,42,0.25)] backdrop-blur-md transition-transform duration-300 group-hover:scale-105">
           <div className="ml-1 h-0 w-0 border-b-8 border-l-[14px] border-t-8 border-b-transparent border-l-white border-t-transparent" />
         </div>
       </div>
 
       <div className={`absolute left-2 right-2 top-2 z-20 flex items-start justify-between gap-1.5 transition-opacity duration-300 sm:left-3 sm:right-3 sm:top-3 ${isActive ? 'opacity-0' : 'opacity-100'}`}>
-        <span className="max-w-[70%] truncate rounded-md border border-red-100 bg-white/95 px-1.5 py-0.5 text-[8px] font-black uppercase text-primary shadow-sm sm:px-2 sm:py-1 sm:text-[9px] lg:rounded-full lg:border-0 lg:px-2.5 lg:text-xs lg:normal-case">{inferCategory(video)}</span>
-        {(durationLabel || isYouTubeVideo(video)) && <span className="rounded-md bg-black/70 px-1.5 py-0.5 text-[8px] font-bold text-white shadow-sm backdrop-blur-md sm:px-2 sm:py-1 sm:text-[9px] lg:rounded-full lg:px-2.5 lg:text-xs lg:font-medium">{durationLabel || 'YouTube'}</span>}
+        <span className="max-w-[70%] truncate rounded-full border border-white/70 bg-white/95 px-2 py-1 text-[8px] font-black uppercase text-primary shadow-sm sm:px-2.5 sm:text-[9px] lg:text-xs lg:normal-case">{inferCategory(video)}</span>
+        {(durationLabel || isYouTubeVideo(video)) && <span className="rounded-full bg-slate-950/80 px-2 py-1 text-[8px] font-bold text-white shadow-sm backdrop-blur-md sm:px-2.5 sm:text-[9px] lg:text-xs lg:font-medium">{durationLabel || 'YouTube'}</span>}
       </div>
 
       <div className={`absolute inset-x-0 bottom-0 z-20 transition-transform duration-300 ease-out ${isActive ? 'translate-y-0' : 'translate-y-0 lg:translate-y-full'}`}>
@@ -297,32 +323,20 @@ interface MasonryGridProps {
 }
 
 function MasonryGrid({ videos, likedIds, onOpen, onLike, onShare }: MasonryGridProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const cols = useColumns(containerRef);
-
   const indexedVideos = useMemo(() => videos.map((v, i) => ({ ...v, _origIndex: i })), [videos]);
 
-  const columns = useMemo(
-    () => distributeToColumns(indexedVideos, cols, (_item: any, i: number) => heightForTile(i) + 80),
-    [indexedVideos, cols],
-  );
-
   return (
-    <div ref={containerRef} className="flex gap-[clamp(0.5rem,2.2vw,1rem)] lg:gap-4">
-      {columns.map((col, colIdx) => (
-        <div key={colIdx} className="flex-1 min-w-0">
-          {col.map((video: any) => (
-            <VideoTile
-              key={video.id}
-              video={video}
-              index={video._origIndex}
-              liked={likedIds.has(video.id)}
-              onOpen={() => onOpen(video._origIndex)}
-              onLike={() => onLike(video)}
-              onShare={() => onShare(video)}
-            />
-          ))}
-        </div>
+    <div className="grid grid-flow-dense grid-cols-1 gap-[clamp(0.5rem,2.2vw,1rem)] sm:grid-cols-2 lg:auto-rows-[8px] lg:grid-cols-4 lg:gap-4">
+      {indexedVideos.map((video: any) => (
+        <VideoTile
+          key={video.id}
+          video={video}
+          index={video._origIndex}
+          liked={likedIds.has(video.id)}
+          onOpen={() => onOpen(video._origIndex)}
+          onLike={() => onLike(video)}
+          onShare={() => onShare(video)}
+        />
       ))}
     </div>
   );

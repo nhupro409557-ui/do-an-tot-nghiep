@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Check,
@@ -225,6 +225,8 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
   const [activeSpecGroup, setActiveSpecGroup] = useState('all');
   const [showMediaViewer, setShowMediaViewer] = useState(false);
   const [isDescCollapsed, setIsDescCollapsed] = useState(true);
+  const [showStickyPurchaseBar, setShowStickyPurchaseBar] = useState(false);
+  const purchaseActionsRef = useRef<HTMLDivElement | null>(null);
   const addedToCartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const product = useMemo(() => {
@@ -336,11 +338,36 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [showMediaViewer, selectedMediaIndex, mediaItems]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     return () => {
       if (addedToCartTimerRef.current) clearTimeout(addedToCartTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    let animationFrame = 0;
+    const syncPurchaseActionsVisibility = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        const target = purchaseActionsRef.current;
+        if (!target) return;
+        setShowStickyPurchaseBar(window.scrollY >= target.offsetTop + 180);
+      });
+    };
+
+    syncPurchaseActionsVisibility();
+    window.addEventListener('scroll', syncPurchaseActionsVisibility, { passive: true });
+    window.addEventListener('resize', syncPurchaseActionsVisibility);
+    document.addEventListener('scroll', syncPurchaseActionsVisibility, { passive: true, capture: true });
+    const syncTimer = window.setInterval(syncPurchaseActionsVisibility, 250);
+    return () => {
+      window.clearInterval(syncTimer);
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener('scroll', syncPurchaseActionsVisibility);
+      window.removeEventListener('resize', syncPurchaseActionsVisibility);
+      document.removeEventListener('scroll', syncPurchaseActionsVisibility, { capture: true });
+    };
+  });
 
   if (!product) {
     return <div className="mx-auto max-w-7xl px-4 py-16 text-center text-gray-500">Không tìm thấy dữ liệu sản phẩm.</div>;
@@ -634,35 +661,37 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
           </aside>
 
           <main className="space-y-4 md:space-y-5">
-            <ProductPurchaseActions
-              product={product}
-              activeVariant={activeVariant}
-              displayPrice={displayPrice}
-              displayOriginalPrice={displayOriginalPrice}
-              monthlyPrice={monthlyPrice}
-              discount={discount}
-              activeFlashSale={activeFlashSale}
-              ramOptions={ramOptions}
-              storageOptions={storageOptions}
-              configurationOptions={configurationOptions}
-              colorOptions={colorOptions}
-              selectedRam={selectedRam}
-              selectedStorage={selectedStorage}
-              selectedConfiguration={selectedConfiguration}
-              selectedColor={selectedColor}
-              selectRam={selectRam}
-              selectStorage={selectStorage}
-              selectConfiguration={selectConfiguration}
-              selectColor={selectColor}
-              quantity={quantity}
-              setQuantity={setQuantity}
-              handleBuyNow={handleBuyNow}
-              handleAddToCart={handleAddToCart}
-              addedToCart={addedToCart}
-              variantsForColor={variantsForColor}
-              selectedCapacity={selectedCapacity}
-              isDiscontinued={isDiscontinued}
-            />
+            <div ref={purchaseActionsRef} data-product-purchase-actions>
+              <ProductPurchaseActions
+                product={product}
+                activeVariant={activeVariant}
+                displayPrice={displayPrice}
+                displayOriginalPrice={displayOriginalPrice}
+                monthlyPrice={monthlyPrice}
+                discount={discount}
+                activeFlashSale={activeFlashSale}
+                ramOptions={ramOptions}
+                storageOptions={storageOptions}
+                configurationOptions={configurationOptions}
+                colorOptions={colorOptions}
+                selectedRam={selectedRam}
+                selectedStorage={selectedStorage}
+                selectedConfiguration={selectedConfiguration}
+                selectedColor={selectedColor}
+                selectRam={selectRam}
+                selectStorage={selectStorage}
+                selectConfiguration={selectConfiguration}
+                selectColor={selectColor}
+                quantity={quantity}
+                setQuantity={setQuantity}
+                handleBuyNow={handleBuyNow}
+                handleAddToCart={handleAddToCart}
+                addedToCart={addedToCart}
+                variantsForColor={variantsForColor}
+                selectedCapacity={selectedCapacity}
+                isDiscontinued={isDiscontinued}
+              />
+            </div>
 
             <ProductSpecsTable specs={specs} />
           </main>
@@ -673,17 +702,50 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
         </div>
       </div>
 
-      {!isDiscontinued && <div className="fixed bottom-[56px] left-0 right-0 z-[49] border-t border-gray-200 bg-white p-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] md:hidden">
-        <div className="flex items-center gap-2">
-          <button onClick={handleAddToCart} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border ${addedToCart ? 'border-green-400 bg-green-50 text-green-600' : 'border-primary text-primary'}`}>
-            {addedToCart ? <Check className="h-5 w-5" /> : <ShoppingCart className="h-5 w-5" />}
-          </button>
-          <button onClick={handleBuyNow} className="flex flex-1 flex-col items-center rounded-lg bg-primary py-2 text-white">
-            <span className="text-sm font-extrabold">MUA NGAY</span>
-            <span className="text-xs font-semibold opacity-90">{formatPrice(displayPrice)}</span>
-          </button>
+      {!isDiscontinued && showStickyPurchaseBar && (
+        <div className="fixed bottom-[88px] left-0 right-0 z-[49] px-3 md:px-4 lg:bottom-4" data-sticky-purchase-bar>
+          <div className="mx-auto flex max-w-[1210px] items-center gap-3 rounded-2xl border border-gray-200 bg-white/95 p-3 shadow-[0_8px_32px_rgba(15,23,42,0.16)] backdrop-blur">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="hidden h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-gray-100 bg-white p-1 shadow-sm sm:flex">
+                <ImageWithFallback
+                  src={selectedImage || product.images?.[0]}
+                  fallbackSrc={fallbackImage}
+                  alt={product.name}
+                  className="h-full w-full object-contain"
+                />
+              </div>
+              <div className="min-w-0">
+                <div className="line-clamp-2 text-sm font-bold leading-snug text-gray-900 md:text-lg">{displayProductName}</div>
+              </div>
+            </div>
+            <div className="hidden shrink-0 text-right sm:block">
+              <div className="text-lg font-black text-primary md:text-2xl">{formatPrice(displayPrice)}</div>
+              {displayOriginalPrice && displayOriginalPrice > displayPrice && (
+                <div className="text-sm font-semibold text-gray-400 line-through md:text-base">{formatPrice(displayOriginalPrice)}</div>
+              )}
+            </div>
+            <button className="hidden h-14 shrink-0 items-center justify-center rounded-xl border border-blue-500 bg-white px-5 text-base font-bold text-blue-600 transition-colors hover:bg-blue-50 md:flex">
+              Trả góp 0%
+            </button>
+            <button
+              onClick={handleBuyNow}
+              className="flex h-12 shrink-0 items-center justify-center rounded-xl bg-primary px-5 text-center text-base font-extrabold text-white shadow-sm transition-colors hover:bg-red-700 md:h-14 md:px-8 md:text-lg"
+            >
+              Mua Ngay
+            </button>
+            <button
+              onClick={handleAddToCart}
+              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-2 transition-all md:h-14 md:w-14 ${
+                addedToCart ? 'border-green-500 bg-green-50 text-green-600' : 'border-primary bg-white text-primary hover:bg-red-50'
+              }`}
+              aria-label="Thêm vào giỏ hàng"
+              title="Thêm vào giỏ hàng"
+            >
+              {addedToCart ? <Check className="h-5 w-5" /> : <ShoppingCart className="h-5 w-5" />}
+            </button>
+          </div>
         </div>
-      </div>}
+      )}
 
       {showSpecsModal && (
         <SpecsModal

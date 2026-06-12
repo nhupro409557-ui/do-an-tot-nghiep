@@ -213,6 +213,24 @@ async def insert_refresh_session(
     await session.execute(
         text(
             """
+            UPDATE refresh_token_sessions
+            SET revoked_at = NOW()
+            WHERE user_id = :user_id
+              AND revoked_at IS NULL
+              AND expires_at > NOW()
+              AND user_agent IS NOT DISTINCT FROM :user_agent
+              AND ip_address IS NOT DISTINCT FROM :ip_address
+            """
+        ),
+        {
+            "user_id": user_id,
+            "user_agent": user_agent,
+            "ip_address": ip_address,
+        },
+    )
+    await session.execute(
+        text(
+            """
             INSERT INTO refresh_token_sessions
                 (id, user_id, token_hash, family_id, user_agent, ip_address, expires_at)
             VALUES
@@ -322,6 +340,36 @@ async def list_active_refresh_sessions(session: AsyncSession, user_id: UUID) -> 
         {"user_id": user_id},
     )
     return [dict(row) for row in result.mappings()]
+
+
+async def revoke_duplicate_active_refresh_sessions(session: AsyncSession, user_id: UUID) -> None:
+    await ensure_session_security_tables(session)
+    await session.execute(
+        text(
+            """
+            WITH ranked_sessions AS (
+                SELECT
+                    id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY user_id, user_agent, ip_address
+                        ORDER BY created_at DESC, id DESC
+                    ) AS duplicate_rank
+                FROM refresh_token_sessions
+                WHERE user_id = :user_id
+                  AND revoked_at IS NULL
+                  AND expires_at > NOW()
+            )
+            UPDATE refresh_token_sessions
+            SET revoked_at = NOW()
+            WHERE id IN (
+                SELECT id
+                FROM ranked_sessions
+                WHERE duplicate_rank > 1
+            )
+            """
+        ),
+        {"user_id": user_id},
+    )
 
 
 async def get_active_refresh_session_for_update(

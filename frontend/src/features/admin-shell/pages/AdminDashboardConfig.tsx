@@ -13,12 +13,14 @@ import {
   Package,
   ScrollText,
   ShieldCheck,
+  ShoppingCart,
   Star,
+  Truck,
   Users,
   Zap,
 } from 'lucide-react';
 
-export type AdminTab = 'overview' | 'products' | 'flashSales' | 'categories' | 'brands' | 'services' | 'orders' | 'vouchers' | 'customers' | 'inventory' | 'reviews' | 'interactions' | 'content' | 'banners' | 'audit' | 'permissions';
+export type AdminTab = 'overview' | 'products' | 'flashSales' | 'categories' | 'brands' | 'suppliers' | 'services' | 'orders' | 'vouchers' | 'customers' | 'inventoryReceipts' | 'inventory' | 'reviews' | 'interactions' | 'content' | 'banners' | 'audit' | 'permissions';
 export type AdminTabGroup = 'Tổng quan' | 'Kinh doanh' | 'Catalog' | 'Vận hành' | 'Khách hàng' | 'Hệ thống';
 export type SpecField = { key: string; label: string; group?: string; type: string; required: boolean; variant: boolean; isFilterable?: boolean; filterType?: string; filterEnabled?: boolean };
 export type CategoryFilterField = { key: string; label: string; type: string; enabled: boolean; source?: string };
@@ -185,10 +187,12 @@ export const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = 
   { id: 'flashSales', label: 'Flash sale', icon: Zap },
   { id: 'categories', label: 'Danh mục', icon: FolderTree },
   { id: 'brands', label: 'Thương hiệu', icon: Building2 },
+  { id: 'suppliers', label: 'Nhà cung cấp', icon: Truck },
   { id: 'services', label: 'Dịch vụ', icon: ShieldCheck },
   { id: 'orders', label: 'Đơn hàng', icon: ClipboardList },
   { id: 'vouchers', label: 'Voucher', icon: BadgePercent },
   { id: 'customers', label: 'Khách hàng', icon: Users },
+  { id: 'inventoryReceipts', label: 'Nhập kho', icon: ShoppingCart },
   { id: 'inventory', label: 'Tồn kho', icon: Boxes },
   { id: 'reviews', label: 'Đánh giá', icon: Star },
   { id: 'interactions', label: 'Bình luận & hỏi đáp', icon: MessagesSquare },
@@ -244,6 +248,15 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
     title: 'Quản lý thương hiệu',
     description: 'Khu vực quản lý logo, mã thương hiệu và thứ tự hiển thị.',
   },
+  suppliers: {
+    active: 'bg-red-600 text-white shadow-sm shadow-red-200',
+    item: 'border-pink-100 bg-pink-50/70 text-pink-950 hover:bg-pink-100/80',
+    icon: 'bg-red-50 text-red-700 ring-red-100',
+    surface: 'border-red-100 bg-red-50/70 text-red-900',
+    label: 'Quản lý',
+    title: 'Quản lý nhà cung cấp',
+    description: 'Khu vực quản lý hồ sơ nhà cung cấp, thông tin liên hệ và trạng thái hợp tác.',
+  },
   services: {
     active: 'border-emerald-200 bg-emerald-100 text-slate-800 shadow-sm shadow-emerald-50',
     item: 'border-emerald-100 bg-emerald-50/75 text-slate-700 hover:bg-emerald-100/80',
@@ -279,6 +292,15 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
     label: 'Khách hàng',
     title: 'Quản lý khách hàng',
     description: 'Khu vực theo dõi hồ sơ, hạng thành viên và giá trị mua hàng.',
+  },
+  inventoryReceipts: {
+    active: 'bg-amber-600 text-white shadow-sm shadow-amber-200',
+    item: 'border-orange-100 bg-orange-50/75 text-orange-950 hover:bg-orange-100/80',
+    icon: 'bg-amber-50 text-amber-700 ring-amber-100',
+    surface: 'border-amber-100 bg-amber-50/80 text-amber-900',
+    label: 'Vận hành',
+    title: 'Quản lý nhập kho',
+    description: 'Khu vực tạo phiếu nhập và theo dõi danh sách nhập kho theo nhà cung cấp, sản phẩm và biến thể.',
   },
   inventory: {
     active: 'bg-amber-600 text-white shadow-sm shadow-amber-200',
@@ -353,7 +375,9 @@ export const adminTabs: { id: AdminTab; label: string; group: AdminTabGroup; ico
   { id: 'products', label: 'Sản phẩm', group: 'Catalog', icon: Package },
   { id: 'categories', label: 'Danh mục', group: 'Catalog', icon: FolderTree },
   { id: 'brands', label: 'Thương hiệu', group: 'Catalog', icon: Building2 },
+  { id: 'suppliers', label: 'Nhà cung cấp', group: 'Catalog', icon: Truck },
   { id: 'services', label: 'Dịch vụ', group: 'Catalog', icon: ShieldCheck },
+  { id: 'inventoryReceipts', label: 'Nhập kho', group: 'Vận hành', icon: ShoppingCart },
   { id: 'inventory', label: 'Tồn kho', group: 'Vận hành', icon: Boxes },
   { id: 'content', label: 'Video & nội dung', group: 'Vận hành', icon: Megaphone },
   { id: 'banners', label: 'Banner', group: 'Vận hành', icon: Image },
@@ -365,7 +389,7 @@ export const adminTabs: { id: AdminTab; label: string; group: AdminTabGroup; ico
 ];
 
 // This normalized tone map overrides legacy mojibake strings while keeping the old data flow intact.
-export const adminTabTone: Record<AdminTab, { active: string; item: string; icon: string; surface: string; label: string; title: string; description: string }> = {
+export const adminTabTone: Partial<Record<AdminTab, { active: string; item: string; icon: string; surface: string; label: string; title: string; description: string }>> = {
   overview: {
     active: 'border-rose-200 bg-rose-100 text-slate-800 shadow-sm shadow-rose-50',
     item: 'border-rose-100 bg-rose-50 text-slate-700 hover:bg-rose-100/80',
@@ -410,6 +434,15 @@ export const adminTabTone: Record<AdminTab, { active: string; item: string; icon
     label: 'Quản lý',
     title: 'Quản lý thương hiệu',
     description: 'Khu vực quản lý logo, mã thương hiệu và thứ tự hiển thị.',
+  },
+  suppliers: {
+    active: 'border-rose-200 bg-rose-100 text-slate-800 shadow-sm shadow-rose-50',
+    item: 'border-rose-100 bg-rose-50/70 text-slate-700 hover:bg-rose-100/80',
+    icon: 'bg-rose-50 text-rose-700 ring-rose-100',
+    surface: 'border-rose-100 bg-rose-50/70 text-rose-900',
+    label: 'Quản lý',
+    title: 'Quản lý nhà cung cấp',
+    description: 'Khu vực quản lý hồ sơ nhà cung cấp, thông tin liên hệ và trạng thái hợp tác.',
   },
   services: {
     active: 'border-emerald-200 bg-emerald-100 text-slate-800 shadow-sm shadow-emerald-50',
@@ -518,10 +551,12 @@ export const searchPlaceholderByTab: Record<AdminTab, string> = {
   flashSales: 'Tìm sản phẩm đang flash sale',
   categories: 'Tìm danh mục, slug, danh mục cha',
   brands: 'Tìm thương hiệu, mã hoặc SEO',
+  suppliers: 'Tìm nhà cung cấp, mã, liên hệ hoặc số điện thoại',
   services: 'Tìm dịch vụ, mã, nhóm hoặc loại dịch vụ',
   orders: 'Tìm mã đơn, khách hàng, trạng thái',
   vouchers: 'Tìm mã voucher, loại, trạng thái',
   customers: 'Tìm khách hàng, email, hạng',
+  inventoryReceipts: 'Tìm mã phiếu nhập, nhà cung cấp, sản phẩm hoặc SKU',
   inventory: 'Tìm sản phẩm, SKU, trạng thái kho',
   reviews: 'Tìm sản phẩm, khách hàng, nội dung',
   interactions: 'Tìm sản phẩm, khách hàng, bình luận hoặc câu hỏi',

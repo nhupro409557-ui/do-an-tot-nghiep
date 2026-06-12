@@ -1,5 +1,5 @@
 import { request, requestBlob } from '../../../services/apiClient';
-import { formatProductDemoData } from '../../../services/productMedia';
+import { formatProductAdminMedia } from '../../../services/productMedia';
 
 export const adminProductsApi = {
   adminListProducts: async (params: { page?: number; limit?: number; search?: string; status?: string; categoryId?: string; brandId?: string } = {}) => {
@@ -11,10 +11,10 @@ export const adminProductsApi = {
     if (params.categoryId) query.set('categoryId', params.categoryId);
     if (params.brandId) query.set('brandId', params.brandId);
     const result = await request<any[] | { items: any[]; totalRecords?: number; totalPages?: number; page?: number; limit?: number }>(`/admin/products${query.toString() ? `?${query.toString()}` : ''}`);
-    if (Array.isArray(result)) return result.map(formatProductDemoData);
+    if (Array.isArray(result)) return result.map(formatProductAdminMedia);
     return {
       ...result,
-      items: (result.items || []).map(formatProductDemoData),
+      items: (result.items || []).map(formatProductAdminMedia),
     };
   },
   adminCreatePresignedUpload: (data: any) => request<any>('/admin/uploads/presigned-url', {

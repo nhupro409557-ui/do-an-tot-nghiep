@@ -23,6 +23,8 @@ import { useAdminReviewsLogic } from '../../admin-reviews/hooks/useAdminReviewsL
 import { adminReviewsApi } from '../../admin-reviews/services/adminReviewsApi';
 import { useAdminServicesLogic } from '../../admin-services/hooks/useAdminServicesLogic';
 import { adminServicesApi } from '../../admin-services/services/adminServicesApi';
+import { useAdminSuppliersLogic } from '../../admin-suppliers/hooks/useAdminSuppliersLogic';
+import { adminSuppliersApi } from '../../admin-suppliers/services/adminSuppliersApi';
 import { useAdminVouchersLogic } from '../../admin-vouchers/hooks/useAdminVouchersLogic';
 import { adminVouchersApi } from '../../admin-vouchers/services/adminVouchersApi';
 import { useAdminProductsLogic } from '../../admin-products/hooks/useAdminProductsLogic';
@@ -52,9 +54,13 @@ export function useAdminLogic() {
   const [attachedServices, setAttachedServices] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [brands, setBrands] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [brandStatusFilter, setBrandStatusFilter] = useState('all');
   const [brandPage, setBrandPage] = useState(1);
   const [brandTotal, setBrandTotal] = useState(0);
+  const [supplierStatusFilter, setSupplierStatusFilter] = useState('all');
+  const [supplierPage, setSupplierPage] = useState(1);
+  const [supplierTotal, setSupplierTotal] = useState(0);
   const [vouchers, setVouchers] = useState<any[]>([]);
   const [flashSales, setFlashSales] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
@@ -77,6 +83,10 @@ export function useAdminLogic() {
     brands,
     reloadCurrentTab: () => loadData(tab, { force: true }),
   });
+  const supplierLogic = useAdminSuppliersLogic({
+    suppliers,
+    reloadCurrentTab: () => loadData(tab, { force: true }),
+  });
   const voucherLogic = useAdminVouchersLogic({
     reloadCurrentTab: () => loadData(tab, { force: true }),
   });
@@ -87,6 +97,9 @@ export function useAdminLogic() {
     reloadCurrentTab: () => loadData(tab, { force: true }),
   });
   const inventoryLogic = useAdminInventoryLogic({
+    products,
+    categories,
+    suppliers,
     query,
     reloadCurrentTab: () => loadData(tab, { force: true }),
   });
@@ -256,6 +269,7 @@ export function useAdminLogic() {
       return ms && mc;
     });
   }, [brands, query, brandCategoryFilter, categories]);
+  const filteredSuppliers = useMemo(() => suppliers, [suppliers]);
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => matchesSearch(order, query, ['id', 'orderCode', 'userId', 'user_id', 'recipientName', 'recipientPhone', 'paymentMethod', 'payment_method', 'trackingCode', 'status']));
@@ -364,6 +378,14 @@ export function useAdminLogic() {
   }, [brandPage, brandStatusFilter, query, tab]);
 
   useEffect(() => {
+    if (canAccessAdmin && tab === 'suppliers') void loadData('suppliers', { force: true });
+  }, [supplierPage, supplierStatusFilter, query, tab]);
+
+  useEffect(() => {
+    if (canAccessAdmin && tab === 'inventoryReceipts') void loadData('inventoryReceipts', { force: true });
+  }, [canAccessAdmin, query, tab]);
+
+  useEffect(() => {
     if (tab === 'products') {
       setProductPage(1);
     }
@@ -384,6 +406,10 @@ export function useAdminLogic() {
   useEffect(() => {
     setBrandPage(1);
   }, [brandStatusFilter, query]);
+
+  useEffect(() => {
+    setSupplierPage(1);
+  }, [supplierStatusFilter, query]);
 
   useEffect(() => {
     if (!activeBrandImportJob || ['COMPLETED', 'FAILED'].includes(activeBrandImportJob.status)) return;
@@ -490,6 +516,19 @@ export function useAdminLogic() {
           setAttachedServices(serviceData);
         });
       };
+      const loadSuppliers = async () => {
+        const supplierResourceKey = targetTab === 'suppliers'
+          ? `suppliers:${supplierPage}:${supplierStatusFilter}:${query.trim()}`
+          : 'suppliers:all';
+        await runResource(supplierResourceKey, async () => {
+          const supplierData = await adminSuppliersApi.adminListSuppliers(targetTab === 'suppliers'
+            ? { page: supplierPage, limit: 10, search: query, status: supplierStatusFilter }
+            : { page: 1, limit: 1000, status: 'active' }
+          ).catch(() => ({ items: [], total: 0, page: 1, limit: 10 }));
+          setSuppliers(supplierData.items || []);
+          setSupplierTotal(supplierData.total || 0);
+        });
+      };
       const loadOrders = async () => {
         const orderData = await adminOrdersApi.listOrders().catch(() => []);
         setOrders(orderData);
@@ -547,10 +586,16 @@ export function useAdminLogic() {
 
       if (options.force) loadedAdminSectionsRef.current.delete(targetTab);
       if (options.force) {
-        if (targetTab === 'products' || targetTab === 'inventory') {
+        if (targetTab === 'products' || targetTab === 'inventory' || targetTab === 'inventoryReceipts') {
           [...loadedAdminResourcesRef.current]
             .filter((key) => key.startsWith('products:') || key === 'products')
             .forEach((key) => loadedAdminResourcesRef.current.delete(key));
+        }
+        if (targetTab === 'inventory' || targetTab === 'inventoryReceipts') {
+          loadedAdminResourcesRef.current.delete('categories');
+          loadedAdminResourcesRef.current.delete('brands:all');
+          loadedAdminResourcesRef.current.delete('suppliers:all');
+          loadedAdminResourcesRef.current.delete('inventory-receipts');
         }
         if (targetTab === 'categories') loadedAdminResourcesRef.current.delete('categories');
         if (targetTab === 'services') loadedAdminResourcesRef.current.delete('attached-services');
@@ -567,6 +612,11 @@ export function useAdminLogic() {
             .filter((key) => key.startsWith('brands:') || key === 'brand-import-jobs')
             .forEach((key) => loadedAdminResourcesRef.current.delete(key));
         }
+        if (targetTab === 'suppliers') {
+          [...loadedAdminResourcesRef.current]
+            .filter((key) => key.startsWith('suppliers:'))
+            .forEach((key) => loadedAdminResourcesRef.current.delete(key));
+        }
       }
       if (loadedAdminSectionsRef.current.has(targetTab) && !options.force) return;
 
@@ -578,6 +628,8 @@ export function useAdminLogic() {
         await loadCategories();
       } else if (targetTab === 'brands') {
         await loadBrands();
+      } else if (targetTab === 'suppliers') {
+        await loadSuppliers();
       } else if (targetTab === 'services') {
         await loadServices();
       } else if (targetTab === 'orders') {
@@ -589,7 +641,9 @@ export function useAdminLogic() {
       } else if (targetTab === 'customers') {
         await Promise.all([loadCustomers(), loadVouchers()]);
       } else if (targetTab === 'inventory') {
-        await loadProducts();
+        await Promise.all([loadProducts(), loadCategories(), loadBrands(), loadSuppliers()]);
+      } else if (targetTab === 'inventoryReceipts') {
+        await Promise.all([loadProducts(), loadCategories(), loadBrands(), loadSuppliers(), inventoryLogic.loadInventoryReceipts(query)]);
       } else if (targetTab === 'reviews') {
         await loadReviews();
       } else if (targetTab === 'interactions') {
@@ -695,12 +749,20 @@ export function useAdminLogic() {
     setCategories,
     brands,
     setBrands,
+    suppliers,
+    setSuppliers,
     brandStatusFilter,
     setBrandStatusFilter,
     brandPage,
     setBrandPage,
     brandTotal,
     setBrandTotal,
+    supplierStatusFilter,
+    setSupplierStatusFilter,
+    supplierPage,
+    setSupplierPage,
+    supplierTotal,
+    setSupplierTotal,
     vouchers,
     setVouchers,
     flashSales,
@@ -796,6 +858,7 @@ export function useAdminLogic() {
     filteredCategoryTree,
     categorySlugTaken,
     filteredBrands,
+    filteredSuppliers,
     filteredOrders,
     cancelledOrders,
     refundedOrders,
@@ -835,6 +898,7 @@ export function useAdminLogic() {
     reorderCategory,
     checkCategorySlug,
     ...reviewLogic,
+    ...supplierLogic,
     resetProductForm,
     resetCategoryForm,
     productPayload,

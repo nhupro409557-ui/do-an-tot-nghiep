@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import require_permission
-from app.api.schemas.admin import InventoryAdjustmentPayload, InventorySettingsPayload, VariantInventoryPayload
+from app.api.schemas.admin import InventoryAdjustmentPayload, InventoryReceiptPayload, InventorySettingsPayload, VariantInventoryPayload
 from app.infrastructure.database.session import get_session
 from app.application.services import inventory_service
 
@@ -33,6 +33,14 @@ async def export_inventory_snapshot(
     return await inventory_service.export_inventory_snapshot(session, search)
 
 
+@router.get("/inventory/receipts", dependencies=[Depends(require_permission("inventory:read"))])
+async def list_inventory_receipts(
+    search: str = Query(default=""),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await inventory_service.list_inventory_receipts(session, search)
+
+
 @router.post("/products/{product_id}/inventory/adjust", dependencies=[Depends(require_permission("inventory:adjust"))])
 async def adjust_product_inventory(
     product_id: UUID,
@@ -41,6 +49,15 @@ async def adjust_product_inventory(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     return await inventory_service.adjust_product_inventory(session, product_id, payload, idempotency_key)
+
+
+@router.post("/inventory/receipts", dependencies=[Depends(require_permission("inventory:adjust"))])
+async def create_inventory_receipt(
+    payload: InventoryReceiptPayload,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await inventory_service.create_inventory_receipt(session, payload, idempotency_key)
 
 
 @router.patch("/products/{product_id}/variants/{variant_id}/inventory", dependencies=[Depends(require_permission("inventory:adjust"))])

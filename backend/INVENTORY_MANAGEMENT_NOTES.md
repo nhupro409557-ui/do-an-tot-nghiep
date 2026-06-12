@@ -284,6 +284,23 @@
 - Lưu sản phẩm không được ghi đè `products.stock_quantity`; số lượng tồn kho do module Tồn kho/Nhập kho và luồng đơn hàng cập nhật.
 - Biến thể mới tạo từ form catalog bắt đầu với tồn kho `0`, sau đó nhập kho qua màn tồn kho để đảm bảo có lịch sử giao dịch.
 
+## 23. Update 2026-06-11 phiếu nhập kho nhiều dòng và IMEI bắt buộc theo chính sách
+
+- Thêm API `POST /admin/inventory/receipts` để tạo một phiếu nhập kho có nhiều dòng sản phẩm/biến thể trong cùng một giao dịch.
+- Mỗi dòng nhập kho cập nhật tồn kho biến thể, ghi `inventory_adjustment_logs` với `transaction_type = RECEIPT`, ghi nhà cung cấp, giá nhập, ghi chú và mã phiếu tham chiếu chung.
+- Backend xác định sản phẩm có cần IMEI theo `categories.inventory_policy`: danh mục con được ưu tiên nếu không kế thừa, còn mặc định lấy theo danh mục cha.
+- Nếu sản phẩm cần quản lý IMEI, số IMEI nhập phải đúng bằng số lượng của dòng nhập, không được trùng trong phiếu và không được trùng với `product_imeis` hiện có.
+- Nếu sản phẩm không bật quản lý IMEI, backend từ chối payload có IMEI để tránh nhập dữ liệu serial sai nghiệp vụ.
+- Luồng điều chỉnh tồn kho cũ cũng không còn tự sinh IMEI cho sản phẩm cần IMEI; admin phải nhập IMEI thật để phục vụ bán hàng và bảo hành sau này.
+- Frontend tab Tồn kho có nút `Tạo phiếu nhập`, form phiếu nhập nhiều dòng, chọn sản phẩm/biến thể theo từng dòng và chỉ hiển thị vùng nhập IMEI khi sản phẩm thuộc nhóm cần theo dõi IMEI.
+- Form phiếu nhập tự sinh mã theo dạng `NKyyyyMMdd-HHmmss`, ví dụ `NK20260611-153000`, để admin không phải nhập tay mã phiếu.
+- Nhà cung cấp trong phiếu nhập được chọn từ danh sách nhà cung cấp đang hoạt động thay vì nhập text tự do; backend hiện vẫn lưu tên nhà cung cấp vào log để tương thích schema cũ.
+- Bổ sung khối chọn nhanh sản phẩm trong form phiếu nhập: lọc theo danh mục, thương hiệu, từ khóa; tick nhiều sản phẩm rồi thêm vào phiếu. Nếu sản phẩm có nhiều biến thể, UI tự sinh một dòng nhập cho từng biến thể.
+- Tách màn `Nhập kho` khỏi màn `Tồn kho`: `Nhập kho` quản lý danh sách phiếu nhập và tạo phiếu nhập mới; `Tồn kho` chỉ còn theo dõi số lượng, cảnh báo và xuất báo cáo tồn kho sản phẩm.
+- Bổ sung API `GET /admin/inventory/receipts` để đọc danh sách phiếu nhập bằng cách gom các log `RECEIPT` theo `reference_code`, hiển thị nhà cung cấp, ngày nhập, tổng dòng, tổng số lượng, tổng giá trị và các dòng sản phẩm.
+- Cập nhật UX chọn sản phẩm trong phiếu nhập: không còn tick sản phẩm cha rồi tự sinh toàn bộ biến thể. Admin chọn một sản phẩm cha, sau đó tick đúng các biến thể thực tế cần nhập; hệ thống chỉ sinh dòng cho các biến thể đã chọn để tránh rác dòng nhập và giảm tải giao diện.
+- Cập nhật lưới dòng phiếu nhập từ card dọc sang table ngang để hiển thị được nhiều dòng cùng lúc. Các trường nhập thường xuyên (`Sản phẩm`, `Biến thể`, `Số lượng`, `Giá nhập`) nằm cùng hàng; `Lý do`, `Ghi chú`, `IMEI` được giữ gọn trong từng dòng.
+
 ## Refactor Structure Notes (June 2026)
 
 ### 1. Backend Service Layer Pattern

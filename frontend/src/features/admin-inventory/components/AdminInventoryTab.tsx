@@ -13,7 +13,6 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
     inventoryBrandFilter,
     inventoryBrandOptions,
     inventoryCategoryFilter,
-    openInventoryDialog,
     query,
     setInventoryBrandFilter,
     setInventoryCategoryFilter,
@@ -21,10 +20,12 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
   } = props;
 
   return (
-    <AdminPanel 
-      title="Quản lý tồn kho" 
+    <AdminPanel
+      title="Quản lý tồn kho"
       action={
-        <button type="button" onClick={() => void exportInventorySnapshot()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 shadow-sm"><Download className="h-4 w-4" /> Xuất</button>
+        <button type="button" onClick={() => void exportInventorySnapshot()} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
+          <Download className="h-4 w-4" /> Xuất
+        </button>
       }
       filters={
         <>
@@ -34,7 +35,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
         </>
       }
     >
-      <AdminTable headers={['Sản phẩm', 'SKU / Biến thể', 'Tồn kho', 'Cảnh báo', 'Trạng thái', 'Điều chỉnh']}>
+      <AdminTable headers={['Sản phẩm', 'SKU / Biến thể', 'Tồn kho', 'Cảnh báo', 'Trạng thái']}>
         {filteredInventory.flatMap((product: any) => {
           const inventorySettings = getInventorySettings(product);
           const rows = [
@@ -44,7 +45,6 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
               <td className="px-4 py-3">{product.stock ?? 0}</td>
               <td className="px-4 py-3">{Number(product.stock || 0) <= inventorySettings.minimumStock ? `Cần nhập thêm (min ${inventorySettings.minimumStock})` : 'Ổn định'}</td>
               <td className="px-4 py-3">{Number(product.stock || 0) > 0 ? 'Còn hàng' : inventorySettings.blockSaleWhenOutOfStock ? 'Khóa bán khi hết' : 'Hết hàng'}</td>
-              <td className="px-4 py-3"><button type="button" onClick={() => openInventoryDialog(product)} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800">Nhập/điều chỉnh</button></td>
             </tr>,
           ];
           (product.variants || []).forEach((variant: any) => {
@@ -55,7 +55,6 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                 <td className="px-4 py-3">{variant.stockQuantity ?? 0}</td>
                 <td className="px-4 py-3">{Number(variant.stockQuantity || 0) <= inventorySettings.minimumStock ? `Cần nhập thêm (min ${inventorySettings.minimumStock})` : 'Ổn định'}</td>
                 <td className="px-4 py-3">{variant.isActive === false ? 'Đã ẩn' : Number(variant.stockQuantity || 0) > 0 ? 'Còn hàng' : 'Hết hàng'}</td>
-                <td className="px-4 py-3"><button type="button" onClick={() => openInventoryDialog(product, variant)} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800">Nhập/điều chỉnh</button></td>
               </tr>,
             );
           });

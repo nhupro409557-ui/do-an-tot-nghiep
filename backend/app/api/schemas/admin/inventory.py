@@ -18,6 +18,23 @@ class InventoryAdjustmentPayload(BaseModel):
     locationName: str | None = Field(default=None, max_length=160)
     imeis: list[str] = Field(default_factory=list, max_length=500)
 
+class InventoryReceiptLinePayload(BaseModel):
+    productId: UUID
+    variantId: UUID | None = None
+    quantity: int = Field(gt=0, le=500)
+    unitCost: float | None = Field(default=None, ge=0)
+    reason: str | None = Field(default=None, max_length=80)
+    note: str | None = Field(default=None, max_length=500)
+    imeis: list[str] = Field(default_factory=list, max_length=500)
+
+class InventoryReceiptPayload(BaseModel):
+    referenceCode: str = Field(min_length=1, max_length=120)
+    supplierName: str | None = Field(default=None, max_length=160)
+    note: str | None = Field(default=None, max_length=500)
+    locationCode: str | None = Field(default=None, max_length=60)
+    locationName: str | None = Field(default=None, max_length=160)
+    lines: list[InventoryReceiptLinePayload] = Field(min_length=1, max_length=100)
+
 class InventorySettingsPayload(BaseModel):
     minimumStock: int = Field(default=0, ge=0)
     blockSaleWhenOutOfStock: bool = True

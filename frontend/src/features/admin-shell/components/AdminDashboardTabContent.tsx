@@ -14,6 +14,7 @@ const AdminCategoriesTab = React.lazy(() => import('../../admin-categories/compo
 const AdminContentTab = React.lazy(() => import('../../admin-content/components/AdminContentTab'));
 const AdminCustomersTab = React.lazy(() => import('../../admin-customers/components/AdminCustomersTab'));
 const AdminFlashSalesTab = React.lazy(() => import('../../admin-flash-sales/components/AdminFlashSalesTab'));
+const AdminInventoryReceiptsTab = React.lazy(() => import('../../admin-inventory/components/AdminInventoryReceiptsTab'));
 const AdminInventoryTab = React.lazy(() => import('../../admin-inventory/components/AdminInventoryTab'));
 const AdminProductInteractionsTab = React.lazy(() => import('../../admin-interactions/components/AdminProductInteractionsTab'));
 const AdminOrdersTab = React.lazy(() => import('../../admin-orders/components/AdminOrdersTab'));
@@ -22,6 +23,7 @@ const AdminPermissionsTab = React.lazy(() => import('../../admin-permissions/com
 const AdminProductsTab = React.lazy(() => import('../../admin-products/components/AdminProductsTab'));
 const AdminReviewsTab = React.lazy(() => import('../../admin-reviews/components/AdminReviewsTab'));
 const AdminServicesTab = React.lazy(() => import('../../admin-services/components/AdminServicesTab'));
+const AdminSuppliersTab = React.lazy(() => import('../../admin-suppliers/components/AdminSuppliersTab'));
 const AdminVouchersTab = React.lazy(() => import('../../admin-vouchers/components/AdminVouchersTab'));
 
 type AdminDashboardTabContentProps = {
@@ -100,6 +102,8 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
       return <AdminCategoriesTab {...sharedProps} />;
     case 'brands':
       return <AdminBrandsTab {...sharedProps} />;
+    case 'suppliers':
+      return <AdminSuppliersTab {...sharedProps} />;
     case 'services':
       return <AdminServicesTab {...sharedProps} />;
     case 'orders':
@@ -108,6 +112,8 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
       return <AdminVouchersTab {...sharedProps} />;
     case 'customers':
       return <AdminCustomersTab {...sharedProps} />;
+    case 'inventoryReceipts':
+      return <AdminInventoryReceiptsTab {...sharedProps} />;
     case 'inventory':
       return <AdminInventoryTab {...sharedProps} />;
     case 'reviews':

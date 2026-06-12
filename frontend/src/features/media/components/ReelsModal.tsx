@@ -82,6 +82,125 @@ function youtubePlayerUrl(video: any, active: boolean, muted: boolean) {
   return `${base}?${params.toString()}`;
 }
 
+interface ReelsMediaProps {
+  video: any;
+  index: number;
+  active: boolean;
+  muted: boolean;
+  isLandscapeVideo: boolean;
+  videoRefs: React.MutableRefObject<Map<number, HTMLVideoElement>>;
+  onTogglePlay: () => void;
+  onLoadedMetadata: (event: React.SyntheticEvent<HTMLVideoElement>, index: number, video: any) => void;
+  onTimeUpdate: (event: React.SyntheticEvent<HTMLVideoElement>, index: number, video: any) => void;
+}
+
+function ReelsMedia({
+  video,
+  index,
+  active,
+  muted,
+  isLandscapeVideo,
+  videoRefs,
+  onTogglePlay,
+  onLoadedMetadata,
+  onTimeUpdate,
+}: ReelsMediaProps) {
+  const poster = mediaPoster(video);
+  const youtubeUrl = youtubeEmbedUrl(video);
+  const [posterReady, setPosterReady] = useState(!poster);
+  const [canLoadVideo, setCanLoadVideo] = useState(false);
+
+  useEffect(() => {
+    setPosterReady(!poster);
+    setCanLoadVideo(false);
+  }, [poster, video.id]);
+
+  useEffect(() => {
+    if (!active) {
+      setCanLoadVideo(false);
+      return;
+    }
+    if (!posterReady) {
+      const fallback = window.setTimeout(() => setCanLoadVideo(true), 900);
+      return () => window.clearTimeout(fallback);
+    }
+    const timer = window.setTimeout(() => setCanLoadVideo(true), 80);
+    return () => window.clearTimeout(timer);
+  }, [active, posterReady]);
+
+  if (youtubeUrl) {
+    return (
+      <>
+        {poster && (
+          <img
+            src={poster}
+            alt={video.title || 'Video'}
+            className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-300 ${canLoadVideo ? 'opacity-0' : 'opacity-100'}`}
+            onLoad={() => setPosterReady(true)}
+          />
+        )}
+        {active && canLoadVideo ? (
+          <iframe
+            src={youtubePlayerUrl(video, true, muted)}
+            title={video.title || 'Video'}
+            className="pointer-events-none relative z-0 h-full w-full bg-black"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
+        ) : !poster ? (
+          <div className="flex h-full w-full items-center justify-center bg-zinc-900 p-6 text-center text-sm font-semibold text-white/70">
+            Đang chuẩn bị video...
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
+  if (!video.videoUrl) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-zinc-900 p-6 text-center text-sm font-semibold text-white/70">
+        Video này chưa có file phát.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {poster && (
+        <img
+          src={poster}
+          alt={video.title || 'Video'}
+          className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-300 ${canLoadVideo ? 'opacity-0' : 'opacity-100'}`}
+          onLoad={() => setPosterReady(true)}
+        />
+      )}
+      {active && canLoadVideo ? (
+        <video
+          ref={(el) => {
+            if (el) videoRefs.current.set(index, el);
+            else videoRefs.current.delete(index);
+          }}
+          src={video.videoUrl}
+          poster={poster}
+          autoPlay
+          loop
+          muted={muted}
+          playsInline
+          preload="metadata"
+          className={`relative z-0 h-full w-full cursor-pointer object-contain ${isLandscapeVideo ? 'pb-32 md:pb-0' : ''}`}
+          onClick={onTogglePlay}
+          onLoadedMetadata={(event) => onLoadedMetadata(event, index, video)}
+          onTimeUpdate={(event) => onTimeUpdate(event, index, video)}
+        />
+      ) : !poster ? (
+        <div className="flex h-full w-full items-center justify-center bg-zinc-900 p-6 text-center text-sm font-semibold text-white/70">
+          Đang chuẩn bị video...
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export default function ReelsModal({ isOpen, playlist, initialIndex = 0, onClose, likedIds, onToggleLike }: ReelsModalProps) {
   if (!isOpen || playlist.length === 0) return null;
   const modalKey = `${initialIndex}-${playlist.map((item) => item.id).join('|')}`;
@@ -281,56 +400,36 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
                 />
               )}
 
-              {youtubeEmbedUrl(video) ? (
-                <>
-                  <iframe
-                    src={youtubePlayerUrl(video, index === activeIdx, muted)}
-                    title={video.title || 'Video'}
-                    className="pointer-events-none relative z-0 h-full w-full bg-black"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                  />
-                </>
-              ) : video.videoUrl ? (
-                <video
-                  ref={(el) => {
-                    if (el) videoRefs.current.set(index, el);
-                  }}
-                  src={video.videoUrl}
-                  poster={mediaPoster(video)}
-                  autoPlay={index === initialIndex}
-                  loop
-                  muted={muted}
-                  playsInline
-                  className={`relative z-0 h-full w-full cursor-pointer object-contain ${isLandscapeVideo ? 'pb-32 md:pb-0' : ''}`}
-                  onClick={togglePlay}
-                  onLoadedMetadata={(event) => {
+              <ReelsMedia
+                video={video}
+                index={index}
+                active={index === activeIdx}
+                muted={muted}
+                isLandscapeVideo={isLandscapeVideo}
+                videoRefs={videoRefs}
+                onTogglePlay={togglePlay}
+                onLoadedMetadata={(event, mediaIndex, mediaVideo) => {
+                  const el = event.currentTarget;
+                  const saved = Number(sessionStorage.getItem(`video_pos_${mediaVideo.id}`) || 0);
+                  if (saved > 0 && saved < el.duration - 3) el.currentTime = saved;
+                  if (!el.videoWidth || !el.videoHeight) return;
+                  setVideoSizes((sizes) => ({
+                    ...sizes,
+                    [mediaIndex]: { width: el.videoWidth, height: el.videoHeight },
+                  }));
+                  setVideoDurations((durations) => ({
+                    ...durations,
+                    [mediaIndex]: el.duration,
+                  }));
+                }}
+                onTimeUpdate={(event, mediaIndex, mediaVideo) => {
+                  if (mediaIndex === activeIdx) {
                     const el = event.currentTarget;
-                    const saved = Number(sessionStorage.getItem(`video_pos_${video.id}`) || 0);
-                    if (saved > 0 && saved < el.duration - 3) el.currentTime = saved;
-                    if (!el.videoWidth || !el.videoHeight) return;
-                    setVideoSizes((sizes) => ({
-                      ...sizes,
-                      [index]: { width: el.videoWidth, height: el.videoHeight },
-                    }));
-                    setVideoDurations((durations) => ({
-                      ...durations,
-                      [index]: el.duration,
-                    }));
-                  }}
-                  onTimeUpdate={(e) => {
-                    if (index === activeIdx) {
-                      const el = e.currentTarget;
-                      rememberPosition(video.id, el.currentTime);
-                      if (el.duration) setProgress((el.currentTime / el.duration) * 100);
-                    }
-                  }}
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center bg-zinc-900 p-6 text-center text-sm font-semibold text-white/70">
-                  Video này chưa có file phát.
-                </div>
-              )}
+                    rememberPosition(mediaVideo.id, el.currentTime);
+                    if (el.duration) setProgress((el.currentTime / el.duration) * 100);
+                  }
+                }}
+              />
 
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-10" />
               <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/40 to-transparent z-10" />
