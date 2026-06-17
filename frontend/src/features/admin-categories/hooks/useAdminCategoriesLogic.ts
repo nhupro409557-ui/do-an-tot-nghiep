@@ -31,11 +31,12 @@ export function useAdminCategoriesLogic({
     status: 'ACTIVE',
     specFields: [] as SpecField[],
     filterConfig: [] as CategoryFilterField[],
-    inventoryPolicy: { inheritImeiPolicy: true, trackImei: false },
+    inventoryPolicy: { inheritImeiPolicy: true, trackImei: false, inheritSerialPolicy: true, trackSerialNumber: false },
     warrantyPolicy: { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 },
     version: null as number | null,
   });
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [categoryViewOnly, setCategoryViewOnly] = useState(false);
   const [categorySlugStatus, setCategorySlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
   const [categoryMetrics, setCategoryMetrics] = useState<any>({});
   const [categoryAuditLogs, setCategoryAuditLogs] = useState<any[]>([]);
@@ -104,10 +105,11 @@ export function useAdminCategoriesLogic({
 
   function resetCategoryForm() {
     setEditingCategoryId(null);
+    setCategoryViewOnly(false);
     setCategorySlugStatus('idle');
     setCategoryAuditLogs([]);
     setCategoryMigrationJobs([]);
-    setCategoryForm({ name: '', slug: '', icon: 'phone', iconUrl: '', bannerUrl: '', parentId: '', order: 0, isActive: true, status: 'ACTIVE', specFields: [] as SpecField[], filterConfig: [] as CategoryFilterField[], inventoryPolicy: { inheritImeiPolicy: true, trackImei: false }, warrantyPolicy: { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 }, version: null });
+    setCategoryForm({ name: '', slug: '', icon: 'phone', iconUrl: '', bannerUrl: '', parentId: '', order: 0, isActive: true, status: 'ACTIVE', specFields: [] as SpecField[], filterConfig: [] as CategoryFilterField[], inventoryPolicy: { inheritImeiPolicy: true, trackImei: false, inheritSerialPolicy: true, trackSerialNumber: false }, warrantyPolicy: { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 }, version: null });
     setCategoryCloseSignal((value) => value + 1);
   }
 
@@ -182,6 +184,7 @@ export function useAdminCategoriesLogic({
   }
 
   function editCategory(category: any) {
+    setCategoryViewOnly(false);
     setEditingCategoryId(category.id);
     setCategorySlugStatus('idle');
     setCategoryForm({
@@ -200,6 +203,11 @@ export function useAdminCategoriesLogic({
       warrantyPolicy: category.warrantyPolicy || { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 },
       version: Number(category.version || 1),
     });
+  }
+
+  function viewCategory(category: any) {
+    editCategory(category);
+    setCategoryViewOnly(true);
   }
 
   async function reactivateCategory(category: any) {
@@ -316,6 +324,8 @@ export function useAdminCategoriesLogic({
     setCategoryForm,
     editingCategoryId,
     setEditingCategoryId,
+    categoryViewOnly,
+    setCategoryViewOnly,
     categorySlugStatus,
     setCategorySlugStatus,
     categoryMetrics,
@@ -343,6 +353,7 @@ export function useAdminCategoriesLogic({
     resetCategoryForm,
     handleCategorySubmit,
     editCategory,
+    viewCategory,
     hideCategory,
     reactivateCategory,
     reorderCategory,

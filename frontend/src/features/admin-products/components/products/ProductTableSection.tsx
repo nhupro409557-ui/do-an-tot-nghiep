@@ -22,6 +22,7 @@ interface ProductTableSectionProps {
   isSuperAdmin: boolean;
   approveProduct: (product: any) => void;
   archiveProduct: (product: any) => void;
+  viewProduct: (product: any) => void;
 }
 
 export default function ProductTableSection(props: ProductTableSectionProps) {
@@ -45,6 +46,7 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
     isSuperAdmin,
     approveProduct,
     archiveProduct,
+    viewProduct,
   } = props;
   const publicationStatusLabels: Record<string, string> = {
     ACTIVE: 'Đang bán',
@@ -185,6 +187,7 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
                   </span>
                 ) : (
                   <RowActions
+                    onView={() => viewProduct(product)}
                     onEdit={() => editProduct(product)}
                     onHide={product.status !== 'INACTIVE' && product.status !== 'ARCHIVED' ? () => hideProduct(product) : undefined}
                     onDelete={() => deleteProduct(product)}

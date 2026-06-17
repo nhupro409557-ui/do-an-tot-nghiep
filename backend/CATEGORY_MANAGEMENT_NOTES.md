@@ -1,6 +1,17 @@
-﻿# Category Management Notes
+# Category Management Notes
 
 This file records the non-obvious decisions added while hardening category management.
+
+## Update 2026-06-13 Vietnamese encoding fix
+
+- Đã sửa lỗi font tiếng Việt (mojibake) hiển thị sai ở các thông báo alert/confirm và toast notifyAdmin trong `useAdminCategoriesLogic.ts` để hiển thị tiếng Việt chuẩn UTF-8 có dấu đầy đủ.
+
+## Update 2026-06-13 category serial number policy
+
+- Danh mục có thêm cấu hình mặc định cho serial number trong `inventory_policy`: `inheritSerialPolicy` và `trackSerialNumber`.
+- UI quản lý danh mục hiển thị thêm hai checkbox `Theo serial của cha` và `Quản lý serial number`, hoạt động tương tự chính sách IMEI hiện có.
+- Migration liên quan: `backend/migrations/060_product_serial_number_management.sql`.
+- Verification: `npm run lint` trong `frontend` pass.
 
 ## Update 2026-06-06 inherited product visibility
 

@@ -123,6 +123,7 @@ interface ProductFormSectionProps {
   productForm: any;
   setProductForm: React.Dispatch<React.SetStateAction<any>>;
   editingProductId: string | null;
+  productViewOnly?: boolean;
   handleProductSubmit: (e: React.FormEvent) => void;
   resetProductForm: () => void;
   rootCategories: any[];
@@ -172,6 +173,7 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
     productForm,
     setProductForm,
     editingProductId,
+    productViewOnly,
     handleProductSubmit,
     resetProductForm,
     rootCategories,
@@ -218,6 +220,30 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
   const filteredSubCategories = productForm.categoryId
     ? subCategories.filter((item) => item.parentId === productForm.categoryId)
     : subCategories;
+  const selectedParentCategory = rootCategories.find((item) => item.id === productForm.categoryId);
+  const selectedChildCategory = subCategories.find((item) => item.id === productForm.subcategoryId);
+  const categoryTracksImei = (() => {
+    const childPolicy = selectedChildCategory?.inventoryPolicy || {};
+    const parentPolicy = selectedParentCategory?.inventoryPolicy || {};
+    if (selectedChildCategory && childPolicy.inheritImeiPolicy === false) {
+      return Boolean(childPolicy.trackImei);
+    }
+    return Boolean(parentPolicy.trackImei);
+  })();
+  const effectiveTracksImei = productForm.imeiPolicy?.mode === 'MANUAL'
+    ? Boolean(productForm.imeiPolicy?.trackImei)
+    : categoryTracksImei;
+  const categoryTracksSerialNumber = (() => {
+    const childPolicy = selectedChildCategory?.inventoryPolicy || {};
+    const parentPolicy = selectedParentCategory?.inventoryPolicy || {};
+    if (selectedChildCategory && childPolicy.inheritSerialPolicy === false) {
+      return Boolean(childPolicy.trackSerialNumber);
+    }
+    return Boolean(parentPolicy.trackSerialNumber);
+  })();
+  const effectiveTracksSerialNumber = productForm.serialPolicy?.mode === 'MANUAL'
+    ? Boolean(productForm.serialPolicy?.trackSerialNumber)
+    : categoryTracksSerialNumber;
   const productPublicationStatusOptions: [string, string][] = [
     ['ACTIVE', 'Đang bán'],
     ['INACTIVE', 'Tạm ẩn'],
@@ -226,9 +252,10 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
 
   return (
     <form
-      onSubmit={handleProductSubmit}
-      className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-4"
+      onSubmit={productViewOnly ? (event) => event.preventDefault() : handleProductSubmit}
+      className={`mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-4 ${productViewOnly ? 'admin-view-only-form' : ''}`}
     >
+      <fieldset disabled={Boolean(productViewOnly)} className="contents">
       <Input
         label="Tên sản phẩm"
         value={productForm.name}
@@ -336,6 +363,7 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
       />
       <FileInput
         label="Ảnh đại diện chung"
+        className={productViewOnly ? 'hidden' : ''}
         accept="image/*"
         onFiles={async (files) =>
           setProductForm({
@@ -347,6 +375,7 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
       />
       <FileInput
         label="Bộ ảnh sản phẩm chung"
+        className={productViewOnly ? 'hidden' : ''}
         accept="image/*"
         multiple
         onFiles={async (files) => {
@@ -359,6 +388,7 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
       />
       <FileInput
         label="Video sản phẩm dùng chung"
+        className={productViewOnly ? 'hidden' : ''}
         accept="video/*"
         onFiles={async (files) =>
           setProductForm({
@@ -371,12 +401,12 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
       <MediaPreview
         title="Ảnh đại diện chung"
         items={productForm.imageUrl ? [productForm.imageUrl] : []}
-        onRemove={() => setProductForm({ ...productForm, imageUrl: '' })}
+        onRemove={productViewOnly ? undefined : () => setProductForm({ ...productForm, imageUrl: '' })}
       />
       <MediaPreview
         title="Bộ ảnh sản phẩm chung"
         items={productForm.images || []}
-        onRemove={(url) =>
+        onRemove={productViewOnly ? undefined : (url) =>
           setProductForm({
             ...productForm,
             images: (productForm.images || []).filter(
@@ -389,11 +419,105 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
         <VideoPreview
           title="Video sản phẩm dùng chung"
           url={productForm.videoUrl}
-          onRemove={() => setProductForm({ ...productForm, videoUrl: '' })}
+          onRemove={productViewOnly ? undefined : () => setProductForm({ ...productForm, videoUrl: '' })}
         />
       )}
 
+      <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-bold text-slate-700">Quản lý IMEI</div>
+            <p className="mt-1 text-xs font-medium text-slate-500">
+              Trạng thái áp dụng: {effectiveTracksImei ? 'Có quản lý IMEI' : 'Không quản lý IMEI'}
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <Select
+            label="Cách áp dụng"
+            value={productForm.imeiPolicy?.mode || 'CATEGORY'}
+            onChange={(value) =>
+              setProductForm({
+                ...productForm,
+                imeiPolicy: {
+                  mode: value,
+                  trackImei: value === 'CATEGORY' ? Boolean(productForm.imeiPolicy?.trackImei) : effectiveTracksImei,
+                },
+              })
+            }
+            options={[
+              ['CATEGORY', 'Theo danh mục'],
+              ['MANUAL', 'Tự chọn cho sản phẩm'],
+            ]}
+          />
+          <Checkbox
+            label="Có quản lý IMEI"
+            checked={effectiveTracksImei}
+            disabled={(productForm.imeiPolicy?.mode || 'CATEGORY') === 'CATEGORY'}
+            onChange={(checked) =>
+              setProductForm({
+                ...productForm,
+                imeiPolicy: {
+                  mode: 'MANUAL',
+                  trackImei: checked,
+                },
+              })
+            }
+          />
+          <div className="rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+            Theo danh mục hiện tại: {categoryTracksImei ? 'Có IMEI' : 'Không IMEI'}
+          </div>
+        </div>
+      </div>
+
       {/* Bảo hành */}
+      <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-bold text-slate-700">Quản lý serial number</div>
+            <p className="mt-1 text-xs font-medium text-slate-500">
+              Trạng thái áp dụng: {effectiveTracksSerialNumber ? 'Có quản lý serial number' : 'Không quản lý serial number'}
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <Select
+            label="Cách áp dụng"
+            value={productForm.serialPolicy?.mode || 'CATEGORY'}
+            onChange={(value) =>
+              setProductForm({
+                ...productForm,
+                serialPolicy: {
+                  mode: value,
+                  trackSerialNumber: value === 'CATEGORY' ? Boolean(productForm.serialPolicy?.trackSerialNumber) : effectiveTracksSerialNumber,
+                },
+              })
+            }
+            options={[
+              ['CATEGORY', 'Theo danh mục'],
+              ['MANUAL', 'Tự chọn cho sản phẩm'],
+            ]}
+          />
+          <Checkbox
+            label="Có quản lý serial number"
+            checked={effectiveTracksSerialNumber}
+            disabled={(productForm.serialPolicy?.mode || 'CATEGORY') === 'CATEGORY'}
+            onChange={(checked) =>
+              setProductForm({
+                ...productForm,
+                serialPolicy: {
+                  mode: 'MANUAL',
+                  trackSerialNumber: checked,
+                },
+              })
+            }
+          />
+          <div className="rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+            Theo danh mục hiện tại: {categoryTracksSerialNumber ? 'Có serial' : 'Không serial'}
+          </div>
+        </div>
+      </div>
+
       <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-4">
         <div className="mb-3 text-sm font-bold text-slate-700">
           Bảo hành sản phẩm
@@ -563,6 +687,7 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
         addAttachedService={addAttachedService}
         removeAttachedService={removeAttachedService}
         currency={currency}
+        readOnly={Boolean(productViewOnly)}
       />
 
       {/* Section biến thể */}
@@ -579,13 +704,23 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
         confirmDelete={confirmDelete}
         currency={currency}
         compactId={compactId}
+        readOnly={Boolean(productViewOnly)}
       />
 
       {/* Nút submit */}
-      <SubmitButtons
-        editing={Boolean(editingProductId)}
-        onCancel={resetProductForm}
-      />
+      </fieldset>
+      {productViewOnly ? (
+        <div className="flex items-end gap-2">
+          <button type="button" onClick={resetProductForm} className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+            Đóng
+          </button>
+        </div>
+      ) : (
+        <SubmitButtons
+          editing={Boolean(editingProductId)}
+          onCancel={resetProductForm}
+        />
+      )}
     </form>
   );
 }

@@ -8,7 +8,7 @@ export function MediaPreview({
 }: {
   title: string;
   items: string[];
-  onRemove: (url: string) => void;
+  onRemove?: (url: string) => void;
 }) {
   if (items.length === 0) return null;
   return (
@@ -21,14 +21,16 @@ export function MediaPreview({
             className="relative h-16 w-16 rounded-md border border-slate-200 bg-white p-1 shadow-sm"
           >
             <img src={item} alt="" className="h-full w-full object-contain" />
-            <button
-              type="button"
-              onClick={() => onRemove(item)}
-              title="Xóa ảnh"
-              className="absolute -right-2 -top-2 rounded-full bg-red-600 p-1 text-white shadow-sm"
-            >
-              <X className="h-3 w-3" />
-            </button>
+            {onRemove && (
+              <button
+                type="button"
+                onClick={() => onRemove(item)}
+                title="Xóa ảnh"
+                className="absolute -right-2 -top-2 rounded-full bg-red-600 p-1 text-white shadow-sm"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
           </div>
         ))}
       </div>

@@ -51,13 +51,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_levels_variant_location
 CREATE INDEX IF NOT EXISTS idx_inventory_levels_location_id
     ON inventory_levels(location_id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_levels_product_variant_location
+    ON inventory_levels(product_id, COALESCE(variant_id, '00000000-0000-0000-0000-000000000000'::uuid), location_id);
+
 CREATE TABLE IF NOT EXISTS inventory_documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     document_no VARCHAR(80) NOT NULL UNIQUE,
     document_type VARCHAR(30) NOT NULL
         CHECK (document_type IN ('INBOUND', 'OUTBOUND', 'ADJUSTMENT', 'COUNT', 'REVERSAL', 'TRANSFER', 'RESERVATION_RELEASE')),
     status VARCHAR(30) NOT NULL DEFAULT 'DRAFT'
-        CHECK (status IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'POSTED', 'CANCELLED')),
+        CHECK (status IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'POSTED', 'CANCELLED', 'COMPLETED', 'PROCESSING_IMEI', 'PENDING_SHORTAGE_APPROVAL', 'RECEIVING', 'REVERSED')),
     source_location_id UUID REFERENCES inventory_locations(id) ON DELETE RESTRICT,
     target_location_id UUID REFERENCES inventory_locations(id) ON DELETE RESTRICT,
     supplier_name VARCHAR(160),
@@ -68,9 +71,15 @@ CREATE TABLE IF NOT EXISTS inventory_documents (
         CHECK (costing_method IN ('MOVING_AVERAGE', 'FIFO', 'MANUAL')),
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    posted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    cancelled_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reversed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reversal_of_document_id UUID REFERENCES inventory_documents(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     approved_at TIMESTAMPTZ,
-    posted_at TIMESTAMPTZ
+    posted_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    reversed_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_inventory_documents_status_type

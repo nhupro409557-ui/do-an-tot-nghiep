@@ -158,14 +158,16 @@ export function FileInput({
   accept,
   multiple = false,
   onFiles,
+  className = '',
 }: {
   label: string;
   accept: string;
   multiple?: boolean;
   onFiles: (files: FileList | null) => void;
+  className?: string;
 }) {
   return (
-    <label className="block">
+    <label className={`block ${className}`}>
       <span className="mb-1.5 block text-xs font-bold text-slate-500">{label}</span>
       <span className="flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700">
         <Upload className="h-4 w-4" /> Chọn file

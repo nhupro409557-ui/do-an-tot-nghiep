@@ -1,5 +1,5 @@
 import React from 'react';
-import { Edit2, EyeOff, RotateCcw, Trash2 } from 'lucide-react';
+import { Edit2, Eye, EyeOff, RotateCcw, Trash2 } from 'lucide-react';
 import { AdminBadge, AdminPanel, AdminTable, BrandLogo, CollapsibleSection, FileInput, Input, SearchBox, Select, SubmitButtons } from '../../admin-shell/components/AdminDashboardParts';
 import { slugifyText } from '../../admin-shell/pages/AdminDashboardConfig';
 import { resolveImageUrl } from '../../../services/productMedia';
@@ -17,6 +17,7 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
     brandImportMode,
     brandPage,
     brandStatusFilter,
+    brandViewOnly,
     brandTotal,
     bulkUpdateBrandStatus,
     checkBrandCodeOnBlur,
@@ -39,6 +40,7 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
     setQuery,
     setSelectedBrandIds,
     uploadFiles,
+    viewBrand,
   } = props;
 
   const logoPreviewUrl = resolveImageUrl(brandForm.logoUrl);
@@ -53,13 +55,14 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
         </>
       }
     >
-      <CollapsibleSection title={editingBrandId ? 'Đang chỉnh sửa thương hiệu' : 'Thêm thương hiệu mới'} description="Mở khi cần tạo hoặc cập nhật tên, mã và logo thương hiệu." defaultOpen={false} forceOpen={Boolean(editingBrandId)} forceOpenKey={editingBrandId} closeSignal={brandCloseSignal} onClose={resetBrandForm}>
-        <form onSubmit={handleBrandSubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-6">
+      <CollapsibleSection title={brandViewOnly ? 'Đang xem thông tin thương hiệu' : editingBrandId ? 'Đang chỉnh sửa thương hiệu' : 'Thêm thương hiệu mới'} description="Mở khi cần tạo hoặc cập nhật tên, mã và logo thương hiệu." defaultOpen={false} forceOpen={Boolean(editingBrandId)} forceOpenKey={editingBrandId} closeSignal={brandCloseSignal} onClose={resetBrandForm}>
+        <form onSubmit={brandViewOnly ? (event) => event.preventDefault() : handleBrandSubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-6">
+          <fieldset disabled={Boolean(brandViewOnly)} className="contents">
           <Input label="Tên thương hiệu" value={brandForm.name} required onChange={(value) => setBrandForm({ ...brandForm, name: value, slug: brandForm.slug || slugifyText(value) })} />
           <Input label="Mã thương hiệu" value={brandForm.code} required onBlur={checkBrandCodeOnBlur} onChange={(value) => { setBrandCodeStatus('idle'); setBrandForm({ ...brandForm, code: value }); }} />
           <Input label="Slug landing" value={brandForm.slug} onChange={(value) => setBrandForm({ ...brandForm, slug: value })} />
           <Input label="Thứ tự" type="number" value={brandForm.order} onChange={(value) => setBrandForm({ ...brandForm, order: Number(value) })} />
-          <FileInput label="Logo từ máy tính" accept="image/*" onFiles={async (files) => {
+          <FileInput label="Logo từ máy tính" className={brandViewOnly ? 'hidden' : ''} accept="image/*" onFiles={async (files) => {
             const urls = await uploadFiles(files, 'brands');
             setBrandForm({ ...brandForm, logoUrl: urls[0] || brandForm.logoUrl });
           }} />
@@ -73,7 +76,7 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs font-semibold text-slate-500">{brandForm.logoUrl}</div>
-                  <button type="button" onClick={() => setBrandForm({ ...brandForm, logoUrl: '' })} className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+                  <button type="button" onClick={() => setBrandForm({ ...brandForm, logoUrl: '' })} className={`${brandViewOnly ? 'hidden ' : ''}mt-3 rounded-md bg-red-50 px-3 py-2 text-sm font-bold text-red-700`}>
                     Xóa logo đã chọn
                   </button>
                 </div>
@@ -82,7 +85,16 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
           )}
           <Input label="Tiêu đề landing" value={brandForm.landingTitle} onChange={(value) => setBrandForm({ ...brandForm, landingTitle: value })} />
           <div className="text-xs font-semibold text-slate-500 md:col-span-2">{brandCodeStatus === 'checking' ? 'Đang kiểm tra mã...' : brandCodeStatus === 'available' ? 'Mã có thể dùng' : brandCodeStatus === 'taken' ? 'Mã đã tồn tại' : ''}</div>
-          <SubmitButtons editing={Boolean(editingBrandId)} onCancel={resetBrandForm} />
+          </fieldset>
+          {brandViewOnly ? (
+            <div className="flex items-end gap-2">
+              <button type="button" onClick={resetBrandForm} className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+                Đóng
+              </button>
+            </div>
+          ) : (
+            <SubmitButtons editing={Boolean(editingBrandId)} onCancel={resetBrandForm} />
+          )}
         </form>
       </CollapsibleSection>
       <CollapsibleSection title="Import thương hiệu hàng loạt" description="Upload CSV có cột: Tên, Mã, Logo URL, Thứ tự. Dữ liệu có dấu phẩy nên đặt trong dấu ngoặc kép." defaultOpen={false}>
@@ -148,6 +160,14 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
             <td className="px-4 py-3"><AdminBadge tone={brand.isActive ? 'green' : 'slate'}>{brand.isActive ? 'ACTIVE' : 'INACTIVE'}</AdminBadge></td>
             <td className="px-4 py-3">
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => viewBrand(brand)}
+                  title="Xem thông tin"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                >
+                  <Eye className="h-4 w-4" />
+                </button>
                 <button
                   type="button"
                   onClick={() => editBrand(brand)}

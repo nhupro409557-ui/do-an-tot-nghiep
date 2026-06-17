@@ -1,4 +1,4 @@
-import { Edit2, EyeOff, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { Edit2, Eye, EyeOff, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { AdminBadge, AdminPanel, AdminTable, Input, SearchBox, Select, SubmitButtons } from '../../admin-shell/components/AdminDashboardParts';
 
 type AdminSuppliersTabProps = Record<string, any>;
@@ -27,9 +27,11 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
     supplierCodeStatus,
     supplierForm,
     supplierFormOpen,
+    supplierViewOnly,
     supplierPage,
     supplierStatusFilter,
     supplierTotal,
+    viewSupplier,
   } = props;
 
   return (
@@ -56,13 +58,14 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
           <div className="w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-2xl">
             <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
               <div>
-                <h3 className="text-lg font-bold text-slate-950">{editingSupplierId ? 'Chỉnh sửa nhà cung cấp' : 'Thêm nhà cung cấp'}</h3>
+                <h3 className="text-lg font-bold text-slate-950">{supplierViewOnly ? 'Xem thông tin nhà cung cấp' : editingSupplierId ? 'Chỉnh sửa nhà cung cấp' : 'Thêm nhà cung cấp'}</h3>
               </div>
               <button type="button" onClick={() => { setSupplierFormOpen(false); resetSupplierForm(); }} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50">
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <form onSubmit={handleSupplierSubmit} className="grid gap-3 p-5 md:grid-cols-6">
+            <form onSubmit={supplierViewOnly ? (event) => event.preventDefault() : handleSupplierSubmit} className="grid gap-3 p-5 md:grid-cols-6">
+              <fieldset disabled={Boolean(supplierViewOnly)} className="contents">
               <Input label="Tên nhà cung cấp" value={supplierForm.name} required onChange={(value) => setSupplierForm({ ...supplierForm, name: value })} />
               <Input label="Mã nhà cung cấp" value={supplierForm.code} required onBlur={checkSupplierCodeOnBlur} onChange={(value) => { setSupplierCodeStatus('idle'); setSupplierForm({ ...supplierForm, code: value }); }} />
               <Input label="Người liên hệ" value={supplierForm.contactName} onChange={(value) => setSupplierForm({ ...supplierForm, contactName: value })} />
@@ -76,8 +79,17 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
               <div className="text-xs font-semibold text-slate-500 md:col-span-6">
                 {supplierCodeStatus === 'checking' ? 'Đang kiểm tra mã...' : supplierCodeStatus === 'available' ? 'Mã có thể dùng' : supplierCodeStatus === 'taken' ? 'Mã đã tồn tại' : ''}
               </div>
+              </fieldset>
               <div className="md:col-span-6">
-                <SubmitButtons editing={Boolean(editingSupplierId)} onCancel={() => { setSupplierFormOpen(false); resetSupplierForm(); }} />
+                {supplierViewOnly ? (
+                  <div className="flex items-end gap-2">
+                    <button type="button" onClick={() => { setSupplierFormOpen(false); resetSupplierForm(); }} className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+                      Đóng
+                    </button>
+                  </div>
+                ) : (
+                  <SubmitButtons editing={Boolean(editingSupplierId)} onCancel={() => { setSupplierFormOpen(false); resetSupplierForm(); }} />
+                )}
               </div>
             </form>
           </div>
@@ -115,6 +127,9 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
             <td className="px-4 py-3"><AdminBadge tone={supplier.isActive ? 'green' : 'slate'}>{supplier.isActive ? 'Đang hoạt động' : 'Đã ẩn'}</AdminBadge></td>
             <td className="px-4 py-3">
               <div className="flex items-center gap-2">
+                <button type="button" onClick={() => viewSupplier(supplier)} title="Xem thông tin" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900">
+                  <Eye className="h-4 w-4" />
+                </button>
                 <button type="button" onClick={() => editSupplier(supplier)} title="Sửa" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900">
                   <Edit2 className="h-4 w-4" />
                 </button>

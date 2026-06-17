@@ -16,6 +16,7 @@ interface ProductVariantsSectionProps {
   confirmDelete: (name: string, onDelete: () => Promise<any>) => Promise<any>;
   currency: { format: (value: number) => string };
   compactId: (id: string) => string;
+  readOnly?: boolean;
 }
 
 export default function ProductVariantsSection(props: ProductVariantsSectionProps) {
@@ -32,6 +33,7 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
     confirmDelete,
     currency,
     compactId,
+    readOnly = false,
   } = props;
 
   return (
@@ -51,7 +53,7 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
           <button
             type="button"
             onClick={addVariant}
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-red-200 bg-red-100 px-3 text-sm font-bold text-red-800 transition hover:bg-red-200"
+            className={`${readOnly ? 'hidden ' : ''}inline-flex h-9 items-center gap-2 rounded-md border border-red-200 bg-red-100 px-3 text-sm font-bold text-red-800 transition hover:bg-red-200`}
           >
             <Plus className="h-4 w-4" /> Thêm biến thể
           </button>
@@ -97,7 +99,7 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
               ảnh đại diện riêng.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={`${readOnly ? 'hidden ' : ''}flex flex-wrap items-center gap-2`}>
             <button
               type="button"
               onClick={() => {
@@ -254,6 +256,7 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
                         )}
                         <FileInput
                           label="Ảnh đại diện biến thể"
+                          className={readOnly ? 'hidden' : ''}
                           accept="image/*"
                           onFiles={async (files) => {
                             const urls = await uploadFiles(files, 'products');
@@ -264,6 +267,7 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
                       <div className="mt-2">
                         <FileInput
                           label="Bộ ảnh biến thể"
+                          className={readOnly ? 'hidden' : ''}
                           accept="image/*"
                           multiple
                           onFiles={async (files) => {
@@ -276,7 +280,7 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
                             });
                           }}
                         />
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <div className={`${readOnly ? 'hidden ' : ''}mt-2 flex flex-wrap items-center gap-2`}>
                           <button
                             type="button"
                             disabled={!sameColorImageSource}
@@ -338,7 +342,7 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
                                     ),
                                   })
                                 }
-                                className="relative h-10 w-10 overflow-hidden rounded-md border border-slate-200 bg-white"
+                                className={`${readOnly ? 'pointer-events-none ' : ''}relative h-10 w-10 overflow-hidden rounded-md border border-slate-200 bg-white`}
                                 title="Xóa ảnh khỏi bộ ảnh biến thể"
                               >
                                 <img
@@ -452,7 +456,7 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
                             });
                           }
                         }}
-                        className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                        className={`${readOnly ? 'hidden ' : ''}text-red-600 hover:text-red-800 disabled:opacity-50`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>

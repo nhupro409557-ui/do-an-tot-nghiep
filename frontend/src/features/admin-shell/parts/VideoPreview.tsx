@@ -7,7 +7,7 @@ export function VideoPreview({
 }: {
   title: string;
   url: string;
-  onRemove: () => void;
+  onRemove?: () => void;
 }) {
   const embedUrl = (() => {
     if (url.includes('youtube.com/embed/')) return url;
@@ -34,15 +34,17 @@ export function VideoPreview({
         ) : (
           <video src={url} controls className="max-h-72 w-full rounded-lg bg-black" />
         )}
-        <div className="mt-3 flex justify-end">
-          <button
-            type="button"
-            onClick={onRemove}
-            className="rounded-md bg-red-50 px-3 py-2 text-sm font-bold text-red-700"
-          >
-            Xóa video đã chọn
-          </button>
-        </div>
+        {onRemove && (
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={onRemove}
+              className="rounded-md bg-red-50 px-3 py-2 text-sm font-bold text-red-700"
+            >
+              Xóa video đã chọn
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

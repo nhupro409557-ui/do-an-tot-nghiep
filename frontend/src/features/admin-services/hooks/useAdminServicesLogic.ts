@@ -38,8 +38,10 @@ export function useAdminServicesLogic({ reloadCurrentTab }: UseAdminServicesLogi
   const [serviceForm, setServiceForm] = useState<ServiceForm>(initialServiceForm);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [serviceFormOpen, setServiceFormOpen] = useState(false);
+  const [serviceViewOnly, setServiceViewOnly] = useState(false);
 
   function editService(service: any) {
+    setServiceViewOnly(false);
     setEditingServiceId(service.id);
     setServiceFormOpen(true);
     setServiceForm({
@@ -57,14 +59,21 @@ export function useAdminServicesLogic({ reloadCurrentTab }: UseAdminServicesLogi
     });
   }
 
+  function viewService(service: any) {
+    editService(service);
+    setServiceViewOnly(true);
+  }
+
   function resetServiceForm() {
     setEditingServiceId(null);
+    setServiceViewOnly(false);
     setServiceFormOpen(false);
     setServiceForm(initialServiceForm);
   }
 
   async function handleServiceSubmit(event: FormEvent) {
     event.preventDefault();
+    if (serviceViewOnly) return;
     const currentEditingServiceId = editingServiceId;
     const payload = serviceForm.serviceType === 'PRODUCT_SERVICE'
       ? { ...serviceForm, priceMode: 'TIERED_AMOUNT', fixedPrice: 0, percentValue: 0, baseAmount: 0 }
@@ -124,8 +133,14 @@ export function useAdminServicesLogic({ reloadCurrentTab }: UseAdminServicesLogi
     editingServiceId,
     setEditingServiceId,
     serviceFormOpen,
-    setServiceFormOpen,
+    setServiceFormOpen: (value: boolean) => {
+      if (value) setServiceViewOnly(false);
+      setServiceFormOpen(value);
+    },
+    serviceViewOnly,
+    setServiceViewOnly,
     editService,
+    viewService,
     deleteService,
     deactivateService,
     reactivateService,

@@ -25,10 +25,12 @@ export function useAdminSuppliersLogic({ suppliers, reloadCurrentTab }: UseAdmin
   const [supplierCodeStatus, setSupplierCodeStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
   const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([]);
   const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
+  const [supplierViewOnly, setSupplierViewOnly] = useState(false);
   const [supplierFormOpen, setSupplierFormOpen] = useState(false);
 
   function resetSupplierForm() {
     setEditingSupplierId(null);
+    setSupplierViewOnly(false);
     setSupplierCodeStatus('idle');
     setSupplierForm(initialSupplierForm);
   }
@@ -70,6 +72,7 @@ export function useAdminSuppliersLogic({ suppliers, reloadCurrentTab }: UseAdmin
   }
 
   function editSupplier(supplier: any) {
+    setSupplierViewOnly(false);
     setEditingSupplierId(supplier.id);
     setSupplierForm({
       name: supplier.name || '',
@@ -84,6 +87,11 @@ export function useAdminSuppliersLogic({ suppliers, reloadCurrentTab }: UseAdmin
       isActive: supplier.isActive !== false,
     });
     setSupplierFormOpen(true);
+  }
+
+  function viewSupplier(supplier: any) {
+    editSupplier(supplier);
+    setSupplierViewOnly(true);
   }
 
   async function reactivateSupplier(supplier: any) {
@@ -120,6 +128,8 @@ export function useAdminSuppliersLogic({ suppliers, reloadCurrentTab }: UseAdmin
     selectedSupplierIds,
     setSelectedSupplierIds,
     editingSupplierId,
+    supplierViewOnly,
+    setSupplierViewOnly,
     setEditingSupplierId,
     supplierFormOpen,
     setSupplierFormOpen,
@@ -127,6 +137,7 @@ export function useAdminSuppliersLogic({ suppliers, reloadCurrentTab }: UseAdmin
     handleSupplierSubmit,
     checkSupplierCodeOnBlur,
     editSupplier,
+    viewSupplier,
     reactivateSupplier,
     hideSupplier,
     deleteSupplier,

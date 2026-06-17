@@ -18,6 +18,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
     categoryParentMigrationHint,
     categoryCloseSignal,
     categoryStatusFilter,
+    categoryViewOnly,
     categorySlugStatus,
     categorySlugTaken,
     categoryStatusOptions,
@@ -46,6 +47,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
     setQuery,
     slugifyText,
     uploadFiles,
+    viewCategory,
   } = props;
   return (
     <AdminPanel 
@@ -57,8 +59,9 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
         </>
       }
     >
-      <CollapsibleSection title={editingCategoryId ? 'Đang chỉnh sửa danh mục' : 'Thêm danh mục và form thông số'} description="Mở khi cần tạo danh mục cha, danh mục con hoặc cấu hình form thông số kỹ thuật cho danh mục cha." defaultOpen={false} forceOpen={Boolean(editingCategoryId)} forceOpenKey={editingCategoryId} closeSignal={categoryCloseSignal} onClose={resetCategoryForm}>
-        <form onSubmit={handleCategorySubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-5">
+      <CollapsibleSection title={categoryViewOnly ? 'Đang xem thông tin danh mục' : editingCategoryId ? 'Đang chỉnh sửa danh mục' : 'Thêm danh mục và form thông số'} description="Mở khi cần tạo danh mục cha, danh mục con hoặc cấu hình form thông số kỹ thuật cho danh mục cha." defaultOpen={false} forceOpen={Boolean(editingCategoryId)} forceOpenKey={editingCategoryId} closeSignal={categoryCloseSignal} onClose={resetCategoryForm}>
+        <form onSubmit={categoryViewOnly ? (event) => event.preventDefault() : handleCategorySubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-5">
+          <fieldset disabled={Boolean(categoryViewOnly)} className="contents">
           <Input label="Tên danh mục" value={categoryForm.name} required onChange={(value) => setCategoryForm({ ...categoryForm, name: value, slug: categoryForm.slug || slugifyText(value) })} />
           <Input label="Slug" value={categoryForm.slug} onBlur={checkCategorySlug} onChange={(value) => {
             setCategorySlugStatus('idle');
@@ -74,8 +77,12 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
               {categorySlugStatus === 'checking' ? 'Đang kiểm tra slug...' : categorySlugStatus === 'available' ? 'Slug có thể sử dụng.' : 'Slug này đã tồn tại. Hãy đổi slug trước khi lưu.'}
             </div>
           )}
-          <FileInput label="Icon/hình danh mục" accept="image/*" onFiles={async (files) => setCategoryForm({ ...categoryForm, iconUrl: (await uploadFiles(files, 'categories'))[0] || categoryForm.iconUrl })} />
-          <FileInput label="Banner danh mục" accept="image/*" onFiles={async (files) => setCategoryForm({ ...categoryForm, bannerUrl: (await uploadFiles(files, 'categories'))[0] || categoryForm.bannerUrl })} />
+          {!categoryViewOnly && (
+            <>
+              <FileInput label="Icon/hình danh mục" accept="image/*" onFiles={async (files) => setCategoryForm({ ...categoryForm, iconUrl: (await uploadFiles(files, 'categories'))[0] || categoryForm.iconUrl })} />
+              <FileInput label="Banner danh mục" accept="image/*" onFiles={async (files) => setCategoryForm({ ...categoryForm, bannerUrl: (await uploadFiles(files, 'categories'))[0] || categoryForm.bannerUrl })} />
+            </>
+          )}
           {(categoryForm.iconUrl || categoryForm.bannerUrl) && (
             <div className="grid gap-3 md:col-span-3 md:grid-cols-2">
               {categoryForm.iconUrl && <img src={categoryForm.iconUrl} alt="" className="h-24 w-full rounded-md border border-slate-200 object-cover" />}
@@ -87,6 +94,8 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
             <div className="grid gap-3 md:grid-cols-5">
               <Checkbox label="Theo IMEI của cha" checked={Boolean(categoryForm.inventoryPolicy.inheritImeiPolicy)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, inheritImeiPolicy: checked } })} />
               <Checkbox label="Quản lý IMEI" checked={Boolean(categoryForm.inventoryPolicy.trackImei)} disabled={Boolean(categoryForm.inventoryPolicy.inheritImeiPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, trackImei: checked } })} />
+              <Checkbox label="Theo serial của cha" checked={Boolean(categoryForm.inventoryPolicy.inheritSerialPolicy)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, inheritSerialPolicy: checked } })} />
+              <Checkbox label="Quản lý serial number" checked={Boolean(categoryForm.inventoryPolicy.trackSerialNumber)} disabled={Boolean(categoryForm.inventoryPolicy.inheritSerialPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, trackSerialNumber: checked } })} />
               <Checkbox label="Theo bảo hành của cha" checked={Boolean(categoryForm.warrantyPolicy.inheritWarrantyPolicy)} onChange={(checked) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, inheritWarrantyPolicy: checked } })} />
               <Checkbox label="Có bảo hành" checked={Boolean(categoryForm.warrantyPolicy.hasWarranty)} disabled={Boolean(categoryForm.warrantyPolicy.inheritWarrantyPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, hasWarranty: checked } })} />
               <Input label="Tháng bảo hành" type="number" value={Number(categoryForm.warrantyPolicy.warrantyMonths || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, warrantyMonths: Math.max(0, Number(value)) } })} />
@@ -100,7 +109,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
                 <span className="text-sm font-bold text-slate-700">Form thông số kỹ thuật</span>
                 <p className="mt-1 text-xs font-medium text-slate-500">{categoryForm.parentId ? 'Danh mục con kế thừa thông số chung từ danh mục cha và có thể thêm thông số đặc thù riêng.' : 'Danh mục cha lưu thông số chung. Danh mục con có thể cộng thêm thông số riêng nếu cần.'}</p>
               </div>
-              <button type="button" onClick={addSpecField} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 px-3 text-sm font-semibold text-slate-700 transition"><Plus className="h-4 w-4" /> Thêm trường</button>
+              {!categoryViewOnly && <button type="button" onClick={addSpecField} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 px-3 text-sm font-semibold text-slate-700 transition"><Plus className="h-4 w-4" /> Thêm trường</button>}
             </div>
             <div className="space-y-2">
               {categoryForm.specFields.map((field, index) => (
@@ -113,7 +122,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
                   <Checkbox label="Dùng cho biến thể" checked={field.variant} onChange={(checked) => patchSpecField(index, { variant: checked })} />
                   <Checkbox label="Dùng làm lọc" checked={Boolean(field.isFilterable)} onChange={(checked) => patchSpecField(index, { isFilterable: checked })} />
                   <Select label="Kiểu lọc" value={field.filterType || (field.type === 'number' ? 'range' : 'checkbox')} onChange={(value) => patchSpecField(index, { filterType: value })} options={[['checkbox', 'Checkbox'], ['range', 'Khoảng'], ['select', 'Danh sách']]} />
-                  <button type="button" onClick={() => setCategoryForm({ ...categoryForm, specFields: categoryForm.specFields.filter((_, i) => i !== index) })} className="mt-5 text-red-600"><Trash2 className="h-4 w-4" /></button>
+                  {!categoryViewOnly && <button type="button" onClick={() => setCategoryForm({ ...categoryForm, specFields: categoryForm.specFields.filter((_, i) => i !== index) })} className="mt-5 text-red-600"><Trash2 className="h-4 w-4" /></button>}
                 </div>
               ))}
               {categoryForm.specFields.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-500">Chưa có trường thông số. Hãy thêm các trường như màn hình, chip, pin, camera, chất liệu...</div>}
@@ -125,7 +134,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
                 <span className="text-sm font-bold text-slate-700">Bộ lọc hiển thị ngoài trang khách hàng</span>
                 <p className="mt-1 text-xs font-medium text-slate-500">Chọn các thuộc tính sẽ xuất hiện ở sidebar/bộ lọc của trang danh mục.</p>
               </div>
-              <button type="button" onClick={addCategoryFilter} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 px-3 text-sm font-semibold text-slate-700 transition"><Plus className="h-4 w-4" /> Thêm bộ lọc</button>
+              {!categoryViewOnly && <button type="button" onClick={addCategoryFilter} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 px-3 text-sm font-semibold text-slate-700 transition"><Plus className="h-4 w-4" /> Thêm bộ lọc</button>}
             </div>
             <div className="space-y-2">
               {derivedCategoryFilters.map((field, index) => {
@@ -138,14 +147,23 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
                     <Select label="Kiểu lọc" value={field.type} disabled={isAttributeFilter} onChange={(value) => manualIndex >= 0 && patchCategoryFilter(manualIndex, { type: value })} options={[['checkbox', 'Checkbox'], ['range', 'Khoảng giá/số'], ['select', 'Danh sách']]} />
                     <Checkbox label="Hiển thị" checked={field.enabled} disabled={isAttributeFilter} onChange={(checked) => manualIndex >= 0 && patchCategoryFilter(manualIndex, { enabled: checked })} />
                     <span className="mt-5 rounded-md bg-slate-200 px-2 py-1 text-center text-xs font-bold text-slate-700">{isAttributeFilter ? 'Từ thông số' : 'Thủ công'}</span>
-                    <button type="button" disabled={isAttributeFilter} onClick={() => manualIndex >= 0 && setCategoryForm({ ...categoryForm, filterConfig: categoryForm.filterConfig.filter((_, i) => i !== manualIndex) })} className="mt-5 text-red-600 disabled:text-slate-300"><Trash2 className="h-4 w-4" /></button>
+                    {!categoryViewOnly && <button type="button" disabled={isAttributeFilter} onClick={() => manualIndex >= 0 && setCategoryForm({ ...categoryForm, filterConfig: categoryForm.filterConfig.filter((_, i) => i !== manualIndex) })} className="mt-5 text-red-600 disabled:text-slate-300"><Trash2 className="h-4 w-4" /></button>}
                   </div>
                 );
               })}
               {derivedCategoryFilters.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-500">Chưa có bộ lọc. Đánh dấu "Dùng làm lọc" ở thông số kỹ thuật hoặc thêm bộ lọc thủ công.</div>}
             </div>
           </div>
-          <SubmitButtons editing={Boolean(editingCategoryId)} onCancel={resetCategoryForm} />
+          </fieldset>
+          {categoryViewOnly ? (
+            <div className="flex items-end gap-2">
+              <button type="button" onClick={resetCategoryForm} className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+                Đóng
+              </button>
+            </div>
+          ) : (
+            <SubmitButtons editing={Boolean(editingCategoryId)} onCancel={resetCategoryForm} />
+          )}
         </form>
       </CollapsibleSection>
       <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -237,6 +255,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
             key={category.id}
             category={category}
             level={category.parentId ? 1 : 0}
+            onView={() => viewCategory(category)}
             onEdit={() => editCategory(category)}
             onHide={() => hideCategory(category)}
             onDelete={() => confirmDelete(category.name, () => categoryApi.adminDeleteCategory(category.id))}

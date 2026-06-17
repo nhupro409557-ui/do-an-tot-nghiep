@@ -27,6 +27,18 @@ SQL_FILES = [
     "054_product_discontinued_status.sql",
     "055_product_inherited_visibility.sql",
     "056_suppliers.sql",
+    "057_inventory_receipt_lifecycle.sql",
+    "058_inventory_receipt_imei_workflow.sql",
+    "059_inventory_imei_enterprise_statuses.sql",
+    "060_product_serial_number_management.sql",
+    "061_product_imei_primary.sql",
+    "062_inventory_receipt_audit_actors.sql",
+    "063_inventory_receipt_reversal.sql",
+    "064_inventory_levels_moving_average_cost.sql",
+    "065_inventory_identifier_edit_requests.sql",
+    "066_inventory_stock_count_workflow.sql",
+    "067_inventory_adjustment_approval_workflow.sql",
+    "068_product_serial_number_product_scope_unique.sql",
 ]
 
 def split_sql_statements(sql_text):

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Bell, Edit2, KeyRound, LogOut, Menu, MoreHorizontal, Plus, RefreshCw, ShieldCheck, Trash2, RotateCcw, UserCircle, X } from 'lucide-react';
+import { Bell, Edit2, Eye, KeyRound, LogOut, Menu, MoreHorizontal, Plus, RefreshCw, ShieldCheck, Trash2, RotateCcw, UserCircle, X } from 'lucide-react';
 import { signOut } from '../../../services/authDb';
 import { resolveImageUrl } from '../../../services/productMedia';
 
@@ -198,11 +198,13 @@ export function SubmitButtons({
 }
 
 export function RowActions({
+  onView,
   onEdit,
   onHide,
   onDelete,
   onRestore,
 }: {
+  onView?: () => void;
   onEdit: () => void;
   onHide?: () => void;
   onDelete: () => void;
@@ -213,6 +215,16 @@ export function RowActions({
 
   return (
     <div className="relative flex items-center gap-2">
+      {onView && (
+        <button
+          type="button"
+          onClick={onView}
+          title="Xem thông tin"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+        >
+          <Eye className="h-4 w-4" />
+        </button>
+      )}
       <button
         type="button"
         onClick={onEdit}

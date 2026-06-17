@@ -1,11 +1,12 @@
 import React from 'react';
-import { Edit2, EyeOff, GripVertical, RotateCcw, Trash2 } from 'lucide-react';
+import { Edit2, Eye, EyeOff, GripVertical, RotateCcw, Trash2 } from 'lucide-react';
 import { AdminBadge } from '../../admin-shell/components/AdminDashboardParts';
 
 export function CategoryTableRow({
   category,
   level,
   onEdit,
+  onView,
   onHide,
   onDelete,
   onRestore,
@@ -14,6 +15,7 @@ export function CategoryTableRow({
   category: any;
   level: number;
   onEdit: () => void;
+  onView?: () => void;
   onHide: () => void;
   onDelete: () => void;
   onRestore?: () => void;
@@ -86,6 +88,16 @@ export function CategoryTableRow({
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
+          {onView && (
+            <button
+              type="button"
+              onClick={onView}
+              title="Xem thông tin"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+            >
+              <Eye className="h-4 w-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onEdit}

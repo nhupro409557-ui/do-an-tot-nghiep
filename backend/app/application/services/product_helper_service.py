@@ -40,12 +40,28 @@ def persisted_sales_config(sales_config: dict) -> dict:
         if not service_id:
             continue
         normalized_attached_services.append({"serviceId": service_id})
+    raw_imei_policy = sales_config.get("imeiPolicy") if isinstance(sales_config.get("imeiPolicy"), dict) else {}
+    imei_mode = str(raw_imei_policy.get("mode") or "CATEGORY").upper()
+    if imei_mode not in {"CATEGORY", "MANUAL"}:
+        imei_mode = "CATEGORY"
+    raw_serial_policy = sales_config.get("serialPolicy") if isinstance(sales_config.get("serialPolicy"), dict) else {}
+    serial_mode = str(raw_serial_policy.get("mode") or "CATEGORY").upper()
+    if serial_mode not in {"CATEGORY", "MANUAL"}:
+        serial_mode = "CATEGORY"
     return {
         "variantSpecKeys": sales_config.get("variantSpecKeys", []) or [],
         "targetProductStatus": normalize_target_product_status(sales_config.get("targetProductStatus")),
         "accessoryOffers": normalized_accessory_offers,
         "warrantyPolicy": sales_config.get("warrantyPolicy", {}) if isinstance(sales_config.get("warrantyPolicy"), dict) else {},
         "attachedServices": normalized_attached_services,
+        "imeiPolicy": {
+            "mode": imei_mode,
+            "trackImei": bool(raw_imei_policy.get("trackImei", False)),
+        },
+        "serialPolicy": {
+            "mode": serial_mode,
+            "trackSerialNumber": bool(raw_serial_policy.get("trackSerialNumber", False)),
+        },
         "minimumStock": max(0, int(sales_config.get("minimumStock") or 0)),
         "blockSaleWhenOutOfStock": bool(sales_config.get("blockSaleWhenOutOfStock", True)),
         "cycleCountDays": int(sales_config.get("cycleCountDays") or 30),
@@ -112,6 +128,10 @@ def extract_product_metadata(specifications: dict) -> tuple[dict, dict, dict]:
             sales_config["attachedServices"] = value
         elif key in {"_warrantyPolicy", "warrantyPolicy"}:
             sales_config["warrantyPolicy"] = value
+        elif key in {"_imeiPolicy", "imeiPolicy"}:
+            sales_config["imeiPolicy"] = value
+        elif key in {"_serialPolicy", "serialPolicy"}:
+            sales_config["serialPolicy"] = value
         elif key in {"_targetProductStatus", "targetProductStatus"}:
             sales_config["targetProductStatus"] = value
         elif key in {"_variantSpecKeys", "variantSpecKeys"}:

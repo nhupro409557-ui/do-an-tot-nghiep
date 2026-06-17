@@ -23,6 +23,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { ProductReviews } from './ProductReviews';
+import { ProductQuestions } from './ProductQuestions';
 import { SuggestedProducts } from './SuggestedProducts';
 import { useCart } from '../../../context/CartContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -554,7 +555,7 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
                 <Heart className={`h-5 w-5 ${liked ? 'fill-primary' : ''}`} />
                 <span>Yêu thích</span>
               </button>}
-              <a href="#product-reviews" className="flex h-10 items-center gap-1.5 rounded-lg border border-gray-200 px-3 font-bold text-gray-700 hover:text-primary hover:border-red-200 hover:bg-red-50/30 transition-all duration-200">
+              <a href="#product-questions" className="flex h-10 items-center gap-1.5 rounded-lg border border-gray-200 px-3 font-bold text-gray-700 hover:text-primary hover:border-red-200 hover:bg-red-50/30 transition-all duration-200">
                 <MessageCircle className="h-5 w-5" />
                 <span>Hỏi đáp</span>
               </a>
@@ -697,6 +698,7 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
           </main>
         </div>
         <SuggestedProducts currentProductId={product.id} category={product.categorySlug} />
+        <ProductQuestions productId={product.id} />
         <div id="product-reviews">
           <ProductReviews productId={product.id} />
         </div>

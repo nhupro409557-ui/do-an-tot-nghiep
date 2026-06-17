@@ -63,6 +63,7 @@ export function useAdminProductsLogic({
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [editingProductStatus, setEditingProductStatus] = useState<string | null>(null);
   const [productFormOpen, setProductFormOpen] = useState(false);
+  const [productViewOnly, setProductViewOnly] = useState(false);
   const [productCloseSignal, setProductCloseSignal] = useState(0);
 
   const selectedCategory = useMemo(() => categories.find((item) => item.id === productForm.categoryId), [categories, productForm.categoryId]);
@@ -150,6 +151,7 @@ export function useAdminProductsLogic({
     setProductFormOpen(false);
     setEditingProductId(null);
     setEditingProductStatus(null);
+    setProductViewOnly(false);
     setProductForm({ ...emptyProduct, images: [], specifications: {}, variants: [] });
     setAccessorySearch('');
     setAccessoryCategoryFilter('');
@@ -159,6 +161,7 @@ export function useAdminProductsLogic({
   function openNewProductForm() {
     setEditingProductId(null);
     setEditingProductStatus(null);
+    setProductViewOnly(false);
     setProductForm({ ...emptyProduct, images: [], specifications: {}, variants: [] });
     setAccessorySearch('');
     setAccessoryCategoryFilter('');
@@ -182,6 +185,8 @@ export function useAdminProductsLogic({
         serviceId: item.serviceId,
       })),
       _warrantyPolicy: productForm.warrantyPolicy,
+      _imeiPolicy: productForm.imeiPolicy,
+      _serialPolicy: productForm.serialPolicy,
       _targetProductStatus: productForm.status,
     };
     const sortedVariants = [...productForm.variants].sort((left, right) => {
@@ -345,6 +350,7 @@ export function useAdminProductsLogic({
   }
 
   function editProduct(product: any) {
+    setProductViewOnly(false);
     setEditingProductId(product.id);
     setEditingProductStatus(product.status || null);
     const rawVariantSpecKeys = Array.isArray(product.salesConfig?.variantSpecKeys)
@@ -357,6 +363,8 @@ export function useAdminProductsLogic({
     const accessoryOffers = product.salesConfig?.accessoryOffers || product.specifications?._accessoryOffers || [];
     const attachedServices = product.salesConfig?.attachedServices || product.specifications?._attachedServices || [];
     const warrantyPolicy = product.salesConfig?.warrantyPolicy || product.specifications?._warrantyPolicy || defaultWarrantyPolicy;
+    const savedImeiPolicy = product.salesConfig?.imeiPolicy || product.specifications?._imeiPolicy || { mode: 'CATEGORY', trackImei: false };
+    const savedSerialPolicy = product.salesConfig?.serialPolicy || product.specifications?._serialPolicy || { mode: 'CATEGORY', trackSerialNumber: false };
     const targetProductStatus = product.salesConfig?.targetProductStatus || product.specifications?._targetProductStatus || (
       ['DRAFT', 'REVISION_DRAFT', 'PENDING'].includes(product.status) ? 'ACTIVE' : product.status
     );
@@ -402,6 +410,14 @@ export function useAdminProductsLogic({
         percentValue: Number(item.percentValue || 0),
       })),
       warrantyPolicy: normalizeWarrantyPolicy(warrantyPolicy),
+      imeiPolicy: {
+        mode: savedImeiPolicy?.mode === 'MANUAL' ? 'MANUAL' : 'CATEGORY',
+        trackImei: Boolean(savedImeiPolicy?.trackImei),
+      },
+      serialPolicy: {
+        mode: savedSerialPolicy?.mode === 'MANUAL' ? 'MANUAL' : 'CATEGORY',
+        trackSerialNumber: Boolean(savedSerialPolicy?.trackSerialNumber),
+      },
       updatedAt: product.updatedAt || '',
       version: Number(product.version || 1),
       variantSpecKeys: savedVariantSpecKeys,
@@ -442,6 +458,11 @@ export function useAdminProductsLogic({
       isFlashSale: Boolean(product.isFlashSale),
     });
     setProductFormOpen(true);
+  }
+
+  function viewProduct(product: any) {
+    editProduct(product);
+    setProductViewOnly(true);
   }
 
   async function reactivateProduct(product: any) {
@@ -645,6 +666,8 @@ export function useAdminProductsLogic({
     setEditingProductId,
     productFormOpen,
     setProductFormOpen,
+    productViewOnly,
+    setProductViewOnly,
     openNewProductForm,
     productCloseSignal,
     setProductCloseSignal,
@@ -664,6 +687,7 @@ export function useAdminProductsLogic({
     productPayload,
     handleProductSubmit,
     editProduct,
+    viewProduct,
     reactivateProduct,
     hideProduct,
     deleteProduct,

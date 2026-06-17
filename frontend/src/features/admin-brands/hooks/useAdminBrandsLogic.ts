@@ -26,10 +26,12 @@ export function useAdminBrandsLogic({ brands, reloadCurrentTab }: UseAdminBrands
   const [activeBrandImportJob, setActiveBrandImportJob] = useState<any | null>(null);
   const [selectedBrandIds, setSelectedBrandIds] = useState<string[]>([]);
   const [editingBrandId, setEditingBrandId] = useState<string | null>(null);
+  const [brandViewOnly, setBrandViewOnly] = useState(false);
   const [brandCloseSignal, setBrandCloseSignal] = useState(0);
 
   function resetBrandForm() {
     setEditingBrandId(null);
+    setBrandViewOnly(false);
     setBrandCodeStatus('idle');
     setBrandForm(initialBrandForm);
     setBrandCloseSignal((value) => value + 1);
@@ -95,6 +97,7 @@ export function useAdminBrandsLogic({ brands, reloadCurrentTab }: UseAdminBrands
   }
 
   function editBrand(brand: any) {
+    setBrandViewOnly(false);
     setEditingBrandId(brand.id);
     setBrandForm({
       name: brand.name || '',
@@ -106,6 +109,11 @@ export function useAdminBrandsLogic({ brands, reloadCurrentTab }: UseAdminBrands
       isActive: brand.isActive !== false,
       landingTitle: brand.landingTitle || '',
     });
+  }
+
+  function viewBrand(brand: any) {
+    editBrand(brand);
+    setBrandViewOnly(true);
   }
 
   async function reactivateBrand(brand: any) {
@@ -143,6 +151,8 @@ export function useAdminBrandsLogic({ brands, reloadCurrentTab }: UseAdminBrands
     setSelectedBrandIds,
     editingBrandId,
     setEditingBrandId,
+    brandViewOnly,
+    setBrandViewOnly,
     brandCloseSignal,
     setBrandCloseSignal,
     resetBrandForm,
@@ -150,6 +160,7 @@ export function useAdminBrandsLogic({ brands, reloadCurrentTab }: UseAdminBrands
     checkBrandCodeOnBlur,
     handleBrandImportFile,
     editBrand,
+    viewBrand,
     reactivateBrand,
     hideBrand,
     bulkUpdateBrandStatus,

@@ -10,6 +10,7 @@ import * as adminConfig from './AdminDashboardConfig';
 
 const InventoryDialog = React.lazy(() => import('../modals/InventoryDialog'));
 const ProductPreviewModal = React.lazy(() => import('../modals/ProductPreviewModal'));
+const InfoViewModal = React.lazy(() => import('../modals/InfoViewModal'));
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -66,6 +67,11 @@ export default function AdminDashboard() {
       {admin.previewProduct && (
         <Suspense fallback={null}>
           <ProductPreviewModal {...sharedProps} />
+        </Suspense>
+      )}
+      {admin.infoView && (
+        <Suspense fallback={null}>
+          <InfoViewModal infoView={admin.infoView} setInfoView={admin.setInfoView} />
         </Suspense>
       )}
     </>

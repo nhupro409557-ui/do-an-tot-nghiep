@@ -1,5 +1,40 @@
 # Product Management Notes
 
+## Update 2026-06-16 cleanup stale REV products from inventory
+
+- Dọn dữ liệu local còn sót từ luồng duyệt revision cũ: các sản phẩm SKU `REV-%` trạng thái `MERGED`/`ARCHIVED` không còn được giữ trong bảng `products` như sản phẩm nghiệp vụ hiện hành.
+- Trước khi xóa đã xác nhận các bản `REV-%` không có đơn hàng, bundle/accessory, reservation hoặc transaction bán hàng tham chiếu.
+- Việc dọn dữ liệu loại bỏ các bản revision khỏi tồn kho khởi tạo để phiếu nhập kho và báo cáo tồn kho chỉ tính sản phẩm thật.
+- Lưu ý nghiệp vụ vẫn giữ nguyên theo cập nhật 2026-06-08: lịch sử duyệt revision nằm ở audit trail, không dùng sản phẩm `REV-%` làm bản ghi còn thấy trong catalog/tồn kho.
+
+## Update 2026-06-16 inventory receipt guard for product lifecycle
+
+- Module nhập kho nay kiểm tra vòng đời sản phẩm trước khi cho tạo/sửa phiếu nhập: chỉ sản phẩm `ACTIVE`, chưa xóa và không bị ẩn mới được nhập.
+- Sản phẩm đang ngừng kinh doanh (`DISCONTINUED`) hoặc có bản chỉnh sửa `REVISION_DRAFT`/`PENDING` theo `parent_product_id` sẽ bị chặn nhập kho cho đến khi được duyệt hoặc hủy bản chỉnh sửa.
+- Ràng buộc này giúp tránh nhập tồn cho dữ liệu sản phẩm chưa ổn định hoặc không còn kinh doanh, đồng bộ với quy tắc revision không được xem như sản phẩm thật.
+
+## Update 2026-06-15 storefront product detail Q&A section
+
+- Thêm component `ProductQuestions` cho trang chi tiết sản phẩm để hiển thị và gửi hỏi đáp sản phẩm bằng các API công khai `/products/{product_id}/questions` đã có.
+- Q&A hỗ trợ mô hình 2 tầng: câu hỏi gốc và phản hồi, có optimistic update khi gửi, trạng thái lỗi khi gửi thất bại và thao tác thu hồi nội dung qua API hiện có.
+- Nút `Hỏi đáp` trên header chi tiết sản phẩm nay trỏ tới anchor `#product-questions` thay vì khu đánh giá.
+- Verification: `npm run lint` trong `frontend` pass.
+
+## Update 2026-06-13 primary and supplemental IMEI support
+
+- Bổ sung mô hình IMEI chính/phụ ở tầng tồn kho: một sản phẩm hoặc biến thể có thể có nhiều IMEI, trong đó đúng một IMEI được đánh dấu chính.
+- Khi nhập kho nhiều IMEI, hệ thống lấy IMEI đầu tiên làm IMEI chính nếu sản phẩm/biến thể chưa có IMEI chính; các IMEI còn lại là IMEI bổ sung.
+- Bảng tồn kho admin hiển thị `IMEI chính`, số IMEI phụ và tổng trạng thái IMEI để quản trị viên kiểm tra nhanh.
+- Migration liên quan: `backend/migrations/061_product_imei_primary.sql`.
+- Verification: `python -m py_compile backend/app/application/services/inventory_service.py backend/app/infrastructure/database/repositories/inventory_repo.py backend/app/api/schemas/admin/inventory.py backend/scripts/run_migrations.py` pass; `npm run lint` trong `frontend` pass.
+
+## Update 2026-06-13 product-level serial number policy
+
+- Bổ sung cấu hình `Quản lý serial number` trong form sản phẩm, song song với `Quản lý IMEI`.
+- Cấu hình được lưu trong `products.sales_config.serialPolicy` với hai chế độ `CATEGORY` và `MANUAL`; khi `MANUAL`, sản phẩm có thể tự bật/tắt quản lý serial number độc lập với danh mục.
+- Sản phẩm hiện có thể rơi vào các tổ hợp: quản lý cả IMEI và serial number, chỉ quản lý IMEI, chỉ quản lý serial number hoặc không quản lý mã định danh.
+- Verification: `python -m py_compile backend/app/application/services/inventory_service.py backend/app/infrastructure/database/repositories/inventory_repo.py backend/app/api/schemas/admin/inventory.py backend/scripts/run_migrations.py` pass; `npm run lint` trong `frontend` pass.
+
 ## Update 2026-06-10 iPad A16 Wifi video content draft
 
 - Tạo script `backend/scripts/seed_ipad_a16_wifi_video_content.py` để tạo hoặc cập nhật nội dung video nháp cho sản phẩm `iPad A16 Wifi` (SKU `IPADA16`).
@@ -127,6 +162,12 @@
 
 - Trong form thêm/sửa sản phẩm, khi đã chọn `Danh mục cha`, dropdown `Danh mục con` chỉ hiển thị các danh mục con thuộc cha đó.
 - Nếu chưa chọn cha mà admin chọn trực tiếp một danh mục con, frontend tự gán `categoryId` theo `parentId` của danh mục con và cập nhật mã danh mục cha tương ứng.
+
+## Update 2026-06-12 product-level IMEI policy
+
+- Form quản lý sản phẩm có thêm cấu hình `Quản lý IMEI` với hai chế độ: `Theo danh mục` và `Tự chọn cho sản phẩm`.
+- Cấu hình được lưu vào `products.sales_config.imeiPolicy`; khi `mode = CATEGORY`, luồng tồn kho giữ nguyên cách xác định theo `categories.inventory_policy`.
+- Khi `mode = MANUAL`, backend tồn kho ưu tiên `imeiPolicy.trackImei` của sản phẩm để quyết định phiếu nhập có bắt buộc nhập IMEI hay không.
 - Khi đổi danh mục cha sang cha khác, danh mục con đang chọn sẽ được giữ lại chỉ khi vẫn thuộc cha mới; nếu không, form tự clear danh mục con và reset thông số/biến thể theo hành vi đổi danh mục cha hiện có.
 
 ## Update 2026-06-08 simplify product draft approval flow

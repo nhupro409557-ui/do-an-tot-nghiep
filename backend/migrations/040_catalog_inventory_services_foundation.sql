@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS product_imeis (
     product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     variant_id UUID REFERENCES product_variants(id) ON DELETE CASCADE,
     imei VARCHAR(80) NOT NULL UNIQUE,
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
     status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK',
     source_reference VARCHAR(120),
     received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

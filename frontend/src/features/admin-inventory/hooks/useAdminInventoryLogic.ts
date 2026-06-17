@@ -12,12 +12,13 @@ type InventoryReceiptLineDraft = {
   unitCost: number;
   reason: string;
   note: string;
-  imeis: string;
 };
 
 type InventoryDraft = {
   mode: 'RECEIPT';
+  editingReferenceCode?: string;
   referenceCode: string;
+  receiptReasonCode: string;
   supplierId: string;
   supplierName: string;
   note: string;
@@ -56,15 +57,7 @@ function newReceiptLine(product?: any, variant?: any): InventoryReceiptLineDraft
     unitCost: 0,
     reason: 'Nhập kho',
     note: '',
-    imeis: '',
   };
-}
-
-function splitImeis(value: string) {
-  return value
-    .split(/[\n,]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 function normalizeText(value: string) {
@@ -76,7 +69,15 @@ function normalizeText(value: string) {
 
 export function useAdminInventoryLogic({ products, categories, suppliers, query, reloadCurrentTab }: UseAdminInventoryLogicParams) {
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraft | null>(null);
+  const [inventoryLevels, setInventoryLevels] = useState<any[]>([]);
   const [inventoryReceipts, setInventoryReceipts] = useState<any[]>([]);
+  const [receiptStatusFilter, setReceiptStatusFilter] = useState('');
+  const [imeiReceipt, setImeiReceipt] = useState<any | null>(null);
+
+  async function loadInventoryLevels(search = query) {
+    const rows = await adminInventoryApi.adminListLevels(search.trim()).catch(() => []);
+    setInventoryLevels(Array.isArray(rows) ? rows : []);
+  }
 
   async function loadInventoryReceipts(search = query) {
     const rows = await adminInventoryApi.adminListReceipts(search.trim()).catch(() => []);
@@ -92,6 +93,11 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
   }
 
   function categoryTracksImei(product: any) {
+    const salesConfig = product?.salesConfig || {};
+    const imeiPolicy = salesConfig.imeiPolicy || {};
+    if (String(imeiPolicy.mode || 'CATEGORY').toUpperCase() === 'MANUAL') {
+      return Boolean(imeiPolicy.trackImei);
+    }
     const child = categories.find((category: any) => String(category.id) === String(product?.subcategoryId));
     const parentId = product?.categoryId || child?.parentId;
     const parent = categories.find((category: any) => String(category.id) === String(parentId));
@@ -103,10 +109,58 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     return Boolean(parentPolicy.trackImei);
   }
 
+  function categoryTracksSerialNumber(product: any) {
+    const salesConfig = product?.salesConfig || {};
+    const serialPolicy = salesConfig.serialPolicy || {};
+    if (String(serialPolicy.mode || 'CATEGORY').toUpperCase() === 'MANUAL') {
+      return Boolean(serialPolicy.trackSerialNumber);
+    }
+    const child = categories.find((category: any) => String(category.id) === String(product?.subcategoryId));
+    const parentId = product?.categoryId || child?.parentId;
+    const parent = categories.find((category: any) => String(category.id) === String(parentId));
+    const childPolicy = child?.inventoryPolicy || {};
+    const parentPolicy = parent?.inventoryPolicy || {};
+    if (child && childPolicy.inheritSerialPolicy === false) {
+      return Boolean(childPolicy.trackSerialNumber);
+    }
+    return Boolean(parentPolicy.trackSerialNumber);
+  }
+
+  function receiptProductBlockReason(product: any) {
+    const status = String(product?.status || '').toUpperCase();
+    if (status && status !== 'ACTIVE') {
+      return `Sản phẩm đang ở trạng thái ${status}, không được nhập kho.`;
+    }
+    if (product?.hiddenByCategory || product?.hidden_by_category || product?.hiddenByBrand || product?.hidden_by_brand) {
+      return 'Sản phẩm đang bị ẩn theo danh mục hoặc thương hiệu, không được nhập kho.';
+    }
+    return '';
+  }
+
+  function receiptVariantAvailable(variant: any) {
+    const status = String(variant?.status || 'active').toLowerCase();
+    return variant?.deletedAt == null
+      && variant?.deleted_at == null
+      && variant?.isActive !== false
+      && !['deleted', 'archived'].includes(status);
+  }
+
   function openReceiptDialog(product?: any, variant?: any) {
+    if (product) {
+      const blockedReason = receiptProductBlockReason(product);
+      if (blockedReason) {
+        window.alert(blockedReason);
+        return;
+      }
+    }
+    if (variant && !receiptVariantAvailable(variant)) {
+      window.alert('Biến thể đã ngừng hoạt động hoặc bị xóa, không được nhập kho.');
+      return;
+    }
     setInventoryDraft({
       mode: 'RECEIPT',
       referenceCode: generateReceiptCode(),
+      receiptReasonCode: 'NK_MUA',
       supplierId: '',
       supplierName: '',
       note: '',
@@ -118,6 +172,38 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
       selectedProductId: product?.id ? String(product.id) : '',
       selectedVariantIds: variant?.id ? [String(variant.id)] : [],
       lines: [newReceiptLine(product, variant)],
+    });
+  }
+
+  function openReceiptEditDialog(receipt: any) {
+    const supplier = suppliers.find((item: any) => String(item.name || '').trim() === String(receipt?.supplierName || '').trim());
+    const lines = Array.isArray(receipt?.lines) && receipt.lines.length > 0
+      ? receipt.lines.map((line: any) => ({
+          id: String(line.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+          productId: line.productId ? String(line.productId) : '',
+          variantId: line.variantId ? String(line.variantId) : '',
+          quantity: Math.max(1, Number(line.quantity || line.plannedQuantity || 1)),
+          unitCost: Number(line.unitCost || 0),
+          reason: line.reason || 'Nhập kho',
+          note: line.note || '',
+        }))
+      : [newReceiptLine()];
+    setInventoryDraft({
+      mode: 'RECEIPT',
+      editingReferenceCode: String(receipt?.referenceCode || ''),
+      referenceCode: String(receipt?.referenceCode || ''),
+      receiptReasonCode: String(receipt?.receiptReasonCode || 'NK_MUA'),
+      supplierId: supplier?.id ? String(supplier.id) : '',
+      supplierName: String(receipt?.supplierName || ''),
+      note: String(receipt?.note || ''),
+      locationCode: String(receipt?.locationCode || DEFAULT_LOCATION_CODE),
+      locationName: String(receipt?.locationName || DEFAULT_LOCATION_NAME),
+      pickerCategoryId: '',
+      pickerBrandId: '',
+      pickerSearch: '',
+      selectedProductId: '',
+      selectedVariantIds: [],
+      lines,
     });
   }
 
@@ -135,7 +221,6 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
           const next = { ...line, ...patch };
           if (patch.productId !== undefined) {
             next.variantId = '';
-            next.imeis = '';
           }
           return next;
         }),
@@ -156,6 +241,7 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
 
   function productMatchesReceiptFilters(product: any, draft = inventoryDraft) {
     if (!draft) return true;
+    if (receiptProductBlockReason(product)) return false;
     if (draft.pickerCategoryId) {
       const matchesCategory = String(product.categoryId) === draft.pickerCategoryId || String(product.subcategoryId) === draft.pickerCategoryId;
       const matchesChild = categories.some((category: any) => String(category.parentId) === draft.pickerCategoryId && (String(product.categoryId) === String(category.id) || String(product.subcategoryId) === String(category.id)));
@@ -171,6 +257,8 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
   }
 
   function selectReceiptPickerProduct(productId: string) {
+    const product = resolveProduct(productId);
+    if (product && receiptProductBlockReason(product)) return;
     setInventoryDraft((current) => current ? { ...current, selectedProductId: productId, selectedVariantIds: [] } : current);
   }
 
@@ -195,7 +283,8 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     setInventoryDraft((current) => {
       if (!current?.selectedProductId) return current;
       const product = resolveProduct(current.selectedProductId);
-      const variantIds = (product?.variants || []).map((variant: any) => String(variant.id));
+      if (!product || receiptProductBlockReason(product)) return current;
+      const variantIds = (product?.variants || []).filter(receiptVariantAvailable).map((variant: any) => String(variant.id));
       return { ...current, selectedVariantIds: variantIds };
     });
   }
@@ -205,9 +294,10 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
       if (!current?.selectedProductId) return current;
       const product = resolveProduct(current.selectedProductId);
       if (!product) return current;
+      if (receiptProductBlockReason(product)) return current;
       const variants = product.variants || [];
       const selectedVariants = variants.length > 0
-        ? variants.filter((variant: any) => current.selectedVariantIds.includes(String(variant.id)))
+        ? variants.filter((variant: any) => receiptVariantAvailable(variant) && current.selectedVariantIds.includes(String(variant.id)))
         : [undefined];
       if (variants.length > 0 && selectedVariants.length === 0) return current;
 
@@ -225,15 +315,16 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     });
   }
 
-  async function submitInventoryDraft(event: FormEvent) {
-    event.preventDefault();
+  async function submitInventoryDraft(event?: FormEvent) {
+    event?.preventDefault();
     if (!inventoryDraft) return;
     if (!inventoryDraft.referenceCode.trim()) {
       window.alert('Vui lòng nhập mã phiếu nhập.');
       return;
     }
-    if (!inventoryDraft.supplierName.trim()) {
-      window.alert('Vui lòng chọn nhà cung cấp.');
+
+    if (inventoryDraft.receiptReasonCode === 'NK_KHAC' && !inventoryDraft.note.trim()) {
+      window.alert('Nhập khác phải ghi rõ lý do trong ghi chú chung.');
       return;
     }
 
@@ -244,23 +335,25 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
         window.alert(`Dòng ${index + 1}: vui lòng chọn sản phẩm.`);
         return;
       }
+      const blockedReason = receiptProductBlockReason(product);
+      if (blockedReason) {
+        window.alert(`Dòng ${index + 1}: ${blockedReason}`);
+        return;
+      }
       const variants = product.variants || [];
       if (variants.length > 1 && !line.variantId) {
         window.alert(`Dòng ${index + 1}: sản phẩm có nhiều biến thể, vui lòng chọn biến thể.`);
         return;
       }
+      if (line.variantId) {
+        const variant = variants.find((item: any) => String(item.id) === String(line.variantId));
+        if (!variant || !receiptVariantAvailable(variant)) {
+          window.alert(`Dòng ${index + 1}: biến thể đã ngừng hoạt động hoặc bị xóa, không được nhập kho.`);
+          return;
+        }
+      }
       if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
         window.alert(`Dòng ${index + 1}: số lượng nhập phải lớn hơn 0.`);
-        return;
-      }
-      const tracksImei = categoryTracksImei(product);
-      const imeis = splitImeis(line.imeis);
-      if (tracksImei && imeis.length !== line.quantity) {
-        window.alert(`Dòng ${index + 1}: sản phẩm cần đúng ${line.quantity} IMEI.`);
-        return;
-      }
-      if (!tracksImei && imeis.length > 0) {
-        window.alert(`Dòng ${index + 1}: sản phẩm này không bật quản lý IMEI.`);
         return;
       }
       payloadLines.push({
@@ -270,19 +363,68 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
         unitCost: Number.isFinite(line.unitCost) && line.unitCost > 0 ? line.unitCost : null,
         reason: line.reason || 'Nhập kho',
         note: line.note || null,
-        imeis,
       });
     }
 
-    await adminInventoryApi.adminCreateReceipt({
+    const payload = {
       referenceCode: inventoryDraft.referenceCode.trim(),
-      supplierName: inventoryDraft.supplierName.trim(),
+      receiptReasonCode: inventoryDraft.receiptReasonCode || 'NK_MUA',
+      supplierName: inventoryDraft.supplierName.trim() || null,
       note: inventoryDraft.note || null,
-      locationCode: DEFAULT_LOCATION_CODE,
-      locationName: DEFAULT_LOCATION_NAME,
+      locationCode: inventoryDraft.locationCode || DEFAULT_LOCATION_CODE,
+      locationName: inventoryDraft.locationName || DEFAULT_LOCATION_NAME,
+      status: 'DRAFT',
       lines: payloadLines,
-    });
+    };
+    if (inventoryDraft.editingReferenceCode) {
+      await adminInventoryApi.adminUpdateReceipt(inventoryDraft.editingReferenceCode, payload);
+    } else {
+      await adminInventoryApi.adminCreateReceipt(payload);
+    }
     setInventoryDraft(null);
+    await loadInventoryReceipts();
+    await reloadCurrentTab();
+  }
+
+  async function updateReceiptStatus(receipt: any, status: string) {
+    const cancelReason = status === 'CANCELLED'
+      ? window.prompt('Nhập lý do hủy phiếu nhập kho:')?.trim()
+      : undefined;
+    if (status === 'CANCELLED' && !cancelReason) return;
+    await adminInventoryApi.adminUpdateReceiptStatus(receipt.referenceCode, { status, cancelReason });
+    await loadInventoryReceipts();
+    await reloadCurrentTab();
+  }
+
+  function openReceiptImeiDialog(receipt: any) {
+    setImeiReceipt(receipt);
+  }
+
+  async function submitReceiptImeis(referenceCode: string, lines: { lineId: string; imeis: string[]; serialNumbers?: string[]; acceptShortage?: boolean; shortageReason?: string | null }[], shortageReason: string) {
+    const result = await adminInventoryApi.adminSubmitReceiptImeis(referenceCode, { lines, shortageReason: shortageReason || null });
+    setImeiReceipt(null);
+    await loadInventoryReceipts();
+    await reloadCurrentTab();
+    return result;
+  }
+
+  async function reverseReceipt(receipt: any) {
+    const reason = window.prompt('Nhập lý do đảo phiếu nhập kho:')?.trim();
+    if (!reason) return;
+    const note = window.prompt('Ghi chú đảo phiếu nhập kho (không bắt buộc):')?.trim() || null;
+    await adminInventoryApi.adminReverseReceipt(receipt.referenceCode, { reason, note });
+    await loadInventoryReceipts();
+    await reloadCurrentTab();
+  }
+
+  async function deleteDraftReceipt(receipt: any) {
+    if ((receipt.status || 'COMPLETED') !== 'DRAFT') {
+      window.alert('Chỉ có thể xóa phiếu nhập còn ở trạng thái nháp.');
+      return;
+    }
+    const confirmed = window.confirm(`Xóa phiếu nháp ${receipt.referenceCode}? Thao tác này không thể hoàn tác.`);
+    if (!confirmed) return;
+    await adminInventoryApi.adminDeleteReceipt(receipt.referenceCode);
     await loadInventoryReceipts();
     await reloadCurrentTab();
   }
@@ -301,19 +443,27 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
 
   return {
     inventoryDraft,
+    inventoryLevels,
     inventoryReceipts,
+    receiptStatusFilter,
+    setReceiptStatusFilter,
+    imeiReceipt,
+    loadInventoryLevels,
     setInventoryReceipts,
     setInventoryDraft,
+    setImeiReceipt,
     loadInventoryReceipts,
     suppliers,
     openInventoryDialog,
     openReceiptDialog,
+    openReceiptEditDialog,
     addReceiptLine,
     removeReceiptLine,
     updateReceiptLine,
     resolveProduct,
     resolveVariant,
     categoryTracksImei,
+    categoryTracksSerialNumber,
     productMatchesReceiptFilters,
     selectReceiptPickerProduct,
     toggleReceiptVariantSelection,
@@ -321,6 +471,11 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     selectAllPickerVariants,
     addSelectedVariantsToReceipt,
     submitInventoryDraft,
+    updateReceiptStatus,
+    reverseReceipt,
+    deleteDraftReceipt,
+    openReceiptImeiDialog,
+    submitReceiptImeis,
     exportInventorySnapshot,
   };
 }

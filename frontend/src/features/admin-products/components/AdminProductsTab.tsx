@@ -21,6 +21,7 @@ export default function AdminProductsTab(props: AdminProductsTabProps) {
     setQuery,
 
     editingProductId,
+    productViewOnly,
     productCloseSignal,
     productFormOpen,
     setProductFormOpen,
@@ -91,7 +92,7 @@ export default function AdminProductsTab(props: AdminProductsTabProps) {
       }
     >
       <CollapsibleSection
-        title={editingProductId ? 'Đang chỉnh sửa sản phẩm' : 'Thêm sản phẩm mới'}
+        title={productViewOnly ? 'Đang xem thông tin sản phẩm' : editingProductId ? 'Đang chỉnh sửa sản phẩm' : 'Thêm sản phẩm mới'}
         description="Mở popup khi cần nhập sản phẩm, media, thông số và biến thể. Bảng sản phẩm bên dưới vẫn luôn sẵn sàng để tìm kiếm."
         defaultOpen={false}
         closeSignal={productCloseSignal}

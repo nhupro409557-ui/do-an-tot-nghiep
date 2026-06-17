@@ -74,6 +74,7 @@ export function useAdminLogic() {
   const [contentItems, setContentItems] = useState<any[]>([]);
   const [banners, setBanners] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [infoView, setInfoView] = useState<any | null>(null);
 
   const orderLogic = useAdminOrdersLogic({ setOrders });
   const serviceLogic = useAdminServicesLogic({
@@ -145,6 +146,8 @@ export function useAdminLogic() {
     setCategoryForm,
     editingCategoryId,
     setEditingCategoryId,
+    categoryViewOnly,
+    setCategoryViewOnly,
     categorySlugStatus,
     setCategorySlugStatus,
     categoryMetrics,
@@ -172,6 +175,7 @@ export function useAdminLogic() {
     resetCategoryForm,
     handleCategorySubmit,
     editCategory,
+    viewCategory,
     hideCategory,
     reactivateCategory,
     reorderCategory,
@@ -207,6 +211,8 @@ export function useAdminLogic() {
     setEditingProductId,
     productFormOpen,
     setProductFormOpen,
+    productViewOnly,
+    setProductViewOnly,
     openNewProductForm,
     productCloseSignal,
     setProductCloseSignal,
@@ -226,6 +232,7 @@ export function useAdminLogic() {
     productPayload,
     handleProductSubmit,
     editProduct,
+    viewProduct,
     reactivateProduct,
     hideProduct,
     deleteProduct,
@@ -281,13 +288,21 @@ export function useAdminLogic() {
   }, [vouchers, query]);
   const filteredCustomers = useMemo(() => customers, [customers]);
   const filteredInventory = useMemo(() => {
+    if (inventoryLogic.inventoryLevels.length > 0) {
+      return inventoryLogic.inventoryLevels.filter((row: any) => {
+        const product = products.find((item: any) => String(item.id) === String(row.productId));
+        const mc = !inventoryCategoryFilter || String(product?.categoryId) === inventoryCategoryFilter || String(product?.subcategoryId) === inventoryCategoryFilter;
+        const mb = !inventoryBrandFilter || String(product?.brandId) === inventoryBrandFilter || (product?.brand && brands.find(b => String(b.id) === inventoryBrandFilter)?.name === product.brand);
+        return mc && mb;
+      });
+    }
     return products.filter((product) => {
       const ms = matchesSearch(product, query, ['name', 'sku', 'brand', 'categoryName', 'status']);
       const mc = !inventoryCategoryFilter || String(product.categoryId) === inventoryCategoryFilter || String(product.subcategoryId) === inventoryCategoryFilter;
       const mb = !inventoryBrandFilter || String(product.brandId) === inventoryBrandFilter || (product.brand && brands.find(b => String(b.id) === inventoryBrandFilter)?.name === product.brand);
       return ms && mc && mb;
     });
-  }, [products, query, inventoryCategoryFilter, inventoryBrandFilter, brands]);
+  }, [inventoryLogic.inventoryLevels, products, query, inventoryCategoryFilter, inventoryBrandFilter, brands]);
   const filteredReviews = useMemo(() => {
     return reviews.filter((review) => {
       const matchesQuery = matchesSearch(review, query, ['productName', 'userName', 'status', 'comment', 'moderationNote', 'shopReply', 'flaggedReason', 'spamReason', 'orderOutcome']);
@@ -641,7 +656,7 @@ export function useAdminLogic() {
       } else if (targetTab === 'customers') {
         await Promise.all([loadCustomers(), loadVouchers()]);
       } else if (targetTab === 'inventory') {
-        await Promise.all([loadProducts(), loadCategories(), loadBrands(), loadSuppliers()]);
+        await Promise.all([loadProducts(), loadCategories(), loadBrands(), loadSuppliers(), inventoryLogic.loadInventoryLevels(query)]);
       } else if (targetTab === 'inventoryReceipts') {
         await Promise.all([loadProducts(), loadCategories(), loadBrands(), loadSuppliers(), inventoryLogic.loadInventoryReceipts(query)]);
       } else if (targetTab === 'reviews') {
@@ -728,6 +743,8 @@ export function useAdminLogic() {
     sidebarOpen,
     setSidebarOpen,
     busy,
+    infoView,
+    setInfoView,
     setBusy,
     overview,
     setOverview,
@@ -823,11 +840,15 @@ export function useAdminLogic() {
     setEditingProductId,
     productFormOpen,
     setProductFormOpen,
+    productViewOnly,
+    setProductViewOnly,
     openNewProductForm,
     productCloseSignal,
     setProductCloseSignal,
     editingCategoryId,
     setEditingCategoryId,
+    categoryViewOnly,
+    setCategoryViewOnly,
     categorySlugStatus,
     setCategorySlugStatus,
     categoryMetrics,
@@ -903,7 +924,9 @@ export function useAdminLogic() {
     resetCategoryForm,
     productPayload,
     editProduct,
+    viewProduct,
     editCategory,
+    viewCategory,
     addSpecField,
     patchSpecField,
     addCategoryFilter,

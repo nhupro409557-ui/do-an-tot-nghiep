@@ -30,6 +30,7 @@ interface ProductAccessoriesSectionProps {
   addAttachedService: (service: any) => void;
   removeAttachedService: (serviceId: string) => void;
   currency: { format: (value: number) => string };
+  readOnly?: boolean;
 }
 
 const serviceGroupLabel: Record<string, string> = {
@@ -73,6 +74,7 @@ export default function ProductAccessoriesSection(props: ProductAccessoriesSecti
     addAttachedService,
     removeAttachedService,
     currency,
+    readOnly = false,
   } = props;
 
   return (
@@ -116,7 +118,7 @@ export default function ProductAccessoriesSection(props: ProductAccessoriesSecti
               onChange={setAccessorySearch}
             />
           </div>
-          <div className="mt-2 rounded-md border border-slate-200">
+          {!readOnly && <div className="mt-2 rounded-md border border-slate-200">
             {accessoryCategoryFilter || accessoryBrandFilter || accessorySearch.trim() ? (
               accessoryProductChoices.length > 0 ? (
                 <>
@@ -157,7 +159,7 @@ export default function ProductAccessoriesSection(props: ProductAccessoriesSecti
                 Chọn danh mục, thương hiệu hoặc nhập tên/SKU để hiện danh sách sản phẩm.
               </div>
             )}
-          </div>
+          </div>}
           <div className="mt-3 space-y-3">
             {productForm.accessoryOffers.length === 0 && (
               <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
@@ -184,9 +186,11 @@ export default function ProductAccessoriesSection(props: ProductAccessoriesSecti
                       </div>
                     </div>
                   </div>
-                  <button type="button" onClick={() => removeAccessoryOffer(item.productId)} className="text-red-600">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {!readOnly && (
+                    <button type="button" onClick={() => removeAccessoryOffer(item.productId)} className="text-red-600">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
                   <Select
@@ -249,7 +253,7 @@ export default function ProductAccessoriesSection(props: ProductAccessoriesSecti
               onChange={setAttachedServiceSearch}
             />
           </div>
-          <div className="mt-3 rounded-md border border-slate-200">
+          {!readOnly && <div className="mt-3 rounded-md border border-slate-200">
             {productAttachedServiceChoices.length === 0 ? (
               <div className="px-3 py-4 text-sm font-medium text-slate-500">
                 Không có dịch vụ phù hợp hoặc tất cả dịch vụ trong bộ lọc đã được chọn.
@@ -282,7 +286,7 @@ export default function ProductAccessoriesSection(props: ProductAccessoriesSecti
                 </button>
               ))
             )}
-          </div>
+          </div>}
           <div className="mt-3 space-y-2">
             {productForm.attachedServices.length === 0 && (
               <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
@@ -306,9 +310,11 @@ export default function ProductAccessoriesSection(props: ProductAccessoriesSecti
                         : ` · ${currency.format(Number(item.fixedPrice || 0))}`}
                   </div>
                 </div>
-                <button type="button" onClick={() => removeAttachedService(item.serviceId)} className="text-red-600">
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                {!readOnly && (
+                  <button type="button" onClick={() => removeAttachedService(item.serviceId)} className="text-red-600">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             ))}
           </div>

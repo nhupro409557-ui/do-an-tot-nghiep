@@ -1,55 +1,955 @@
-import React from 'react';
-import { AdminPanel, AdminTable, SearchBox } from '../../admin-shell/components/AdminDashboardParts';
-import { Plus } from 'lucide-react';
-import { currency } from '../../admin-shell/components/AdminDashboardConfig';
+import React, { useEffect, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
+import { AdminBadge, AdminPanel, AdminTable, SearchBox } from '../../admin-shell/components/AdminDashboardParts';
+import { CheckCircle2, Download, Eye, FileSpreadsheet, FileText, PackageCheck, Pencil, Plus, Printer, RotateCcw, ScanLine, Trash2, XCircle } from 'lucide-react';
+import { compactId, currency } from '../../admin-shell/components/AdminDashboardConfig';
+import { adminInventoryApi } from '../services/adminInventoryApi';
 
 type AdminInventoryReceiptsTabProps = Record<string, any>;
+
+const receiptStatusLabel: Record<string, string> = {
+  DRAFT: 'Nháp',
+  PROCESSING_IMEI: 'Đang nhập IMEI/Serial',
+  PENDING_APPROVAL: 'Chờ duyệt',
+  PENDING_SHORTAGE_APPROVAL: 'Chờ duyệt thiếu IMEI/Serial',
+  APPROVED: 'Đã duyệt',
+  COMPLETED: 'Hoàn tất',
+  CANCELLED: 'Đã hủy',
+  REVERSED: 'Đã đảo phiếu',
+};
+
+const receiptStatusTone: Record<string, any> = {
+  DRAFT: 'slate',
+  PROCESSING_IMEI: 'blue',
+  PENDING_APPROVAL: 'amber',
+  PENDING_SHORTAGE_APPROVAL: 'amber',
+  APPROVED: 'blue',
+  COMPLETED: 'green',
+  CANCELLED: 'red',
+  REVERSED: 'amber',
+};
+
+const receiptReasonLabel: Record<string, string> = {
+  NK_MUA: 'Nhập mua từ nhà cung cấp',
+  NK_TRA_NCC: 'Nhà cung cấp trả lại hàng',
+  NK_KH_TRA: 'Khách hàng trả hàng',
+  NK_BH: 'Nhập bảo hành',
+  NK_DIEUCHINH: 'Điều chỉnh tăng tồn kho',
+  NK_CHUYEN: 'Nhập từ kho khác',
+  NK_SANXUAT: 'Nhập thành phẩm',
+  NK_KHOI_TAO: 'Nhập kho khởi tạo',
+  NK_KHAC: 'Nhập khác',
+};
+
+function formatReceiptReason(code: string | null | undefined) {
+  const normalized = String(code || 'NK_MUA').toUpperCase();
+  const safeCode = receiptReasonLabel[normalized] ? normalized : 'NK_MUA';
+  return `${safeCode} - ${receiptReasonLabel[safeCode]}`;
+}
+
+function formatAuditActor(value: string | null | undefined, label?: string | null) {
+  if (label) return label;
+  return value ? compactId(value) : '-';
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatReceiptDate(value: string | null | undefined) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return '-';
+  return `Ngày ${String(date.getDate()).padStart(2, '0')} tháng ${String(date.getMonth() + 1).padStart(2, '0')} năm ${date.getFullYear()}`;
+}
+
+function formatReceiptNumber(value: number) {
+  return Number(value || 0).toLocaleString('vi-VN');
+}
+
+function receiptVariantDescription(line: any) {
+  return [line?.variantColor, line?.variantConfiguration].map((item) => String(item || '').trim()).filter(Boolean).join(' - ');
+}
+
+function amountInVietnamese(value: number) {
+  const units = ['', 'nghìn', 'triệu', 'tỷ'];
+  const digits = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
+  const readTriple = (num: number, full = false) => {
+    const hundred = Math.floor(num / 100);
+    const ten = Math.floor((num % 100) / 10);
+    const one = num % 10;
+    const parts: string[] = [];
+    if (hundred > 0 || full) parts.push(`${digits[hundred]} trăm`);
+    if (ten > 1) {
+      parts.push(`${digits[ten]} mươi`);
+      if (one === 1) parts.push('mốt');
+      else if (one === 5) parts.push('lăm');
+      else if (one > 0) parts.push(digits[one]);
+    } else if (ten === 1) {
+      parts.push('mười');
+      if (one === 5) parts.push('lăm');
+      else if (one > 0) parts.push(digits[one]);
+    } else if (one > 0) {
+      if (hundred > 0 || full) parts.push('lẻ');
+      parts.push(digits[one]);
+    }
+    return parts.join(' ');
+  };
+  const rounded = Math.round(Number(value || 0));
+  if (rounded <= 0) return 'Không đồng.';
+  const groups: number[] = [];
+  let current = rounded;
+  while (current > 0) {
+    groups.push(current % 1000);
+    current = Math.floor(current / 1000);
+  }
+  const words = groups
+    .map((group, index) => {
+      if (group === 0) return '';
+      const full = index < groups.length - 1 && group < 100;
+      return `${readTriple(group, full)} ${units[index]}`.trim();
+    })
+    .filter(Boolean)
+    .reverse()
+    .join(' ');
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)} đồng.`;
+}
+
+function buildReceiptDocumentHtml(receipt: any, lineSummaries: any[], isOfficialReceipt: boolean) {
+  const totalCost = Number(receipt?.totalCost || lineSummaries.reduce((sum, item) => sum + item.unitCost * item.received, 0));
+  const receiptDate = formatReceiptDate(receipt?.postedAt || receipt?.createdAt);
+  const status = receipt?.status || 'COMPLETED';
+  const rows = lineSummaries.map((summary, index) => `
+    <tr>
+      <td class="center">${index + 1}</td>
+      <td>
+        <div>${escapeHtml(summary.line.productName || '-')}</div>
+        ${receiptVariantDescription(summary.line) ? `<div class="muted">${escapeHtml(receiptVariantDescription(summary.line))}</div>` : ''}
+      </td>
+      <td>${escapeHtml(summary.line.variantSku || summary.line.sku || compactId(summary.line.productId))}</td>
+      <td class="center">${escapeHtml(summary.line.unitName || 'Cái')}</td>
+      <td class="right">${formatReceiptNumber(summary.planned)}</td>
+      <td class="right">${formatReceiptNumber(summary.received)}</td>
+      <td class="right">${formatReceiptNumber(summary.unitCost)}</td>
+      <td class="right">${formatReceiptNumber(summary.unitCost * summary.received)}</td>
+    </tr>
+  `).join('');
+  const totalPlanned = lineSummaries.reduce((sum, item) => sum + item.planned, 0);
+  const totalReceived = lineSummaries.reduce((sum, item) => sum + item.received, 0);
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Phiếu nhập kho ${escapeHtml(receipt?.referenceCode || '')}</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #111; background: #fff; font-family: "Times New Roman", Times, serif; font-size: 13px; line-height: 1.35; }
+    .page { width: 100%; padding: 4px 2px; }
+    .header { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    .company { font-weight: 700; text-transform: uppercase; }
+    .form-code { text-align: center; }
+    .title { margin-top: 14px; text-align: center; }
+    .title-main { font-size: 22px; font-weight: 700; }
+    .receipt-date { margin-top: 2px; font-style: italic; font-weight: 700; }
+    .info { margin-top: 14px; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; page-break-inside: auto; }
+    tr { page-break-inside: avoid; page-break-after: auto; }
+    th, td { border: 1px solid #111; padding: 4px 5px; vertical-align: top; }
+    th { text-align: center; font-weight: 700; }
+    .center { text-align: center; }
+    .right { text-align: right; }
+    .bold { font-weight: 700; }
+    .muted { font-size: 12px; }
+    .amount-text { margin-top: 10px; }
+    .signature-date { margin-top: 12px; text-align: right; font-style: italic; }
+    .signatures { margin-top: 8px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; text-align: center; }
+    .signature-name { margin-top: 52px; }
+    .signature-name.short { margin-top: 36px; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <div>
+        <div class="company">ELECTROMART VIỆT NAM</div>
+        <div>Hệ thống bán lẻ điện thoại, laptop và phụ kiện công nghệ</div>
+        <div>Địa chỉ: ..............................................................</div>
+        <div>Điện thoại: ...........................................................</div>
+      </div>
+    </div>
+    <div class="title">
+      <div class="title-main">PHIẾU NHẬP KHO</div>
+      <div class="receipt-date">${escapeHtml(receiptDate)}</div>
+      <div>Số: ${escapeHtml(receipt?.referenceCode || '-')}</div>
+      ${!isOfficialReceipt ? `<div style="margin-top:4px;font-weight:700;">Phiếu nhập tạm - ${escapeHtml(receiptStatusLabel[status] || status)}</div>` : ''}
+    </div>
+    <div class="info">
+      <div>- Người giao hàng / Nhà cung cấp: <b>${escapeHtml(receipt?.supplierName || '-')}</b></div>
+      <div>- Theo chứng từ / Lý do nhập: ${escapeHtml(formatReceiptReason(receipt?.receiptReasonCode))}</div>
+      <div class="info-grid">
+        <div>- Nhập tại kho: <b>${escapeHtml(receipt?.targetLocationName || 'Kho chính')}</b></div>
+        <div>Địa điểm: ........................................................</div>
+      </div>
+      <div>- Ghi chú: ${escapeHtml(receipt?.note || '-')}</div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:46px">STT</th>
+          <th>Tên, nhãn hiệu, quy cách phẩm chất sản phẩm, hàng hóa</th>
+          <th style="width:92px">Mã số</th>
+          <th style="width:58px">Đơn vị tính</th>
+          <th style="width:72px">Theo chứng từ</th>
+          <th style="width:72px">Thực nhập</th>
+          <th style="width:92px">Đơn giá</th>
+          <th style="width:104px">Thành tiền</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows || '<tr><td colspan="8" class="center">Phiếu chưa có dòng sản phẩm.</td></tr>'}
+        <tr>
+          <td></td>
+          <td class="center bold">Cộng</td>
+          <td></td>
+          <td></td>
+          <td class="right bold">${formatReceiptNumber(totalPlanned)}</td>
+          <td class="right bold">${formatReceiptNumber(totalReceived)}</td>
+          <td></td>
+          <td class="right bold">${formatReceiptNumber(totalCost)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="amount-text">- Tổng số tiền (Viết bằng chữ): <b><i>${escapeHtml(amountInVietnamese(totalCost))}</i></b></div>
+    <div>- Số chứng từ gốc kèm theo: ..............................................................</div>
+    <div class="signature-date">${escapeHtml(receiptDate)}</div>
+    <div class="signatures">
+      <div><b>Người lập phiếu</b><br><i>(Ký, họ tên)</i><div class="signature-name">${escapeHtml(formatAuditActor(receipt?.createdBy, receipt?.createdByName))}</div></div>
+      <div><b>Người giao hàng</b><br><i>(Ký, họ tên)</i><div class="signature-name">${escapeHtml(receipt?.supplierName || '')}</div></div>
+      <div><b>Thủ kho</b><br><i>(Ký, họ tên)</i><div class="signature-name">${escapeHtml(formatAuditActor(receipt?.postedBy, receipt?.postedByName))}</div></div>
+      <div><b>Kế toán trưởng</b><br><i>(Hoặc bộ phận có nhu cầu nhập)</i><br><i>(Ký, họ tên)</i><div class="signature-name short">${escapeHtml(formatAuditActor(receipt?.approvedBy, receipt?.approvedByName))}</div></div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+function safeReceiptFileName(receipt: any, extension: 'doc' | 'html') {
+  const code = String(receipt?.referenceCode || 'phieu-nhap-kho')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'phieu-nhap-kho';
+  return `${code}.${extension}`;
+}
+
+function printReceiptDocument(receipt: any, lineSummaries: any[], isOfficialReceipt: boolean) {
+  const popup = window.open('', '_blank', 'width=980,height=720');
+  if (!popup) {
+    window.alert('Trình duyệt đang chặn cửa sổ in. Vui lòng cho phép popup để xuất PDF.');
+    return;
+  }
+  popup.document.open();
+  popup.document.write(buildReceiptDocumentHtml(receipt, lineSummaries, isOfficialReceipt));
+  popup.document.close();
+  popup.focus();
+  popup.setTimeout(() => popup.print(), 300);
+}
+
+function exportReceiptWord(receipt: any, lineSummaries: any[], isOfficialReceipt: boolean) {
+  const html = buildReceiptDocumentHtml(receipt, lineSummaries, isOfficialReceipt);
+  const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = safeReceiptFileName(receipt, 'doc');
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+async function downloadReceiptDocument(receipt: any, format: 'pdf' | 'docx') {
+  const referenceCode = String(receipt?.referenceCode || '').trim();
+  if (!referenceCode) return;
+  const blob = await adminInventoryApi.adminExportReceiptDocument(referenceCode, format);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = safeReceiptFileName(receipt, format === 'pdf' ? 'html' : 'html').replace(/\.html$/, `.${format}`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function PrintableReceipt({ receipt, lineSummaries, isOfficialReceipt }: { receipt: any; lineSummaries: any[]; isOfficialReceipt: boolean }) {
+  const totalCost = Number(receipt?.totalCost || lineSummaries.reduce((sum, item) => sum + item.unitCost * item.received, 0));
+  const receiptDate = formatReceiptDate(receipt?.postedAt || receipt?.createdAt);
+  const status = receipt?.status || 'COMPLETED';
+  return (
+    <section className="receipt-print">
+      <style>{`
+        .receipt-print { display: none; }
+        @media print {
+          @page { size: A4 portrait; margin: 12mm; }
+          body { background: #fff !important; }
+          body * { visibility: hidden !important; }
+          .receipt-print, .receipt-print * { visibility: visible !important; }
+          .receipt-print { display: block !important; position: absolute; inset: 0; color: #111; font-family: "Times New Roman", Times, serif; font-size: 13px; line-height: 1.35; }
+          .receipt-screen { display: none !important; }
+          .receipt-print table { width: 100%; border-collapse: collapse; }
+          .receipt-print th, .receipt-print td { border: 1px solid #111; padding: 4px 5px; vertical-align: top; }
+          .receipt-print th { text-align: center; font-weight: 700; }
+          .receipt-print .no-border td { border: 0; }
+        }
+      `}</style>
+      <div style={{ padding: '4px 2px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
+          <div>
+            <div style={{ fontWeight: 700, textTransform: 'uppercase' }}>ELECTROMART VIỆT NAM</div>
+            <div>Hệ thống bán lẻ điện thoại, laptop và phụ kiện công nghệ</div>
+            <div>Địa chỉ: ..............................................................</div>
+            <div>Điện thoại: ...........................................................</div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 14, textAlign: 'center' }}>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>PHIẾU NHẬP KHO</div>
+          <div style={{ marginTop: 2, fontStyle: 'italic', fontWeight: 700 }}>{receiptDate}</div>
+          <div>Số: {receipt?.referenceCode || '-'}</div>
+          {!isOfficialReceipt && <div style={{ marginTop: 4, fontWeight: 700 }}>Phiếu nhập tạm - {receiptStatusLabel[status] || status}</div>}
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <div>- Người giao hàng / Nhà cung cấp: <b>{receipt?.supplierName || '-'}</b></div>
+          <div>- Theo chứng từ / Lý do nhập: {formatReceiptReason(receipt?.receiptReasonCode)}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>- Nhập tại kho: <b>{receipt?.targetLocationName || 'Kho chính'}</b></div>
+            <div>Địa điểm: ........................................................</div>
+          </div>
+          <div>- Ghi chú: {receipt?.note || '-'}</div>
+        </div>
+
+        <table style={{ marginTop: 8 }}>
+          <thead>
+            <tr>
+              <th style={{ width: 46 }}>STT</th>
+              <th>Tên, nhãn hiệu, quy cách phẩm chất sản phẩm, hàng hóa</th>
+              <th style={{ width: 92 }}>Mã số</th>
+              <th style={{ width: 58 }}>Đơn vị tính</th>
+              <th style={{ width: 72 }}>Theo chứng từ</th>
+              <th style={{ width: 72 }}>Thực nhập</th>
+              <th style={{ width: 92 }}>Đơn giá</th>
+              <th style={{ width: 104 }}>Thành tiền</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lineSummaries.map((summary, index) => (
+              <tr key={summary.line.id || `${summary.line.productId}-${summary.line.variantId || index}`}>
+                <td style={{ textAlign: 'center' }}>{index + 1}</td>
+                <td>
+                  <div>{summary.line.productName || '-'}</div>
+                  {receiptVariantDescription(summary.line) && <div style={{ fontSize: 12 }}>{receiptVariantDescription(summary.line)}</div>}
+                </td>
+                <td>{summary.line.variantSku || summary.line.sku || compactId(summary.line.productId)}</td>
+                <td style={{ textAlign: 'center' }}>{summary.line.unitName || 'Cái'}</td>
+                <td style={{ textAlign: 'right' }}>{formatReceiptNumber(summary.planned)}</td>
+                <td style={{ textAlign: 'right' }}>{formatReceiptNumber(summary.received)}</td>
+                <td style={{ textAlign: 'right' }}>{formatReceiptNumber(summary.unitCost)}</td>
+                <td style={{ textAlign: 'right' }}>{formatReceiptNumber(summary.unitCost * summary.received)}</td>
+              </tr>
+            ))}
+            <tr>
+              <td />
+              <td style={{ textAlign: 'center', fontWeight: 700 }}>Cộng</td>
+              <td />
+              <td />
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatReceiptNumber(lineSummaries.reduce((sum, item) => sum + item.planned, 0))}</td>
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatReceiptNumber(lineSummaries.reduce((sum, item) => sum + item.received, 0))}</td>
+              <td />
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatReceiptNumber(totalCost)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style={{ marginTop: 10 }}>- Tổng số tiền (Viết bằng chữ): <b><i>{amountInVietnamese(totalCost)}</i></b></div>
+        <div>- Số chứng từ gốc kèm theo: ..............................................................</div>
+
+        <div style={{ marginTop: 12, textAlign: 'right', fontStyle: 'italic' }}>{receiptDate}</div>
+        <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, textAlign: 'center' }}>
+          <div><b>Người lập phiếu</b><br /><i>(Ký, họ tên)</i><div style={{ marginTop: 52 }}>{formatAuditActor(receipt?.createdBy, receipt?.createdByName)}</div></div>
+          <div><b>Người giao hàng</b><br /><i>(Ký, họ tên)</i><div style={{ marginTop: 52 }}>{receipt?.supplierName || ''}</div></div>
+          <div><b>Thủ kho</b><br /><i>(Ký, họ tên)</i><div style={{ marginTop: 52 }}>{formatAuditActor(receipt?.postedBy, receipt?.postedByName)}</div></div>
+          <div><b>Kế toán trưởng</b><br /><i>(Hoặc bộ phận có nhu cầu nhập)</i><br /><i>(Ký, họ tên)</i><div style={{ marginTop: 36 }}>{formatAuditActor(receipt?.approvedBy, receipt?.approvedByName)}</div></div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ReceiptDetailModal({ receipt, onClose }: { receipt: any; onClose: () => void }) {
+  const lines = receipt?.lines || [];
+  const status = receipt?.status || 'COMPLETED';
+  const [activeTab, setActiveTab] = useState<'info' | 'identifiers'>('info');
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
+
+  function normalizeIdentifierList(value: any): string[] {
+    if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) return parsed.map((item) => String(item).trim()).filter(Boolean);
+      } catch {
+        return value.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean);
+      }
+    }
+    return [];
+  }
+
+  function buildIdentifierStatus(label: 'IMEI' | 'Serial', count: number, planned: number) {
+    if (planned <= 0) return label + ': không yêu cầu';
+    if (count >= planned) return 'Đủ ' + label;
+    return 'Thiếu ' + (planned - count) + ' ' + label;
+  }
+
+  const lineSummaries = lines.map((line: any) => {
+    const planned = Number(line.plannedQuantity || line.quantity || 0);
+    const imeis = normalizeIdentifierList(line.imeis);
+    const serialNumbers = normalizeIdentifierList(line.serialNumbers);
+    const tracksImei = Boolean(line.tracksImei);
+    const tracksSerialNumber = Boolean(line.tracksSerialNumber);
+    const tracksIdentifier = tracksImei || tracksSerialNumber;
+    const identifierCounts = [];
+    if (tracksImei) identifierCounts.push(imeis.length);
+    if (tracksSerialNumber) identifierCounts.push(serialNumbers.length);
+    const received = tracksIdentifier ? Math.min(...identifierCounts) : Number(line.receivedQuantity ?? line.quantity ?? 0);
+    const missing = Math.max(planned - received, 0);
+    const unitCost = Number(line.unitCost || 0);
+    const identifierStatus = [
+      tracksImei ? buildIdentifierStatus('IMEI', imeis.length, planned) : null,
+      tracksSerialNumber ? buildIdentifierStatus('Serial', serialNumbers.length, planned) : null,
+    ].filter(Boolean).join(' / ') || 'Không quản lý mã định danh';
+    return { line, planned, received, missing, unitCost, imeis, serialNumbers, tracksImei, tracksSerialNumber, tracksIdentifier, identifierStatus };
+  });
+  const needsIdentifier = lineSummaries.some((item: any) => item.tracksIdentifier);
+  const hasMissingIdentifier = lineSummaries.some((item: any) => item.tracksIdentifier && item.missing > 0);
+  const isOfficialReceipt = status === 'COMPLETED' && (!needsIdentifier || !hasMissingIdentifier);
+  const identifierRows = lineSummaries.flatMap(({ line, imeis, serialNumbers }: any) => [
+    ...imeis.map((value: string) => ({ line, lineId: String(line.id || `${line.productId}-${line.variantId || 'product'}`), type: 'IMEI', value })),
+    ...serialNumbers.map((value: string) => ({ line, lineId: String(line.id || `${line.productId}-${line.variantId || 'product'}`), type: 'Serial', value })),
+  ]);
+  const selectedLine = selectedLineId
+    ? lineSummaries.find((item: any) => String(item.line.id || `${item.line.productId}-${item.line.variantId || 'product'}`) === selectedLineId)
+    : null;
+  const visibleIdentifierRows = selectedLineId
+    ? identifierRows.filter((item: any) => item.lineId === selectedLineId)
+    : identifierRows;
+
+  function openIdentifierTab(summary: any) {
+    setSelectedLineId(String(summary.line.id || `${summary.line.productId}-${summary.line.variantId || 'product'}`));
+    setActiveTab('identifiers');
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+      <PrintableReceipt receipt={receipt} lineSummaries={lineSummaries} isOfficialReceipt={isOfficialReceipt} />
+      <div className="w-full max-w-6xl overflow-hidden rounded-lg bg-white shadow-2xl">
+        <div className="receipt-screen sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
+          <div>
+            <h3 className="text-lg font-bold text-slate-950">Xem phiếu nhập kho</h3>
+            <p className="mt-1 font-mono text-sm font-bold text-slate-600">{receipt?.referenceCode || '-'}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => void downloadReceiptDocument(receipt, 'pdf')} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+              <Printer className="h-4 w-4" /> Xuất PDF
+            </button>
+            <button type="button" onClick={() => void downloadReceiptDocument(receipt, 'docx')} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+              <FileText className="h-4 w-4" /> Xuất Word
+            </button>
+            <button type="button" onClick={onClose} title="Đóng" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-950">
+              <XCircle className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="receipt-screen border-b border-slate-200 px-5 pt-4">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('info')}
+              className={`h-9 rounded-md px-3 text-sm font-bold transition ${activeTab === 'info' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+            >
+              Thông tin phiếu nhập
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedLineId(null);
+                setActiveTab('identifiers');
+              }}
+              disabled={!needsIdentifier}
+              className={`h-9 rounded-md px-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${activeTab === 'identifiers' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+            >
+              Danh sách IMEI / Serial
+            </button>
+          </div>
+        </div>
+
+        <div className="receipt-screen max-h-[calc(100vh-190px)] overflow-y-auto p-5">
+          {!isOfficialReceipt && needsIdentifier && (
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+              Phiếu nhập chưa hoàn tất do chưa bổ sung đủ IMEI/Serial.
+            </div>
+          )}
+
+          {activeTab === 'info' && (
+          <>
+          <section>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-sm font-bold uppercase text-slate-700">Thông tin phiếu nhập</h4>
+              <AdminBadge tone={isOfficialReceipt ? 'green' : 'amber'}>{isOfficialReceipt ? 'Phiếu nhập hoàn chỉnh' : 'Phiếu nhập tạm'}</AdminBadge>
+            </div>
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase text-slate-500">Trạng thái</div><div className="mt-2"><AdminBadge tone={receiptStatusTone[status] || 'slate'}>{receiptStatusLabel[status] || status}</AdminBadge></div></div>
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase text-slate-500">Lý do nhập</div><div className="mt-1 text-sm font-semibold text-slate-800">{formatReceiptReason(receipt?.receiptReasonCode)}</div></div>
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase text-slate-500">Nhà cung cấp</div><div className="mt-1 text-sm font-semibold text-slate-800">{receipt?.supplierName || '-'}</div></div>
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3"><div className="text-xs font-bold uppercase text-slate-500">Ngày nhập</div><div className="mt-1 text-sm font-semibold text-slate-800">{receipt?.createdAt ? new Date(receipt.createdAt).toLocaleString('vi-VN') : '-'}</div></div>
+              <div className="rounded-md border border-slate-200 bg-white p-3"><div className="text-xs font-bold uppercase text-slate-500">Tổng số dòng</div><div className="mt-1 text-lg font-bold text-slate-900">{receipt?.lineCount || lines.length || 0}</div></div>
+              <div className="rounded-md border border-slate-200 bg-white p-3"><div className="text-xs font-bold uppercase text-slate-500">Tổng số lượng</div><div className="mt-1 text-lg font-bold text-emerald-700">{receipt?.totalQuantity || 0}</div></div>
+              <div className="rounded-md border border-slate-200 bg-white p-3"><div className="text-xs font-bold uppercase text-slate-500">Tổng tiền</div><div className="mt-1 text-lg font-bold text-slate-900">{currency.format(Number(receipt?.totalCost || 0))}</div></div>
+              <div className="rounded-md border border-slate-200 bg-white p-3"><div className="text-xs font-bold uppercase text-slate-500">Ghi chú</div><div className="mt-1 text-sm font-semibold text-slate-800">{receipt?.note || '-'}</div></div>
+              <div className="rounded-md border border-slate-200 bg-white p-3"><div className="text-xs font-bold uppercase text-slate-500">Người tạo</div><div className="mt-1 text-sm font-semibold text-slate-800">{formatAuditActor(receipt?.createdBy, receipt?.createdByName)}</div></div>
+              <div className="rounded-md border border-slate-200 bg-white p-3"><div className="text-xs font-bold uppercase text-slate-500">Người duyệt</div><div className="mt-1 text-sm font-semibold text-slate-800">{formatAuditActor(receipt?.approvedBy, receipt?.approvedByName)}</div></div>
+              <div className="rounded-md border border-slate-200 bg-white p-3"><div className="text-xs font-bold uppercase text-slate-500">Người hoàn tất</div><div className="mt-1 text-sm font-semibold text-slate-800">{formatAuditActor(receipt?.postedBy, receipt?.postedByName)}</div></div>
+              <div className="rounded-md border border-slate-200 bg-white p-3"><div className="text-xs font-bold uppercase text-slate-500">Người đảo phiếu</div><div className="mt-1 text-sm font-semibold text-slate-800">{formatAuditActor(receipt?.reversedBy, receipt?.reversedByName)}</div></div>
+            </div>
+          </section>
+
+          <section className="mt-5">
+            <h4 className="mb-3 text-sm font-bold uppercase text-slate-700">Chi tiết nhập kho / IMEI / Serial</h4>
+            <div className="overflow-x-auto rounded-md border border-slate-200">
+              <table className="min-w-full divide-y divide-slate-200 bg-white text-left text-sm">
+                <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500"><tr><th className="px-4 py-3">Sản phẩm</th><th className="px-4 py-3">SKU / Biến thể</th><th className="px-4 py-3 text-right">SL nhập</th><th className="px-4 py-3 text-right">SL đã nhập IMEI</th><th className="px-4 py-3 text-right">SL đã nhập Serial</th><th className="px-4 py-3 text-right">Giá nhập</th><th className="px-4 py-3 text-right">Thành tiền</th><th className="px-4 py-3">Trạng thái</th></tr></thead>
+                <tbody className="divide-y divide-slate-200">
+                  {lineSummaries.length === 0 ? <tr><td className="px-4 py-6 text-center text-sm font-semibold text-slate-500" colSpan={8}>Phiếu chưa có dòng sản phẩm.</td></tr> : lineSummaries.map((summary: any) => (
+                    <tr key={summary.line.id || String(summary.line.productId) + '-' + String(summary.line.variantId || 'product')}>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{summary.line.productName || '-'}</td>
+                      <td className="px-4 py-3 text-slate-600">{summary.line.variantSku || summary.line.sku || '-'}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-800">{summary.planned}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-indigo-700">{summary.tracksImei ? summary.imeis.length : '-'}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-cyan-700">{summary.tracksSerialNumber ? summary.serialNumbers.length : '-'}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{currency.format(summary.unitCost)}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-900">{currency.format(summary.unitCost * summary.received)}</td>
+                      <td className="px-4 py-3">
+                        {summary.tracksIdentifier ? (
+                          <button type="button" onClick={() => openIdentifierTab(summary)} className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700">
+                            {summary.identifierStatus}
+                          </button>
+                        ) : (
+                          <AdminBadge tone="slate">{summary.identifierStatus}</AdminBadge>
+                        )}
+                        {summary.tracksIdentifier && summary.missing > 0 && (
+                          <div className="mt-1 text-xs font-bold text-amber-700">
+                            Thiếu {summary.missing} mã{summary.line.shortageReason ? ` - Lý do: ${summary.line.shortageReason}` : ''}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          </>
+          )}
+
+          {activeTab === 'identifiers' && needsIdentifier && (
+            <section>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-sm font-bold uppercase text-slate-700">Danh sách IMEI / Serial</h4>
+                  {selectedLine ? (
+                    <p className="mt-1 text-xs font-semibold text-slate-500">
+                      {selectedLine.line.productName || '-'} {selectedLine.line.variantSku ? `- ${selectedLine.line.variantSku}` : ''}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs font-semibold text-slate-500">Toàn bộ mã định danh trong phiếu nhập.</p>
+                  )}
+                </div>
+                {selectedLineId && (
+                  <button type="button" onClick={() => setSelectedLineId(null)} className="h-8 rounded-md border border-slate-200 px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
+                    Xem tất cả
+                  </button>
+                )}
+              </div>
+              <div className="overflow-x-auto rounded-md border border-slate-200">
+                <table className="min-w-full divide-y divide-slate-200 bg-white text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3 text-right">STT</th>
+                      <th className="px-4 py-3">Sản phẩm</th>
+                      <th className="px-4 py-3">SKU / Biến thể</th>
+                      <th className="px-4 py-3">Loại mã</th>
+                      <th className="px-4 py-3">Mã định danh</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {visibleIdentifierRows.length === 0 ? (
+                      <tr>
+                        <td className="px-4 py-6 text-center text-sm font-semibold text-amber-700" colSpan={5}>Chưa có danh sách IMEI/Serial trong dữ liệu phiếu.</td>
+                      </tr>
+                    ) : (
+                      visibleIdentifierRows.map((item: any, index: number) => (
+                        <tr key={item.type + '-' + item.value + '-' + index}>
+                          <td className="px-4 py-3 text-right font-semibold text-slate-700">{index + 1}</td>
+                          <td className="px-4 py-3 font-semibold text-slate-900">{item.line.productName || '-'}</td>
+                          <td className="px-4 py-3 text-slate-600">{item.line.variantSku || item.line.sku || '-'}</td>
+                          <td className="px-4 py-3 font-semibold text-slate-700">{item.type}</td>
+                          <td className="px-4 py-3 font-mono text-xs font-bold text-slate-900">{item.value}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={() => void downloadReceiptDocument(receipt, 'pdf')} className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><Download className="h-4 w-4" /> Xuất PDF</button>
+            <button type="button" onClick={() => void downloadReceiptDocument(receipt, 'docx')} className="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><FileText className="h-4 w-4" /> Xuất Word</button>
+            <button type="button" onClick={onClose} className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50">Đóng</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function splitImeis(value: string) {
+  return value
+    .split(/[\s,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClose: () => void; onSubmit: (referenceCode: string, lines: { lineId: string; imeis: string[]; serialNumbers: string[]; acceptShortage?: boolean; shortageReason?: string | null }[], shortageReason: string) => Promise<any> }) {
+  const trackedLines = useMemo(() => (receipt?.lines || []).filter((line: any) => line.tracksImei || line.tracksSerialNumber), [receipt]);
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [serialInputs, setSerialInputs] = useState<Record<string, string>>({});
+  const [confirmedShortages, setConfirmedShortages] = useState<Record<string, boolean>>({});
+  const [shortageReasons, setShortageReasons] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const line of trackedLines) next[line.id] = '';
+    setInputs(next);
+    setSerialInputs(next);
+    setConfirmedShortages({});
+    setShortageReasons(next);
+  }, [trackedLines]);
+
+  const lineStats = trackedLines.map((line: any) => {
+    const imeis = splitImeis(inputs[line.id] || '');
+    const serialNumbers = splitImeis(serialInputs[line.id] || '');
+    const planned = Number(line.plannedQuantity || line.quantity || 0);
+    const counts = [];
+    if (line.tracksImei) counts.push(imeis.length);
+    if (line.tracksSerialNumber) counts.push(serialNumbers.length);
+    const received = counts.length ? Math.min(...counts) : planned;
+    const missing = Math.max(planned - received, 0);
+    return { line, planned, received, missing, imeis, serialNumbers, percent: planned > 0 ? Math.min(100, Math.round((received / planned) * 100)) : 0 };
+  });
+  const hasOverage = lineStats.some((item) => item.imeis.length > item.planned || item.serialNumbers.length > item.planned);
+
+  async function handleFile(lineId: string, file: File | null, target: 'imei' | 'serial') {
+    if (!file) return;
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json<any[]>(firstSheet, { header: 1, raw: false });
+    const values = rows.flat().map((cell) => String(cell || '').trim()).filter(Boolean).join('\n');
+    if (target === 'serial') setSerialInputs((current) => ({ ...current, [lineId]: values }));
+    else setInputs((current) => ({ ...current, [lineId]: values }));
+  }
+
+  async function handleSubmit() {
+    if (hasOverage) {
+      window.alert('Có dòng nhập vượt quá số lượng dự kiến. Vui lòng kiểm tra lại danh sách IMEI/serial number.');
+      return;
+    }
+    const unconfirmedShortageLine = lineStats.find((item) => item.missing > 0 && !confirmedShortages[item.line.id]);
+    if (unconfirmedShortageLine) {
+      window.alert(`Dòng ${unconfirmedShortageLine.line.productName}${unconfirmedShortageLine.line.variantSku ? ` - ${unconfirmedShortageLine.line.variantSku}` : ''} còn thiếu mã định danh. Vui lòng nhập đủ mã hoặc chọn xác nhận nhập thiếu.`);
+      return;
+    }
+    const missingReasonLine = lineStats.find((item) => item.missing > 0 && confirmedShortages[item.line.id] && !shortageReasons[item.line.id]?.trim());
+    if (missingReasonLine) {
+      window.alert(`Dòng ${missingReasonLine.line.productName}${missingReasonLine.line.variantSku ? ` - ${missingReasonLine.line.variantSku}` : ''} thiếu mã định danh phải nhập lý do thiếu.`);
+      return;
+    }
+    await onSubmit(
+      receipt.referenceCode,
+      lineStats.map((item) => ({
+        lineId: item.line.id,
+        imeis: item.imeis,
+        serialNumbers: item.serialNumbers,
+        acceptShortage: item.missing > 0 && Boolean(confirmedShortages[item.line.id]),
+        shortageReason: item.missing > 0 && confirmedShortages[item.line.id] ? shortageReasons[item.line.id].trim() : null,
+      })),
+      '',
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
+      <div className="w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+          <div>
+            <h3 className="text-lg font-bold text-slate-950">Bổ sung IMEI/serial number</h3>
+            <p className="mt-1 text-sm text-slate-500">Phiếu {receipt.referenceCode}. Số lượng phiếu đã khóa, chỉ cập nhật danh sách mã định danh thực nhận.</p>
+            <p className="mt-1 text-xs font-semibold text-indigo-700">Với IMEI, dòng đầu tiên sẽ được dùng làm IMEI chính nếu sản phẩm hoặc biến thể chưa có IMEI chính; các dòng còn lại là IMEI bổ sung.</p>
+          </div>
+          <button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-950">
+            <XCircle className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          {trackedLines.length === 0 ? (
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-600">Phiếu này không có dòng cần quản lý IMEI hoặc serial number.</div>
+          ) : (
+            lineStats.map(({ line, planned, received, missing, percent }) => (
+              <div key={line.id} className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-bold text-slate-900">{line.productName} {line.variantSku ? `- ${line.variantSku}` : ''}</div>
+                    <div className="mt-1 text-xs font-semibold text-slate-500">Đang nhập mã định danh cho sản phẩm này: {received}/{planned}</div>
+                  </div>
+                  <div className={`rounded-md px-3 py-1 text-xs font-bold ${missing > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                    {missing > 0 ? `Thiếu ${missing}` : 'Đủ mã'}
+                  </div>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div className={`h-full ${received > planned ? 'bg-red-500' : received === planned ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${Math.min(100, percent)}%` }} />
+                </div>
+                {line.tracksImei && (
+                  <div className="mt-3">
+                    <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
+                      <FileSpreadsheet className="h-4 w-4" /> Import IMEI
+                      <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFile(line.id, event.target.files?.[0] || null, 'imei')} />
+                    </label>
+                    <textarea className="mt-2 min-h-28 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500" placeholder="Dán danh sách IMEI, dòng đầu tiên là IMEI chính" value={inputs[line.id] || ''} onChange={(event) => setInputs((current) => ({ ...current, [line.id]: event.target.value }))} />
+                  </div>
+                )}
+                {line.tracksSerialNumber && (
+                  <div className="mt-3">
+                    <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
+                      <FileSpreadsheet className="h-4 w-4" /> Import serial
+                      <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFile(line.id, event.target.files?.[0] || null, 'serial')} />
+                    </label>
+                    <textarea className="mt-2 min-h-28 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-cyan-500" placeholder="Dán danh sách serial number" value={serialInputs[line.id] || ''} onChange={(event) => setSerialInputs((current) => ({ ...current, [line.id]: event.target.value }))} />
+                  </div>
+                )}
+                {missing > 0 && (
+                  <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3">
+                    <label className="flex items-start gap-2 text-xs font-bold text-amber-800">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                        checked={Boolean(confirmedShortages[line.id])}
+                        onChange={(event) => setConfirmedShortages((current) => ({ ...current, [line.id]: event.target.checked }))}
+                      />
+                      <span>Xác nhận nhập thiếu {missing} mã định danh cho sản phẩm này</span>
+                    </label>
+                    {confirmedShortages[line.id] && (
+                      <label className="mt-3 block">
+                        <span className="mb-1.5 block text-xs font-bold text-amber-700">Lý do thiếu</span>
+                        <textarea
+                          className="min-h-20 w-full rounded-md border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500"
+                          placeholder="Nhập lý do thiếu cho riêng sản phẩm này"
+                          value={shortageReasons[line.id] || ''}
+                          onChange={(event) => setShortageReasons((current) => ({ ...current, [line.id]: event.target.value }))}
+                        />
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={onClose} className="h-10 rounded-md border border-slate-200 px-4 text-sm font-bold text-slate-700">Đóng</button>
+            <button type="button" onClick={handleSubmit} disabled={trackedLines.length === 0} className="h-10 rounded-md bg-amber-600 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+              Xác nhận danh sách mã định danh
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminInventoryReceiptsTab(props: AdminInventoryReceiptsTabProps) {
   const {
     inventoryReceipts,
+    imeiReceipt,
+    setImeiReceipt,
     openReceiptDialog,
+    openReceiptEditDialog,
+    updateReceiptStatus,
+    reverseReceipt,
+    deleteDraftReceipt,
+    openReceiptImeiDialog,
+    submitReceiptImeis,
     query,
     setQuery,
+    receiptStatusFilter,
+    setReceiptStatusFilter,
   } = props;
+  const [viewReceipt, setViewReceipt] = useState<any | null>(null);
+  const visibleReceipts = (inventoryReceipts || []).filter((receipt: any) => !receiptStatusFilter || (receipt.status || 'COMPLETED') === receiptStatusFilter);
+  const statusOptions = [
+    ['', 'Tất cả trạng thái'],
+    ['DRAFT', receiptStatusLabel.DRAFT],
+    ['PROCESSING_IMEI', receiptStatusLabel.PROCESSING_IMEI],
+    ['PENDING_APPROVAL', receiptStatusLabel.PENDING_APPROVAL],
+    ['PENDING_SHORTAGE_APPROVAL', receiptStatusLabel.PENDING_SHORTAGE_APPROVAL],
+    ['APPROVED', receiptStatusLabel.APPROVED],
+    ['COMPLETED', receiptStatusLabel.COMPLETED],
+    ['CANCELLED', receiptStatusLabel.CANCELLED],
+    ['REVERSED', receiptStatusLabel.REVERSED],
+  ];
 
   return (
-    <AdminPanel
-      title="Quản lý nhập kho"
-      action={
-        <button type="button" onClick={() => openReceiptDialog()} className="inline-flex h-10 items-center gap-2 rounded-xl bg-amber-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-amber-700">
-          <Plus className="h-4 w-4" /> Tạo phiếu nhập
-        </button>
-      }
-      filters={<SearchBox value={query} onChange={setQuery} placeholder="Tìm mã phiếu, nhà cung cấp, sản phẩm hoặc SKU" />}
-    >
-      <AdminTable headers={['Mã phiếu', 'Nhà cung cấp', 'Ngày nhập', 'Số dòng', 'Tổng số lượng', 'Giá trị nhập', 'Sản phẩm']}>
-        {(inventoryReceipts || []).map((receipt: any) => {
-          const firstLines = (receipt.lines || []).slice(0, 3);
-          return (
-            <tr key={receipt.referenceCode}>
-              <td className="px-4 py-3 font-mono text-xs font-bold text-slate-800">{receipt.referenceCode || '-'}</td>
-              <td className="px-4 py-3 text-sm font-semibold text-slate-800">{receipt.supplierName || '-'}</td>
-              <td className="px-4 py-3 text-sm text-slate-600">{receipt.createdAt ? new Date(receipt.createdAt).toLocaleString('vi-VN') : '-'}</td>
-              <td className="px-4 py-3 text-sm font-semibold text-slate-800">{receipt.lineCount || 0}</td>
-              <td className="px-4 py-3 text-sm font-semibold text-emerald-700">{receipt.totalQuantity || 0}</td>
-              <td className="px-4 py-3 text-sm font-semibold text-slate-800">{currency.format(Number(receipt.totalCost || 0))}</td>
-              <td className="px-4 py-3 text-sm text-slate-600">
-                <div className="space-y-1">
-                  {firstLines.map((line: any) => (
-                    <div key={line.id} className="truncate">
-                      {line.productName} {line.variantSku ? `- ${line.variantSku}` : ''} <span className="font-semibold text-slate-800">x{line.quantity}</span>
+    <>
+      <AdminPanel
+        title="Quản lý nhập kho"
+        action={
+          <button type="button" onClick={() => openReceiptDialog()} className="inline-flex h-10 items-center gap-2 rounded-xl bg-amber-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-amber-700">
+            <Plus className="h-4 w-4" /> Tạo phiếu nhập
+          </button>
+        }
+        filters={
+          <div className="flex flex-wrap items-center gap-2">
+            <SearchBox value={query} onChange={setQuery} placeholder="Tìm mã phiếu, nhà cung cấp hoặc sản phẩm trong phiếu" />
+            <select
+              aria-label="Lọc trạng thái phiếu nhập"
+              value={receiptStatusFilter || ''}
+              onChange={(event) => setReceiptStatusFilter(event.target.value)}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            >
+              {statusOptions.map(([value, label]) => (
+                <option key={value || 'all'} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+        }
+      >
+        <AdminTable headers={['Mã phiếu', 'Trạng thái', 'Lý do nhập', 'Nhà cung cấp', 'Ngày tạo', 'Số dòng', 'Tổng SL', 'Giá trị nhập', 'Thao tác']}>
+          {visibleReceipts.map((receipt: any) => {
+            const status = receipt.status || 'COMPLETED';
+            const requiresImei = (receipt.lines || []).some((line: any) => line.tracksImei || line.tracksSerialNumber);
+            const canEditReceipt = ['DRAFT', 'PROCESSING_IMEI', 'PENDING_APPROVAL', 'PENDING_SHORTAGE_APPROVAL', 'APPROVED'].includes(status);
+            return (
+              <tr key={receipt.referenceCode}>
+                <td className="px-4 py-3 font-mono text-xs font-bold text-slate-800">{receipt.referenceCode || '-'}</td>
+                <td className="px-4 py-3">
+                  <AdminBadge tone={receiptStatusTone[status] || 'slate'}>{receiptStatusLabel[status] || status}</AdminBadge>
+                </td>
+                <td className="px-4 py-3 text-xs font-semibold text-slate-700">{formatReceiptReason(receipt.receiptReasonCode)}</td>
+                <td className="px-4 py-3 text-sm font-semibold text-slate-800">{receipt.supplierName || '-'}</td>
+                <td className="px-4 py-3 text-sm text-slate-600">{receipt.createdAt ? new Date(receipt.createdAt).toLocaleString('vi-VN') : '-'}</td>
+                <td className="px-4 py-3 text-sm font-semibold text-slate-800">{receipt.lineCount || 0}</td>
+                <td className="px-4 py-3 text-sm font-semibold text-emerald-700">{receipt.totalQuantity || 0}</td>
+                <td className="px-4 py-3 text-sm font-semibold text-slate-800">{currency.format(Number(receipt.totalCost || 0))}</td>
+                <td className="px-4 py-3">
+                  <div className="flex min-w-40 flex-col items-start gap-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      <button type="button" onClick={() => setViewReceipt(receipt)} title="Xem phiếu" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50">
+                        <Eye className="h-4 w-4" />
+                      </button>
+                      {canEditReceipt && (
+                        <button type="button" onClick={() => openReceiptEditDialog(receipt)} title="Sửa phiếu" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50">
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                      )}
+                      {status === 'DRAFT' && (
+                        <button type="button" onClick={() => deleteDraftReceipt(receipt)} title="Xóa phiếu nháp" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                      {['PROCESSING_IMEI', 'PENDING_APPROVAL', 'PENDING_SHORTAGE_APPROVAL', 'APPROVED'].includes(status) && (
+                        <button type="button" onClick={() => updateReceiptStatus(receipt, 'CANCELLED')} title="Hủy phiếu" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100">
+                          <XCircle className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
-                  ))}
-                  {(receipt.lines || []).length > firstLines.length && (
-                    <div className="text-xs font-semibold text-slate-400">+{(receipt.lines || []).length - firstLines.length} dòng khác</div>
-                  )}
-                </div>
-              </td>
-            </tr>
-          );
-        })}
-      </AdminTable>
-    </AdminPanel>
+                    {status === 'DRAFT' && requiresImei && (
+                      <button type="button" onClick={() => updateReceiptStatus(receipt, 'PROCESSING_IMEI')} className="inline-flex h-8 items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100">
+                        <ScanLine className="h-3.5 w-3.5" /> Xử lý mã
+                      </button>
+                    )}
+                    {status === 'DRAFT' && !requiresImei && (
+                      <button type="button" onClick={() => updateReceiptStatus(receipt, 'APPROVED')} className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Duyệt
+                      </button>
+                    )}
+                    {status === 'PROCESSING_IMEI' && (
+                      <button type="button" onClick={() => openReceiptImeiDialog(receipt)} className="inline-flex h-8 items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 text-xs font-bold text-amber-700 transition hover:bg-amber-100">
+                        <ScanLine className="h-3.5 w-3.5" /> Nhập mã
+                      </button>
+                    )}
+                    {status === 'PENDING_APPROVAL' && (
+                      <button type="button" onClick={() => updateReceiptStatus(receipt, 'APPROVED')} className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Duyệt
+                      </button>
+                    )}
+                    {status === 'PENDING_SHORTAGE_APPROVAL' && (
+                      <button type="button" onClick={() => updateReceiptStatus(receipt, 'APPROVED')} className="inline-flex h-8 items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Duyệt thiếu
+                      </button>
+                    )}
+                    {status === 'APPROVED' && (
+                      <button type="button" onClick={() => updateReceiptStatus(receipt, 'COMPLETED')} className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100">
+                        <PackageCheck className="h-3.5 w-3.5" /> Hoàn tất
+                      </button>
+                    )}
+                    {status === 'COMPLETED' && (
+                      <button type="button" onClick={() => reverseReceipt(receipt)} className="inline-flex h-8 items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 text-xs font-bold text-amber-700 transition hover:bg-amber-100">
+                        <RotateCcw className="h-3.5 w-3.5" /> Đảo phiếu
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </AdminTable>
+      </AdminPanel>
+
+      {imeiReceipt && (
+        <ImeiReceiptModal
+          receipt={imeiReceipt}
+          onClose={() => setImeiReceipt(null)}
+          onSubmit={submitReceiptImeis}
+        />
+      )}
+      {viewReceipt && (
+        <ReceiptDetailModal
+          receipt={viewReceipt}
+          onClose={() => setViewReceipt(null)}
+        />
+      )}
+    </>
   );
 }

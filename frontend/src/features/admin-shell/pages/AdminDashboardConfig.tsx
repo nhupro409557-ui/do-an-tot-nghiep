@@ -747,6 +747,8 @@ export const emptyProduct = {
   seoSlug: '',
   accessoryOffers: [] as AccessoryOfferForm[],
   attachedServices: [] as AttachedServiceForm[],
+  imeiPolicy: { mode: 'CATEGORY', trackImei: false },
+  serialPolicy: { mode: 'CATEGORY', trackSerialNumber: false },
   warrantyPolicy: defaultWarrantyPolicy,
   updatedAt: '',
   version: 1,
@@ -758,7 +760,7 @@ export const emptyProduct = {
   isFlashSale: false,
 };
 
-export const productExtraKeys = ['_variantSpecKeys', '_seoTitle', '_seoDescription', '_seoSlug', '_accessoryProducts', '_accessoryOffers', '_attachedServices', '_warrantyPolicy', '_targetProductStatus'];
+export const productExtraKeys = ['_variantSpecKeys', '_seoTitle', '_seoDescription', '_seoSlug', '_accessoryProducts', '_accessoryOffers', '_attachedServices', '_warrantyPolicy', '_imeiPolicy', '_serialPolicy', '_targetProductStatus'];
 
 export function buildVariantSku(productName: string, colorName: string, index: number) {
   const part = (value: string, fallback: string) => slugifyText(value || fallback).split('-').map((item) => item.charAt(0)).join('').slice(0, 5).toUpperCase() || fallback;

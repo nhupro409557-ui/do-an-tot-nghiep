@@ -2,7 +2,7 @@ from .category import CategoryPayload, CategorySlugCheckPayload, CategoryReorder
 from .brand import BrandPayload, BrandCodeCheckPayload, BrandImportItem, BrandImportPayload, BrandStatusPayload, BrandBulkStatusPayload
 from .supplier import SupplierPayload, SupplierCodeCheckPayload, SupplierStatusPayload, SupplierBulkStatusPayload
 from .product import ProductBulkActionPayload, ProductImportPayload, ProductVariantPayload, ProductAccessoryOfferPayload, ProductAttachedServicePayload, AttachedServicePayload, ProductPayload
-from .inventory import InventoryAdjustmentPayload, InventoryReceiptPayload, InventorySettingsPayload, VariantInventoryPayload
+from .inventory import InventoryAdjustmentPayload, InventoryAdjustmentRequestPayload, InventoryAdjustmentRequestStatusPayload, InventoryIdentifierEditDecisionPayload, InventoryIdentifierEditRequestPayload, InventoryReceiptImeiPayload, InventoryReceiptPayload, InventoryReceiptReversePayload, InventoryReceiptStatusPayload, InventorySettingsPayload, InventoryStockCountPayload, InventoryStockCountStatusPayload, VariantInventoryPayload
 from .voucher import VoucherPayload
 from .content import ContentCommentPayload, ContentPayload, AdminVideoCommentReplyPayload, AdminVideoCommentVisibilityPayload
 from .review import ReviewStatusPayload
@@ -34,8 +34,17 @@ __all__ = [
     "AttachedServicePayload",
     "ProductPayload",
     "InventoryAdjustmentPayload",
+    "InventoryAdjustmentRequestPayload",
+    "InventoryAdjustmentRequestStatusPayload",
+    "InventoryIdentifierEditDecisionPayload",
+    "InventoryIdentifierEditRequestPayload",
+    "InventoryReceiptImeiPayload",
     "InventoryReceiptPayload",
+    "InventoryReceiptReversePayload",
+    "InventoryReceiptStatusPayload",
     "InventorySettingsPayload",
+    "InventoryStockCountPayload",
+    "InventoryStockCountStatusPayload",
     "VariantInventoryPayload",
     "VoucherPayload",
     "ContentCommentPayload",
