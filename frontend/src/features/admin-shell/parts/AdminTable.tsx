@@ -11,7 +11,7 @@ export function AdminTable({
   itemName = 'dòng',
   hideFooter = false,
 }: {
-  headers: string[];
+  headers: React.ReactNode[];
   children: React.ReactNode;
   currentPage?: number;
   totalPages?: number;
@@ -28,8 +28,8 @@ export function AdminTable({
         <table className="min-w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
             <tr className="border-b border-slate-200">
-              {headers.map((header) => (
-                <th key={header} className="whitespace-nowrap px-4 py-3.5">
+              {headers.map((header, index) => (
+                <th key={typeof header === 'string' ? header : index} className="whitespace-nowrap px-4 py-3.5">
                   {header}
                 </th>
               ))}

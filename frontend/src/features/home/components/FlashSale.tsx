@@ -8,9 +8,14 @@ import 'swiper/css';
 import 'swiper/css/navigation';
 
 import { ProductCard } from '../../products/components/ProductCard';
+import { FlashSaleCountdown } from './FlashSaleCountdown';
 
 export const FlashSale = () => {
   const [flashSaleProducts, setFlashSaleProducts] = useState<any[]>([]);
+  const nearestEndTime = flashSaleProducts
+    .map((product) => product.flashSale?.endsAt)
+    .filter(Boolean)
+    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0];
 
   useEffect(() => {
     publicApi.listProducts({ flashSale: true, limit: 12 })
@@ -25,13 +30,14 @@ export const FlashSale = () => {
 
   return (
     <div className="mt-4 bg-white rounded-xl overflow-hidden border border-primary shadow-sm">
-      <div className="bg-primary px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 bg-gradient-to-r from-red-700 via-primary to-orange-500 px-4 py-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-4">
           <h2 className="text-xl md:text-2xl font-bold italic text-white flex items-center gap-2 font-display tracking-widest">
             ⚡ FLASH SALE
           </h2>
+          <FlashSaleCountdown endsAt={nearestEndTime} />
         </div>
-        <Link to="/search" className="text-white text-sm hover:underline">Xem tất cả &gt;</Link>
+        <Link to="/flash-sale" className="shrink-0 text-sm font-bold text-white hover:underline">Xem tất cả &gt;</Link>
       </div>
 
       <div className="p-4 relative group flash-sale-swiper">

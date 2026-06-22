@@ -1,4 +1,5 @@
 ﻿import json
+import re
 from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks, HTTPException
@@ -26,6 +27,8 @@ from app.infrastructure.database.repositories import category_repo
 CATEGORY_CACHE_ROOT_ORDER_KEY = "catalog:categories:roots:active"
 CATEGORY_CACHE_ROOT_ORDER_STALE_KEY = "catalog:categories:roots:stale"
 CATEGORY_MIGRATION_STALE_MINUTES = 30
+IMEI_PATTERN = re.compile(r"^[0-9]{15}$")
+SERIAL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{2,119}$")
 
 def category_filter_config(spec_fields: list[dict], manual_filters: list[dict]) -> list[dict]:
     filters: list[dict] = []
@@ -66,6 +69,30 @@ def spec_type_changes(old_fields: list[dict] | None, new_fields: list[dict] | No
 
 def spec_keys(fields: list[dict] | None) -> set[str]:
     return {str(field.get("key")).strip() for field in (fields or []) if str(field.get("key") or "").strip()}
+
+
+def identifier_policy_changes(old_policy: dict | None, new_policy: dict | None) -> list[str]:
+    old_policy = old_policy or {}
+    new_policy = new_policy or {}
+    changes: list[str] = []
+    if not bool(old_policy.get("trackImei")) and bool(new_policy.get("trackImei")):
+        changes.append("IMEI")
+    if not bool(old_policy.get("trackSerialNumber")) and bool(new_policy.get("trackSerialNumber")):
+        changes.append("SERIAL")
+    return changes
+
+
+def identifier_preview_summary(identifier_type: str, lines: list[dict]) -> dict:
+    relevant = [line for line in lines if int(line["requiredIdentifierCount"]) > 0]
+    return {
+        "identifierType": identifier_type,
+        "affectedProducts": len({line["productId"] for line in relevant}),
+        "affectedVariants": len(relevant),
+        "physicalStock": sum(int(line["physicalStock"]) for line in relevant),
+        "existingIdentifiers": sum(int(line["existingIdentifierCount"]) for line in relevant),
+        "requiredIdentifiers": sum(int(line["requiredIdentifierCount"]) for line in relevant),
+        "lines": relevant,
+    }
 
 
 async def ensure_no_category_cycle(session: AsyncSession, category_id: UUID | None, parent_id: UUID | None) -> None:
@@ -411,6 +438,41 @@ async def update_category(
     await ensure_no_category_cycle(session, category_id, payload.parentId)
     await ensure_category_depth(session, category_id, payload.parentId)
     await ensure_spec_inheritance_safe(session, category_id, payload.parentId, spec_fields)
+    policy_previews: list[dict] = []
+    for identifier_type in identifier_policy_changes(existing.get("inventoryPolicy"), payload.inventoryPolicy):
+        lines = await category_repo.preview_identifier_policy_change(
+            session,
+            category_id=category_id,
+            identifier_type=identifier_type,
+        )
+        summary = identifier_preview_summary(identifier_type, lines)
+        if summary["requiredIdentifiers"] > 0:
+            active = await category_repo.find_active_identifier_policy_migration(
+                session,
+                category_id=category_id,
+                identifier_type=identifier_type,
+            )
+            if active:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "IDENTIFIER_POLICY_MIGRATION_ACTIVE",
+                        "message": f"Đang có tác vụ bổ sung {identifier_type} cho danh mục này.",
+                        "migrationId": active["id"],
+                    },
+                )
+            policy_previews.append(summary)
+    if policy_previews:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "IDENTIFIER_POLICY_MIGRATION_REQUIRED",
+                "message": "Tồn kho hiện tại chưa đủ mã định danh. Hãy tạo tác vụ bổ sung trước khi bật chính sách.",
+                "categoryId": str(category_id),
+                "targetInventoryPolicy": payload.inventoryPolicy,
+                "previews": policy_previews,
+            },
+        )
     changed_spec_types = spec_type_changes(existing["specFields"], spec_fields)
     impacted_spec_products = await count_products_using_spec_keys(session, category_id, [item["key"] for item in changed_spec_types])
     if changed_spec_types and impacted_spec_products > 0 and not payload.allowSpecTypeMigration:
@@ -486,6 +548,7 @@ async def update_category(
             "isActive": existing["is_active"],
             "specFields": existing["specFields"],
             "filterConfig": existing["filterConfig"],
+            "inventoryPolicy": existing.get("inventoryPolicy") or {},
         },
         new_value={
             "name": payload.name,
@@ -494,6 +557,7 @@ async def update_category(
             "isActive": is_active,
             "specFields": spec_fields,
             "filterConfig": filter_config,
+            "inventoryPolicy": payload.inventoryPolicy,
             "specTypeChanges": changed_spec_types,
         },
         actor_id=actor_id,
@@ -502,6 +566,209 @@ async def update_category(
     new_root_ids = [category_id] if payload.parentId is None else await find_root_ids_for_categories(session, [payload.parentId, category_id])
     affected_root_ids = [root_id for root_id in [old_root_id, *new_root_ids] if root_id]
     enqueue_category_cache_refresh(background_tasks, redis, affected_root_ids=affected_root_ids)
+    return {"ok": True}
+
+
+async def preview_identifier_policy_migration(
+    category_id: UUID,
+    identifier_type: str,
+    session: AsyncSession,
+) -> dict:
+    if identifier_type not in {"IMEI", "SERIAL"}:
+        raise HTTPException(status_code=422, detail="Loại mã định danh không hợp lệ.")
+    if not await category_repo.get_category_for_update(session, category_id):
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục.")
+    lines = await category_repo.preview_identifier_policy_change(
+        session,
+        category_id=category_id,
+        identifier_type=identifier_type,
+    )
+    return identifier_preview_summary(identifier_type, lines)
+
+
+async def create_identifier_policy_migration(
+    category_id: UUID,
+    payload: CategoryIdentifierMigrationCreatePayload,
+    session: AsyncSession,
+    actor_id: UUID,
+) -> dict:
+    if not await category_repo.get_category_for_update(session, category_id):
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục.")
+    active = await category_repo.find_active_identifier_policy_migration(
+        session,
+        category_id=category_id,
+        identifier_type=payload.identifierType,
+    )
+    if active:
+        raise HTTPException(status_code=409, detail="Danh mục đã có tác vụ bổ sung mã đang xử lý.")
+    target_enabled = (
+        bool(payload.targetInventoryPolicy.get("trackImei"))
+        if payload.identifierType == "IMEI"
+        else bool(payload.targetInventoryPolicy.get("trackSerialNumber"))
+    )
+    if not target_enabled:
+        raise HTTPException(status_code=422, detail="Chính sách đích phải bật loại mã định danh đã chọn.")
+    lines = await category_repo.preview_identifier_policy_change(
+        session,
+        category_id=category_id,
+        identifier_type=payload.identifierType,
+    )
+    summary = identifier_preview_summary(payload.identifierType, lines)
+    if summary["requiredIdentifiers"] <= 0:
+        raise HTTPException(status_code=409, detail="Tồn kho hiện tại không cần bổ sung mã định danh.")
+    migration_id = uuid4()
+    await category_repo.create_identifier_policy_migration(
+        session,
+        migration_id=migration_id,
+        category_id=category_id,
+        identifier_type=payload.identifierType,
+        target_inventory_policy=payload.targetInventoryPolicy,
+        lines=summary["lines"],
+        actor_id=actor_id,
+    )
+    await audit_category_event(
+        session,
+        category_id,
+        "IDENTIFIER_POLICY_MIGRATION_CREATED",
+        new_value={
+            "migrationId": str(migration_id),
+            "identifierType": payload.identifierType,
+            "requiredIdentifiers": summary["requiredIdentifiers"],
+        },
+        actor_id=actor_id,
+    )
+    await session.commit()
+    return {"id": str(migration_id), **summary}
+
+
+async def list_identifier_policy_migrations(category_id: UUID, session: AsyncSession) -> list[dict]:
+    migrations = await category_repo.list_identifier_policy_migrations(session, category_id)
+    for migration in migrations:
+        migration["lines"] = await category_repo.list_identifier_policy_migration_lines(session, UUID(migration["id"]))
+    return migrations
+
+
+async def scan_identifier_policy_migration(
+    migration_id: UUID,
+    payload: CategoryIdentifierMigrationScanPayload,
+    session: AsyncSession,
+    actor_id: UUID,
+) -> dict:
+    migration = await category_repo.get_identifier_policy_migration(session, migration_id, for_update=True)
+    if not migration:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tác vụ bổ sung mã.")
+    if migration["status"] not in {"PENDING", "IN_PROGRESS"}:
+        raise HTTPException(status_code=409, detail="Tác vụ này không còn nhận thêm mã.")
+    line = await category_repo.get_identifier_policy_migration_line(session, migration_id, payload.lineId)
+    if not line:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dòng sản phẩm trong tác vụ.")
+    values = list(dict.fromkeys(str(value).strip().upper() for value in payload.identifiers if str(value).strip()))
+    pattern = IMEI_PATTERN if migration["identifierType"] == "IMEI" else SERIAL_PATTERN
+    invalid = [value for value in values if not pattern.match(value)]
+    if invalid:
+        label = "IMEI phải có đúng 15 chữ số" if migration["identifierType"] == "IMEI" else "Serial number không đúng định dạng"
+        raise HTTPException(status_code=400, detail=f"{label}: {', '.join(invalid[:5])}")
+    remaining = int(line["requiredIdentifierCount"]) - int(line["stagedIdentifierCount"])
+    if len(values) > remaining:
+        raise HTTPException(status_code=400, detail=f"Dòng này chỉ còn thiếu {remaining} mã.")
+    existing_values = await category_repo.list_existing_identifier_values(session, migration["identifierType"], values)
+    if existing_values:
+        raise HTTPException(status_code=409, detail=f"Mã đã tồn tại trong hệ thống: {', '.join(sorted(existing_values)[:5])}")
+    staged_values = await category_repo.list_staged_identifier_values(session, values)
+    if staged_values:
+        raise HTTPException(status_code=409, detail=f"Mã đang nằm trong tác vụ khác: {', '.join(sorted(staged_values)[:5])}")
+    inserted = await category_repo.stage_identifier_policy_values(
+        session,
+        migration_id=migration_id,
+        line_id=payload.lineId,
+        values=values,
+        actor_id=actor_id,
+    )
+    await session.commit()
+    return {"inserted": inserted, "remaining": remaining - inserted}
+
+
+async def complete_identifier_policy_migration(
+    migration_id: UUID,
+    session: AsyncSession,
+    actor_id: UUID,
+) -> dict:
+    migration = await category_repo.get_identifier_policy_migration(session, migration_id, for_update=True)
+    if not migration:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tác vụ bổ sung mã.")
+    if migration["status"] not in {"PENDING", "IN_PROGRESS"}:
+        raise HTTPException(status_code=409, detail="Tác vụ này không thể hoàn tất.")
+    lines = await category_repo.list_identifier_policy_migration_lines(session, migration_id)
+    if any(int(line["stagedIdentifierCount"]) != int(line["requiredIdentifierCount"]) for line in lines):
+        raise HTTPException(status_code=409, detail="Chưa bổ sung đủ mã cho tất cả sản phẩm.")
+    current_lines = await category_repo.preview_identifier_policy_change(
+        session,
+        category_id=UUID(migration["categoryId"]),
+        identifier_type=migration["identifierType"],
+    )
+    current_required = {
+        (line["productId"], line["variantId"]): int(line["requiredIdentifierCount"])
+        for line in current_lines
+        if int(line["requiredIdentifierCount"]) > 0
+    }
+    stored_required = {
+        (line["productId"], line["variantId"]): int(line["requiredIdentifierCount"])
+        for line in lines
+    }
+    if current_required != stored_required:
+        raise HTTPException(
+            status_code=409,
+            detail="Tồn kho đã thay đổi trong lúc bổ sung mã. Hãy hủy tác vụ và tạo lại để đối soát chính xác.",
+        )
+    await category_repo.activate_identifier_policy_migration_values(
+        session,
+        migration_id=migration_id,
+        identifier_type=migration["identifierType"],
+    )
+    await category_repo.complete_identifier_policy_migration(
+        session,
+        migration_id=migration_id,
+        category_id=UUID(migration["categoryId"]),
+        target_inventory_policy=migration["targetInventoryPolicy"],
+        identifier_type=migration["identifierType"],
+        actor_id=actor_id,
+    )
+    await audit_category_event(
+        session,
+        UUID(migration["categoryId"]),
+        "IDENTIFIER_POLICY_MIGRATION_COMPLETED",
+        new_value={"migrationId": str(migration_id), "identifierType": migration["identifierType"]},
+        actor_id=actor_id,
+    )
+    await session.commit()
+    return {"ok": True}
+
+
+async def cancel_identifier_policy_migration(
+    migration_id: UUID,
+    payload: CategoryIdentifierMigrationCancelPayload,
+    session: AsyncSession,
+    actor_id: UUID,
+) -> dict:
+    migration = await category_repo.get_identifier_policy_migration(session, migration_id, for_update=True)
+    if not migration:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tác vụ bổ sung mã.")
+    if migration["status"] not in {"PENDING", "IN_PROGRESS"}:
+        raise HTTPException(status_code=409, detail="Tác vụ này không thể hủy.")
+    await category_repo.cancel_identifier_policy_migration(
+        session,
+        migration_id=migration_id,
+        actor_id=actor_id,
+        reason=payload.reason,
+    )
+    await audit_category_event(
+        session,
+        UUID(migration["categoryId"]),
+        "IDENTIFIER_POLICY_MIGRATION_CANCELLED",
+        new_value={"migrationId": str(migration_id), "reason": payload.reason},
+        actor_id=actor_id,
+    )
+    await session.commit()
     return {"ok": True}
 
 

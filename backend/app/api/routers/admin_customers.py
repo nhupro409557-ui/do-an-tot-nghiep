@@ -1,5 +1,7 @@
 ﻿from uuid import UUID
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,9 +26,10 @@ async def list_admin_customers(
     search: str | None = None,
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
+    role: Literal["CUSTOMER", "STAFF_ADMIN"] = "CUSTOMER",
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    return await customer_service.list_admin_customers(session, search, page, limit)
+    return await customer_service.list_admin_customers(session, search, page, limit, role)
 
 
 @router.get("/customers/{user_id}", dependencies=[Depends(require_permission("customer:read"))])
@@ -129,8 +132,12 @@ async def bulk_update_user_status(
 
 
 @router.get("/users/{user_id}/permissions", dependencies=[Depends(require_permission("sys:manage_users"))])
-async def get_user_extra_permissions(user_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
-    return await customer_service.get_user_extra_permissions(session, user_id)
+async def get_user_extra_permissions(
+    user_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await customer_service.get_user_extra_permissions(session, user_id, current_user_id)
 
 
 @router.put("/users/{user_id}/permissions", dependencies=[Depends(require_permission("sys:manage_users"))])

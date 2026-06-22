@@ -95,10 +95,6 @@ export function useAdminBannersLogic(params: {
       setBannerNotice({ type: 'error', text: 'Vui lòng nhập tiêu đề banner.' });
       return false;
     }
-    if (!bannerForm.bannerImageUrl.trim()) {
-      setBannerNotice({ type: 'error', text: 'Vui lòng tải hoặc nhập ảnh banner.' });
-      return false;
-    }
     if (!bannerForm.categoryId) {
       setBannerNotice({ type: 'error', text: 'Vui lòng chọn danh mục đi kèm cho banner.' });
       return false;

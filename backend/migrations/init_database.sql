@@ -1,3 +1,7 @@
+-- ElectroMart database baseline
+-- Consolidated through legacy migration 073 on 2026-06-18.
+-- For a new database, run this file first. Future migrations start at 001_*.sql.
+
 -- ==========================================
 -- Migration: 001_initial_schema.sql
 -- ==========================================
@@ -400,6 +404,7 @@ WITH brand_seed(name, category_codes) AS (
     ('Fujifilm', ARRAY['may-anh']),
     ('GoPro', ARRAY['cameras']),
     ('DJI', ARRAY['cameras'])
+)
 -- BRAND CATEGORIES INSERT
 , upserted_brands AS (
     INSERT INTO brands (code, name)
@@ -911,7 +916,11 @@ SELECT
     variant_seed.price,
     variant_seed.sale_price::NUMERIC(14, 2),
     variant_seed.stock_quantity
-FROM variant_seed
+FROM (
+    SELECT DISTINCT ON (sku) *
+    FROM variant_seed
+    ORDER BY sku
+) AS variant_seed
 JOIN products ON products.sku = variant_seed.product_sku
 ON CONFLICT (sku) DO UPDATE SET
     color_name = EXCLUDED.color_name,
@@ -2441,3 +2450,1483 @@ FROM roles r
 JOIN permissions p ON p.code IN ('inventory:approve', 'inventory:count', 'inventory:reserve')
 WHERE r.code IN ('SUPER_ADMIN', 'STAFF_ADMIN')
 ON CONFLICT DO NOTHING;
+
+-- Staff Admin is only an internal staff account type.
+-- Business permissions are granted per staff account through user_permissions.
+DELETE FROM role_permissions
+WHERE role_id = (SELECT id FROM roles WHERE code = 'STAFF_ADMIN');
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 036_inventory_settings_and_receipt_metadata.sql
+-- ============================================================================
+-- Inventory settings and richer receipt metadata
+-- This migration extends the existing single-warehouse flow without replacing it.
+
+ALTER TABLE inventory_adjustment_logs
+    ADD COLUMN IF NOT EXISTS supplier_name VARCHAR(160);
+
+ALTER TABLE inventory_adjustment_logs
+    ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(14, 2);
+
+ALTER TABLE inventory_adjustment_logs
+    ADD COLUMN IF NOT EXISTS location_code VARCHAR(60);
+
+ALTER TABLE inventory_adjustment_logs
+    ADD COLUMN IF NOT EXISTS location_name VARCHAR(160);
+
+ALTER TABLE products
+    ADD COLUMN IF NOT EXISTS sales_config JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+UPDATE products
+SET sales_config = jsonb_set(
+        jsonb_set(
+            jsonb_set(
+                jsonb_set(
+                    jsonb_set(COALESCE(sales_config, '{}'::jsonb), '{minimumStock}', COALESCE(sales_config->'minimumStock', '0'::jsonb), true),
+                    '{blockSaleWhenOutOfStock}',
+                    COALESCE(sales_config->'blockSaleWhenOutOfStock', 'true'::jsonb),
+                    true
+                ),
+                '{preferredLocationCode}',
+                COALESCE(sales_config->'preferredLocationCode', '""'::jsonb),
+                true
+            ),
+            '{preferredLocationName}',
+            COALESCE(sales_config->'preferredLocationName', '""'::jsonb),
+            true
+        ),
+        '{cycleCountDays}',
+        COALESCE(sales_config->'cycleCountDays', '30'::jsonb),
+        true
+    )
+WHERE sales_config IS NULL
+   OR NOT (sales_config ? 'minimumStock')
+   OR NOT (sales_config ? 'blockSaleWhenOutOfStock')
+   OR NOT (sales_config ? 'preferredLocationCode')
+   OR NOT (sales_config ? 'preferredLocationName')
+   OR NOT (sales_config ? 'cycleCountDays');
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 037_inventory_enterprise_foundation.sql
+-- ============================================================================
+-- Enterprise inventory foundation
+-- This migration is intentionally non-breaking: it introduces normalized tables
+-- for future multi-warehouse and approval workflows without removing the current
+-- single-stock-column runtime yet.
+
+CREATE TABLE IF NOT EXISTS inventory_locations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code VARCHAR(60) NOT NULL UNIQUE,
+    name VARCHAR(160) NOT NULL,
+    location_type VARCHAR(30) NOT NULL DEFAULT 'WAREHOUSE'
+        CHECK (location_type IN ('WAREHOUSE', 'BRANCH', 'VIRTUAL', 'RETURNS')),
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
+        CHECK (status IN ('ACTIVE', 'INACTIVE')),
+    address TEXT,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO inventory_locations (code, name, location_type, status, is_default)
+VALUES ('MAIN', 'Kho mac dinh', 'WAREHOUSE', 'ACTIVE', TRUE)
+ON CONFLICT (code) DO UPDATE
+SET name = EXCLUDED.name,
+    location_type = EXCLUDED.location_type,
+    status = EXCLUDED.status;
+
+CREATE TABLE IF NOT EXISTS inventory_levels (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+    variant_id UUID REFERENCES product_variants(id) ON DELETE CASCADE,
+    location_id UUID NOT NULL REFERENCES inventory_locations(id) ON DELETE RESTRICT,
+    on_hand_quantity INTEGER NOT NULL DEFAULT 0 CHECK (on_hand_quantity >= 0),
+    reserved_quantity INTEGER NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0),
+    safety_stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (safety_stock_quantity >= 0),
+    reorder_point_quantity INTEGER NOT NULL DEFAULT 0 CHECK (reorder_point_quantity >= 0),
+    average_unit_cost NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (average_unit_cost >= 0),
+    last_counted_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT inventory_levels_item_check CHECK (num_nonnulls(product_id, variant_id) = 1),
+    CONSTRAINT inventory_levels_reserved_le_on_hand CHECK (reserved_quantity <= on_hand_quantity)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_levels_product_location
+    ON inventory_levels(product_id, location_id)
+    WHERE variant_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_levels_variant_location
+    ON inventory_levels(variant_id, location_id)
+    WHERE product_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_inventory_levels_location_id
+    ON inventory_levels(location_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_levels_product_variant_location
+    ON inventory_levels(product_id, COALESCE(variant_id, '00000000-0000-0000-0000-000000000000'::uuid), location_id);
+
+CREATE TABLE IF NOT EXISTS inventory_documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_no VARCHAR(80) NOT NULL UNIQUE,
+    document_type VARCHAR(30) NOT NULL
+        CHECK (document_type IN ('INBOUND', 'OUTBOUND', 'ADJUSTMENT', 'COUNT', 'REVERSAL', 'TRANSFER', 'RESERVATION_RELEASE')),
+    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT'
+        CHECK (status IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'POSTED', 'CANCELLED', 'COMPLETED', 'PROCESSING_IMEI', 'PENDING_SHORTAGE_APPROVAL', 'RECEIVING', 'REVERSED')),
+    source_location_id UUID REFERENCES inventory_locations(id) ON DELETE RESTRICT,
+    target_location_id UUID REFERENCES inventory_locations(id) ON DELETE RESTRICT,
+    supplier_name VARCHAR(160),
+    reference_code VARCHAR(120),
+    reason VARCHAR(120),
+    note TEXT,
+    costing_method VARCHAR(30) NOT NULL DEFAULT 'MOVING_AVERAGE'
+        CHECK (costing_method IN ('MOVING_AVERAGE', 'FIFO', 'MANUAL')),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    posted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    cancelled_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reversed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reversal_of_document_id UUID REFERENCES inventory_documents(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    approved_at TIMESTAMPTZ,
+    posted_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    reversed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_documents_status_type
+    ON inventory_documents(status, document_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS inventory_document_lines (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID NOT NULL REFERENCES inventory_documents(id) ON DELETE CASCADE,
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+    variant_id UUID REFERENCES product_variants(id) ON DELETE CASCADE,
+    location_id UUID REFERENCES inventory_locations(id) ON DELETE RESTRICT,
+    requested_quantity INTEGER NOT NULL DEFAULT 0 CHECK (requested_quantity >= 0),
+    approved_quantity INTEGER CHECK (approved_quantity IS NULL OR approved_quantity >= 0),
+    expected_quantity INTEGER CHECK (expected_quantity IS NULL OR expected_quantity >= 0),
+    counted_quantity INTEGER CHECK (counted_quantity IS NULL OR counted_quantity >= 0),
+    variance_quantity INTEGER,
+    unit_cost NUMERIC(14, 2) CHECK (unit_cost IS NULL OR unit_cost >= 0),
+    note TEXT,
+    CONSTRAINT inventory_document_lines_item_check CHECK (num_nonnulls(product_id, variant_id) = 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_document_lines_document_id
+    ON inventory_document_lines(document_id);
+
+CREATE TABLE IF NOT EXISTS inventory_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID REFERENCES inventory_documents(id) ON DELETE SET NULL,
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+    variant_id UUID REFERENCES product_variants(id) ON DELETE CASCADE,
+    location_id UUID NOT NULL REFERENCES inventory_locations(id) ON DELETE RESTRICT,
+    movement_type VARCHAR(30) NOT NULL
+        CHECK (movement_type IN ('IN', 'OUT', 'ADJUST', 'COUNT_POST', 'REVERSAL', 'RESERVE', 'RELEASE')),
+    quantity INTEGER NOT NULL CHECK (quantity <> 0),
+    unit_cost NUMERIC(14, 2) CHECK (unit_cost IS NULL OR unit_cost >= 0),
+    total_cost NUMERIC(14, 2) CHECK (total_cost IS NULL OR total_cost >= 0),
+    costing_method VARCHAR(30) NOT NULL DEFAULT 'MOVING_AVERAGE'
+        CHECK (costing_method IN ('MOVING_AVERAGE', 'FIFO', 'MANUAL')),
+    balance_after INTEGER CHECK (balance_after IS NULL OR balance_after >= 0),
+    reference_code VARCHAR(120),
+    reason VARCHAR(120),
+    note TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT inventory_transactions_item_check CHECK (num_nonnulls(product_id, variant_id) = 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_transactions_item_location_created_at
+    ON inventory_transactions(variant_id, product_id, location_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS inventory_reservations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+    variant_id UUID REFERENCES product_variants(id) ON DELETE CASCADE,
+    location_id UUID NOT NULL REFERENCES inventory_locations(id) ON DELETE RESTRICT,
+    order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    reservation_code VARCHAR(120) NOT NULL UNIQUE,
+    reserved_quantity INTEGER NOT NULL CHECK (reserved_quantity > 0),
+    status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE'
+        CHECK (status IN ('ACTIVE', 'CONSUMED', 'RELEASED', 'EXPIRED', 'CANCELLED')),
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    released_at TIMESTAMPTZ,
+    CONSTRAINT inventory_reservations_item_check CHECK (num_nonnulls(product_id, variant_id) = 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_reservations_status_expires_at
+    ON inventory_reservations(status, expires_at);
+
+-- Backfill current single-warehouse balances into MAIN for compatibility mode.
+INSERT INTO inventory_levels (
+    product_id,
+    variant_id,
+    location_id,
+    on_hand_quantity,
+    reserved_quantity,
+    safety_stock_quantity,
+    reorder_point_quantity,
+    average_unit_cost,
+    updated_at
+)
+SELECT
+    p.id,
+    NULL,
+    il.id,
+    p.stock_quantity,
+    0,
+    COALESCE((p.sales_config->>'minimumStock')::INTEGER, 0),
+    COALESCE((p.sales_config->>'minimumStock')::INTEGER, 0),
+    0,
+    NOW()
+FROM products p
+CROSS JOIN inventory_locations il
+WHERE il.code = 'MAIN'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO inventory_levels (
+    product_id,
+    variant_id,
+    location_id,
+    on_hand_quantity,
+    reserved_quantity,
+    safety_stock_quantity,
+    reorder_point_quantity,
+    average_unit_cost,
+    updated_at
+)
+SELECT
+    NULL,
+    pv.id,
+    il.id,
+    pv.stock_quantity,
+    0,
+    COALESCE((p.sales_config->>'minimumStock')::INTEGER, 0),
+    COALESCE((p.sales_config->>'minimumStock')::INTEGER, 0),
+    0,
+    NOW()
+FROM product_variants pv
+JOIN products p ON p.id = pv.product_id
+CROSS JOIN inventory_locations il
+WHERE il.code = 'MAIN'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO permissions (code, module, description)
+VALUES
+    ('inventory:approve', 'inventory', 'Duyet phieu nghiep vu kho'),
+    ('inventory:count', 'inventory', 'Tao va doi soat phieu kiem ke kho'),
+    ('inventory:reserve', 'inventory', 'Quan ly giu cho ton kho')
+ON CONFLICT (code) DO UPDATE
+SET module = EXCLUDED.module,
+    description = EXCLUDED.description;
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.code IN ('inventory:approve', 'inventory:count', 'inventory:reserve')
+WHERE r.code IN ('SUPER_ADMIN', 'STAFF_ADMIN')
+ON CONFLICT DO NOTHING;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 038_review_management_upgrade.sql
+-- ============================================================================
+-- Review management upgrade
+-- Adds moderation, media attachments, shop replies, reporting, and anti-spam support.
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS media_urls JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS moderation_note TEXT;
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS shop_reply TEXT;
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS shop_replied_by UUID REFERENCES users(id);
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS shop_replied_at TIMESTAMPTZ;
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS flagged_reason TEXT;
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS flagged_at TIMESTAMPTZ;
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS is_spam BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS spam_reason TEXT;
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+UPDATE product_reviews
+SET status = 'PENDING'
+WHERE status IS NULL;
+
+ALTER TABLE product_reviews
+    DROP CONSTRAINT IF EXISTS product_reviews_status_check;
+
+ALTER TABLE product_reviews
+    ADD CONSTRAINT product_reviews_status_check
+    CHECK (status IN ('PENDING', 'PUBLISHED', 'HIDDEN', 'REJECTED'));
+
+CREATE INDEX IF NOT EXISTS idx_product_reviews_status ON product_reviews(status);
+CREATE INDEX IF NOT EXISTS idx_product_reviews_product_status ON product_reviews(product_id, status);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 039_review_resilience_and_user_controls.sql
+-- ============================================================================
+-- Review resilience and user controls
+-- Adds ownership-friendly edit/delete support, review time window metadata, and denormalized rating sync.
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS order_id UUID REFERENCES orders(id);
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS review_window_expires_at TIMESTAMPTZ;
+
+ALTER TABLE product_reviews
+    ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_product_reviews_user_product ON product_reviews(user_id, product_id);
+
+UPDATE products p
+SET
+    rating = stats.rating,
+    review_count = stats.review_count,
+    updated_at = NOW()
+FROM (
+    SELECT
+        product_id,
+        ROUND(AVG(rating) FILTER (WHERE status = 'PUBLISHED'), 2)::numeric(3, 2) AS rating,
+        COUNT(*) FILTER (WHERE status = 'PUBLISHED') AS review_count
+    FROM product_reviews
+    GROUP BY product_id
+) stats
+WHERE p.id = stats.product_id;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 040_catalog_inventory_services_foundation.sql
+-- ============================================================================
+-- Catalog inventory, warranty, IMEI, and attached service foundation.
+-- The admin UI writes these fields as optional configuration first so existing products keep working.
+
+ALTER TABLE categories
+    ADD COLUMN IF NOT EXISTS inventory_policy JSONB NOT NULL DEFAULT '{"inheritImeiPolicy": true, "trackImei": false}'::jsonb;
+
+ALTER TABLE categories
+    ADD COLUMN IF NOT EXISTS warranty_policy JSONB NOT NULL DEFAULT '{"inheritWarrantyPolicy": true, "hasWarranty": false, "warrantyMonths": 0, "allowOneForOne": false, "oneForOneDays": 0}'::jsonb;
+
+CREATE TABLE IF NOT EXISTS product_imeis (
+    id UUID PRIMARY KEY,
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    variant_id UUID REFERENCES product_variants(id) ON DELETE CASCADE,
+    imei VARCHAR(80) NOT NULL UNIQUE,
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK',
+    source_reference VARCHAR(120),
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    sold_order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    sold_at TIMESTAMPTZ,
+    service_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT product_imeis_status_check CHECK (status IN ('IN_STOCK', 'RESERVED', 'SOLD', 'RETURNED', 'WARRANTY', 'RETIRED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_imeis_product_variant
+    ON product_imeis(product_id, variant_id, status);
+
+CREATE TABLE IF NOT EXISTS attached_services (
+    id UUID PRIMARY KEY,
+    code VARCHAR(80) NOT NULL UNIQUE,
+    name VARCHAR(180) NOT NULL,
+    service_type VARCHAR(30) NOT NULL,
+    attribute_group VARCHAR(80),
+    duration_months INTEGER NOT NULL DEFAULT 0,
+    price_mode VARCHAR(30) NOT NULL DEFAULT 'FIXED',
+    fixed_price NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    percent_value NUMERIC(7, 4) NOT NULL DEFAULT 0,
+    base_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT attached_services_type_check CHECK (service_type IN ('PRODUCT_SERVICE', 'SUPPORT_SERVICE')),
+    CONSTRAINT attached_services_price_mode_check CHECK (price_mode IN ('FIXED', 'PERCENT', 'TIERED_AMOUNT'))
+);
+
+CREATE TABLE IF NOT EXISTS product_attached_services (
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    service_id UUID NOT NULL REFERENCES attached_services(id) ON DELETE CASCADE,
+    override_price NUMERIC(14, 2),
+    PRIMARY KEY (product_id, service_id)
+);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 041_product_favorites.sql
+-- ============================================================================
+BEGIN;
+
+ALTER TABLE products 
+ADD COLUMN favorite_count INT NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS user_favorites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, product_id)
+);
+
+-- Index for quick lookup
+CREATE INDEX idx_user_favorites_user_id ON user_favorites(user_id);
+CREATE INDEX idx_user_favorites_product_id ON user_favorites(product_id);
+
+COMMIT;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 042_staff_user_permissions.sql
+-- ============================================================================
+-- Staff Admin is only an internal staff account type.
+-- Super Admin grants business permissions to each staff account through user_permissions.
+
+CREATE TABLE IF NOT EXISTS user_permissions (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+    granted_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (user_id, permission_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_permissions_permission_id ON user_permissions(permission_id);
+
+DELETE FROM role_permissions
+WHERE role_id = (SELECT id FROM roles WHERE code = 'STAFF_ADMIN');
+
+-- Do not seed shared STAFF_ADMIN permissions here.
+-- Every staff account starts without business permissions until Super Admin grants them individually.
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 043_video_management_split.sql
+-- ============================================================================
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_source VARCHAR(30) NOT NULL DEFAULT 'UPLOAD';
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS video_category VARCHAR(60) NOT NULL DEFAULT 'PRODUCT';
+
+ALTER TABLE content_comments ADD COLUMN IF NOT EXISTS reply_to_user_name VARCHAR(120);
+ALTER TABLE content_comments ADD COLUMN IF NOT EXISTS moderation_reason VARCHAR(255);
+ALTER TABLE content_comments ADD COLUMN IF NOT EXISTS is_retracted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE content_comments ADD COLUMN IF NOT EXISTS retracted_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS video_likes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(video_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_likes_video_id ON video_likes(video_id);
+CREATE INDEX IF NOT EXISTS idx_video_likes_user_id ON video_likes(user_id);
+CREATE INDEX IF NOT EXISTS idx_videos_video_category ON videos(video_category);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 044_product_image_comments.sql
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS product_image_comments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    image_url TEXT,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_name VARCHAR(120) NOT NULL,
+    body TEXT NOT NULL,
+    parent_id UUID REFERENCES product_image_comments(id) ON DELETE CASCADE,
+    reply_to_user_name VARCHAR(120),
+    is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
+    is_retracted BOOLEAN NOT NULL DEFAULT FALSE,
+    moderation_reason VARCHAR(255),
+    interaction_type VARCHAR(30) NOT NULL DEFAULT 'IMAGE_COMMENT',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE product_image_comments
+ADD COLUMN IF NOT EXISTS interaction_type VARCHAR(30) NOT NULL DEFAULT 'IMAGE_COMMENT';
+
+CREATE INDEX IF NOT EXISTS idx_product_image_comments_product_id ON product_image_comments(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_image_comments_parent_id ON product_image_comments(parent_id);
+CREATE INDEX IF NOT EXISTS idx_product_image_comments_type ON product_image_comments(interaction_type);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 045_product_analytics_events.sql
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS product_view_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    session_id VARCHAR(120),
+    device_id VARCHAR(160),
+    ip_address VARCHAR(80),
+    user_agent TEXT,
+    source VARCHAR(80),
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    scroll_depth NUMERIC(4, 3) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE product_view_events
+    ADD COLUMN IF NOT EXISTS device_id VARCHAR(160),
+    ADD COLUMN IF NOT EXISTS duration_seconds INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS scroll_depth NUMERIC(4, 3) NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS product_search_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    query TEXT NOT NULL,
+    normalized_query TEXT NOT NULL,
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+    session_id VARCHAR(120),
+    ip_address VARCHAR(80),
+    user_agent TEXT,
+    result_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_view_events_product_created
+    ON product_view_events(product_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_product_search_events_product_created
+    ON product_search_events(product_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_product_search_events_created
+    ON product_search_events(created_at DESC);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 046_product_flat_variants.sql
+-- ============================================================================
+-- ==========================================
+-- Migration: 046_product_flat_variants.sql
+-- ==========================================
+
+DO $$
+DECLARE
+    constraint_name TEXT;
+BEGIN
+    -- Drop unique constraint on products(sku) if exists
+    SELECT conname INTO constraint_name
+    FROM pg_constraint
+    WHERE conrelid = 'products'::regclass 
+      AND contype = 'u' 
+      AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'products'::regclass AND attname = 'sku')];
+    IF constraint_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE products DROP CONSTRAINT %I', constraint_name);
+    END IF;
+    
+    -- Drop unique constraint on products(slug) if exists
+    SELECT conname INTO constraint_name
+    FROM pg_constraint
+    WHERE conrelid = 'products'::regclass 
+      AND contype = 'u' 
+      AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'products'::regclass AND attname = 'slug')];
+    IF constraint_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE products DROP CONSTRAINT %I', constraint_name);
+    END IF;
+
+    -- Drop unique constraint on product_variants(sku) if exists
+    SELECT conname INTO constraint_name
+    FROM pg_constraint
+    WHERE conrelid = 'product_variants'::regclass 
+      AND contype = 'u' 
+      AND conkey = ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid = 'product_variants'::regclass AND attname = 'sku')];
+    IF constraint_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE product_variants DROP CONSTRAINT %I', constraint_name);
+    END IF;
+END $$;
+
+ALTER TABLE products ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS options JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE products ALTER COLUMN sku DROP NOT NULL;
+
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL;
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS compare_at_price NUMERIC(14, 2) DEFAULT NULL;
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'active';
+ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS attributes JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_variant_sku
+ON product_variants (sku)
+WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_product_sku
+ON products (sku)
+WHERE deleted_at IS NULL AND sku IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_product_slug
+ON products (slug)
+WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_default_variant_per_product
+ON product_variants (product_id)
+WHERE is_default = true AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_active_variant_attributes
+ON product_variants USING GIN (attributes)
+WHERE deleted_at IS NULL;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 047_enterprise_product_revision_merge.sql
+-- ============================================================================
+-- ==========================================
+-- Migration: 047_enterprise_product_revision_merge.sql
+-- Purpose:
+-- - Preserve variant lineage through product revisions.
+-- - Preserve order item variant references for audit/inventory-safe merge.
+-- ==========================================
+
+ALTER TABLE product_variants
+ADD COLUMN IF NOT EXISTS parent_variant_id UUID NULL REFERENCES product_variants(id);
+
+ALTER TABLE order_items
+ADD COLUMN IF NOT EXISTS variant_id UUID NULL REFERENCES product_variants(id);
+
+CREATE INDEX IF NOT EXISTS idx_product_variants_parent_variant_id
+ON product_variants (parent_variant_id)
+WHERE parent_variant_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_order_items_variant_id
+ON order_items (variant_id)
+WHERE variant_id IS NOT NULL;
+
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 048_exclude_revision_variants_from_unique_sku.sql
+-- ============================================================================
+-- ==========================================
+-- Migration: 048_exclude_revision_variants_from_unique_sku.sql
+-- Purpose:
+-- - Exclude revision draft variants from the unique SKU constraint.
+-- ==========================================
+
+DROP INDEX IF EXISTS idx_unique_active_variant_sku;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_variant_sku
+ON product_variants (sku)
+WHERE deleted_at IS NULL AND status <> 'revision_draft';
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 049_product_variant_images.sql
+-- ============================================================================
+-- Add gallery images for each product variant, separate from the representative image.
+ALTER TABLE product_variants
+ADD COLUMN IF NOT EXISTS images JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 050_product_favorite_events.sql
+-- ============================================================================
+BEGIN;
+
+ALTER TABLE user_favorites
+ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+ALTER TABLE user_favorites
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE TABLE IF NOT EXISTS user_favorite_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    action VARCHAR(20) NOT NULL CHECK (action IN ('LIKE', 'UNLIKE')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO user_favorite_events (user_id, product_id, action, created_at)
+SELECT uf.user_id, uf.product_id, 'LIKE', uf.created_at
+FROM user_favorites uf
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM user_favorite_events ufe
+    WHERE ufe.user_id = uf.user_id
+      AND ufe.product_id = uf.product_id
+      AND ufe.action = 'LIKE'
+      AND ufe.created_at = uf.created_at
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_favorite_events_product_time
+ON user_favorite_events(product_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_user_favorite_events_user_product_time
+ON user_favorite_events(user_id, product_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_user_favorites_active_product
+ON user_favorites(product_id)
+WHERE is_active = TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_user_favorites_active_user
+ON user_favorites(user_id)
+WHERE is_active = TRUE;
+
+COMMIT;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 051_flash_sales.sql
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS flash_sales (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    discount_type VARCHAR(20) NOT NULL CHECK (discount_type IN ('FIXED', 'PERCENT')),
+    discount_value NUMERIC(14, 2) NOT NULL CHECK (discount_value > 0),
+    starts_at TIMESTAMPTZ NULL,
+    ends_at TIMESTAMPTZ NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (ends_at IS NULL OR starts_at IS NULL OR ends_at > starts_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_flash_sales_product_active
+    ON flash_sales(product_id, status, starts_at, ends_at);
+
+CREATE INDEX IF NOT EXISTS idx_flash_sales_active_window
+    ON flash_sales(status, starts_at, ends_at);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 052_remove_category_seo_metadata.sql
+-- ============================================================================
+-- Remove unused SEO metadata fields from categories.
+-- Category management no longer exposes or persists these fields.
+
+ALTER TABLE categories DROP COLUMN IF EXISTS seo_title;
+ALTER TABLE categories DROP COLUMN IF EXISTS seo_description;
+ALTER TABLE categories DROP COLUMN IF EXISTS seo_keywords;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 053_remove_brand_seo_metadata.sql
+-- ============================================================================
+-- Remove unused SEO metadata fields from brands.
+-- Brand management keeps landing title only.
+
+ALTER TABLE brands DROP COLUMN IF EXISTS seo_title;
+ALTER TABLE brands DROP COLUMN IF EXISTS seo_description;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 054_product_discontinued_status.sql
+-- ============================================================================
+ALTER TABLE products
+    DROP CONSTRAINT IF EXISTS products_status_check;
+
+ALTER TABLE products
+    ADD CONSTRAINT products_status_check
+    CHECK (status IN ('DRAFT', 'REVISION_DRAFT', 'PENDING', 'ACTIVE', 'INACTIVE', 'DISCONTINUED', 'ARCHIVED', 'MERGED'));
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 055_product_inherited_visibility.sql
+-- ============================================================================
+ALTER TABLE products
+    ADD COLUMN IF NOT EXISTS hidden_by_category BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS hidden_by_brand BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_products_inherited_visibility
+    ON products(hidden_by_category, hidden_by_brand, status);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 056_suppliers.sql
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS suppliers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code VARCHAR(80) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    contact_name VARCHAR(255),
+    phone VARCHAR(40),
+    email VARCHAR(255),
+    address TEXT,
+    tax_code VARCHAR(80),
+    website VARCHAR(255),
+    note TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_suppliers_active ON suppliers(is_active);
+CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(name);
+
+INSERT INTO permissions (code, module, description)
+VALUES
+    ('supplier:read', 'supplier', 'Xem nhà cung cấp'),
+    ('supplier:create', 'supplier', 'Tạo nhà cung cấp'),
+    ('supplier:update', 'supplier', 'Cập nhật nhà cung cấp'),
+    ('supplier:delete', 'supplier', 'Xóa nhà cung cấp')
+ON CONFLICT (code) DO UPDATE
+SET module = EXCLUDED.module,
+    description = EXCLUDED.description;
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.code IN ('supplier:read', 'supplier:create', 'supplier:update', 'supplier:delete')
+WHERE r.code IN ('SUPER_ADMIN', 'STAFF_ADMIN')
+ON CONFLICT DO NOTHING;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 057_inventory_receipt_lifecycle.sql
+-- ============================================================================
+-- Receipt lifecycle for admin inbound inventory documents.
+
+ALTER TABLE inventory_documents
+DROP CONSTRAINT IF EXISTS inventory_documents_status_check;
+
+ALTER TABLE inventory_documents
+ADD CONSTRAINT inventory_documents_status_check
+CHECK (status IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'RECEIVING', 'COMPLETED', 'CANCELLED', 'REJECTED', 'POSTED'));
+
+ALTER TABLE inventory_document_lines
+DROP CONSTRAINT IF EXISTS inventory_document_lines_item_check;
+
+ALTER TABLE inventory_document_lines
+ADD CONSTRAINT inventory_document_lines_item_check
+CHECK (product_id IS NOT NULL OR variant_id IS NOT NULL);
+
+ALTER TABLE inventory_document_lines
+ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE inventory_document_lines
+ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE INDEX IF NOT EXISTS idx_inventory_documents_inbound_status_created
+    ON inventory_documents(document_type, status, created_at DESC)
+    WHERE document_type = 'INBOUND';
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 058_inventory_receipt_imei_workflow.sql
+-- ============================================================================
+-- Separate IMEI collection from receipt creation.
+
+ALTER TABLE inventory_documents
+DROP CONSTRAINT IF EXISTS inventory_documents_status_check;
+
+ALTER TABLE inventory_documents
+ADD CONSTRAINT inventory_documents_status_check
+CHECK (status IN (
+    'DRAFT',
+    'PROCESSING_IMEI',
+    'PENDING_SHORTAGE_APPROVAL',
+    'APPROVED',
+    'COMPLETED',
+    'CANCELLED',
+    'REJECTED',
+    'POSTED',
+    'PENDING_APPROVAL',
+    'RECEIVING'
+));
+
+ALTER TABLE inventory_document_lines
+ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+UPDATE inventory_document_lines
+SET metadata = metadata
+    || jsonb_build_object(
+        'plannedQuantity', requested_quantity,
+        'receivedQuantity', COALESCE((metadata->>'receivedQuantity')::int, 0),
+        'tracksImei', COALESCE((metadata->>'tracksImei')::boolean, FALSE)
+    )
+WHERE document_id IN (
+    SELECT id FROM inventory_documents WHERE document_type = 'INBOUND'
+);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 059_inventory_imei_enterprise_statuses.sql
+-- ============================================================================
+-- Align IMEI lifecycle statuses with the WMS/ERP inventory model.
+ALTER TABLE product_imeis
+    DROP CONSTRAINT IF EXISTS product_imeis_status_check;
+
+ALTER TABLE product_imeis
+    ADD CONSTRAINT product_imeis_status_check
+    CHECK (status IN (
+        'IN_STOCK',
+        'RESERVED',
+        'SOLD',
+        'IN_WARRANTY',
+        'SCRAP',
+        'RETURNED',
+        'WARRANTY',
+        'RETIRED'
+    ));
+
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 060_product_serial_number_management.sql
+-- ============================================================================
+-- Add serial number tracking parallel to IMEI tracking.
+
+UPDATE categories
+SET inventory_policy = COALESCE(inventory_policy, '{}'::jsonb)
+    || jsonb_build_object(
+        'inheritSerialPolicy', COALESCE((inventory_policy->>'inheritSerialPolicy')::boolean, TRUE),
+        'trackSerialNumber', COALESCE((inventory_policy->>'trackSerialNumber')::boolean, FALSE)
+    )
+WHERE NOT (COALESCE(inventory_policy, '{}'::jsonb) ? 'trackSerialNumber');
+
+CREATE TABLE IF NOT EXISTS product_serial_numbers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    variant_id UUID REFERENCES product_variants(id) ON DELETE SET NULL,
+    serial_number VARCHAR(120) NOT NULL UNIQUE,
+    status VARCHAR(30) NOT NULL DEFAULT 'IN_STOCK',
+    source_reference VARCHAR(120),
+    service_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    received_at TIMESTAMPTZ,
+    sold_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT product_serial_numbers_status_check CHECK (
+        status IN ('IN_STOCK', 'RESERVED', 'SOLD', 'RETURNED', 'WARRANTY', 'IN_WARRANTY', 'RETIRED', 'SCRAP')
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_serial_numbers_product_variant
+    ON product_serial_numbers(product_id, variant_id, status);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 061_product_imei_primary.sql
+-- ============================================================================
+-- Allow each product or variant to keep many IMEI values while marking one as the primary IMEI.
+
+ALTER TABLE product_imeis
+    ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT FALSE;
+
+WITH ranked_imeis AS (
+    SELECT
+        id,
+        ROW_NUMBER() OVER (
+            PARTITION BY product_id, variant_id
+            ORDER BY
+                CASE WHEN is_primary THEN 0 ELSE 1 END,
+                received_at NULLS LAST,
+                created_at,
+                id
+        ) AS row_number
+    FROM product_imeis
+)
+UPDATE product_imeis pi
+SET is_primary = TRUE,
+    updated_at = NOW()
+FROM ranked_imeis ranked
+WHERE ranked.id = pi.id
+  AND ranked.row_number = 1
+  AND pi.is_primary = FALSE
+  AND NOT EXISTS (
+      SELECT 1
+      FROM product_imeis existing
+      WHERE existing.product_id = pi.product_id
+        AND (
+            existing.variant_id = pi.variant_id
+            OR (existing.variant_id IS NULL AND pi.variant_id IS NULL)
+        )
+        AND existing.is_primary = TRUE
+  );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_product_imeis_primary_base
+    ON product_imeis(product_id)
+    WHERE is_primary = TRUE AND variant_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_product_imeis_primary_variant
+    ON product_imeis(product_id, variant_id)
+    WHERE is_primary = TRUE AND variant_id IS NOT NULL;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 062_inventory_receipt_audit_actors.sql
+-- ============================================================================
+ALTER TABLE inventory_documents
+    ADD COLUMN IF NOT EXISTS posted_by UUID REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE inventory_documents
+    ADD COLUMN IF NOT EXISTS cancelled_by UUID REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE inventory_documents
+    ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_inventory_documents_created_by
+    ON inventory_documents(created_by);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_documents_approved_by
+    ON inventory_documents(approved_by);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_documents_posted_by
+    ON inventory_documents(posted_by);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 063_inventory_receipt_reversal.sql
+-- ============================================================================
+ALTER TABLE inventory_documents
+    ADD COLUMN IF NOT EXISTS reversed_by UUID REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE inventory_documents
+    ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;
+
+ALTER TABLE inventory_documents
+    ADD COLUMN IF NOT EXISTS reversal_of_document_id UUID REFERENCES inventory_documents(id) ON DELETE SET NULL;
+
+ALTER TABLE inventory_documents
+    DROP CONSTRAINT IF EXISTS inventory_documents_status_check;
+
+ALTER TABLE inventory_documents
+    ADD CONSTRAINT inventory_documents_status_check
+    CHECK (status IN (
+        'DRAFT',
+        'PROCESSING_IMEI',
+        'PENDING_SHORTAGE_APPROVAL',
+        'APPROVED',
+        'COMPLETED',
+        'CANCELLED',
+        'REVERSED',
+        'REJECTED',
+        'POSTED',
+        'PENDING_APPROVAL',
+        'RECEIVING'
+    ));
+
+ALTER TABLE product_imeis
+    DROP CONSTRAINT IF EXISTS product_imeis_status_check;
+
+ALTER TABLE product_imeis
+    ADD CONSTRAINT product_imeis_status_check
+    CHECK (status IN (
+        'IN_STOCK',
+        'RESERVED',
+        'SOLD',
+        'IN_WARRANTY',
+        'SCRAP',
+        'RETURNED',
+        'REVERSED',
+        'WARRANTY',
+        'RETIRED'
+    ));
+
+ALTER TABLE product_serial_numbers
+    DROP CONSTRAINT IF EXISTS product_serial_numbers_status_check;
+
+ALTER TABLE product_serial_numbers
+    ADD CONSTRAINT product_serial_numbers_status_check
+    CHECK (status IN (
+        'IN_STOCK',
+        'RESERVED',
+        'SOLD',
+        'RETURNED',
+        'REVERSED',
+        'WARRANTY',
+        'IN_WARRANTY',
+        'RETIRED',
+        'SCRAP'
+    ));
+
+CREATE INDEX IF NOT EXISTS idx_inventory_documents_reversal_of
+    ON inventory_documents(reversal_of_document_id);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 064_inventory_levels_moving_average_cost.sql
+-- ============================================================================
+CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_levels_product_variant_location
+    ON inventory_levels(product_id, COALESCE(variant_id, '00000000-0000-0000-0000-000000000000'::uuid), location_id);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 065_inventory_identifier_edit_requests.sql
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS inventory_identifier_edit_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    identifier_type VARCHAR(20) NOT NULL,
+    identifier_id UUID NOT NULL,
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    variant_id UUID REFERENCES product_variants(id) ON DELETE SET NULL,
+    current_value VARCHAR(120) NOT NULL,
+    new_value VARCHAR(120) NOT NULL,
+    reason TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    requested_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    decided_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    decision_note TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    decided_at TIMESTAMPTZ,
+    CONSTRAINT inventory_identifier_edit_requests_type_check
+        CHECK (identifier_type IN ('IMEI', 'SERIAL')),
+    CONSTRAINT inventory_identifier_edit_requests_status_check
+        CHECK (status IN ('PENDING', 'APPROVED', 'CANCELLED')),
+    CONSTRAINT inventory_identifier_edit_requests_reason_check
+        CHECK (length(trim(reason)) >= 5),
+    CONSTRAINT inventory_identifier_edit_requests_changed_value_check
+        CHECK (current_value <> new_value)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_identifier_edit_requests_pending
+    ON inventory_identifier_edit_requests(identifier_type, identifier_id)
+    WHERE status = 'PENDING';
+
+CREATE INDEX IF NOT EXISTS idx_inventory_identifier_edit_requests_product
+    ON inventory_identifier_edit_requests(product_id, variant_id, status, created_at DESC);
+
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 066_inventory_stock_count_workflow.sql
+-- ============================================================================
+CREATE INDEX IF NOT EXISTS idx_inventory_documents_count_status_created
+    ON inventory_documents(document_type, status, created_at DESC)
+    WHERE document_type = 'COUNT';
+
+INSERT INTO permissions (code, module, description)
+VALUES
+    ('inventory:count', 'inventory', 'Tạo và đối soát phiếu kiểm kê kho')
+ON CONFLICT (code) DO UPDATE
+SET module = EXCLUDED.module,
+    description = EXCLUDED.description;
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.code = 'inventory:count'
+WHERE r.code IN ('SUPER_ADMIN', 'STAFF_ADMIN')
+ON CONFLICT DO NOTHING;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 067_inventory_adjustment_approval_workflow.sql
+-- ============================================================================
+CREATE INDEX IF NOT EXISTS idx_inventory_documents_adjustment_no
+    ON inventory_documents (document_no)
+    WHERE document_type = 'ADJUSTMENT';
+
+INSERT INTO permissions (code, module, description)
+VALUES ('inventory:adjust', 'inventory', 'Tạo yêu cầu điều chỉnh tồn kho thủ công')
+ON CONFLICT (code) DO UPDATE
+SET module = EXCLUDED.module,
+    description = EXCLUDED.description;
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.code = 'inventory:adjust'
+WHERE r.code IN ('SUPER_ADMIN', 'STAFF_ADMIN')
+ON CONFLICT DO NOTHING;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 068_product_serial_number_product_scope_unique.sql
+-- ============================================================================
+ALTER TABLE product_serial_numbers
+    DROP CONSTRAINT IF EXISTS product_serial_numbers_serial_number_key;
+
+DROP INDEX IF EXISTS idx_product_serial_numbers_product_serial_unique;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_product_serial_numbers_product_serial_unique
+    ON product_serial_numbers(product_id, serial_number);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 069_inventory_super_admin_approval_scope.sql
+-- ============================================================================
+DELETE FROM role_permissions rp
+USING roles r, permissions p
+WHERE rp.role_id = r.id
+  AND rp.permission_id = p.id
+  AND r.code = 'STAFF_ADMIN'
+  AND p.code IN ('inventory:approve', 'inventory:reserve');
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.code IN ('inventory:approve', 'inventory:count', 'inventory:reserve')
+WHERE r.code = 'SUPER_ADMIN'
+ON CONFLICT DO NOTHING;
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 070_inventory_pending_inbound_identifiers.sql
+-- ============================================================================
+-- Reserve inbound IMEI/serial numbers while an inventory receipt is waiting for approval.
+
+ALTER TABLE product_imeis
+    DROP CONSTRAINT IF EXISTS product_imeis_status_check;
+
+ALTER TABLE product_imeis
+    ADD CONSTRAINT product_imeis_status_check
+    CHECK (status IN (
+        'PENDING_INBOUND',
+        'IN_STOCK',
+        'RESERVED',
+        'SOLD',
+        'IN_WARRANTY',
+        'SCRAP',
+        'RETURNED',
+        'REVERSED',
+        'WARRANTY',
+        'RETIRED'
+    ));
+
+ALTER TABLE product_serial_numbers
+    DROP CONSTRAINT IF EXISTS product_serial_numbers_status_check;
+
+ALTER TABLE product_serial_numbers
+    ADD CONSTRAINT product_serial_numbers_status_check
+    CHECK (status IN (
+        'PENDING_INBOUND',
+        'IN_STOCK',
+        'RESERVED',
+        'SOLD',
+        'RETURNED',
+        'REVERSED',
+        'WARRANTY',
+        'IN_WARRANTY',
+        'RETIRED',
+        'SCRAP'
+    ));
+
+CREATE INDEX IF NOT EXISTS idx_product_imeis_pending_inbound_source
+    ON product_imeis(source_reference, status)
+    WHERE status = 'PENDING_INBOUND';
+
+CREATE INDEX IF NOT EXISTS idx_product_serial_numbers_pending_inbound_source
+    ON product_serial_numbers(source_reference, status)
+    WHERE status = 'PENDING_INBOUND';
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 071_inventory_receipt_wms_lightweight_metadata.sql
+-- ============================================================================
+ALTER TABLE inventory_documents
+    ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+CREATE INDEX IF NOT EXISTS idx_inventory_documents_metadata_quality_status
+    ON inventory_documents ((metadata->>'qualityStatus'))
+    WHERE document_type = 'INBOUND';
+
+CREATE INDEX IF NOT EXISTS idx_inventory_document_lines_metadata_storage_location
+    ON inventory_document_lines ((metadata->>'storageLocationCode'))
+    WHERE metadata ? 'storageLocationCode';
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 072_inventory_locations_master_data.sql
+-- ============================================================================
+-- Chuẩn hóa vị trí/kệ hàng thành danh mục quản lý được và gắn kệ cho IMEI/serial.
+
+ALTER TABLE inventory_locations
+    ADD COLUMN IF NOT EXISTS zone VARCHAR(160),
+    ADD COLUMN IF NOT EXISTS description TEXT,
+    ADD COLUMN IF NOT EXISTS purpose VARCHAR(30) NOT NULL DEFAULT 'STORAGE',
+    ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS allow_mixed_sku BOOLEAN NOT NULL DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS length_cm NUMERIC(10, 2),
+    ADD COLUMN IF NOT EXISTS width_cm NUMERIC(10, 2),
+    ADD COLUMN IF NOT EXISTS height_cm NUMERIC(10, 2),
+    ADD COLUMN IF NOT EXISTS usable_ratio NUMERIC(5, 4) NOT NULL DEFAULT 0.75;
+
+ALTER TABLE inventory_locations
+    DROP CONSTRAINT IF EXISTS inventory_locations_purpose_check;
+
+ALTER TABLE inventory_locations
+    ADD CONSTRAINT inventory_locations_purpose_check
+    CHECK (purpose IN ('STORAGE', 'WARRANTY', 'QC', 'DAMAGED', 'RETURN', 'VIRTUAL'));
+
+UPDATE inventory_locations
+SET name = 'Kho chính',
+    zone = COALESCE(zone, 'Kho chính'),
+    purpose = 'VIRTUAL',
+    sort_order = 0,
+    allow_mixed_sku = TRUE
+WHERE code = 'MAIN';
+
+INSERT INTO inventory_locations (code, name, location_type, status, is_default, zone, description, purpose, sort_order, allow_mixed_sku)
+VALUES
+    ('A-01-01', 'Dãy A - Kệ 01 - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, ưu tiên gần khu lấy hàng', 'STORAGE', 10101, FALSE),
+    ('A-01-02', 'Dãy A - Kệ 01 - Ô 02', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, cùng kệ A-01', 'STORAGE', 10102, FALSE),
+    ('A-01-03', 'Dãy A - Kệ 01 - Ô 03', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, cùng kệ A-01', 'STORAGE', 10103, FALSE),
+    ('A-01-04', 'Dãy A - Kệ 01 - Ô 04', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, cùng kệ A-01', 'STORAGE', 10104, FALSE),
+    ('A-02-01', 'Dãy A - Kệ 02 - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-02', 'STORAGE', 10201, FALSE),
+    ('A-02-02', 'Dãy A - Kệ 02 - Ô 02', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-02', 'STORAGE', 10202, FALSE),
+    ('A-02-03', 'Dãy A - Kệ 02 - Ô 03', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-02', 'STORAGE', 10203, FALSE),
+    ('A-02-04', 'Dãy A - Kệ 02 - Ô 04', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-02', 'STORAGE', 10204, FALSE),
+    ('A-03-01', 'Dãy A - Kệ 03 - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-03', 'STORAGE', 10301, FALSE),
+    ('A-03-02', 'Dãy A - Kệ 03 - Ô 02', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-03', 'STORAGE', 10302, FALSE),
+    ('A-03-03', 'Dãy A - Kệ 03 - Ô 03', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-03', 'STORAGE', 10303, FALSE),
+    ('A-03-04', 'Dãy A - Kệ 03 - Ô 04', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-03', 'STORAGE', 10304, FALSE),
+    ('A-04-01', 'Dãy A - Kệ 04 - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-04', 'STORAGE', 10401, FALSE),
+    ('A-04-02', 'Dãy A - Kệ 04 - Ô 02', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-04', 'STORAGE', 10402, FALSE),
+    ('A-04-03', 'Dãy A - Kệ 04 - Ô 03', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-04', 'STORAGE', 10403, FALSE),
+    ('A-04-04', 'Dãy A - Kệ 04 - Ô 04', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-04', 'STORAGE', 10404, FALSE),
+    ('A-05-01', 'Dãy A - Kệ 05 - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-05', 'STORAGE', 10501, FALSE),
+    ('A-05-02', 'Dãy A - Kệ 05 - Ô 02', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-05', 'STORAGE', 10502, FALSE),
+    ('A-05-03', 'Dãy A - Kệ 05 - Ô 03', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-05', 'STORAGE', 10503, FALSE),
+    ('A-05-04', 'Dãy A - Kệ 05 - Ô 04', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-05', 'STORAGE', 10504, FALSE),
+    ('A-06-01', 'Dãy A - Kệ 06 - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-06', 'STORAGE', 10601, FALSE),
+    ('A-06-02', 'Dãy A - Kệ 06 - Ô 02', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-06', 'STORAGE', 10602, FALSE),
+    ('A-06-03', 'Dãy A - Kệ 06 - Ô 03', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-06', 'STORAGE', 10603, FALSE),
+    ('A-06-04', 'Dãy A - Kệ 06 - Ô 04', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-06', 'STORAGE', 10604, FALSE),
+    ('A-07-01', 'Dãy A - Kệ 07 - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-07', 'STORAGE', 10701, FALSE),
+    ('A-07-02', 'Dãy A - Kệ 07 - Ô 02', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-07', 'STORAGE', 10702, FALSE),
+    ('A-07-03', 'Dãy A - Kệ 07 - Ô 03', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-07', 'STORAGE', 10703, FALSE),
+    ('A-07-04', 'Dãy A - Kệ 07 - Ô 04', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-07', 'STORAGE', 10704, FALSE),
+    ('A-08-01', 'Dãy A - Kệ 08 - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-08', 'STORAGE', 10801, FALSE),
+    ('A-08-02', 'Dãy A - Kệ 08 - Ô 02', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-08', 'STORAGE', 10802, FALSE),
+    ('A-08-03', 'Dãy A - Kệ 08 - Ô 03', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-08', 'STORAGE', 10803, FALSE),
+    ('A-08-04', 'Dãy A - Kệ 08 - Ô 04', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-08', 'STORAGE', 10804, FALSE),
+    ('A-09-01', 'Dãy A - Kệ 09 - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-09', 'STORAGE', 10901, FALSE),
+    ('A-09-02', 'Dãy A - Kệ 09 - Ô 02', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-09', 'STORAGE', 10902, FALSE),
+    ('A-09-03', 'Dãy A - Kệ 09 - Ô 03', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-09', 'STORAGE', 10903, FALSE),
+    ('A-09-04', 'Dãy A - Kệ 09 - Ô 04', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-09', 'STORAGE', 10904, FALSE),
+    ('A-10-01', 'Dãy A - Kệ 10 - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-10', 'STORAGE', 11001, FALSE),
+    ('A-10-02', 'Dãy A - Kệ 10 - Ô 02', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-10', 'STORAGE', 11002, FALSE),
+    ('A-10-03', 'Dãy A - Kệ 10 - Ô 03', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-10', 'STORAGE', 11003, FALSE),
+    ('A-10-04', 'Dãy A - Kệ 10 - Ô 04', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy A', 'Vị trí lưu hàng bán được, kệ A-10', 'STORAGE', 11004, FALSE),
+    ('B-01-01', 'Dãy B - Kệ 01 - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Dãy B', 'Vị trí lưu hàng bán được ở dãy B', 'STORAGE', 20101, TRUE),
+    ('QC-01', 'QC - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'QC', 'Vị trí cách ly hàng chờ kiểm tra hoặc chưa đạt QC', 'QC', 90001, TRUE),
+    ('BH-01', 'Bảo hành - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Bảo hành', 'Vị trí lưu hàng gửi/nhận bảo hành', 'WARRANTY', 91001, TRUE),
+    ('ERR-01', 'Hàng lỗi - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Hàng lỗi', 'Vị trí lưu hàng hư hỏng, phế phẩm hoặc chờ xử lý', 'DAMAGED', 92001, TRUE),
+    ('RT-01', 'Hàng trả - Ô 01', 'WAREHOUSE', 'ACTIVE', FALSE, 'Hàng trả', 'Vị trí lưu hàng khách trả trước khi phân loại', 'RETURN', 93001, TRUE)
+ON CONFLICT (code) DO UPDATE
+SET name = EXCLUDED.name,
+    zone = EXCLUDED.zone,
+    description = EXCLUDED.description,
+    purpose = EXCLUDED.purpose,
+    sort_order = EXCLUDED.sort_order,
+    allow_mixed_sku = EXCLUDED.allow_mixed_sku,
+    updated_at = NOW();
+
+INSERT INTO inventory_locations (code, name, location_type, status, is_default, zone, description, purpose, sort_order, allow_mixed_sku)
+SELECT
+    format('B-%s-%s', lpad(shelf_no::text, 2, '0'), lpad(bin_no::text, 2, '0')) AS code,
+    format('Dãy B - Kệ %s - Ô %s', lpad(shelf_no::text, 2, '0'), lpad(bin_no::text, 2, '0')) AS name,
+    'WAREHOUSE',
+    'ACTIVE',
+    FALSE,
+    'Dãy B',
+    format('Vị trí lưu hàng bán được, kệ B-%s', lpad(shelf_no::text, 2, '0')) AS description,
+    'STORAGE',
+    20000 + shelf_no * 100 + bin_no AS sort_order,
+    FALSE
+FROM generate_series(1, 10) AS shelf_no
+CROSS JOIN generate_series(1, 4) AS bin_no
+ON CONFLICT (code) DO UPDATE
+SET name = EXCLUDED.name,
+    status = 'ACTIVE',
+    zone = EXCLUDED.zone,
+    description = EXCLUDED.description,
+    purpose = EXCLUDED.purpose,
+    sort_order = EXCLUDED.sort_order,
+    allow_mixed_sku = EXCLUDED.allow_mixed_sku,
+    updated_at = NOW();
+
+UPDATE inventory_locations
+SET length_cm = COALESCE(length_cm, 100),
+    width_cm = COALESCE(width_cm, 60),
+    height_cm = COALESCE(height_cm, 40),
+    updated_at = NOW()
+WHERE status = 'ACTIVE'
+  AND purpose = 'STORAGE'
+  AND code ~ '^[AB]-[0-9]{2}-[0-9]{2}$';
+
+UPDATE inventory_locations
+SET purpose = CASE
+        WHEN code LIKE 'BH-%' THEN 'WARRANTY'
+        WHEN code LIKE 'QC-%' THEN 'QC'
+        WHEN code LIKE 'ERR-%' THEN 'DAMAGED'
+        WHEN code LIKE 'RT-%' THEN 'RETURN'
+        WHEN code = 'MAIN' THEN 'VIRTUAL'
+        ELSE COALESCE(NULLIF(purpose, ''), 'STORAGE')
+    END,
+    sort_order = CASE
+        WHEN sort_order <> 0 THEN sort_order
+        WHEN code ~ '^[A-Z]-[0-9]{2}-[0-9]{2}$'
+            THEN ((ascii(substr(code, 1, 1)) - ascii('A') + 1) * 10000)
+                + (substr(code, 3, 2)::int * 100)
+                + substr(code, 6, 2)::int
+        ELSE 99999
+    END;
+
+ALTER TABLE product_imeis
+    ADD COLUMN IF NOT EXISTS location_id UUID REFERENCES inventory_locations(id) ON DELETE RESTRICT;
+
+ALTER TABLE product_serial_numbers
+    ADD COLUMN IF NOT EXISTS location_id UUID REFERENCES inventory_locations(id) ON DELETE RESTRICT;
+
+UPDATE product_imeis pi
+SET location_id = line_locations.location_id
+FROM (
+    SELECT DISTINCT ON (identifier.metadata_imei)
+        l.location_id,
+        identifier.metadata_imei
+    FROM inventory_document_lines l
+    CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(l.metadata->'imeis', '[]'::jsonb)) AS identifier(metadata_imei)
+    JOIN inventory_documents d ON d.id = l.document_id
+    WHERE d.document_type = 'INBOUND'
+      AND l.location_id IS NOT NULL
+    ORDER BY identifier.metadata_imei, d.posted_at DESC NULLS LAST, d.created_at DESC
+) AS line_locations
+WHERE pi.imei = line_locations.metadata_imei
+  AND pi.location_id IS NULL;
+
+UPDATE product_serial_numbers psn
+SET location_id = line_locations.location_id
+FROM (
+    SELECT DISTINCT ON (identifier.metadata_serial)
+        l.location_id,
+        identifier.metadata_serial,
+        l.product_id
+    FROM inventory_document_lines l
+    CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(l.metadata->'serialNumbers', '[]'::jsonb)) AS identifier(metadata_serial)
+    JOIN inventory_documents d ON d.id = l.document_id
+    WHERE d.document_type = 'INBOUND'
+      AND l.location_id IS NOT NULL
+    ORDER BY identifier.metadata_serial, d.posted_at DESC NULLS LAST, d.created_at DESC
+) AS line_locations
+WHERE psn.product_id = line_locations.product_id
+  AND psn.serial_number = line_locations.metadata_serial
+  AND psn.location_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_product_imeis_location_status
+    ON product_imeis(location_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_product_serial_numbers_location_status
+    ON product_serial_numbers(location_id, status);
+
+
+-- ============================================================================
+-- Consolidated legacy migration: 073_staff_admin_per_account_permissions.sql
+-- ============================================================================
+-- Staff Admin is only an internal staff account type.
+-- Business permissions must be granted per staff account through user_permissions.
+
+DELETE FROM role_permissions
+WHERE role_id = (SELECT id FROM roles WHERE code = 'STAFF_ADMIN');
+

@@ -5,12 +5,25 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-async def list_admin_customers(session: AsyncSession, *, search: str | None, page: int, limit: int) -> dict:
+async def list_admin_customers(
+    session: AsyncSession,
+    *,
+    search: str | None,
+    page: int,
+    limit: int,
+    role_code: str,
+) -> dict:
     offset = (page - 1) * limit
     search_value = (search or "").strip().lower()
-    params: dict[str, object] = {"limit": limit, "offset": offset, "search": f"%{search_value}%"}
+    params: dict[str, object] = {
+        "limit": limit,
+        "offset": offset,
+        "search": f"%{search_value}%",
+        "role_code": role_code,
+    }
     where_clause = """
         WHERE u.status != 'DELETED'
+          AND r.code = :role_code
           AND (
             :search = '%%'
             OR LOWER(COALESCE(u.full_name, '')) LIKE :search
@@ -91,7 +104,9 @@ async def get_admin_customer_summary(session: AsyncSession, user_id: UUID) -> di
                 FROM users u
                 JOIN roles r ON r.id = u.role_id
                 LEFT JOIN orders o ON o.user_id = u.id
-                WHERE u.id = :user_id AND u.status != 'DELETED'
+                WHERE u.id = :user_id
+                  AND u.status != 'DELETED'
+                  AND r.code = 'CUSTOMER'
                 GROUP BY u.id, r.code
                 """
             ),

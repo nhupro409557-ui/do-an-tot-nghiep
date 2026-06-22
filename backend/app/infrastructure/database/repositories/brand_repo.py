@@ -292,7 +292,10 @@ async def insert_brand(session: AsyncSession, *, brand_id: UUID, code: str, slug
 
 
 async def get_brand_slug(session: AsyncSession, brand_id: UUID) -> dict | None:
-    row = (await session.execute(text("SELECT slug, is_active FROM brands WHERE id = :id"), {"id": brand_id})).mappings().first()
+    row = (await session.execute(text("""
+        SELECT slug, is_active
+        FROM brands WHERE id = :id
+    """), {"id": brand_id})).mappings().first()
     return dict(row) if row else None
 
 

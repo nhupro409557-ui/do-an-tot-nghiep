@@ -23,6 +23,8 @@ interface ProductTableSectionProps {
   approveProduct: (product: any) => void;
   archiveProduct: (product: any) => void;
   viewProduct: (product: any) => void;
+  canUpdateProduct?: boolean;
+  canDeleteProduct?: boolean;
 }
 
 export default function ProductTableSection(props: ProductTableSectionProps) {
@@ -47,7 +49,10 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
     approveProduct,
     archiveProduct,
     viewProduct,
+    canUpdateProduct = false,
+    canDeleteProduct = false,
   } = props;
+  const canBulkAct = canUpdateProduct || canDeleteProduct;
   const publicationStatusLabels: Record<string, string> = {
     ACTIVE: 'Đang bán',
     INACTIVE: 'Tạm ẩn',
@@ -64,43 +69,43 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
 
   return (
     <>
-      {selectedProductIds.length > 0 && (
+      {canBulkAct && selectedProductIds.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-sky-100 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800">
           <span>Đã chọn {selectedProductIds.length} sản phẩm</span>
-          <button
+          {canUpdateProduct && <button
             type="button"
             onClick={bulkApproveProducts}
             className="inline-flex h-9 items-center gap-2 rounded-md bg-sky-700 px-3 text-xs font-bold text-white"
           >
             <CheckCircle2 className="h-4 w-4" />Duyệt hàng loạt
-          </button>
-          <button
+          </button>}
+          {canUpdateProduct && <button
             type="button"
             onClick={() => bulkProductAction('HIDE')}
             className="inline-flex h-9 items-center gap-2 rounded-md bg-amber-600 px-3 text-xs font-bold text-white"
           >
             <EyeOff className="h-4 w-4" />Ẩn hàng loạt
-          </button>
-          <button
+          </button>}
+          {canUpdateProduct && <button
             type="button"
             onClick={() => bulkProductAction('RESTORE')}
             className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-600 px-3 text-xs font-bold text-white"
           >
             <RotateCcw className="h-4 w-4" />Khôi phục
-          </button>
-          <button
+          </button>}
+          {canDeleteProduct && <button
             type="button"
             onClick={() => bulkProductAction('DELETE')}
             className="inline-flex h-9 items-center gap-2 rounded-md bg-red-600 px-3 text-xs font-bold text-white"
           >
             <Trash2 className="h-4 w-4" />Xóa
-          </button>
+          </button>}
         </div>
       )}
 
       <AdminTable
         headers={[
-          'Chọn',
+          canBulkAct ? 'Chọn' : '',
           'Ảnh',
           'Sản phẩm',
           'Danh mục',
@@ -120,18 +125,20 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
         {filteredProducts.map((product) => (
           <tr key={product.id}>
             <td className="px-4 py-3">
-              <input
-                type="checkbox"
-                checked={selectedProductIds.includes(product.id)}
-                onChange={(event) =>
-                  setSelectedProductIds((ids) =>
-                    event.target.checked
-                      ? [...new Set([...ids, product.id])]
-                      : ids.filter((id) => id !== product.id)
-                  )
-                }
-                className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
-              />
+              {canBulkAct && (
+                <input
+                  type="checkbox"
+                  checked={selectedProductIds.includes(product.id)}
+                  onChange={(event) =>
+                    setSelectedProductIds((ids) =>
+                      event.target.checked
+                        ? [...new Set([...ids, product.id])]
+                        : ids.filter((id) => id !== product.id)
+                    )
+                  }
+                  className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                />
+              )}
             </td>
             <td className="px-4 py-3">
               {product.imageUrl ? (
@@ -188,11 +195,11 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
                 ) : (
                   <RowActions
                     onView={() => viewProduct(product)}
-                    onEdit={() => editProduct(product)}
-                    onHide={product.status !== 'INACTIVE' && product.status !== 'ARCHIVED' ? () => hideProduct(product) : undefined}
-                    onDelete={() => deleteProduct(product)}
+                    onEdit={canUpdateProduct ? () => editProduct(product) : undefined}
+                    onHide={canUpdateProduct && product.status !== 'INACTIVE' && product.status !== 'ARCHIVED' ? () => hideProduct(product) : undefined}
+                    onDelete={canDeleteProduct ? () => deleteProduct(product) : undefined}
                     onRestore={
-                      ['INACTIVE', 'DISCONTINUED', 'ARCHIVED'].includes(product.status)
+                      canUpdateProduct && ['INACTIVE', 'DISCONTINUED', 'ARCHIVED'].includes(product.status)
                         ? () => reactivateProduct(product)
                         : undefined
                     }
@@ -200,7 +207,7 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
                 )}
                 {(product.status === 'DRAFT' || product.status === 'REVISION_DRAFT') && (
                   <>
-                    {isSuperAdmin && (
+                    {isSuperAdmin && canUpdateProduct && (
                       <button
                         type="button"
                         onClick={() => approveProduct(product)}
@@ -211,7 +218,7 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
                     )}
                   </>
                 )}
-                {product.status === 'PENDING' && (
+                {canUpdateProduct && product.status === 'PENDING' && (
                   <button
                     type="button"
                     onClick={() => approveProduct(product)}
@@ -220,7 +227,7 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
                     Duyệt
                   </button>
                 )}
-                {(product.status === 'DRAFT' ||
+                {canUpdateProduct && (product.status === 'DRAFT' ||
                   product.status === 'REVISION_DRAFT' ||
                   product.status === 'INACTIVE' ||
                   product.status === 'DISCONTINUED') && (

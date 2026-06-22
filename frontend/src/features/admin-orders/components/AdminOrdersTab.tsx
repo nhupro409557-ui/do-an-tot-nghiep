@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, CheckCircle2, ClipboardList, Download, Eye, FileText, ScrollText, ShoppingBag, Truck, X } from 'lucide-react';
+import { Activity, CheckCircle2, ClipboardList, Download, Eye, FileText, Plus, ScrollText, ShoppingBag, Trash2, Truck, X } from 'lucide-react';
 import { AdminBadge, AdminPanel, AdminTable, Checkbox, EmptyState, Input, MetricCard, SearchBox, Select } from '../../admin-shell/components/AdminDashboardParts';
 
 type AdminOrdersTabProps = Record<string, any>;
@@ -10,6 +10,7 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
     compactId,
     currency,
     filteredOrders,
+    inventoryLocations,
     openOrderPanel,
     orderDraft,
     orderPanelBusy,
@@ -28,7 +29,37 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
     setQuery,
     statusLabel,
     updateOrderStatus,
+    usePermission,
   } = props;
+  const canUpdateOrder = usePermission('order:update');
+  const activeIssueLocations = (inventoryLocations || []).filter((location: any) => String(location.status || 'ACTIVE') === 'ACTIVE');
+  const issueLocationOptions: [string, string][] = [
+    ['', 'Chọn kệ thực tế'],
+    ...activeIssueLocations.map((location: any) => [String(location.id), `${location.code} - ${location.name}${location.availableQuantity != null ? ` · còn ${location.availableQuantity}` : ''}`] as [string, string]),
+  ];
+  const addIssueAllocation = (orderItemId: string, defaultQuantity: number) => {
+    const currentAllocations = orderDraft.issueAllocations || [];
+    setOrderDraft({
+      ...orderDraft,
+      issueAllocations: [...currentAllocations, { orderItemId, locationId: '', quantity: defaultQuantity }],
+    });
+  };
+  const updateIssueAllocation = (allocationIndex: number, changes: Record<string, any>) => {
+    const currentAllocations = orderDraft.issueAllocations || [];
+    setOrderDraft({
+      ...orderDraft,
+      issueAllocations: currentAllocations.map((allocation: any, index: number) => (
+        index === allocationIndex ? { ...allocation, ...changes } : allocation
+      )),
+    });
+  };
+  const removeIssueAllocation = (allocationIndex: number) => {
+    const currentAllocations = orderDraft.issueAllocations || [];
+    setOrderDraft({
+      ...orderDraft,
+      issueAllocations: currentAllocations.filter((_: any, index: number) => index !== allocationIndex),
+    });
+  };
   return (
     <AdminPanel 
       title="Quản lý đơn hàng" 
@@ -66,9 +97,15 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                           <button type="button" onClick={() => openOrderPanel(order.id)} className="inline-flex h-8 items-center justify-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700">
                             <Eye className="h-4 w-4" /> Chi tiết
                           </button>
-                          <select className="h-9 rounded-md border border-slate-200 px-2 text-sm outline-none" value={order.status} onChange={(event) => updateOrderStatus(order.id, event.target.value)}>
+                          {canUpdateOrder && <select className="h-9 rounded-md border border-slate-200 px-2 text-sm outline-none" value={order.status} onChange={(event) => {
+                            if (event.target.value === 'SHIPPED') {
+                              openOrderPanel(order.id);
+                              return;
+                            }
+                            updateOrderStatus(order.id, event.target.value);
+                          }}>
                             {(orderTransitionMap[order.status] || orderStatusOptions.map(([value]: [string]) => value)).map((value: string) => <option key={value} value={value}>{statusLabel[value] || value}</option>)}
-                          </select>
+                          </select>}
                         </div>
                       </td>
                     </tr>
@@ -114,9 +151,73 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                                     ))}
                                   </AdminTable>
                                 </AdminPanel>
+                                {canUpdateOrder && orderDraft.status === 'SHIPPED' && selectedOrder.status !== 'SHIPPED' && (
+                                  <AdminPanel title="Xác nhận kệ xuất thực tế" action={<ClipboardList className="h-5 w-5 text-red-600" />}>
+                                    <div className="space-y-3">
+                                      {(selectedOrder.items || []).map((item: any) => {
+                                        const itemAllocations = (orderDraft.issueAllocations || [])
+                                          .map((entry: any, allocationIndex: number) => ({ ...entry, allocationIndex }))
+                                          .filter((entry: any) => entry.orderItemId === String(item.id));
+                                        const allocatedQuantity = itemAllocations.reduce((sum: number, entry: any) => sum + Number(entry.quantity || 0), 0);
+                                        const requiredQuantity = Number(item.quantity || 0);
+                                        const isMatched = itemAllocations.length > 0 && allocatedQuantity === requiredQuantity;
+                                        return (
+                                          <div key={item.id} className="rounded-md border border-slate-200 p-3">
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                              <div>
+                                                <div className="text-sm font-bold text-slate-900">{item.productName}</div>
+                                                <div className={`mt-1 text-xs font-bold ${isMatched ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                                  Đã phân bổ {allocatedQuantity} / cần xuất {requiredQuantity}
+                                                </div>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => addIssueAllocation(String(item.id), Math.max(requiredQuantity - allocatedQuantity, 1))}
+                                                className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50"
+                                              >
+                                                <Plus className="h-4 w-4" /> Thêm kệ
+                                              </button>
+                                            </div>
+                                            {itemAllocations.length === 0 && (
+                                              <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
+                                                Chưa xác nhận kệ. Hệ thống sẽ dùng FIFO nếu giữ nguyên.
+                                              </div>
+                                            )}
+                                            <div className="mt-3 space-y-2">
+                                              {itemAllocations.map((allocation: any) => (
+                                                <div key={allocation.allocationIndex} className="grid gap-2 md:grid-cols-[1fr_120px_40px]">
+                                                  <Select
+                                                    label="Kệ thực tế"
+                                                    value={allocation.locationId || ''}
+                                                    onChange={(value: any) => updateIssueAllocation(allocation.allocationIndex, { locationId: value })}
+                                                    options={issueLocationOptions}
+                                                  />
+                                                  <Input
+                                                    label="Số lượng"
+                                                    type="number"
+                                                    value={allocation.quantity}
+                                                    onChange={(value: any) => updateIssueAllocation(allocation.allocationIndex, { quantity: Math.max(1, Number(value || 1)) })}
+                                                  />
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => removeIssueAllocation(allocation.allocationIndex)}
+                                                    className="mt-6 inline-flex h-10 w-10 items-center justify-center rounded-md border border-red-200 text-red-600 transition hover:bg-red-50"
+                                                    title="Xóa kệ"
+                                                  >
+                                                    <Trash2 className="h-4 w-4" />
+                                                  </button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </AdminPanel>
+                                )}
                               </div>
                               <div className="space-y-5">
-                                <AdminPanel title="Điều phối xử lý" action={<ClipboardList className="h-5 w-5 text-red-600" />}>
+                                {canUpdateOrder && <AdminPanel title="Điều phối xử lý" action={<ClipboardList className="h-5 w-5 text-red-600" />}>
                                   <div className="grid gap-3 md:grid-cols-2">
                                     <Select label="Trạng thái" value={orderDraft.status} onChange={(value: any) => setOrderDraft({ ...orderDraft, status: value })} options={(orderTransitionMap[selectedOrder.status] || [selectedOrder.status]).map((value: any) => [value, statusLabel[value] || value]) as [string, string][]} />
                                     <Input label="Nhân viên xử lý" value={orderDraft.assignedStaffName} onChange={(value: any) => setOrderDraft({ ...orderDraft, assignedStaffName: value })} />
@@ -131,7 +232,7 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                                     <button type="button" onClick={() => printOrderDocument(selectedOrder, 'invoice')} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"><Download className="h-4 w-4" />In hóa đơn</button>
                                     <button type="button" onClick={() => printOrderDocument(selectedOrder, 'delivery')} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"><FileText className="h-4 w-4" />In phiếu giao hàng</button>
                                   </div>
-                                </AdminPanel>
+                                </AdminPanel>}
                                 <AdminPanel title="Dấu mốc đơn hàng" action={<Activity className="h-5 w-5 text-red-600" />}>
                                   <div className="space-y-2 text-sm text-slate-600">
                                     <div>Tạo đơn: {selectedOrder.createdAt ? new Date(selectedOrder.createdAt).toLocaleString('vi-VN') : '-'}</div>

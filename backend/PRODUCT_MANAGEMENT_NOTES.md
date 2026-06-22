@@ -1,5 +1,51 @@
 # Product Management Notes
 
+## Update 2026-06-20 - Chống trùng lịch và ưu tiên Flash Sale biến thể
+
+- API chặn tạo hoặc cập nhật hai Flash Sale `ACTIVE` chồng thời gian cho cùng một target: cùng toàn sản phẩm hoặc cùng một biến thể.
+- Flash Sale toàn sản phẩm và Flash Sale biến thể được phép cùng hiệu lực; khi tính giá cho biến thể, chương trình riêng của biến thể luôn ưu tiên, sau đó mới fallback về chương trình toàn sản phẩm.
+- PostgreSQL dùng hai exclusion constraint trên `tstzrange(..., '[)')` để chống race condition khi nhiều admin lưu đồng thời; thời gian để trống được hiểu là biên vô hạn.
+- Lỗi xung đột từ validation hoặc database đều được trả về dạng HTTP `409` với thông báo tiếng Việt rõ ràng.
+- Metadata thời gian Flash Sale trong JSON biến thể được chuẩn hóa cho cả giá trị `datetime` và chuỗi ISO từ PostgreSQL JSON aggregation, tránh lỗi 500 khi catalog đọc Flash Sale riêng của biến thể.
+- Mỗi thẻ sản phẩm đang Flash Sale hiển thị đồng hồ đếm ngược riêng theo `endsAt` của chương trình thực tế đang áp dụng, bao gồm cả trường hợp Flash Sale riêng của biến thể.
+- Nhãn trên thẻ Flash Sale hiển thị trực tiếp mức ưu đãi theo cấu hình: `Giảm X%` hoặc `Giảm Xđ`.
+
+## Update 2026-06-20 - Flash Sale theo từng biến thể
+
+- `flash_sales` hỗ trợ `variant_id` nullable: để trống áp dụng toàn bộ sản phẩm, có giá trị chỉ giảm giá biến thể đã chọn.
+- Backend kiểm tra biến thể thuộc đúng sản phẩm và tính giá Flash Sale theo giá hiện tại của biến thể.
+- Catalog trả metadata Flash Sale riêng trong từng biến thể; Flash Sale toàn sản phẩm vẫn áp dụng cho toàn bộ biến thể như trước.
+- Thẻ sản phẩm có Flash Sale riêng theo biến thể gắn `?variant=<id>` vào đường dẫn; trang chi tiết tự chọn đúng biến thể và hiển thị khối Flash Sale nổi bật.
+- Popup quản trị có thêm lựa chọn phạm vi `Toàn bộ sản phẩm` hoặc một biến thể cụ thể sau khi chọn sản phẩm.
+
+## Update 2026-06-20 - Storefront Flash Sale countdown and dedicated listing
+
+- Khối Flash Sale ở trang chủ hiển thị đồng hồ đếm ngược nổi bật theo chương trình đang hoạt động có thời gian kết thúc gần nhất.
+- Nút `Xem tất cả` và lối tắt Flash Sale trên menu điều hướng tới trang riêng `/flash-sale`.
+- Trang Flash Sale chỉ tải các sản phẩm đang có chương trình Flash Sale hiệu lực qua bộ lọc public API `flash_sale=true`, không còn mở danh sách sản phẩm thông thường.
+- Bộ lọc public API không còn dựa vào cờ `products.is_flash_sale` cũ; sản phẩm chỉ được xem là đang Flash Sale khi có bản ghi chương trình active và còn trong khoảng `starts_at` đến `ends_at`.
+
+## Update 2026-06-20 - Mở rộng danh sách chọn sản phẩm Flash Sale
+
+- Popup tạo/sửa Flash Sale tải tối đa 200 sản phẩm thay vì chỉ dùng 20 sản phẩm đầu tiên từ API admin.
+- Bỏ giới hạn hiển thị 8 kết quả trong ô chọn; toàn bộ kết quả phù hợp có thể cuộn và tìm theo tên, SKU hoặc thương hiệu.
+- Thêm số lượng sản phẩm phù hợp ngay trên danh sách để admin biết phạm vi tìm kiếm hiện tại.
+
+## Update 2026-06-19 - Flash Sale cho sản phẩm bán kèm và bộ lọc quản trị
+
+- Sản phẩm chính tiếp tục dùng giá Flash Sale của chính nó khi chương trình đang hiệu lực.
+- Sản phẩm bán kèm nay cũng lấy giá Flash Sale đang hiệu lực của chính sản phẩm bán kèm trước, sau đó mới áp dụng mức giảm mua kèm đã cấu hình.
+- Màn quản trị Flash Sale có thêm bộ lọc danh mục, thương hiệu, trạng thái và ô tìm riêng trong popup chọn sản phẩm theo tên, SKU hoặc thương hiệu.
+- Tab Flash Sale tải kèm dữ liệu danh mục và thương hiệu để dropdown không còn chỉ hiển thị lựa chọn mặc định; vùng lọc được ưu tiên lớp hiển thị để menu không bị lẫn với tiêu đề bảng.
+- Popup tạo/sửa Flash Sale gộp tìm kiếm và chọn sản phẩm thành một danh sách trực quan, hiển thị ảnh, tên, SKU, thương hiệu và trạng thái đang chọn; giới hạn 8 kết quả mỗi lần tìm để thao tác nhanh và gọn.
+
+## Update 2026-06-18 - Consolidate database migrations
+
+- Gộp toàn bộ migration cũ từ `036` đến `073` vào `backend/migrations/init_database.sql`.
+- Thư mục migration chỉ còn baseline hoàn chỉnh; migration mới bắt đầu lại từ `001_*.sql`.
+- `scripts/run_migrations.py` tự phát hiện các file migration tăng dần, không còn phải cập nhật danh sách cố định.
+- Quy ước tạo migration mới nằm tại `backend/migrations/README.md`.
+
 ## Update 2026-06-16 cleanup stale REV products from inventory
 
 - Dọn dữ liệu local còn sót từ luồng duyệt revision cũ: các sản phẩm SKU `REV-%` trạng thái `MERGED`/`ARCHIVED` không còn được giữ trong bảng `products` như sản phẩm nghiệp vụ hiện hành.

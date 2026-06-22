@@ -162,6 +162,15 @@
 - Bulk role update co workflow xac nhan.
 - Timeline hop nhat don hang, diem, voucher, ghi chu, log bao mat tren cung mot truc thoi gian.
 
+## Update 2026-06-18 Staff Admin theo quyền riêng từng tài khoản
+
+- `STAFF_ADMIN` chỉ còn là loại tài khoản nhân viên nội bộ, không còn là nhóm quyền nghiệp vụ dùng chung.
+- Migration `073_staff_admin_per_account_permissions.sql` thu hồi toàn bộ `role_permissions` của role `STAFF_ADMIN`.
+- Seed tổng `init_database.sql` có bước cleanup cuối để bảo đảm dữ liệu khởi tạo mới cũng không cấp quyền hàng loạt cho tất cả Staff Admin.
+- Backend chặn cập nhật ma trận quyền cho role `STAFF_ADMIN`; Super Admin phải cấp quyền trực tiếp cho từng nhân viên qua `user_permissions`.
+- Màn hình phân quyền bỏ ma trận checkbox theo role, chỉ giữ danh sách nhân viên và nút chỉnh quyền riêng cho từng tài khoản.
+- Nhân viên mới tạo mặc định chưa có quyền nghiệp vụ. Tài khoản vẫn đăng nhập được khu vực admin bằng role staff, nhưng chỉ thấy/sử dụng chức năng sau khi được cấp permission riêng.
+
 ## Refactor Structure Notes (June 2026)
 
 ### 1. Backend Service Layer Pattern

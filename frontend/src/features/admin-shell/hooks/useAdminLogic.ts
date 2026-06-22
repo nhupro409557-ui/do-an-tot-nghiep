@@ -76,6 +76,15 @@ export function useAdminLogic() {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [infoView, setInfoView] = useState<any | null>(null);
 
+  const {
+    canCreateContent,
+    canDeleteContent,
+    canManageCustomerAccess,
+    canManageCustomerProfile,
+    canUpdateContent,
+    tabAccess,
+  } = useAdminAccessControls(usePermission, useAnyPermission);
+
   const orderLogic = useAdminOrdersLogic({ setOrders });
   const serviceLogic = useAdminServicesLogic({
     reloadCurrentTab: () => loadData(tab, { force: true }),
@@ -94,6 +103,8 @@ export function useAdminLogic() {
   const flashSaleLogic = useAdminFlashSalesLogic({
     flashSales,
     products,
+    categories,
+    brands,
     query,
     reloadCurrentTab: () => loadData(tab, { force: true }),
   });
@@ -102,6 +113,8 @@ export function useAdminLogic() {
     categories,
     suppliers,
     query,
+    inventoryCategoryFilter,
+    inventoryBrandFilter,
     reloadCurrentTab: () => loadData(tab, { force: true }),
   });
   const reviewLogic = useAdminReviewsLogic({
@@ -288,19 +301,11 @@ export function useAdminLogic() {
   }, [vouchers, query]);
   const filteredCustomers = useMemo(() => customers, [customers]);
   const filteredInventory = useMemo(() => {
-    if (inventoryLogic.inventoryLevels.length > 0) {
-      return inventoryLogic.inventoryLevels.filter((row: any) => {
-        const product = products.find((item: any) => String(item.id) === String(row.productId));
-        const mc = !inventoryCategoryFilter || String(product?.categoryId) === inventoryCategoryFilter || String(product?.subcategoryId) === inventoryCategoryFilter;
-        const mb = !inventoryBrandFilter || String(product?.brandId) === inventoryBrandFilter || (product?.brand && brands.find(b => String(b.id) === inventoryBrandFilter)?.name === product.brand);
-        return mc && mb;
-      });
-    }
-    return products.filter((product) => {
-      const ms = matchesSearch(product, query, ['name', 'sku', 'brand', 'categoryName', 'status']);
-      const mc = !inventoryCategoryFilter || String(product.categoryId) === inventoryCategoryFilter || String(product.subcategoryId) === inventoryCategoryFilter;
-      const mb = !inventoryBrandFilter || String(product.brandId) === inventoryBrandFilter || (product.brand && brands.find(b => String(b.id) === inventoryBrandFilter)?.name === product.brand);
-      return ms && mc && mb;
+    return inventoryLogic.inventoryLevels.filter((row: any) => {
+      const product = products.find((item: any) => String(item.id) === String(row.productId));
+      const mc = !inventoryCategoryFilter || String(product?.categoryId) === inventoryCategoryFilter || String(product?.subcategoryId) === inventoryCategoryFilter;
+      const mb = !inventoryBrandFilter || String(product?.brandId) === inventoryBrandFilter || (product?.brand && brands.find(b => String(b.id) === inventoryBrandFilter)?.name === product.brand);
+      return mc && mb;
     });
   }, [inventoryLogic.inventoryLevels, products, query, inventoryCategoryFilter, inventoryBrandFilter, brands]);
   const filteredReviews = useMemo(() => {
@@ -326,15 +331,8 @@ export function useAdminLogic() {
     retracted: imageComments.filter((item) => item.isRetracted).length,
   }), [imageComments]);
   const revenue = useMemo(() => orders.reduce((sum, order) => sum + Number(order.totalAmount || order.total_amount || 0), 0), [orders]);
-  const {
-    canCreateContent,
-    canDeleteContent,
-    canManageCustomerAccess,
-    canManageCustomerProfile,
-    canUpdateContent,
-    tabAccess,
-  } = useAdminAccessControls(usePermission, useAnyPermission);
   const availableTabs = useMemo(() => adminTabs.filter((item) => tabAccess[item.id]), [tabAccess]);
+  const canLoadTab = (targetTab: AdminTab) => Boolean(tabAccess[targetTab]);
   const permissionLogic = useAdminPermissionsLogic({
     customers,
     canManageCustomerAccess,
@@ -355,14 +353,14 @@ export function useAdminLogic() {
   const preloadingAdminSectionsRef = useRef(false);
 
   useEffect(() => {
-    if (canAccessAdmin) void loadData(tab);
-  }, [canAccessAdmin, tab]);
+    if (canAccessAdmin && canLoadTab(tab)) void loadData(tab);
+  }, [canAccessAdmin, tab, tabAccess]);
 
   useEffect(() => {
     if (!canAccessAdmin || preloadingAdminSectionsRef.current) return;
     preloadingAdminSectionsRef.current = true;
     const preload = () => {
-      if (!canAccessAdmin) return;
+      if (!canAccessAdmin || !canLoadTab('products')) return;
       void loadData('products', { silent: true, prefetch: true });
     };
     if ('requestIdleCallback' in window) {
@@ -371,13 +369,13 @@ export function useAdminLogic() {
     }
     const timer = globalThis.setTimeout(preload, 1200);
     return () => globalThis.clearTimeout(timer);
-  }, [canAccessAdmin]);
+  }, [canAccessAdmin, tabAccess]);
 
   useEffect(() => {
-    if (canAccessAdmin && tab === 'categories') {
+    if (canAccessAdmin && canLoadTab('categories') && tab === 'categories') {
       void loadCategoryWorkspace(editingCategoryId);
     }
-  }, [canAccessAdmin, tab, editingCategoryId]);
+  }, [canAccessAdmin, tab, editingCategoryId, tabAccess]);
 
   useEffect(() => {
     if (tab !== 'categories' || !editingCategoryId) return;
@@ -389,16 +387,16 @@ export function useAdminLogic() {
   }, [categoryMigrationJobs, editingCategoryId, tab]);
 
   useEffect(() => {
-    if (canAccessAdmin && tab === 'brands') void loadData('brands', { force: true });
-  }, [brandPage, brandStatusFilter, query, tab]);
+    if (canAccessAdmin && canLoadTab('brands') && tab === 'brands') void loadData('brands', { force: true });
+  }, [canAccessAdmin, brandPage, brandStatusFilter, query, tab, tabAccess]);
 
   useEffect(() => {
-    if (canAccessAdmin && tab === 'suppliers') void loadData('suppliers', { force: true });
-  }, [supplierPage, supplierStatusFilter, query, tab]);
+    if (canAccessAdmin && canLoadTab('suppliers') && tab === 'suppliers') void loadData('suppliers', { force: true });
+  }, [canAccessAdmin, supplierPage, supplierStatusFilter, query, tab, tabAccess]);
 
   useEffect(() => {
-    if (canAccessAdmin && tab === 'inventoryReceipts') void loadData('inventoryReceipts', { force: true });
-  }, [canAccessAdmin, query, tab]);
+    if (canAccessAdmin && canLoadTab('inventoryReceipts') && tab === 'inventoryReceipts') void loadData('inventoryReceipts', { force: true });
+  }, [canAccessAdmin, query, tab, tabAccess]);
 
   useEffect(() => {
     if (tab === 'products') {
@@ -407,10 +405,10 @@ export function useAdminLogic() {
   }, [query, productCategoryFilter, productBrandFilter, productStatusFilter, tab]);
 
   useEffect(() => {
-    if (canAccessAdmin && tab === 'products') {
+    if (canAccessAdmin && canLoadTab('products') && tab === 'products') {
       void loadData('products', { force: true });
     }
-  }, [canAccessAdmin, tab, productPage, query, productCategoryFilter, productBrandFilter, productStatusFilter]);
+  }, [canAccessAdmin, tab, productPage, query, productCategoryFilter, productBrandFilter, productStatusFilter, tabAccess]);
 
   useEffect(() => {
     if (tab === 'customers') {
@@ -442,17 +440,18 @@ export function useAdminLogic() {
 
   useEffect(() => {
     if (!availableTabs.some((item) => item.id === tab)) {
-      setTab(availableTabs[0]?.id || 'products');
+      setTab(availableTabs[0]?.id || 'overview');
     }
   }, [availableTabs, tab]);
 
   useEffect(() => {
-    if (canAccessAdmin && tab === 'customers') {
+    if (canAccessAdmin && canLoadTab('customers') && tab === 'customers') {
       void loadData('customers', { force: true });
     }
-  }, [canAccessAdmin, tab, customerPage]);
+  }, [canAccessAdmin, tab, customerPage, tabAccess]);
 
   async function loadData(targetTab: AdminTab = tab, options: { force?: boolean; silent?: boolean; prefetch?: boolean } = {}) {
+    if (!canLoadTab(targetTab)) return;
     if (options.prefetch && loadedAdminSectionsRef.current.has(targetTab)) return;
     if (!options.silent) setBusy(true);
     try {
@@ -490,7 +489,7 @@ export function useAdminLogic() {
               categoryId: productCategoryFilter || undefined,
               brandId: productBrandFilter || undefined,
             })
-            : await productApi.adminListProducts().catch(() => publicApi.listProducts());
+            : await productApi.adminListProducts({ limit: 200 }).catch(() => publicApi.listProducts({ limit: 100 }));
           if (Array.isArray(productData)) {
             setProducts(productData);
             setProductTotal(productData.length);
@@ -556,8 +555,13 @@ export function useAdminLogic() {
         const saleData = await adminFlashSalesApi.adminListFlashSales().catch(() => []);
         setFlashSales(saleData);
       };
-      const loadCustomers = async () => {
-        const customerData = await adminCustomersApi.adminListCustomers({ search: query, page: customerPage, limit: 20 }).catch(() => ({ items: [], total: 0, page: 1, limit: 20 }));
+      const loadCustomers = async (role: 'CUSTOMER' | 'STAFF_ADMIN' = 'CUSTOMER') => {
+        const customerData = await adminCustomersApi.adminListCustomers({
+          search: role === 'CUSTOMER' ? query : undefined,
+          page: role === 'CUSTOMER' ? customerPage : 1,
+          limit: role === 'CUSTOMER' ? 20 : 100,
+          role,
+        }).catch(() => ({ items: [], total: 0, page: 1, limit: role === 'CUSTOMER' ? 20 : 100 }));
         setCustomers(Array.isArray(customerData) ? customerData : customerData.items || []);
         setCustomerTotal(Array.isArray(customerData) ? customerData.length : customerData.total || 0);
       };
@@ -618,6 +622,8 @@ export function useAdminLogic() {
         if (targetTab === 'banners') loadedAdminResourcesRef.current.delete('banners');
         if (targetTab === 'flashSales') {
           loadedAdminResourcesRef.current.delete('flash-sales');
+          loadedAdminResourcesRef.current.delete('categories');
+          loadedAdminResourcesRef.current.delete('brands:all');
           [...loadedAdminResourcesRef.current]
             .filter((key) => key.startsWith('products:') || key === 'products')
             .forEach((key) => loadedAdminResourcesRef.current.delete(key));
@@ -638,7 +644,12 @@ export function useAdminLogic() {
       if (targetTab === 'overview') {
         await ensureOverview();
       } else if (targetTab === 'products') {
-        await Promise.all([loadProducts(), loadCategories(), loadBrands(), loadServices()]);
+        await Promise.all([
+          loadProducts(),
+          canLoadTab('categories') ? loadCategories() : Promise.resolve(),
+          canLoadTab('brands') ? loadBrands() : Promise.resolve(),
+          canLoadTab('services') ? loadServices() : Promise.resolve(),
+        ]);
       } else if (targetTab === 'categories') {
         await loadCategories();
       } else if (targetTab === 'brands') {
@@ -650,27 +661,60 @@ export function useAdminLogic() {
       } else if (targetTab === 'orders') {
         await loadOrders();
       } else if (targetTab === 'vouchers') {
-        await Promise.all([loadVouchers(), loadProducts(), loadCategories()]);
+        await Promise.all([
+          loadVouchers(),
+          canLoadTab('products') ? loadProducts() : Promise.resolve(),
+          canLoadTab('categories') ? loadCategories() : Promise.resolve(),
+        ]);
       } else if (targetTab === 'flashSales') {
-        await Promise.all([loadFlashSales(), loadProducts()]);
+        await Promise.all([
+          loadFlashSales(),
+          canLoadTab('products') ? loadProducts() : Promise.resolve(),
+          canLoadTab('categories') ? loadCategories() : Promise.resolve(),
+          canLoadTab('brands') ? loadBrands() : Promise.resolve(),
+        ]);
       } else if (targetTab === 'customers') {
-        await Promise.all([loadCustomers(), loadVouchers()]);
+        await Promise.all([
+          loadCustomers(),
+          canLoadTab('vouchers') ? loadVouchers() : Promise.resolve(),
+        ]);
       } else if (targetTab === 'inventory') {
-        await Promise.all([loadProducts(), loadCategories(), loadBrands(), loadSuppliers(), inventoryLogic.loadInventoryLevels(query)]);
+        await Promise.all([
+          canLoadTab('products') ? loadProducts() : Promise.resolve(),
+          canLoadTab('categories') ? loadCategories() : Promise.resolve(),
+          canLoadTab('brands') ? loadBrands() : Promise.resolve(),
+          canLoadTab('suppliers') ? loadSuppliers() : Promise.resolve(),
+          inventoryLogic.loadInventoryLevels(query),
+        ]);
       } else if (targetTab === 'inventoryReceipts') {
-        await Promise.all([loadProducts(), loadCategories(), loadBrands(), loadSuppliers(), inventoryLogic.loadInventoryReceipts(query)]);
+        await Promise.all([
+          canLoadTab('products') ? loadProducts() : Promise.resolve(),
+          canLoadTab('categories') ? loadCategories() : Promise.resolve(),
+          canLoadTab('brands') ? loadBrands() : Promise.resolve(),
+          canLoadTab('suppliers') ? loadSuppliers() : Promise.resolve(),
+          inventoryLogic.loadInventoryReceipts(query),
+        ]);
       } else if (targetTab === 'reviews') {
         await loadReviews();
       } else if (targetTab === 'interactions') {
         await loadProductInteractions();
       } else if (targetTab === 'content') {
-        await Promise.all([loadContent(), loadProducts(), loadCategories(), loadBrands()]);
+        await Promise.all([
+          loadContent(),
+          canLoadTab('products') ? loadProducts() : Promise.resolve(),
+          canLoadTab('categories') ? loadCategories() : Promise.resolve(),
+          canLoadTab('brands') ? loadBrands() : Promise.resolve(),
+        ]);
       } else if (targetTab === 'banners') {
-        await Promise.all([loadBanners(), loadProducts(), loadCategories()]);
+        await Promise.all([
+          loadBanners(),
+          canLoadTab('products') ? loadProducts() : Promise.resolve(),
+          canLoadTab('categories') ? loadCategories() : Promise.resolve(),
+        ]);
       } else if (targetTab === 'audit') {
         await loadAudit();
       } else if (targetTab === 'permissions') {
-        await Promise.all([loadPermissions(), loadCustomers()]);
+        await Promise.all([loadPermissions(), loadCustomers('STAFF_ADMIN')]);
       }
       loadedAdminSectionsRef.current.add(targetTab);
     } finally {

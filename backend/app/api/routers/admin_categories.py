@@ -7,6 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user_id, require_permission
 from app.api.schemas.admin import (
     CategoryBulkPayload,
+    CategoryIdentifierMigrationCancelPayload,
+    CategoryIdentifierMigrationCreatePayload,
+    CategoryIdentifierMigrationScanPayload,
     CategoryPayload,
     CategoryReorderPayload,
     CategorySlugCheckPayload,
@@ -142,6 +145,85 @@ async def list_category_audit_logs(category_id: UUID, session: AsyncSession = De
 @router.get("/categories/{category_id}/migration-jobs", dependencies=[Depends(require_permission("category:read"))])
 async def list_category_migration_jobs(category_id: UUID, session: AsyncSession = Depends(get_session)) -> list[dict]:
     return await category_service.list_category_migration_jobs(category_id=category_id, session=session)
+
+
+@router.get("/categories/{category_id}/identifier-policy/preview", dependencies=[Depends(require_permission("category:read"))])
+async def preview_identifier_policy_migration(
+    category_id: UUID,
+    identifier_type: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await category_service.preview_identifier_policy_migration(
+        category_id=category_id,
+        identifier_type=identifier_type.upper(),
+        session=session,
+    )
+
+
+@router.get("/categories/{category_id}/identifier-policy/migrations", dependencies=[Depends(require_permission("category:read"))])
+async def list_identifier_policy_migrations(
+    category_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await category_service.list_identifier_policy_migrations(category_id=category_id, session=session)
+
+
+@router.post("/categories/{category_id}/identifier-policy/migrations", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("category:update"))])
+async def create_identifier_policy_migration(
+    category_id: UUID,
+    payload: CategoryIdentifierMigrationCreatePayload,
+    session: AsyncSession = Depends(get_session),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await category_service.create_identifier_policy_migration(
+        category_id=category_id,
+        payload=payload,
+        session=session,
+        actor_id=actor_id,
+    )
+
+
+@router.post("/identifier-policy/migrations/{migration_id}/scan", dependencies=[Depends(require_permission("category:update"))])
+async def scan_identifier_policy_migration(
+    migration_id: UUID,
+    payload: CategoryIdentifierMigrationScanPayload,
+    session: AsyncSession = Depends(get_session),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await category_service.scan_identifier_policy_migration(
+        migration_id=migration_id,
+        payload=payload,
+        session=session,
+        actor_id=actor_id,
+    )
+
+
+@router.post("/identifier-policy/migrations/{migration_id}/complete", dependencies=[Depends(require_permission("category:update"))])
+async def complete_identifier_policy_migration(
+    migration_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await category_service.complete_identifier_policy_migration(
+        migration_id=migration_id,
+        session=session,
+        actor_id=actor_id,
+    )
+
+
+@router.post("/identifier-policy/migrations/{migration_id}/cancel", dependencies=[Depends(require_permission("category:update"))])
+async def cancel_identifier_policy_migration(
+    migration_id: UUID,
+    payload: CategoryIdentifierMigrationCancelPayload,
+    session: AsyncSession = Depends(get_session),
+    actor_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await category_service.cancel_identifier_policy_migration(
+        migration_id=migration_id,
+        payload=payload,
+        session=session,
+        actor_id=actor_id,
+    )
 
 
 @router.get("/categories/ops/metrics", dependencies=[Depends(require_permission("category:read"))])

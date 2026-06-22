@@ -5,6 +5,7 @@ import { adminFlashSalesApi } from '../services/adminFlashSalesApi';
 
 export type FlashSaleForm = {
   productId: string;
+  variantId: string;
   discountType: 'PERCENT' | 'FIXED';
   discountValue: number;
   startsAt: string;
@@ -14,6 +15,7 @@ export type FlashSaleForm = {
 
 const emptyFlashSaleForm: FlashSaleForm = {
   productId: '',
+  variantId: '',
   discountType: 'PERCENT',
   discountValue: 10,
   startsAt: '',
@@ -37,28 +39,48 @@ function toIsoOrNull(value: string) {
 export function useAdminFlashSalesLogic(params: {
   flashSales: any[];
   products: any[];
+  categories: any[];
+  brands: any[];
   query: string;
   reloadCurrentTab: () => Promise<void>;
 }) {
-  const { flashSales, products, query, reloadCurrentTab } = params;
+  const { flashSales, products, categories, brands, query, reloadCurrentTab } = params;
   const [flashSaleForm, setFlashSaleForm] = useState<FlashSaleForm>(emptyFlashSaleForm);
   const [editingFlashSaleId, setEditingFlashSaleId] = useState<string | null>(null);
+  const [flashSaleCategoryFilter, setFlashSaleCategoryFilter] = useState('');
+  const [flashSaleBrandFilter, setFlashSaleBrandFilter] = useState('');
+  const [flashSaleStatusFilter, setFlashSaleStatusFilter] = useState('');
+  const [flashSaleProductSearch, setFlashSaleProductSearch] = useState('');
 
-  const productOptions = useMemo(() => {
-    return [
-      ['', 'Chọn sản phẩm'],
-      ...products.map((product: any) => [
-        String(product.id),
-        `${product.name}${product.sku ? ` - ${product.sku}` : ''}`,
-      ] as [string, string]),
-    ];
-  }, [products]);
+  const flashSaleProductChoices = useMemo(() => {
+    const needle = flashSaleProductSearch.trim().toLowerCase();
+    return products
+      .filter((product: any) => !needle || `${product.name || ''} ${product.sku || ''} ${product.brand || ''}`.toLowerCase().includes(needle));
+  }, [flashSaleProductSearch, products]);
 
   const filteredFlashSales = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return flashSales;
-    return flashSales.filter((item) => `${item.productName || ''} ${item.productSku || ''} ${item.status || ''}`.toLowerCase().includes(needle));
-  }, [flashSales, query]);
+    return flashSales.filter((item) => {
+      const product = products.find((candidate: any) => String(candidate.id) === String(item.productId));
+      const matchesQuery = !needle || `${item.productName || ''} ${item.productSku || ''} ${item.status || ''}`.toLowerCase().includes(needle);
+      const matchesCategory = !flashSaleCategoryFilter
+        || String(product?.categoryId || '') === flashSaleCategoryFilter
+        || String(product?.subcategoryId || '') === flashSaleCategoryFilter;
+      const matchesBrand = !flashSaleBrandFilter || String(product?.brandId || '') === flashSaleBrandFilter;
+      const runningStatus = item.isRunning ? 'RUNNING' : item.status === 'ACTIVE' ? 'SCHEDULED' : 'INACTIVE';
+      return matchesQuery && matchesCategory && matchesBrand && (!flashSaleStatusFilter || runningStatus === flashSaleStatusFilter);
+    });
+  }, [flashSaleBrandFilter, flashSaleCategoryFilter, flashSaleStatusFilter, flashSales, products, query]);
+
+  const flashSaleCategoryOptions = useMemo(() => [
+    ['', 'Tất cả danh mục'],
+    ...categories.map((item: any) => [String(item.id), item.name] as [string, string]),
+  ], [categories]);
+
+  const flashSaleBrandOptions = useMemo(() => [
+    ['', 'Tất cả thương hiệu'],
+    ...brands.map((item: any) => [String(item.id), item.name] as [string, string]),
+  ], [brands]);
 
   const resetFlashSaleForm = () => {
     setFlashSaleForm(emptyFlashSaleForm);
@@ -69,6 +91,7 @@ export function useAdminFlashSalesLogic(params: {
     setEditingFlashSaleId(item.id);
     setFlashSaleForm({
       productId: item.productId || '',
+      variantId: item.variantId || '',
       discountType: item.discountType === 'FIXED' ? 'FIXED' : 'PERCENT',
       discountValue: Number(item.discountValue || 0),
       startsAt: toLocalDateTime(item.startsAt),
@@ -79,6 +102,7 @@ export function useAdminFlashSalesLogic(params: {
 
   const flashSalePayload = () => ({
     productId: flashSaleForm.productId,
+    variantId: flashSaleForm.variantId || null,
     discountType: flashSaleForm.discountType,
     discountValue: Number(flashSaleForm.discountValue || 0),
     startsAt: toIsoOrNull(flashSaleForm.startsAt),
@@ -119,7 +143,17 @@ export function useAdminFlashSalesLogic(params: {
     flashSaleForm,
     setFlashSaleForm,
     editingFlashSaleId,
-    productOptions,
+    flashSaleProductChoices,
+    flashSaleProductSearch,
+    setFlashSaleProductSearch,
+    flashSaleCategoryFilter,
+    setFlashSaleCategoryFilter,
+    flashSaleBrandFilter,
+    setFlashSaleBrandFilter,
+    flashSaleStatusFilter,
+    setFlashSaleStatusFilter,
+    flashSaleCategoryOptions,
+    flashSaleBrandOptions,
     filteredFlashSales,
     resetFlashSaleForm,
     editFlashSale,

@@ -21,6 +21,9 @@ export default function AdminBannersTab(props: AdminBannersTabProps) {
     setBannerForm,
     setQuery,
     uploadFiles,
+    canCreateContent,
+    canUpdateContent,
+    canDeleteContent,
   } = props;
   const [showForm, setShowForm] = useState(false);
 
@@ -56,12 +59,12 @@ export default function AdminBannersTab(props: AdminBannersTabProps) {
   return (
     <AdminPanel
       title="Quản lý banner trang chủ"
-      action={
+      action={canCreateContent ? (
         <button type="button" onClick={openCreateForm} className="inline-flex h-10 items-center gap-2 rounded-lg bg-red-600 px-3 text-sm font-bold text-white transition hover:bg-red-700">
           <Plus className="h-4 w-4" />
           Tạo banner
         </button>
-      }
+      ) : undefined}
       filters={<SearchBox value={query} onChange={setQuery} placeholder="Tìm banner theo tiêu đề hoặc mô tả" />}
     >
       {bannerNotice && (
@@ -70,13 +73,13 @@ export default function AdminBannersTab(props: AdminBannersTabProps) {
         </div>
       )}
 
-      {showForm && (
+      {showForm && (canCreateContent || canUpdateContent) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6 backdrop-blur-sm">
           <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
                 <h2 className="text-lg font-black text-slate-900">{editingBannerId ? 'Sửa banner' : 'Tạo banner'}</h2>
-                <p className="mt-1 text-sm font-medium text-slate-500">Banner cần có danh mục. Sản phẩm là tùy chọn để ưu tiên dẫn đến trang chi tiết.</p>
+                <p className="mt-1 text-sm font-medium text-slate-500">Ảnh banner là tùy chọn. Banner không có ảnh vẫn có thể hiển thị bằng tiêu đề và mô tả.</p>
               </div>
               <button type="button" onClick={closeForm} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="Đóng">
                 <X className="h-4 w-4" />
@@ -129,12 +132,12 @@ export default function AdminBannersTab(props: AdminBannersTabProps) {
               </td>
               <td className="px-4 py-3">
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => openEditForm(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50" title="Sửa banner">
+                  {canUpdateContent && <button type="button" onClick={() => openEditForm(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50" title="Sửa banner">
                     <Pencil className="h-4 w-4" />
-                  </button>
-                  <button type="button" onClick={() => deleteBanner(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-100 text-red-600 hover:bg-red-50" title="Xóa banner">
+                  </button>}
+                  {canDeleteContent && <button type="button" onClick={() => deleteBanner(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-100 text-red-600 hover:bg-red-50" title="Xóa banner">
                     <Trash2 className="h-4 w-4" />
-                  </button>
+                  </button>}
                 </div>
               </td>
             </tr>

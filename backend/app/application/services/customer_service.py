@@ -15,7 +15,10 @@ pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 async def clear_permission_cache(redis: Redis, user_ids: list[UUID]) -> None:
     if not user_ids:
         return
-    await redis.delete(*[f"admin_permissions:{user_id}" for user_id in user_ids])
+    try:
+        await redis.delete(*[f"admin_permissions:{user_id}" for user_id in user_ids])
+    except Exception:
+        pass
 
 
 async def ensure_user_permissions_table(session: AsyncSession) -> None:
@@ -163,9 +166,24 @@ async def list_admin_customers(
     search: str | None = None,
     page: int = 1,
     limit: int = 20,
+    role_code: str = "CUSTOMER",
 ) -> dict:
+    if role_code not in {"CUSTOMER", "STAFF_ADMIN"}:
+        raise HTTPException(status_code=400, detail="Loại tài khoản không hợp lệ.")
     await ensure_user_permissions_table(session)
-    return await customer_repo.list_admin_customers(session, search=search, page=page, limit=limit)
+    return await customer_repo.list_admin_customers(
+        session,
+        search=search,
+        page=page,
+        limit=limit,
+        role_code=role_code,
+    )
+
+
+async def ensure_customer_account(session: AsyncSession, user_id: UUID) -> None:
+    if await customer_repo.get_user_role(session, user_id) != "CUSTOMER":
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản khách hàng.")
+
 
 async def get_admin_customer_detail(session: AsyncSession, user_id: UUID) -> dict:
     await ensure_user_permissions_table(session)
@@ -183,15 +201,19 @@ async def get_admin_customer_detail(session: AsyncSession, user_id: UUID) -> dic
     }
 
 async def get_admin_customer_orders(session: AsyncSession, user_id: UUID) -> list[dict]:
+    await ensure_customer_account(session, user_id)
     return await customer_repo.list_customer_orders(session, user_id)
 
 async def get_admin_customer_loyalty_history(session: AsyncSession, user_id: UUID) -> list[dict]:
+    await ensure_customer_account(session, user_id)
     return await customer_repo.list_customer_loyalty_history(session, user_id)
 
 async def get_admin_customer_notes(session: AsyncSession, user_id: UUID) -> list[dict]:
+    await ensure_customer_account(session, user_id)
     return await customer_repo.list_customer_notes(session, user_id)
 
 async def get_admin_customer_audit_logs(session: AsyncSession, user_id: UUID) -> list[dict]:
+    await ensure_customer_account(session, user_id)
     return await customer_repo.list_customer_audit_logs(session, user_id)
 
 async def update_admin_customer_tags(
@@ -201,8 +223,7 @@ async def update_admin_customer_tags(
     current_user_id: UUID,
 ) -> dict:
     tags = normalize_customer_tags(payload.tags)
-    if not await customer_repo.user_exists(session, user_id):
-        raise HTTPException(status_code=404, detail="User not found.")
+    await ensure_customer_account(session, user_id)
     await customer_repo.replace_customer_tags(session, user_id, tags)
     await audit_admin_event(
         session,
@@ -223,6 +244,8 @@ async def bulk_update_admin_customer_tags(
 ) -> dict:
     tags = normalize_customer_tags(payload.tags)
     user_ids = list(dict.fromkeys(payload.userIds))
+    for user_id in user_ids:
+        await ensure_customer_account(session, user_id)
     await customer_repo.replace_customer_tags_bulk(session, user_ids, tags)
     await audit_admin_event(
         session,
@@ -241,8 +264,7 @@ async def create_admin_customer_note(
     payload: CustomerNotePayload,
     current_user_id: UUID,
 ) -> dict:
-    if not await customer_repo.user_exists(session, user_id):
-        raise HTTPException(status_code=404, detail="User not found.")
+    await ensure_customer_account(session, user_id)
     note = await customer_repo.insert_customer_note(
         session,
         user_id=user_id,
@@ -269,6 +291,7 @@ async def create_admin_customer_loyalty_adjustment(
 ) -> dict:
     if payload.delta == 0:
         raise HTTPException(status_code=400, detail="Delta must not be 0.")
+    await ensure_customer_account(session, user_id)
     await ensure_manual_loyalty_limit(session, actor_id=current_user_id, requested_delta=payload.delta)
     user = await customer_repo.get_loyalty_wallet_for_update(session, user_id)
     if not user:
@@ -311,6 +334,7 @@ async def issue_admin_customer_voucher(
     payload: CustomerVoucherIssuePayload,
     current_user_id: UUID,
 ) -> dict:
+    await ensure_customer_account(session, user_id)
     if not await customer_repo.get_user_for_update(session, user_id):
         raise HTTPException(status_code=404, detail="User not found.")
     voucher = await customer_repo.get_active_voucher_for_update(session, payload.voucherId)
@@ -386,6 +410,8 @@ async def bulk_update_user_status(
     current_user_id: UUID,
 ) -> dict:
     user_ids = list(dict.fromkeys(payload.userIds))
+    for user_id in user_ids:
+        await ensure_customer_account(session, user_id)
     affected_users = await customer_repo.bulk_update_user_status(session, user_ids=user_ids, status=payload.status)
     await revoke_users(session, user_ids, "bulk_status_changed")
     await clear_permission_cache(redis, user_ids)
@@ -400,7 +426,9 @@ async def bulk_update_user_status(
     return {"ok": True, "affectedUsers": affected_users}
 
 
-async def get_user_extra_permissions(session: AsyncSession, user_id: UUID) -> dict:
+async def get_user_extra_permissions(session: AsyncSession, user_id: UUID, current_user_id: UUID) -> dict:
+    if user_id == current_user_id:
+        raise HTTPException(status_code=403, detail="Bạn không thể xem hoặc điều chỉnh quyền của chính mình.")
     if not await customer_repo.user_exists(session, user_id):
         raise HTTPException(status_code=404, detail="User not found.")
     return {"userId": str(user_id), "permissionCodes": await list_user_extra_permissions(session, user_id)}
@@ -413,6 +441,8 @@ async def update_user_extra_permissions(
     payload: UserPermissionsPayload,
     current_user_id: UUID,
 ) -> dict:
+    if user_id == current_user_id:
+        raise HTTPException(status_code=403, detail="Bạn không thể xem hoặc điều chỉnh quyền của chính mình.")
     role = await customer_repo.get_user_role(session, user_id)
     if not role:
         raise HTTPException(status_code=404, detail="User not found.")
@@ -501,6 +531,11 @@ async def update_role_permissions(
     previous_permission_codes = await customer_repo.list_role_permission_codes(session, role_id)
     if role == "SUPER_ADMIN":
         raise HTTPException(status_code=400, detail="Super Admin permissions are not managed here.")
+    if role == "STAFF_ADMIN":
+        raise HTTPException(
+            status_code=400,
+            detail="Staff Admin uses per-account permissions. Update the staff account permissions instead.",
+        )
     permission_codes = sorted(set(payload.permissionCodes))
     unknown = await customer_repo.list_known_permission_codes(session, permission_codes or ["__none__"])
     if set(unknown) != set(permission_codes):

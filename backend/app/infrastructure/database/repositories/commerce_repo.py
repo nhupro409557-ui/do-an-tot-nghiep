@@ -203,6 +203,137 @@ async def update_product_stock(session: AsyncSession, *, product_id: UUID, quant
     )
 
 
+async def get_active_reserved_quantity(
+    session: AsyncSession,
+    *,
+    product_id: UUID | None,
+    variant_id: UUID | None,
+) -> int:
+    result = await session.execute(
+        text(
+            """
+            SELECT COALESCE(SUM(reserved_quantity), 0)::int
+            FROM inventory_reservations
+            WHERE status = 'ACTIVE'
+              AND (expires_at IS NULL OR expires_at > NOW())
+              AND product_id IS NOT DISTINCT FROM :product_id
+              AND variant_id IS NOT DISTINCT FROM :variant_id
+            """
+        ),
+        {"product_id": product_id, "variant_id": variant_id},
+    )
+    return int(result.scalar() or 0)
+
+
+async def get_main_inventory_location_id(session: AsyncSession) -> UUID:
+    result = await session.execute(
+        text(
+            """
+            SELECT id
+            FROM inventory_locations
+            WHERE code = 'MAIN'
+            ORDER BY created_at ASC
+            LIMIT 1
+            """
+        )
+    )
+    location_id = result.scalar_one_or_none()
+    if location_id:
+        return location_id
+
+    new_location_id = uuid4()
+    await session.execute(
+        text(
+            """
+            INSERT INTO inventory_locations (id, code, name, type, is_active)
+            VALUES (:id, 'MAIN', 'Kho chính', 'WAREHOUSE', TRUE)
+            """
+        ),
+        {"id": new_location_id},
+    )
+    return new_location_id
+
+
+async def create_inventory_reservation(
+    session: AsyncSession,
+    *,
+    order_id: UUID,
+    order_code: str,
+    product_id: UUID | None,
+    variant_id: UUID | None,
+    quantity: int,
+) -> None:
+    location_id = await get_main_inventory_location_id(session)
+    reservation_code = f"ORDER-{order_code}-{variant_id or product_id}"
+    await session.execute(
+        text(
+            """
+            INSERT INTO inventory_reservations (
+                id, product_id, variant_id, location_id, order_id,
+                reservation_code, reserved_quantity, status, expires_at
+            )
+            VALUES (
+                :id, :product_id, :variant_id, :location_id, :order_id,
+                :reservation_code, :reserved_quantity, 'ACTIVE', NOW() + INTERVAL '24 hours'
+            )
+            ON CONFLICT (reservation_code) DO UPDATE
+            SET reserved_quantity = EXCLUDED.reserved_quantity,
+                status = 'ACTIVE',
+                expires_at = EXCLUDED.expires_at,
+                released_at = NULL
+            """
+        ),
+        {
+            "id": uuid4(),
+            "product_id": product_id,
+            "variant_id": variant_id,
+            "location_id": location_id,
+            "order_id": order_id,
+            "reservation_code": reservation_code,
+            "reserved_quantity": quantity,
+        },
+    )
+
+
+async def close_active_order_reservations(session: AsyncSession, *, order_id: UUID, status: str) -> None:
+    if status not in {"CONSUMED", "RELEASED", "EXPIRED", "CANCELLED"}:
+        return
+    await session.execute(
+        text(
+            """
+            UPDATE inventory_reservations
+            SET status = :status,
+                released_at = NOW()
+            WHERE order_id = :order_id
+              AND status = 'ACTIVE'
+            """
+        ),
+        {"order_id": order_id, "status": status},
+    )
+
+
+async def order_has_inventory_adjustment_reason(
+    session: AsyncSession,
+    *,
+    order_code: str,
+    reason: str,
+) -> bool:
+    result = await session.execute(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM inventory_adjustment_logs
+                WHERE reference_code = :order_code
+                  AND reason = :reason
+            )
+            """
+        ),
+        {"order_code": order_code, "reason": reason},
+    )
+    return bool(result.scalar())
+
+
 async def insert_inventory_adjustment(
     session: AsyncSession,
     *,
@@ -215,17 +346,19 @@ async def insert_inventory_adjustment(
     reference_code: str,
     reason: str,
     note: str,
+    location_code: str | None = None,
+    location_name: str | None = None,
 ) -> None:
     await session.execute(
         text(
             """
             INSERT INTO inventory_adjustment_logs (
                 id, product_id, variant_id, old_quantity, new_quantity, delta,
-                transaction_type, reference_code, reason, note
+                transaction_type, reference_code, reason, note, location_code, location_name
             )
             VALUES (
                 :id, :product_id, :variant_id, :old_quantity, :new_quantity, :delta,
-                :transaction_type, :reference_code, :reason, :note
+                :transaction_type, :reference_code, :reason, :note, :location_code, :location_name
             )
             """
         ),
@@ -240,8 +373,304 @@ async def insert_inventory_adjustment(
             "reference_code": reference_code,
             "reason": reason,
             "note": note,
+            "location_code": location_code,
+            "location_name": location_name,
         },
     )
+
+
+async def consume_inventory_lots_fifo(
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    location_id: UUID,
+    quantity: int,
+    reference_code: str,
+    order_id: UUID,
+) -> list[dict]:
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT id, lot_code, remaining_quantity
+                FROM inventory_lots
+                WHERE (
+                        (:variant_id_marker = 'BASE' AND product_id = :product_id AND variant_id IS NULL)
+                     OR (:variant_id_marker = 'VALUE' AND variant_id = CAST(:variant_id AS UUID))
+                  )
+                  AND location_id = :location_id
+                  AND status = 'ACTIVE'
+                  AND remaining_quantity > 0
+                ORDER BY received_at ASC, created_at ASC, lot_code ASC
+                FOR UPDATE
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "variant_id_marker": "VALUE" if variant_id else "BASE",
+                "location_id": location_id,
+            },
+        )
+    ).mappings().all()
+
+    remaining = quantity
+    consumed: list[dict] = []
+    for row in rows:
+        if remaining <= 0:
+            break
+        take_quantity = min(remaining, int(row["remaining_quantity"] or 0))
+        if take_quantity <= 0:
+            continue
+        new_remaining = int(row["remaining_quantity"] or 0) - take_quantity
+        await session.execute(
+            text(
+                """
+                UPDATE inventory_lots
+                SET remaining_quantity = :remaining_quantity,
+                    status = CASE WHEN :remaining_quantity = 0 THEN 'DEPLETED' ELSE 'ACTIVE' END,
+                    updated_at = NOW()
+                WHERE id = :lot_id
+                """
+            ),
+            {"lot_id": row["id"], "remaining_quantity": new_remaining},
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO inventory_lot_movements (
+                    id, lot_id, movement_type, quantity,
+                    reference_code, order_id, note
+                )
+                VALUES (
+                    :id, :lot_id, 'SALE', :quantity,
+                    :reference_code, :order_id, 'Tự động xuất lô cũ trước khi giao hàng.'
+                )
+                """
+            ),
+            {
+                "id": uuid4(),
+                "lot_id": row["id"],
+                "quantity": take_quantity,
+                "reference_code": reference_code,
+                "order_id": order_id,
+            },
+        )
+        consumed.append(
+            {
+                "lotId": row["id"],
+                "lotCode": row["lot_code"],
+                "quantity": take_quantity,
+            }
+        )
+        remaining -= take_quantity
+
+    if remaining > 0:
+        raise ValueError("Không đủ số lượng lô nội bộ tại kệ để xuất kho.")
+    return consumed
+
+
+async def deduct_inventory_levels_fifo(
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    quantity: int,
+) -> list[dict]:
+    if quantity <= 0:
+        return []
+
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    il.id,
+                    il.location_id,
+                    loc.code AS "locationCode",
+                    loc.name AS "locationName",
+                    il.on_hand_quantity::int AS "onHandQuantity",
+                    il.reserved_quantity::int AS "reservedQuantity",
+                    GREATEST(il.on_hand_quantity - il.reserved_quantity, 0)::int AS "availableQuantity"
+                FROM inventory_levels il
+                JOIN inventory_locations loc ON loc.id = il.location_id
+                WHERE (
+                        (:variant_id_marker = 'BASE' AND il.product_id = :product_id AND il.variant_id IS NULL)
+                     OR (:variant_id_marker = 'VALUE' AND il.variant_id = CAST(:variant_id AS UUID))
+                  )
+                  AND GREATEST(il.on_hand_quantity - il.reserved_quantity, 0) > 0
+                ORDER BY il.updated_at ASC, loc.code ASC
+                FOR UPDATE OF il
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "variant_id_marker": "VALUE" if variant_id else "BASE",
+            },
+        )
+    ).mappings().all()
+
+    remaining = quantity
+    allocations: list[dict] = []
+    for row in rows:
+        if remaining <= 0:
+            break
+        take_quantity = min(remaining, int(row["availableQuantity"] or 0))
+        if take_quantity <= 0:
+            continue
+        old_quantity = int(row["onHandQuantity"] or 0)
+        new_quantity = old_quantity - take_quantity
+        await session.execute(
+            text(
+                """
+                UPDATE inventory_levels
+                SET on_hand_quantity = :new_quantity,
+                    updated_at = NOW()
+                WHERE id = :id
+                """
+            ),
+            {"id": row["id"], "new_quantity": new_quantity},
+        )
+        allocations.append(
+            {
+                "locationId": row["location_id"],
+                "locationCode": row["locationCode"],
+                "locationName": row["locationName"],
+                "oldQuantity": old_quantity,
+                "newQuantity": new_quantity,
+                "quantity": take_quantity,
+            }
+        )
+        remaining -= take_quantity
+
+    if remaining > 0:
+        raise ValueError("Không đủ tồn khả dụng ở các kệ để xuất kho.")
+    return allocations
+
+
+async def deduct_inventory_levels_from_locations(
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    location_quantities: list[dict],
+) -> list[dict]:
+    allocations: list[dict] = []
+    for location_quantity in location_quantities:
+        location_id = location_quantity.get("location_id") or location_quantity.get("locationId")
+        quantity = int(location_quantity.get("quantity") or 0)
+        if not location_id or quantity <= 0:
+            continue
+
+        row = (
+            await session.execute(
+                text(
+                    """
+                    SELECT
+                        il.id,
+                        il.location_id,
+                        loc.code AS "locationCode",
+                        loc.name AS "locationName",
+                        il.on_hand_quantity::int AS "onHandQuantity",
+                        il.reserved_quantity::int AS "reservedQuantity",
+                        GREATEST(il.on_hand_quantity - il.reserved_quantity, 0)::int AS "availableQuantity"
+                    FROM inventory_levels il
+                    JOIN inventory_locations loc ON loc.id = il.location_id
+                    WHERE (
+                            (:variant_id_marker = 'BASE' AND il.product_id = :product_id AND il.variant_id IS NULL)
+                         OR (:variant_id_marker = 'VALUE' AND il.variant_id = CAST(:variant_id AS UUID))
+                      )
+                      AND il.location_id = :location_id
+                    FOR UPDATE OF il
+                    """
+                ),
+                {
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "variant_id_marker": "VALUE" if variant_id else "BASE",
+                    "location_id": location_id,
+                },
+            )
+        ).mappings().first()
+        if not row or int(row["availableQuantity"] or 0) < quantity:
+            raise ValueError("Kệ nhân viên chọn không đủ tồn khả dụng để xuất kho.")
+
+        old_quantity = int(row["onHandQuantity"] or 0)
+        new_quantity = old_quantity - quantity
+        await session.execute(
+            text(
+                """
+                UPDATE inventory_levels
+                SET on_hand_quantity = :new_quantity,
+                    updated_at = NOW()
+                WHERE id = :id
+                """
+            ),
+            {"id": row["id"], "new_quantity": new_quantity},
+        )
+        allocations.append(
+            {
+                "locationId": row["location_id"],
+                "locationCode": row["locationCode"],
+                "locationName": row["locationName"],
+                "oldQuantity": old_quantity,
+                "newQuantity": new_quantity,
+                "quantity": quantity,
+            }
+        )
+    return allocations
+
+
+async def restock_inventory_levels(
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    allocations: list[dict],
+) -> None:
+    for allocation in allocations:
+        location_id = allocation.get("locationId")
+        quantity = int(allocation.get("quantity") or 0)
+        if not location_id or quantity <= 0:
+            continue
+        await session.execute(
+            text(
+                """
+                WITH updated AS (
+                    UPDATE inventory_levels
+                    SET on_hand_quantity = on_hand_quantity + :quantity,
+                        updated_at = NOW()
+                    WHERE (
+                            (:variant_id_marker = 'BASE' AND product_id = :product_id AND variant_id IS NULL)
+                         OR (:variant_id_marker = 'VALUE' AND variant_id = CAST(:variant_id AS UUID))
+                      )
+                      AND location_id = :location_id
+                    RETURNING id
+                )
+                INSERT INTO inventory_levels (
+                    id, product_id, variant_id, location_id, on_hand_quantity, reserved_quantity, average_unit_cost
+                )
+                SELECT
+                    gen_random_uuid(),
+                    CASE WHEN :variant_id_marker = 'BASE' THEN :product_id ELSE NULL END,
+                    CASE WHEN :variant_id_marker = 'VALUE' THEN CAST(:variant_id AS UUID) ELSE NULL END,
+                    :location_id,
+                    :quantity,
+                    0,
+                    0
+                WHERE NOT EXISTS (SELECT 1 FROM updated)
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "variant_id_marker": "VALUE" if variant_id else "BASE",
+                "location_id": location_id,
+                "quantity": quantity,
+            },
+        )
 
 
 async def get_checkout_url(session: AsyncSession, order_id: UUID) -> str | None:

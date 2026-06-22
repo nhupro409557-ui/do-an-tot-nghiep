@@ -11,6 +11,7 @@ export type OrderDraft = {
   shippingProvider: string;
   trackingCode: string;
   refundPayment: boolean;
+  issueAllocations: { orderItemId: string; locationId: string; quantity: number }[];
 };
 
 const initialOrderDraft: OrderDraft = {
@@ -21,6 +22,7 @@ const initialOrderDraft: OrderDraft = {
   shippingProvider: '',
   trackingCode: '',
   refundPayment: false,
+  issueAllocations: [],
 };
 
 type UseAdminOrdersLogicParams = {
@@ -43,6 +45,7 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
       shippingProvider: order.shippingProvider || '',
       trackingCode: order.trackingCode || '',
       refundPayment: order.paymentMethod && order.paymentMethod !== 'COD' && ['PAID', 'PENDING'].includes(order.paymentStatus || ''),
+      issueAllocations: [],
     });
   }
 
@@ -69,6 +72,26 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
 
   async function saveOrderDraft() {
     if (!selectedOrder) return;
+    if (orderDraft.status === 'SHIPPED') {
+      for (const item of selectedOrder.items || []) {
+        const itemAllocations = orderDraft.issueAllocations.filter((allocation) => allocation.orderItemId === String(item.id));
+        if (itemAllocations.length === 0) continue;
+        if (itemAllocations.some((allocation) => !allocation.locationId || Number(allocation.quantity || 0) <= 0)) {
+          window.alert(`Sản phẩm "${item.productName}" có dòng kệ chưa hợp lệ.`);
+          return;
+        }
+        const uniqueLocationIds = new Set(itemAllocations.map((allocation) => allocation.locationId));
+        if (uniqueLocationIds.size !== itemAllocations.length) {
+          window.alert(`Sản phẩm "${item.productName}" đang chọn trùng kệ.`);
+          return;
+        }
+        const allocatedQuantity = itemAllocations.reduce((sum, allocation) => sum + Number(allocation.quantity || 0), 0);
+        if (allocatedQuantity !== Number(item.quantity || 0)) {
+          window.alert(`Sản phẩm "${item.productName}" phải phân bổ đúng ${item.quantity} sản phẩm.`);
+          return;
+        }
+      }
+    }
     setOrderSaving(true);
     try {
       await adminOrdersApi.adminUpdateOrder(selectedOrder.id, {
@@ -79,6 +102,13 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
         shipping_provider: orderDraft.shippingProvider || null,
         tracking_code: orderDraft.trackingCode || null,
         refund_payment: orderDraft.refundPayment,
+        issue_allocations: orderDraft.issueAllocations
+          .filter((allocation) => allocation.orderItemId && allocation.locationId && Number(allocation.quantity || 0) > 0)
+          .map((allocation) => ({
+            order_item_id: allocation.orderItemId,
+            location_id: allocation.locationId,
+            quantity: Number(allocation.quantity),
+          })),
       });
       const detail = await adminOrdersApi.getOrderDetail(selectedOrder.id);
       setSelectedOrder(detail);

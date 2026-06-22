@@ -13,6 +13,7 @@ from app.api.routers.catalog_utils import (
     PRODUCT_VIEW_VALID_SCROLL_DEPTH,
     PRODUCT_VIEW_VALID_SECONDS,
     enforce_favorite_toggle_rate_limit,
+    build_flash_sale_meta,
     insert_valid_product_view,
     product_row,
     product_view_identity,
@@ -70,9 +71,12 @@ async def get_product(product_id: str, session: AsyncSession) -> dict:
 
             discount_type = str(offer.get("discountType") or "PERCENT").upper()
             discount_value = float(offer.get("discountValue") or 0)
-            sale_price = float(acc_meta.get("salePrice") if acc_meta.get("salePrice") is not None else acc_meta.get("price") or 0)
             original_price = float(acc_meta.get("price") or 0)
-            bundle_price = sale_price * (1.0 - (discount_value / 100.0)) if discount_type == "PERCENT" else max(0.0, sale_price - discount_value)
+            normal_sale_price = float(acc_meta["salePrice"]) if acc_meta.get("salePrice") is not None else None
+            current_price = normal_sale_price if normal_sale_price is not None and normal_sale_price > 0 else original_price
+            flash_sale = build_flash_sale_meta(acc_meta, current_price)
+            effective_price = float(flash_sale["salePrice"]) if flash_sale else current_price
+            bundle_price = effective_price * (1.0 - (discount_value / 100.0)) if discount_type == "PERCENT" else max(0.0, effective_price - discount_value)
             resolved_offers.append(
                 {
                     "productId": prod_id,
@@ -83,7 +87,8 @@ async def get_product(product_id: str, session: AsyncSession) -> dict:
                     "productSku": acc_meta.get("sku", ""),
                     "imageUrl": acc_meta.get("imageUrl", ""),
                     "originalPrice": original_price,
-                    "salePrice": sale_price,
+                    "salePrice": effective_price,
+                    "flashSale": flash_sale,
                     "price": round(bundle_price),
                 }
             )

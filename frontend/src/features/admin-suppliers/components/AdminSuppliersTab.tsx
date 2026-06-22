@@ -32,12 +32,16 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
     supplierStatusFilter,
     supplierTotal,
     viewSupplier,
+    usePermission,
   } = props;
+  const canCreateSupplier = usePermission('supplier:create');
+  const canUpdateSupplier = usePermission('supplier:update');
+  const canDeleteSupplier = usePermission('supplier:delete');
 
   return (
     <AdminPanel
       title="Quản lý nhà cung cấp"
-      action={
+      action={canCreateSupplier ? (
         <button
           type="button"
           onClick={() => { resetSupplierForm(); setSupplierFormOpen(true); }}
@@ -45,7 +49,7 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
         >
           <Plus className="h-4 w-4" /> Thêm
         </button>
-      }
+      ) : undefined}
       filters={
         <>
           <Select noLabel={true} label="Trạng thái" value={supplierStatusFilter} onChange={setSupplierStatusFilter} options={[['all', 'Tất cả'], ['active', 'Đang hoạt động'], ['inactive', 'Đã ẩn']]} />
@@ -53,7 +57,7 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
         </>
       }
     >
-      {supplierFormOpen && (
+      {supplierFormOpen && (canCreateSupplier || canUpdateSupplier || supplierViewOnly) && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
           <div className="w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-2xl">
             <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
@@ -96,7 +100,7 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
         </div>
       )}
 
-      {selectedSupplierIds.length > 0 && (
+      {canUpdateSupplier && selectedSupplierIds.length > 0 && (
         <div className="mb-3 flex gap-2">
           <button type="button" onClick={() => bulkUpdateSupplierStatus(false)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Ẩn đã chọn</button>
           <button type="button" onClick={() => bulkUpdateSupplierStatus(true)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Khôi phục đã chọn</button>
@@ -113,7 +117,7 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
       >
         {filteredSuppliers.map((supplier: any) => (
           <tr key={supplier.id}>
-            <td className="px-4 py-3"><input type="checkbox" checked={selectedSupplierIds.includes(supplier.id)} onChange={(event) => setSelectedSupplierIds((ids: string[]) => event.target.checked ? [...ids, supplier.id] : ids.filter((id) => id !== supplier.id))} /></td>
+            <td className="px-4 py-3">{canUpdateSupplier && <input type="checkbox" checked={selectedSupplierIds.includes(supplier.id)} onChange={(event) => setSelectedSupplierIds((ids: string[]) => event.target.checked ? [...ids, supplier.id] : ids.filter((id) => id !== supplier.id))} />}</td>
             <td className="px-4 py-3">
               <div className="font-semibold text-slate-900">{supplier.name}</div>
               <div className="text-xs text-slate-500">{supplier.address || supplier.website || '-'}</div>
@@ -130,10 +134,10 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
                 <button type="button" onClick={() => viewSupplier(supplier)} title="Xem thông tin" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900">
                   <Eye className="h-4 w-4" />
                 </button>
-                <button type="button" onClick={() => editSupplier(supplier)} title="Sửa" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900">
+                {canUpdateSupplier && <button type="button" onClick={() => editSupplier(supplier)} title="Sửa" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900">
                   <Edit2 className="h-4 w-4" />
-                </button>
-                {supplier.isActive ? (
+                </button>}
+                {canUpdateSupplier && (supplier.isActive ? (
                   <button type="button" onClick={() => hideSupplier(supplier)} title="Ẩn" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900">
                     <EyeOff className="h-4 w-4" />
                   </button>
@@ -141,10 +145,10 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
                   <button type="button" onClick={() => reactivateSupplier(supplier)} title="Khôi phục" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-200 bg-white text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50">
                     <RotateCcw className="h-4 w-4" />
                   </button>
-                )}
-                <button type="button" onClick={() => deleteSupplier(supplier)} title="Xóa" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-red-200 bg-white text-red-600 transition hover:border-red-300 hover:bg-red-50">
+                ))}
+                {canDeleteSupplier && <button type="button" onClick={() => deleteSupplier(supplier)} title="Xóa" className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-red-200 bg-white text-red-600 transition hover:border-red-300 hover:bg-red-50">
                   <Trash2 className="h-4 w-4" />
-                </button>
+                </button>}
               </div>
             </td>
           </tr>

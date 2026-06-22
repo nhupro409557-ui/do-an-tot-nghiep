@@ -139,12 +139,14 @@ def build_flash_sale_meta(item: dict, base_price: float) -> dict | None:
         return None
     starts_at = item.get("flashSaleStartsAt")
     ends_at = item.get("flashSaleEndsAt")
+    starts_at_value = starts_at.isoformat() if hasattr(starts_at, "isoformat") else starts_at
+    ends_at_value = ends_at.isoformat() if hasattr(ends_at, "isoformat") else ends_at
     return {
         "id": str(sale_id),
         "discountType": discount_type,
         "discountValue": discount_value,
-        "startsAt": starts_at.isoformat() if starts_at else None,
-        "endsAt": ends_at.isoformat() if ends_at else None,
+        "startsAt": starts_at_value,
+        "endsAt": ends_at_value,
         "originalPrice": base_price,
         "salePrice": sale_price,
         "discountPercent": round(((base_price - sale_price) / base_price) * 100),
@@ -191,8 +193,25 @@ def product_row(row) -> dict:
     flash_sale = build_flash_sale_meta(item, current_base_price)
     display_sale_price = flash_sale["salePrice"] if flash_sale else normal_sale_price
     variants = item.get("variants") or []
-    if flash_sale and isinstance(variants, list):
-        variants = [apply_flash_sale_to_variant(variant, flash_sale) for variant in variants]
+    flash_sale_variant = None
+    if isinstance(variants, list):
+        priced_variants = []
+        for variant in variants:
+            variant_item = dict(variant or {})
+            variant_base = float(variant_item.get("salePrice") or variant_item.get("price") or 0)
+            variant_flash_sale = build_flash_sale_meta(variant_item, variant_base)
+            if variant_flash_sale:
+                variant_item = apply_flash_sale_to_variant(variant_item, variant_flash_sale)
+                if flash_sale_variant is None or float(variant_item.get("salePrice") or 0) < float(flash_sale_variant.get("salePrice") or 0):
+                    flash_sale_variant = variant_item
+            elif flash_sale:
+                variant_item = apply_flash_sale_to_variant(variant_item, flash_sale)
+            priced_variants.append(variant_item)
+        variants = priced_variants
+    effective_flash_sale = (flash_sale_variant or {}).get("flashSale") or flash_sale
+    if flash_sale_variant:
+        display_sale_price = flash_sale_variant.get("salePrice")
+        current_base_price = float(flash_sale_variant.get("originalPrice") or flash_sale_variant.get("price") or base_price)
     return {
         "id": item["id"],
         "sku": item.get("sku"),
@@ -214,7 +233,7 @@ def product_row(row) -> dict:
         "price": base_price,
         "discountPrice": display_sale_price,
         "salePrice": display_sale_price,
-        "originalPrice": current_base_price if flash_sale else base_price,
+        "originalPrice": current_base_price if effective_flash_sale else base_price,
         "stock": stock,
         "stockQuantity": stock,
         "stockState": stock_state,
@@ -232,8 +251,9 @@ def product_row(row) -> dict:
         "soldCount": item.get("soldCount") or 0,
         "isActive": True,
         "isFeatured": item.get("isFeatured"),
-        "isFlashSale": bool(item.get("isFlashSale") or flash_sale),
-        "flashSale": flash_sale,
+        "isFlashSale": bool(effective_flash_sale),
+        "flashSale": effective_flash_sale,
+        "flashSaleVariantId": str(flash_sale_variant.get("id")) if flash_sale_variant else None,
         "status": status_value,
         "salesConfig": item.get("salesConfig") or {},
         "options": item.get("options") or [],

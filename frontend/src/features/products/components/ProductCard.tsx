@@ -1,10 +1,60 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Heart, Scale } from "lucide-react";
+import { Clock3, Heart, Scale } from "lucide-react";
 import { ImageWithFallback } from "../../../components/ui/ImageWithFallback";
 import { motion } from "motion/react";
 
+const getFlashSaleRemaining = (endsAt?: string) => {
+  const distance = endsAt ? Math.max(new Date(endsAt).getTime() - Date.now(), 0) : 0;
+  const days = Math.floor(distance / 86400000);
+  const hours = Math.floor((distance / 3600000) % 24);
+  const minutes = Math.floor((distance / 60000) % 60);
+  const seconds = Math.floor((distance / 1000) % 60);
+  return { days, hours, minutes, seconds };
+};
+
+function ProductFlashSaleTimer({ endsAt }: { endsAt: string }) {
+  const [remaining, setRemaining] = useState(() => getFlashSaleRemaining(endsAt));
+
+  useEffect(() => {
+    setRemaining(getFlashSaleRemaining(endsAt));
+    const timer = window.setInterval(() => setRemaining(getFlashSaleRemaining(endsAt)), 1000);
+    return () => window.clearInterval(timer);
+  }, [endsAt]);
+
+  return (
+    <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-red-100 bg-gradient-to-r from-red-50 to-orange-50 px-2.5 py-2 text-primary">
+      <span className="flex shrink-0 items-center gap-1 text-[10px] font-black uppercase">
+        <Clock3 className="h-3.5 w-3.5" />
+        Còn lại
+      </span>
+      <span className="truncate text-[11px] font-black tabular-nums">
+        {remaining.days > 0 ? `${remaining.days} ngày ` : ''}
+        {String(remaining.hours).padStart(2, '0')}:
+        {String(remaining.minutes).padStart(2, '0')}:
+        {String(remaining.seconds).padStart(2, '0')}
+      </span>
+    </div>
+  );
+}
+
+function FlashSaleDiscountLabel({ flashSale }: { flashSale: any }) {
+  if (!flashSale) return null;
+  const discountValue = Number(flashSale.discountValue || 0);
+  if (discountValue <= 0) return null;
+  const label = flashSale.discountType === 'PERCENT'
+    ? `Giảm ${discountValue.toLocaleString('vi-VN')}%`
+    : `Giảm ${discountValue.toLocaleString('vi-VN')}đ`;
+
+  return (
+    <span className="rounded-md bg-red-600 px-2 py-1 text-[10px] font-black uppercase text-white shadow-sm">
+      {label}
+    </span>
+  );
+}
+
 export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
+  const productHref = `/product/${p.id}${p.flashSaleVariantId ? `?variant=${encodeURIComponent(p.flashSaleVariantId)}` : ''}`;
   const primaryImages = [
     p.imageUrl,
     ...(Array.isArray(p.variants) ? p.variants.map((variant: any) => variant.imageUrl).filter(Boolean) : []),
@@ -32,13 +82,16 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
         </div>
       )}
         {p.flashSale && !isDiscontinued && (
-        <div className="absolute left-2 top-2 z-10 rounded-lg bg-red-600 px-2 py-1 text-[10px] font-bold uppercase text-white shadow-sm">
-          HOT
+        <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5">
+          <span className="rounded-lg bg-red-600 px-2 py-1 text-[10px] font-bold uppercase text-white shadow-sm">
+            HOT
+          </span>
+          <FlashSaleDiscountLabel flashSale={p.flashSale} />
         </div>
       )}
 
       <div className="group/image relative -mx-0.5 -mt-0.5 sm:-mx-1 sm:-mt-1 lg:-mx-2 lg:-mt-2">
-        <Link to={`/product/${p.id}`} className="relative mb-2.5 flex h-40 items-center justify-center overflow-hidden rounded-lg bg-white p-0 sm:h-44 md:h-48 lg:h-56">
+        <Link to={productHref} className="relative mb-2.5 flex h-40 items-center justify-center overflow-hidden rounded-lg bg-white p-0 sm:h-44 md:h-48 lg:h-56">
           {displayImage ? (
             <ImageWithFallback src={displayImage} alt={p.name} className="h-full w-full object-contain transition-transform duration-300 group-hover/image:scale-[1.03]" />
           ) : (
@@ -64,7 +117,7 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
         )}
       </div>
 
-      <Link to={`/product/${p.id}`} className="flex flex-col">
+      <Link to={productHref} className="flex flex-col">
         <h4 className="mb-2 h-[38px] text-[12.5px] font-bold leading-[1.25] text-slate-800 line-clamp-2 transition-colors group-hover:text-primary sm:text-[13px] lg:text-sm">
           {p.name}
         </h4>
@@ -78,7 +131,8 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
       </Link>
 
       <div className="mt-1 flex flex-col justify-end pt-1">
-        <Link to={`/product/${p.id}`} className="mb-2 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        {p.flashSale?.endsAt && !isDiscontinued && <ProductFlashSaleTimer endsAt={p.flashSale.endsAt} />}
+        <Link to={productHref} className="mb-2 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
           {isDiscontinued ? (
             <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-black uppercase text-slate-700">Ngừng kinh doanh</span>
           ) : (

@@ -1,6 +1,7 @@
 ﻿from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.admin import FlashSalePayload
@@ -14,9 +15,9 @@ def sale_price(base_price: float, discount_type: str, discount_value: float) -> 
 
 
 async def validate_flash_sale_price(session: AsyncSession, payload: FlashSalePayload) -> None:
-    row = await flash_sale_repo.get_product_current_price(session, payload.productId)
+    row = await flash_sale_repo.get_target_current_price(session, payload.productId, payload.variantId)
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy sản phẩm.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy sản phẩm hoặc biến thể hợp lệ.")
 
     current_price = float(row["current_price"] or 0)
     computed_price = sale_price(current_price, payload.discountType, payload.discountValue)
@@ -27,6 +28,49 @@ async def validate_flash_sale_price(session: AsyncSession, payload: FlashSalePay
         )
 
 
+async def validate_flash_sale_overlap(
+    session: AsyncSession,
+    payload: FlashSalePayload,
+    *,
+    exclude_id: UUID | None = None,
+) -> None:
+    if payload.status != "ACTIVE":
+        return
+    overlap = await flash_sale_repo.find_overlapping_flash_sale(
+        session,
+        product_id=payload.productId,
+        variant_id=payload.variantId,
+        starts_at=payload.startsAt,
+        ends_at=payload.endsAt,
+        exclude_id=exclude_id,
+    )
+    if overlap:
+        target = "biến thể này" if payload.variantId else "toàn bộ sản phẩm này"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Đã có Flash Sale đang bật cho {target} trong khung thời gian bị trùng. Vui lòng chọn khung giờ khác.",
+        )
+
+
+def raise_flash_sale_integrity_error(error: IntegrityError) -> None:
+    original_error = error.orig
+    cause = getattr(original_error, "__cause__", None)
+    constraint_name = (
+        getattr(getattr(original_error, "diag", None), "constraint_name", "")
+        or getattr(getattr(cause, "diag", None), "constraint_name", "")
+    )
+    overlap_constraints = {
+        "exclude_overlapping_product_flash_sales",
+        "exclude_overlapping_variant_flash_sales",
+    }
+    if constraint_name in overlap_constraints or any(name in str(error) for name in overlap_constraints):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Khung thời gian Flash Sale bị trùng với một chương trình vừa được lưu. Vui lòng tải lại và chọn khung giờ khác.",
+        ) from error
+    raise error
+
+
 def flash_sale_row(row) -> dict:
     item = dict(row._mapping)
     current_price = float(item.get("currentPrice") or 0)
@@ -34,8 +78,11 @@ def flash_sale_row(row) -> dict:
     return {
         "id": item["id"],
         "productId": item["productId"],
+        "variantId": item.get("variantId"),
         "productName": item.get("productName"),
         "productSku": item.get("productSku"),
+        "variantSku": item.get("variantSku"),
+        "variantName": item.get("variantName"),
         "imageUrl": item.get("imageUrl"),
         "currentPrice": current_price,
         "salePrice": final_price,
@@ -57,6 +104,7 @@ def flash_sale_params(sale_id: UUID, payload: FlashSalePayload) -> dict:
     return {
         "id": sale_id,
         "product_id": payload.productId,
+        "variant_id": payload.variantId,
         "discount_type": payload.discountType,
         "discount_value": payload.discountValue,
         "starts_at": payload.startsAt,
@@ -67,18 +115,28 @@ def flash_sale_params(sale_id: UUID, payload: FlashSalePayload) -> dict:
 
 async def create_flash_sale(session: AsyncSession, payload: FlashSalePayload) -> dict:
     await validate_flash_sale_price(session, payload)
+    await validate_flash_sale_overlap(session, payload)
     sale_id = uuid4()
-    await flash_sale_repo.insert_flash_sale(session, flash_sale_params(sale_id, payload))
-    await session.commit()
+    try:
+        await flash_sale_repo.insert_flash_sale(session, flash_sale_params(sale_id, payload))
+        await session.commit()
+    except IntegrityError as error:
+        await session.rollback()
+        raise_flash_sale_integrity_error(error)
     return {"id": str(sale_id)}
 
 
 async def update_flash_sale(session: AsyncSession, sale_id: UUID, payload: FlashSalePayload) -> dict:
     await validate_flash_sale_price(session, payload)
-    updated = await flash_sale_repo.update_flash_sale(session, flash_sale_params(sale_id, payload))
-    if updated == 0:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flash sale.")
-    await session.commit()
+    await validate_flash_sale_overlap(session, payload, exclude_id=sale_id)
+    try:
+        updated = await flash_sale_repo.update_flash_sale(session, flash_sale_params(sale_id, payload))
+        if updated == 0:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flash sale.")
+        await session.commit()
+    except IntegrityError as error:
+        await session.rollback()
+        raise_flash_sale_integrity_error(error)
     return {"ok": True}
 
 

@@ -101,6 +101,12 @@ class UpdateOrderStatusRequest(BaseModel):
     status: str = Field(pattern="^(PENDING|CONFIRMED|PAID|PROCESSING|SHIPPED|COMPLETED|CANCELLED|REFUNDED|PAYMENT_FAILED|RETURNING|RETURNED)$")
 
 
+class OrderIssueAllocationPayload(BaseModel):
+    order_item_id: UUID
+    location_id: UUID
+    quantity: int = Field(gt=0, le=99)
+
+
 class AdminUpdateOrderRequest(BaseModel):
     status: str | None = Field(default=None, pattern="^(PENDING|CONFIRMED|PAID|PROCESSING|SHIPPED|COMPLETED|CANCELLED|REFUNDED|PAYMENT_FAILED|RETURNING|RETURNED)$")
     assigned_staff_name: str | None = Field(default=None, max_length=255)
@@ -110,6 +116,7 @@ class AdminUpdateOrderRequest(BaseModel):
     tracking_code: str | None = Field(default=None, max_length=120)
     refund_payment: bool = False
     changed_by: str | None = Field(default=None, max_length=255)
+    issue_allocations: list[OrderIssueAllocationPayload] = Field(default_factory=list, max_length=200)
 
 
 class RevenueReportResponse(BaseModel):

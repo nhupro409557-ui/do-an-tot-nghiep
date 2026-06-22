@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Check,
   ChevronDown,
@@ -208,6 +208,7 @@ function AttachedServices({ services, price }: { services?: any[]; price: number
 }
 
 const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
+  const [searchParams] = useSearchParams();
   const { addToCart } = useCart();
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
   const [selectedMediaKey, setSelectedMediaKey] = useState('');
@@ -272,9 +273,11 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
   const mediaItems = useMemo(() => (product ? buildMediaItems(product, activeVariant) : []), [product, activeVariant]);
 
   if (product && selectedProductId !== product.id) {
-    const initialColor = optionLabel(product.colors?.[0]);
+    const requestedVariantId = searchParams.get('variant');
+    const requestedVariant = (product.variants || []).find((variant: any) => String(variant.id) === requestedVariantId);
+    const initialColor = requestedVariant?.colorName || optionLabel(product.colors?.[0]);
     const initialVariants = (product.variants || []).filter((variant: any) => variantMatchesColor(variant, initialColor));
-    const initialVariant = initialVariants[0];
+    const initialVariant = requestedVariant || initialVariants[0];
     const initialRam = variantSpecValue(initialVariant, 'ram');
     const initialStorage = variantSpecValue(initialVariant, 'storage');
     const initialConfiguration = optionLabel(initialVariant?.configuration || initialVariant?.specs?.configuration);

@@ -41,3 +41,17 @@ class CategoryBulkPayload(BaseModel):
     items: list[CategoryReorderItem] | None = Field(default=None, min_length=1)
     status: str | None = Field(default=None, pattern="^(DRAFT|ACTIVE|INACTIVE)$")
     ids: list[UUID] | None = Field(default=None, min_length=1, max_length=200)
+
+
+class CategoryIdentifierMigrationCreatePayload(BaseModel):
+    identifierType: str = Field(pattern="^(IMEI|SERIAL)$")
+    targetInventoryPolicy: dict = Field(default_factory=dict)
+
+
+class CategoryIdentifierMigrationScanPayload(BaseModel):
+    lineId: UUID
+    identifiers: list[str] = Field(min_length=1, max_length=500)
+
+
+class CategoryIdentifierMigrationCancelPayload(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)

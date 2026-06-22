@@ -332,8 +332,8 @@ async def list_banners(
             item["href"] = "/products"
         items.append(item)
     if await safe_redis_setex(redis, cache_key, 300, json.dumps(items, ensure_ascii=False, default=str)):
-        await safe_redis_sadd(redis, "storefront:content:videos:keys", cache_key)
-        await safe_redis_expire(redis, "storefront:content:videos:keys", 24 * 60 * 60)
+        await safe_redis_sadd(redis, "storefront:content:banners:keys", cache_key)
+        await safe_redis_expire(redis, "storefront:content:banners:keys", 24 * 60 * 60)
     return items
 
 

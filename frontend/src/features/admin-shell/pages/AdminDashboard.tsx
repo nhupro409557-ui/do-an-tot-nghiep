@@ -11,6 +11,7 @@ import * as adminConfig from './AdminDashboardConfig';
 const InventoryDialog = React.lazy(() => import('../modals/InventoryDialog'));
 const ProductPreviewModal = React.lazy(() => import('../modals/ProductPreviewModal'));
 const InfoViewModal = React.lazy(() => import('../modals/InfoViewModal'));
+const CustomerDetailModal = React.lazy(() => import('../../admin-customers/components/CustomerDetailModal'));
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -30,6 +31,27 @@ export default function AdminDashboard() {
 
   if (!admin.canAccessAdmin) {
     return <Navigate to="/admin/login" replace />;
+  }
+
+  if (admin.availableTabs.length === 0) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="max-w-md rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <ShieldCheck className="mx-auto h-10 w-10 text-slate-400" />
+          <h1 className="mt-4 text-lg font-bold text-slate-950">Chưa được cấp quyền chức năng</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Tài khoản nhân viên này có thể đăng nhập khu vực quản trị, nhưng hiện chưa được Super Admin cấp quyền sử dụng phân hệ nào.
+          </p>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="mt-5 rounded-md bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800"
+          >
+            Đăng xuất
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -72,6 +94,30 @@ export default function AdminDashboard() {
       {admin.infoView && (
         <Suspense fallback={null}>
           <InfoViewModal infoView={admin.infoView} setInfoView={admin.setInfoView} />
+        </Suspense>
+      )}
+      {admin.customerDetailOpen && (
+        <Suspense fallback={null}>
+          <CustomerDetailModal
+            customer={admin.selectedCustomer}
+            busy={admin.customerDetailBusy}
+            error={admin.customerDetailError}
+            activeSection={admin.customerActiveSection}
+            orders={admin.customerOrders}
+            loyaltyHistory={admin.customerLoyaltyHistory}
+            notes={admin.customerNotes}
+            auditLogs={admin.customerAuditLogs}
+            currency={adminConfig.currency}
+            onSectionChange={(section) => {
+              if (section === 'summary') admin.setCustomerActiveSection('summary');
+              else void admin.loadCustomerSection(section);
+            }}
+            onClose={() => {
+              admin.setCustomerDetailOpen(false);
+              admin.setSelectedCustomer(null);
+              admin.setCustomerDetailError('');
+            }}
+          />
         </Suspense>
       )}
     </>

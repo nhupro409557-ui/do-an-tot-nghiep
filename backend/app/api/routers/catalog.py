@@ -68,7 +68,11 @@ async def list_products(
 
     # Flash sale filter in python
     if flash_sale is not None:
-        items = [item for item in items if item.get("isFlashSale") == flash_sale]
+        items = [
+            item
+            for item in items
+            if bool(item.get("flashSale")) == flash_sale
+        ]
 
     # Keyword search filter in python
     if q and q.strip():

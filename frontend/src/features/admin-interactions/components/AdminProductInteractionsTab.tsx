@@ -20,7 +20,9 @@ export default function AdminProductInteractionsTab(props: AdminProductInteracti
     replyToImageComment,
     setQuery,
     toggleImageCommentHidden,
+    usePermission,
   } = props;
+  const canUpdateReview = usePermission('review:update');
   const [mode, setMode] = useState<InteractionMode>('comments');
   const rows = useMemo(
     () => filteredImageComments.filter((item: any) => modeMatches(item, mode)),
@@ -80,12 +82,12 @@ export default function AdminProductInteractionsTab(props: AdminProductInteracti
             </td>
             <td className="px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" onClick={() => toggleImageCommentHidden(comment)} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
+                {canUpdateReview && <button type="button" onClick={() => toggleImageCommentHidden(comment)} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
                   {comment.isHidden ? 'Hiện lại' : 'Ẩn'}
-                </button>
-                <button type="button" onClick={() => replyToImageComment(comment)} className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100">
+                </button>}
+                {canUpdateReview && <button type="button" onClick={() => replyToImageComment(comment)} className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100">
                   Phản hồi
-                </button>
+                </button>}
               </div>
             </td>
           </tr>

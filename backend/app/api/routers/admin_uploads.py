@@ -11,16 +11,25 @@ from app.config import settings
 
 router = APIRouter(prefix="/uploads")
 
-ALLOWED_UPLOAD_FOLDERS = {"products", "brands", "categories", "content"}
+ALLOWED_UPLOAD_FOLDERS = {"products", "brands", "categories", "content", "inventory"}
 ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
 ALLOWED_VIDEO_TYPES = {"video/mp4": ".mp4", "video/webm": ".webm"}
+ALLOWED_DOCUMENT_TYPES = {
+    "application/pdf": ".pdf",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+}
 MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_VIDEO_UPLOAD_BYTES = 200 * 1024 * 1024
+MAX_DOCUMENT_UPLOAD_BYTES = 20 * 1024 * 1024
 UPLOAD_FOLDER_PERMISSIONS = {
     "products": "product:create",
     "brands": "brand:create",
     "categories": "category:create",
     "content": "content:create",
+    "inventory": "inventory:adjust",
 }
 
 
@@ -46,6 +55,8 @@ async def create_presigned_upload(
         raise HTTPException(status_code=400, detail="Invalid upload folder.")
     require_upload_permission(payload.folder, permissions)
     allowed_types = {**ALLOWED_IMAGE_TYPES, **ALLOWED_VIDEO_TYPES}
+    if payload.folder == "inventory":
+        allowed_types = {**ALLOWED_IMAGE_TYPES, **ALLOWED_DOCUMENT_TYPES}
     extension = allowed_types.get(payload.contentType)
     if not extension:
         raise HTTPException(status_code=400, detail="Unsupported file type.")
@@ -56,6 +67,8 @@ async def create_presigned_upload(
             max_size = min(MAX_IMAGE_UPLOAD_BYTES, 5 * 1024 * 1024)
         if payload.contentType not in {"image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm"}:
             raise HTTPException(status_code=400, detail="Content module only accepts JPG, PNG, WEBP, MP4, WEBM.")
+    elif payload.folder == "inventory":
+        max_size = MAX_DOCUMENT_UPLOAD_BYTES if payload.contentType in ALLOWED_DOCUMENT_TYPES else MAX_IMAGE_UPLOAD_BYTES
     else:
         max_size = MAX_VIDEO_UPLOAD_BYTES if payload.contentType in ALLOWED_VIDEO_TYPES else MAX_IMAGE_UPLOAD_BYTES
     if payload.size > max_size:
@@ -105,15 +118,21 @@ async def upload_local_file(
         raise HTTPException(status_code=400, detail="Invalid upload folder.")
     require_upload_permission(folder, permissions)
     safe_filename = Path(filename).name
-    if safe_filename != filename or not re.fullmatch(r"[a-f0-9]{32}\.(jpg|png|webp|gif|mp4|webm)", safe_filename):
-        raise HTTPException(status_code=400, detail="Invalid upload filename.")
     content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     allowed_types = {**ALLOWED_IMAGE_TYPES, **ALLOWED_VIDEO_TYPES}
+    if folder == "inventory":
+        allowed_types = {**ALLOWED_IMAGE_TYPES, **ALLOWED_DOCUMENT_TYPES}
     expected_extension = allowed_types.get(content_type)
+    allowed_extensions = "|".join(re.escape(ext.lstrip(".")) for ext in set(allowed_types.values()))
+    if safe_filename != filename or not re.fullmatch(rf"[a-f0-9]{{32}}\.({allowed_extensions})", safe_filename):
+        raise HTTPException(status_code=400, detail="Invalid upload filename.")
     if not expected_extension or not safe_filename.endswith(expected_extension):
         raise HTTPException(status_code=400, detail="Unsupported file type.")
     body = await request.body()
-    max_size = MAX_VIDEO_UPLOAD_BYTES if content_type in ALLOWED_VIDEO_TYPES else MAX_IMAGE_UPLOAD_BYTES
+    if folder == "inventory":
+        max_size = MAX_DOCUMENT_UPLOAD_BYTES if content_type in ALLOWED_DOCUMENT_TYPES else MAX_IMAGE_UPLOAD_BYTES
+    else:
+        max_size = MAX_VIDEO_UPLOAD_BYTES if content_type in ALLOWED_VIDEO_TYPES else MAX_IMAGE_UPLOAD_BYTES
     if folder == "content" and content_type not in {"image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm"}:
         raise HTTPException(status_code=400, detail="Content module only accepts JPG, PNG, WEBP, MP4, WEBM.")
     if len(body) > max_size:

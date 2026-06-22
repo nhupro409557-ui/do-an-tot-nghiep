@@ -4,42 +4,17 @@ import re
 import asyncpg
 from app.config import settings
 
-SQL_FILES = [
-    "init_database.sql",
-    "036_inventory_settings_and_receipt_metadata.sql",
-    "037_inventory_enterprise_foundation.sql",
-    "038_review_management_upgrade.sql",
-    "039_review_resilience_and_user_controls.sql",
-    "040_catalog_inventory_services_foundation.sql",
-    "041_product_favorites.sql",
-    "042_staff_user_permissions.sql",
-    "043_video_management_split.sql",
-    "044_product_image_comments.sql",
-    "045_product_analytics_events.sql",
-    "046_product_flat_variants.sql",
-    "047_enterprise_product_revision_merge.sql",
-    "048_exclude_revision_variants_from_unique_sku.sql",
-    "049_product_variant_images.sql",
-    "050_product_favorite_events.sql",
-    "051_flash_sales.sql",
-    "052_remove_category_seo_metadata.sql",
-    "053_remove_brand_seo_metadata.sql",
-    "054_product_discontinued_status.sql",
-    "055_product_inherited_visibility.sql",
-    "056_suppliers.sql",
-    "057_inventory_receipt_lifecycle.sql",
-    "058_inventory_receipt_imei_workflow.sql",
-    "059_inventory_imei_enterprise_statuses.sql",
-    "060_product_serial_number_management.sql",
-    "061_product_imei_primary.sql",
-    "062_inventory_receipt_audit_actors.sql",
-    "063_inventory_receipt_reversal.sql",
-    "064_inventory_levels_moving_average_cost.sql",
-    "065_inventory_identifier_edit_requests.sql",
-    "066_inventory_stock_count_workflow.sql",
-    "067_inventory_adjustment_approval_workflow.sql",
-    "068_product_serial_number_product_scope_unique.sql",
-]
+BASELINE_FILE = "init_database.sql"
+MIGRATION_FILE_PATTERN = re.compile(r"^\d{3}_.+\.sql$")
+
+
+def discover_sql_files(migrations_dir: str) -> list[str]:
+    incremental_files = sorted(
+        filename
+        for filename in os.listdir(migrations_dir)
+        if MIGRATION_FILE_PATTERN.match(filename)
+    )
+    return [BASELINE_FILE, *incremental_files]
 
 def split_sql_statements(sql_text):
     statements = []
@@ -133,19 +108,47 @@ async def main():
     if db_url.startswith("postgresql+asyncpg://"):
         db_url = db_url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
-    for filename in SQL_FILES:
-        filepath = os.path.join(migrations_dir, filename)
-        if not os.path.exists(filepath):
-            print(f"Migration file not found: {filepath}")
-            continue
-        conn = await asyncpg.connect(db_url)
-        try:
-            try:
-                await run_migration_file(conn, filepath)
-            except Exception as e:
-                print(f"Failed to apply migration file {filename}: {e}")
-        finally:
-            await conn.close()
+    conn = await asyncpg.connect(db_url)
+    try:
+        database_initialized = await conn.fetchval("SELECT to_regclass('public.users') IS NOT NULL")
+        if not database_initialized:
+            await run_migration_file(conn, os.path.join(migrations_dir, BASELINE_FILE))
+        else:
+            print("Database baseline already exists; skipping init_database.sql.")
+
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                filename TEXT PRIMARY KEY,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        await conn.execute(
+            """
+            INSERT INTO schema_migrations (filename)
+            VALUES ($1)
+            ON CONFLICT (filename) DO NOTHING
+            """,
+            BASELINE_FILE,
+        )
+
+        applied_files = {
+            row["filename"]
+            for row in await conn.fetch("SELECT filename FROM schema_migrations")
+        }
+        for filename in discover_sql_files(migrations_dir)[1:]:
+            if filename in applied_files:
+                print(f"Migration already applied; skipping: {filename}")
+                continue
+            filepath = os.path.join(migrations_dir, filename)
+            await run_migration_file(conn, filepath)
+            await conn.execute(
+                "INSERT INTO schema_migrations (filename) VALUES ($1)",
+                filename,
+            )
+    finally:
+        await conn.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

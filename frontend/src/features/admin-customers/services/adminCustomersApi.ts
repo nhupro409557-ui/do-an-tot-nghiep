@@ -1,11 +1,12 @@
 import { request } from '../../../services/apiClient';
 
 export const adminCustomersApi = {
-  adminListCustomers: (params: { search?: string; page?: number; limit?: number } = {}) => {
+  adminListCustomers: (params: { search?: string; page?: number; limit?: number; role?: 'CUSTOMER' | 'STAFF_ADMIN' } = {}) => {
     const searchParams = new URLSearchParams();
     if (params.search) searchParams.set('search', params.search);
     if (params.page) searchParams.set('page', String(params.page));
     if (params.limit) searchParams.set('limit', String(params.limit));
+    if (params.role) searchParams.set('role', params.role);
     const query = searchParams.toString();
     return request<{ items: any[]; page: number; limit: number; total: number }>(`/admin/customers${query ? `?${query}` : ''}`);
   },

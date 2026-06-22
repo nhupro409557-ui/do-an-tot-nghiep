@@ -205,13 +205,16 @@ export function RowActions({
   onRestore,
 }: {
   onView?: () => void;
-  onEdit: () => void;
+  onEdit?: () => void;
   onHide?: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
   onRestore?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const hasExtraActions = Boolean(onHide || onRestore);
+  const hasExtraActions = Boolean(onHide || onDelete || onRestore);
+  const hasActions = Boolean(onView || onEdit || hasExtraActions);
+
+  if (!hasActions) return null;
 
   return (
     <div className="relative flex items-center gap-2">
@@ -225,14 +228,16 @@ export function RowActions({
           <Eye className="h-4 w-4" />
         </button>
       )}
-      <button
-        type="button"
-        onClick={onEdit}
-        title="Sửa"
-        className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
-      >
-        <Edit2 className="h-4 w-4" />
-      </button>
+      {onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          title="Sửa"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+        >
+          <Edit2 className="h-4 w-4" />
+        </button>
+      )}
       {hasExtraActions ? (
         <>
           <button
@@ -257,16 +262,18 @@ export function RowActions({
                   <RefreshCw className="h-4 w-4" /> Ẩn
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  onDelete();
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50"
-              >
-                <Trash2 className="h-4 w-4" /> Xóa
-              </button>
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    onDelete();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50"
+                >
+                  <Trash2 className="h-4 w-4" /> Xóa
+                </button>
+              )}
               {onRestore && (
                 <button
                   type="button"
@@ -283,14 +290,16 @@ export function RowActions({
           )}
         </>
       ) : (
-        <button
-          type="button"
-          onClick={onDelete}
-          title="Xóa"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-red-600 transition hover:border-red-300 hover:bg-red-50"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
+        onDelete ? (
+          <button
+            type="button"
+            onClick={onDelete}
+            title="Xóa"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-red-600 transition hover:border-red-300 hover:bg-red-50"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        ) : null
       )}
     </div>
   );

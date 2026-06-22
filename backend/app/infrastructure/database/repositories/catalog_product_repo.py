@@ -60,6 +60,11 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
                             'images', pv.images,
                             'price', pv.price,
                             'salePrice', pv.sale_price,
+                            'flashSaleId', vfs.id::text,
+                            'flashSaleDiscountType', vfs.discount_type,
+                            'flashSaleDiscountValue', vfs.discount_value,
+                            'flashSaleStartsAt', vfs.starts_at,
+                            'flashSaleEndsAt', vfs.ends_at,
                             'stockQuantity', pv.stock_quantity,
                             'stockState', CASE WHEN pv.stock_quantity > 0 THEN 'IN_STOCK' ELSE 'OUT_OF_STOCK' END
                         )
@@ -74,6 +79,18 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
                 SELECT id, discount_type, discount_value, starts_at, ends_at
                 FROM flash_sales
                 WHERE product_id = p.id
+                  AND variant_id = pv.id
+                  AND status = 'ACTIVE'
+                  AND (starts_at IS NULL OR starts_at <= NOW())
+                  AND (ends_at IS NULL OR ends_at >= NOW())
+                ORDER BY updated_at DESC
+                LIMIT 1
+            ) vfs ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT id, discount_type, discount_value, starts_at, ends_at
+                FROM flash_sales
+                WHERE product_id = p.id
+                  AND variant_id IS NULL
                   AND status = 'ACTIVE'
                   AND (starts_at IS NULL OR starts_at <= NOW())
                   AND (ends_at IS NULL OR ends_at >= NOW())
@@ -146,6 +163,9 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
                         'id', pv.id::text, 'sku', pv.sku, 'colorName', pv.color_name, 'colorCode', pv.color_code,
                         'storage', pv.storage, 'ram', pv.ram, 'configuration', pv.configuration, 'specs', pv.specs,
                         'imageUrl', pv.image_url, 'images', pv.images, 'price', pv.price, 'salePrice', pv.sale_price,
+                        'flashSaleId', vfs.id::text, 'flashSaleDiscountType', vfs.discount_type,
+                        'flashSaleDiscountValue', vfs.discount_value, 'flashSaleStartsAt', vfs.starts_at,
+                        'flashSaleEndsAt', vfs.ends_at,
                         'stockQuantity', pv.stock_quantity, 'stockState', CASE WHEN pv.stock_quantity > 0 THEN 'IN_STOCK' ELSE 'OUT_OF_STOCK' END
                     )
                 ) FILTER (WHERE pv.id IS NOT NULL),
@@ -160,6 +180,18 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
             SELECT id, discount_type, discount_value, starts_at, ends_at
             FROM flash_sales
             WHERE product_id = p.id
+              AND variant_id = pv.id
+              AND status = 'ACTIVE'
+              AND (starts_at IS NULL OR starts_at <= NOW())
+              AND (ends_at IS NULL OR ends_at >= NOW())
+            ORDER BY updated_at DESC
+            LIMIT 1
+        ) vfs ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT id, discount_type, discount_value, starts_at, ends_at
+            FROM flash_sales
+            WHERE product_id = p.id
+              AND variant_id IS NULL
               AND status = 'ACTIVE'
               AND (starts_at IS NULL OR starts_at <= NOW())
               AND (ends_at IS NULL OR ends_at >= NOW())
@@ -186,9 +218,31 @@ async def list_active_accessories(session: AsyncSession, accessory_ids: list[UUI
     result = await session.execute(
         text(
             """
-            SELECT id::text, sku, name, price, sale_price AS "salePrice", image_url AS "imageUrl"
-            FROM products
-            WHERE id IN :ids AND status = 'ACTIVE' AND deleted_at IS NULL
+            SELECT
+                p.id::text,
+                p.sku,
+                p.name,
+                p.price,
+                p.sale_price AS "salePrice",
+                p.image_url AS "imageUrl",
+                fs.id::text AS "flashSaleId",
+                fs.discount_type AS "flashSaleDiscountType",
+                fs.discount_value AS "flashSaleDiscountValue",
+                fs.starts_at AS "flashSaleStartsAt",
+                fs.ends_at AS "flashSaleEndsAt"
+            FROM products p
+            LEFT JOIN LATERAL (
+                SELECT id, discount_type, discount_value, starts_at, ends_at
+                FROM flash_sales
+                WHERE product_id = p.id
+                  AND variant_id IS NULL
+                  AND status = 'ACTIVE'
+                  AND (starts_at IS NULL OR starts_at <= NOW())
+                  AND (ends_at IS NULL OR ends_at >= NOW())
+                ORDER BY updated_at DESC
+                LIMIT 1
+            ) fs ON TRUE
+            WHERE p.id IN :ids AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
             """
         ).bindparams(bindparam("ids", expanding=True)),
         {"ids": accessory_ids},

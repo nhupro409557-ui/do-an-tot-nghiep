@@ -22,6 +22,7 @@ const ChangePasswordPage = lazy(() => import('./features/account/pages/ChangePas
 const LoyaltyRewardsPage = lazy(() => import('./features/account/pages/LoyaltyRewardsPage'));
 const ProductPage = lazy(() => import('./features/products/pages/ProductPage'));
 const ProductListPage = lazy(() => import('./features/products/pages/ProductListPage'));
+const FlashSalePage = lazy(() => import('./features/products/pages/FlashSalePage'));
 const BrandLandingPage = lazy(() => import('./features/products/pages/BrandLandingPage'));
 const CartPage = lazy(() => import('./features/storefront-commerce/pages/CartPage'));
 const CheckoutPage = lazy(() => import('./features/storefront-commerce/pages/CheckoutPage'));
@@ -89,6 +90,7 @@ function AppShell() {
             <Route path="/category/:categoryName" element={<CategoryPage />} />
             <Route path="/products" element={<ProductListPage />} />
             <Route path="/search" element={<ProductListPage />} />
+            <Route path="/flash-sale" element={<FlashSalePage />} />
             <Route path="/products/:categoryName" element={<ProductListPage />} />
             <Route path="/brands/:slug" element={<BrandLandingPage />} />
             <Route path="/compare" element={<ComparePage />} />

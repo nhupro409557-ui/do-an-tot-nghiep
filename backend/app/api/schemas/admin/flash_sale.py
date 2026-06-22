@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr, Field, model_validator
 
 class FlashSalePayload(BaseModel):
     productId: UUID
+    variantId: UUID | None = None
     discountType: str = Field(default="PERCENT")
     discountValue: float = Field(gt=0)
     startsAt: datetime | None = None

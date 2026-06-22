@@ -2,6 +2,34 @@
 
 This file records the non-obvious decisions added while hardening category management.
 
+## Update 2026-06-20 - Chuyển đổi chính sách IMEI/Serial có kiểm soát
+
+- Khi bật `trackImei` hoặc `trackSerialNumber`, backend kiểm tra tồn kho hiện tại của danh mục và các danh mục con còn kế thừa chính sách.
+- Sản phẩm đặt policy `MANUAL` được loại khỏi phạm vi tác động của thay đổi cấp danh mục.
+- Nếu tồn cũ thiếu mã, thao tác lưu trả preview và yêu cầu tạo tác vụ bổ sung mã; policy chưa được bật ngay.
+- Tác vụ dùng vòng đời WMS-light `PENDING -> IN_PROGRESS -> COMPLETED` hoặc `CANCELLED`.
+- Mã được quét vào bảng staging, chưa tham gia tồn kho và bảo hành cho đến khi tác vụ đủ số lượng và được hoàn tất.
+- Khi hoàn tất, backend đối soát lại tồn hiện tại. Nếu tồn thay đổi so với phạm vi đã chốt, tác vụ phải hủy và tạo lại.
+- Nếu admin bật đồng thời IMEI và serial, hoàn tất tác vụ nào chỉ kích hoạt đúng policy của loại mã đó; tác vụ còn lại vẫn phải hoàn tất độc lập.
+- Mã đang staging được khóa duy nhất trên toàn bộ tác vụ đang hoạt động, tránh cùng một mã xuất hiện trong hai tác vụ backfill.
+- Khi tắt policy, hệ thống áp dụng trực tiếp nhưng không xóa IMEI/serial lịch sử.
+- Migration liên quan: `017_category_identifier_policy_migrations.sql`, `018_identifier_policy_staging_uniqueness.sql`.
+
+## Update 2026-06-20 - Sửa bố cục form thông số kỹ thuật
+
+- Hàng nhập thông số kỹ thuật trong form danh mục chuyển từ 9 cột cố định sang grid đáp ứng: 2 cột ở màn hình vừa và 4 cột ở màn hình lớn.
+- Nhãn checkbox như `Bắt buộc`, `Dùng cho biến thể`, `Dùng làm lọc` không còn bị control bên cạnh tràn sang che khuất.
+- Nút xóa trường được đặt cuối hàng và bổ sung nhãn truy cập phù hợp.
+
+## Update 2026-06-18 - Bổ sung kích thước đóng gói mặc định theo danh mục
+
+- Danh mục lưu thêm kích thước đóng gói dự đoán trong `inventory_policy`: `inheritStorageDimensions`, `packageLengthCm`, `packageWidthCm`, `packageHeightCm`.
+- Danh mục lưu thêm `packingRatio` để mô phỏng hao hụt khi xếp hàng trong cùng nhóm sản phẩm; giá trị càng thấp thì sản phẩm càng tốn chỗ thực tế hơn so với thể tích hộp.
+- Form quản lý danh mục có thêm checkbox `Theo kích thước của cha` và 3 trường `Dài/Rộng/Cao đóng gói (cm)` để cấu hình kích thước mặc định cho sản phẩm thuộc danh mục.
+- Form danh mục có thêm trường `Hệ số xếp hàng`, phục vụ tính dung lượng kệ theo thể tích hiệu dụng.
+- Thêm migration `009_category_default_storage_dimensions.sql` seed kích thước ước lượng cho các nhóm hiện có như điện thoại, tablet, laptop, phụ kiện, đồng hồ, camera và máy ảnh.
+- Verification: migration local thành công; backend `py_compile` pass; frontend `npm run lint` pass; đối soát các danh mục mẫu trả đúng kích thước như `smartphones = 18 x 10 x 6 cm`, `laptops = 40 x 30 x 8 cm`.
+
 ## Update 2026-06-13 Vietnamese encoding fix
 
 - Đã sửa lỗi font tiếng Việt (mojibake) hiển thị sai ở các thông báo alert/confirm và toast notifyAdmin trong `useAdminCategoriesLogic.ts` để hiển thị tiếng Việt chuẩn UTF-8 có dấu đầy đủ.
@@ -334,3 +362,7 @@ This file records the non-obvious decisions added while hardening category manag
 - Redirect SEO sinh ra khi đổi slug danh mục không còn được xem là ràng buộc nghiệp vụ chặn xóa cứng.
 - Khi danh mục không có danh mục con, sản phẩm, thương hiệu, content hoặc migration job, luồng xóa cứng sẽ dọn `url_redirects` và `category_audit_logs` liên quan trước khi xóa record trong `categories`.
 - Mục tiêu: danh mục mới thêm rồi chỉnh sửa slug vẫn có thể xóa cứng nếu thực tế chưa được dữ liệu nghiệp vụ nào sử dụng.
+# Update 2026-06-18 - Consolidate database migrations
+
+- Schema danh mục hiện tại và toàn bộ thay đổi liên quan đã được đưa vào baseline `backend/migrations/init_database.sql`.
+- Migration mới sau baseline dùng số thứ tự từ `001`.

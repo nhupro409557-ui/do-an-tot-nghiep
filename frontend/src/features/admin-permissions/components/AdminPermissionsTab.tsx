@@ -1,5 +1,5 @@
 import React from 'react';
-import { Edit2, KeyRound, Plus, RefreshCw, X } from 'lucide-react';
+import { Edit2, KeyRound, Plus, X } from 'lucide-react';
 import { AdminBadge, AdminPanel, AdminTable, EmptyState, Input, MetricCard, MiniMetric, Select } from '../../admin-shell/components/AdminDashboardParts';
 
 type AdminPermissionsTabProps = Record<string, any>;
@@ -33,9 +33,6 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
     openStaffPermissionEditor,
     permissions,
     permissionsByModule,
-    rolePermissionEditing,
-    rolePermissionMap,
-    roles,
     saveCustomerTags,
     saveStaffPermissions,
     selectedCustomer,
@@ -48,7 +45,6 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
     setCustomerVoucherId,
     setCustomerVoucherNote,
     setEditingStaffAccessId,
-    setRolePermissionEditing,
     setStaffForm,
     setStaffPermissionDraft,
     setStaffPermissionEditor,
@@ -57,7 +53,6 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
     staffPermissionDraft,
     staffPermissionEditor,
     staffUsers,
-    toggleRolePermission,
     updateUserAccess,
     usePermission,
     vouchers,
@@ -66,19 +61,16 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
   const canIssueCustomerVoucher = usePermission('customer:issue_voucher');
   return (
     <>
-      <AdminPanel title="Ma trận phân quyền theo vai trò" action={<RefreshCw className="h-5 w-5 text-red-600" />}>
-                <div className="mb-4 flex justify-end">
-                  <button type="button" onClick={() => setRolePermissionEditing((value) => !value)} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
-                    {rolePermissionEditing ? <RefreshCw className="h-4 w-4" /> : <Edit2 className="h-4 w-4" />}
-                    {rolePermissionEditing ? 'Khóa quyền' : 'Chỉnh sửa quyền'}
-                  </button>
+      <AdminPanel title="Phân quyền từng nhân viên" action={<KeyRound className="h-5 w-5 text-red-600" />}>
+                <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                  Staff Admin chỉ là loại tài khoản nhân viên. Mỗi nhân viên mặc định chưa có quyền nghiệp vụ; Super Admin cấp quyền riêng bằng nút "Chỉnh quyền" trên từng tài khoản.
                 </div>
                 {canManageCustomerAccess && (
                   <div className="mb-6 grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
                     <form onSubmit={createStaffAccount} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                       <div className="mb-3">
                         <div className="text-sm font-black text-slate-900">Tạo tài khoản nhân viên</div>
-                        <div className="mt-1 text-xs font-medium text-slate-500">Nhân viên mới chỉ nhận quyền cơ bản của Staff Admin. Quyền bổ sung được Super Admin cấp sau.</div>
+                        <div className="mt-1 text-xs font-medium text-slate-500">Nhân viên mới chưa có quyền nghiệp vụ. Super Admin cấp quyền theo đúng chức năng của từng tài khoản sau khi tạo.</div>
                       </div>
                       <div className="grid gap-3">
                         <Input label="Họ tên nhân viên" value={staffForm.fullName} required onChange={(value) => setStaffForm({ ...staffForm, fullName: value })} />
@@ -95,9 +87,9 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <div className="text-sm font-black text-slate-900">Nhân viên admin</div>
-                          <div className="mt-1 text-xs font-medium text-slate-500">Staff Admin dùng quyền cơ bản và các quyền bổ sung riêng.</div>
+                          <div className="mt-1 text-xs font-medium text-slate-500">Mỗi Staff Admin dùng bộ quyền riêng được cấp trực tiếp trên tài khoản.</div>
                         </div>
-                        <AdminBadge tone="blue">{staffBasePermissionCodes.length} quyền cơ bản</AdminBadge>
+                        <AdminBadge tone="blue">{staffBasePermissionCodes.length} quyền chung</AdminBadge>
                       </div>
                       <div className="overflow-x-auto">
                         <table className="min-w-full text-left text-sm">
@@ -149,42 +141,11 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                     </div>
                   </div>
                 )}
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-left text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
-                        <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3">Quyền</th>
-                        {roles.filter((role) => role.code === 'STAFF_ADMIN').map((role) => (
-                          <th key={role.id} className="px-4 py-3">{role.name || role.code}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {permissions.map((permission) => (
-                        <tr key={permission.code} className="hover:bg-slate-50/70">
-                          <td className="sticky left-0 z-10 bg-white px-4 py-3">
-                            <div className="font-semibold text-slate-900">{permission.code}</div>
-                            <div className="text-xs text-slate-500">{permission.description || permission.module}</div>
-                          </td>
-                          {roles.filter((role) => role.code === 'STAFF_ADMIN').map((role) => {
-                            const checked = (rolePermissionMap[role.id] || []).includes(permission.code);
-                            const locked = role.code === 'SUPER_ADMIN';
-                            return (
-                              <td key={`${role.id}-${permission.code}`} className="px-4 py-3">
-                                <input
-                                  type="checkbox"
-                                  checked={checked || locked}
-                                  disabled={locked || !rolePermissionEditing}
-                                  onChange={(event) => toggleRolePermission(role.id, permission.code, event.target.checked)}
-                                  className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
-                                />
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-sm font-bold text-slate-900">Danh mục quyền có thể cấp riêng</div>
+                  <div className="mt-1 text-xs font-medium text-slate-500">
+                    Hệ thống có {permissions.length} quyền thuộc {Object.keys(permissionsByModule).length} nhóm chức năng. Các quyền này chỉ có hiệu lực với nhân viên khi Super Admin cấp trực tiếp cho tài khoản đó.
+                  </div>
                 </div>
                 <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
                   <div className="mb-3 text-sm font-bold text-slate-900">Nhật ký đổi quyền gần đây</div>
@@ -214,7 +175,7 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                   <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
                     <div>
                       <h3 className="text-lg font-bold text-slate-950">Chỉnh quyền nhân viên</h3>
-                      <p className="mt-1 text-sm text-slate-500">{staffPermissionEditor.fullName || staffPermissionEditor.email} đang có quyền cơ bản của Staff Admin. Các ô mở là quyền bổ sung riêng.</p>
+                      <p className="mt-1 text-sm text-slate-500">{staffPermissionEditor.fullName || staffPermissionEditor.email} chỉ có các quyền được cấp riêng trong màn hình này.</p>
                     </div>
                     <button type="button" onClick={() => setStaffPermissionEditor(null)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-950">
                       <X className="h-4 w-4" />
@@ -222,9 +183,9 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                   </div>
                   <div className="max-h-[70vh] overflow-y-auto p-5">
                     <div className="mb-4 grid gap-3 md:grid-cols-3">
-                      <MiniMetric label="Quyền cơ bản" value={staffBasePermissionCodes.length} helper="Từ vai trò Staff Admin" />
-                      <MiniMetric label="Quyền bổ sung" value={staffPermissionDraft.length} helper="Cấp riêng cho nhân viên này" />
-                      <MiniMetric label="Tổng hiệu lực" value={new Set([...staffBasePermissionCodes, ...staffPermissionDraft]).size} helper="Cơ bản + bổ sung" />
+                      <MiniMetric label="Quyền chung" value={staffBasePermissionCodes.length} helper="Luôn là 0 với Staff Admin" />
+                      <MiniMetric label="Quyền riêng" value={staffPermissionDraft.length} helper="Cấp trực tiếp cho nhân viên này" />
+                      <MiniMetric label="Tổng hiệu lực" value={new Set([...staffBasePermissionCodes, ...staffPermissionDraft]).size} helper="Quyền riêng đang áp dụng" />
                     </div>
                     <div className="grid gap-4 md:grid-cols-2">
                       {Object.entries(permissionsByModule).map(([moduleName, modulePermissions]) => (
@@ -249,7 +210,7 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                                   />
                                   <span>
                                     <span className="block text-sm font-bold text-slate-900">{permission.code}</span>
-                                    <span className="block text-xs text-slate-500">{baseLocked ? 'Quyền cơ bản' : (permission.description || permission.module)}</span>
+                                    <span className="block text-xs text-slate-500">{baseLocked ? 'Quyền chung' : (permission.description || permission.module)}</span>
                                   </span>
                                 </label>
                               );

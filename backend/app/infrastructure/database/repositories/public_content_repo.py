@@ -317,7 +317,7 @@ async def list_banners(session: AsyncSession, limit: int) -> list[dict]:
               AND v.content_type = 'BANNER'
               AND v.status = 'PUBLISHED'
               AND (v.scheduled_at IS NULL OR v.scheduled_at <= NOW())
-            ORDER BY v.sort_order DESC, COALESCE(v.published_at, v.created_at) DESC, v.created_at DESC
+            ORDER BY v.sort_order ASC, COALESCE(v.published_at, v.created_at) DESC, v.created_at DESC
             LIMIT :limit
             """
         ),
@@ -412,7 +412,7 @@ async def list_videos(session: AsyncSession, *, limit: int, offset: int) -> list
               AND v.content_type = 'VIDEO'
               AND v.status = 'PUBLISHED'
               AND (v.scheduled_at IS NULL OR v.scheduled_at <= NOW())
-            ORDER BY v.sort_order DESC, COALESCE(v.published_at, v.created_at) DESC, v.created_at DESC
+            ORDER BY v.sort_order ASC, COALESCE(v.published_at, v.created_at) DESC, v.created_at DESC
             LIMIT :limit OFFSET :offset
             """
         ),

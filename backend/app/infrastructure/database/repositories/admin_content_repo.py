@@ -161,7 +161,7 @@ async def list_admin_content(session: AsyncSession) -> list[dict]:
                 ) AS "commentCount"
             FROM videos v
             WHERE v.deleted_at IS NULL
-            ORDER BY v.sort_order DESC, COALESCE(v.scheduled_at, v.created_at) DESC, v.created_at DESC
+            ORDER BY v.sort_order ASC, COALESCE(v.scheduled_at, v.created_at) DESC, v.created_at DESC
             """
         )
     )

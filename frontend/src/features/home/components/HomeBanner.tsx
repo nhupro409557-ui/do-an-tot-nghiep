@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Swiper, SwiperSlide } from 'swiper/react';
@@ -10,132 +10,225 @@ import { adminContentApi } from '../../admin-content/services/adminContentApi';
 
 import 'swiper/css';
 
-const fallbackBanners = [
-  {
-    id: 'fallback-phone',
-    title: 'ĐIỆN THOẠI NỔI BẬT',
-    description: 'Ưu đãi đang mở',
-    imageUrl: 'https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=1400&auto=format&fit=crop',
-    href: '/products',
-  },
-  {
-    id: 'fallback-laptop',
-    title: 'LAPTOP LÀM VIỆC',
-    description: 'Mỏng nhẹ, hiệu năng cao',
-    imageUrl: 'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=1400&auto=format&fit=crop',
-    href: '/products',
-  },
-  {
-    id: 'fallback-audio',
-    title: 'PHỤ KIỆN CHÍNH HÃNG',
-    description: 'Giá tốt mỗi ngày',
-    imageUrl: 'https://images.unsplash.com/photo-1600294037681-c80b4cb5b434?w=1400&auto=format&fit=crop',
-    href: '/products',
-  },
-];
-
 export const HomeBanner = () => {
   const [banners, setBanners] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
   const [swiper, setSwiper] = useState<SwiperType | null>(null);
+  const tabListRef = useRef<HTMLDivElement | null>(null);
+  const tabDragRef = useRef({ active: false, moved: false, startX: 0, startScrollLeft: 0 });
+  const tabAnimationRef = useRef<number | null>(null);
 
   useEffect(() => {
     adminContentApi.listBanners()
-      .then((items) => setBanners(items.filter((item: any) => item.imageUrl)))
-      .catch(() => setBanners([]));
+      .then(setBanners)
+      .catch(() => setBanners([]))
+      .finally(() => setLoading(false));
   }, []);
 
-  const displayBanners = useMemo(() => (banners.length ? banners : fallbackBanners), [banners]);
-  const activeBanner = displayBanners[activeIndex] || displayBanners[0];
+  const activeBanner = banners[activeIndex] || banners[0];
+
+  const animateBannerTabs = (targetLeft: number) => {
+    const tabList = tabListRef.current;
+    if (!tabList) return;
+    const firstTab = tabList.querySelector<HTMLElement>('[data-banner-tab]');
+    const columnWidth = firstTab?.offsetWidth || tabList.clientWidth;
+    const maxScrollLeft = Math.max(0, tabList.scrollWidth - tabList.clientWidth);
+    const alignedTarget = Math.min(maxScrollLeft, Math.max(0, Math.round(targetLeft / columnWidth) * columnWidth));
+    if (tabAnimationRef.current !== null) cancelAnimationFrame(tabAnimationRef.current);
+    const startLeft = tabList.scrollLeft;
+    const distance = alignedTarget - startLeft;
+    const duration = 320;
+    const startTime = performance.now();
+    const animate = (time: number) => {
+      const progress = Math.min((time - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      tabList.scrollLeft = startLeft + distance * eased;
+      if (progress < 1) {
+        tabAnimationRef.current = requestAnimationFrame(animate);
+      } else {
+        tabAnimationRef.current = null;
+      }
+    };
+    tabAnimationRef.current = requestAnimationFrame(animate);
+  };
 
   const scrollBannerTabs = (direction: 'left' | 'right') => {
-    const tabList = document.getElementById('home-banner-tabs');
-    tabList?.scrollBy({ left: direction === 'left' ? -220 : 220, behavior: 'smooth' });
+    const tabList = tabListRef.current;
+    if (!tabList) return;
+    const firstTab = tabList.querySelector<HTMLElement>('[data-banner-tab]');
+    const columnWidth = firstTab?.offsetWidth || tabList.clientWidth;
+    animateBannerTabs(tabList.scrollLeft + (direction === 'left' ? -columnWidth : columnWidth));
+  };
+
+  const revealActiveBannerTab = (index: number) => {
+    const tabList = tabListRef.current;
+    if (!tabList) return;
+    const tabs = Array.from(tabList.querySelectorAll<HTMLElement>('[data-banner-tab]'));
+    const activeTab = tabs[index];
+    if (!activeTab) return;
+    const visibleLeft = tabList.scrollLeft;
+    const visibleRight = visibleLeft + tabList.clientWidth;
+    const tabLeft = activeTab.offsetLeft;
+    const tabRight = tabLeft + activeTab.offsetWidth;
+    if (tabLeft < visibleLeft) {
+      animateBannerTabs(index * activeTab.offsetWidth);
+    } else if (tabRight > visibleRight) {
+      const visibleColumns = Math.max(1, Math.round(tabList.clientWidth / activeTab.offsetWidth));
+      animateBannerTabs((index - visibleColumns + 1) * activeTab.offsetWidth);
+    }
+  };
+
+  const selectBanner = (index: number) => {
+    setActiveIndex(index);
+    requestAnimationFrame(() => revealActiveBannerTab(index));
+  };
+
+  const finishBannerTabDrag = () => {
+    const tabList = tabListRef.current;
+    const drag = tabDragRef.current;
+    if (!tabList || !drag.active) return;
+    drag.active = false;
+    const firstTab = tabList.querySelector<HTMLElement>('[data-banner-tab]');
+    const columnWidth = firstTab?.offsetWidth || tabList.clientWidth;
+    const distance = tabList.scrollLeft - drag.startScrollLeft;
+    if (Math.abs(distance) < 12) {
+      animateBannerTabs(drag.startScrollLeft);
+      return;
+    }
+    animateBannerTabs(drag.startScrollLeft + (distance > 0 ? columnWidth : -columnWidth));
   };
 
   return (
-    <div className="my-4 grid gap-3 lg:grid-cols-[274px_minmax(0,1fr)]">
-      <div className="relative z-30 hidden lg:block">
+    <div className="my-4 grid gap-3 lg:h-[clamp(454px,38vw,568px)] lg:grid-cols-[274px_minmax(0,1fr)]">
+      <div className="relative z-30 hidden min-h-0 lg:block">
         <CategoryMegaMenu compact />
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <div className="relative">
-          <div id="home-banner-tabs" className="flex overflow-x-auto rounded-t-2xl bg-white px-8 text-center [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {displayBanners.map((banner, index) => (
+      <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+        <div className="flex items-stretch bg-white">
+          {banners.length > 1 && (
+            <button
+              type="button"
+              onClick={() => scrollBannerTabs('left')}
+              aria-label="Lướt banner sang trái"
+              className="z-10 flex w-9 shrink-0 items-center justify-center border-r border-slate-100 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-primary"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+          )}
+          <div
+            ref={tabListRef}
+            id="home-banner-tabs"
+            onWheel={(event) => {
+              if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+              event.preventDefault();
+              scrollBannerTabs(event.deltaY > 0 ? 'right' : 'left');
+            }}
+            onPointerDown={(event) => {
+              if (event.pointerType !== 'mouse' || event.button !== 0) return;
+              const tabList = tabListRef.current;
+              if (!tabList) return;
+              if (tabAnimationRef.current !== null) {
+                cancelAnimationFrame(tabAnimationRef.current);
+                tabAnimationRef.current = null;
+              }
+              tabDragRef.current = {
+                active: true,
+                moved: false,
+                startX: event.clientX,
+                startScrollLeft: tabList.scrollLeft,
+              };
+            }}
+            onPointerMove={(event) => {
+              const tabList = tabListRef.current;
+              const drag = tabDragRef.current;
+              if (!tabList || !drag.active) return;
+              const distance = event.clientX - drag.startX;
+              if (Math.abs(distance) > 5) drag.moved = true;
+              tabList.scrollLeft = drag.startScrollLeft - distance;
+            }}
+            onPointerUp={finishBannerTabDrag}
+            onPointerLeave={finishBannerTabDrag}
+            onPointerCancel={finishBannerTabDrag}
+            className="flex min-w-0 flex-1 snap-x snap-mandatory overflow-x-auto overscroll-x-contain text-center touch-pan-x select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+          {banners.map((banner, index) => (
             <button
               key={banner.id}
+              data-banner-tab
               type="button"
-              onClick={() => {
-                setActiveIndex(index);
-                if (displayBanners.length > 1) {
+              onClick={(event) => {
+                if (tabDragRef.current.moved) {
+                  event.preventDefault();
+                  tabDragRef.current.moved = false;
+                  return;
+                }
+                selectBanner(index);
+                if (banners.length > 1) {
                   swiper?.slideToLoop(index);
                 } else {
                   swiper?.slideTo(index);
                 }
               }}
-              className={`min-h-[58px] w-[150px] flex-none border-b px-3 py-2 transition sm:w-[180px] lg:min-h-[64px] lg:w-[210px] ${activeIndex === index ? 'rounded-b-3xl bg-slate-100 text-red-600' : 'border-slate-100 text-slate-600 hover:bg-slate-50'}`}
+              className={`min-h-[58px] w-1/2 flex-none snap-start border-b px-3 py-2 transition md:w-1/3 lg:min-h-[64px] xl:w-1/4 ${activeIndex === index ? 'rounded-b-3xl bg-slate-100 text-red-600' : 'border-slate-100 text-slate-600 hover:bg-slate-50'}`}
             >
-              <div className="line-clamp-1 text-[13px] font-black uppercase lg:text-base">{banner.title}</div>
-                <div className="mt-0.5 line-clamp-1 text-xs font-medium text-slate-500 lg:text-sm">{banner.description || 'Ưu đãi hôm nay'}</div>
+              <div className="overflow-hidden whitespace-nowrap text-[13px] font-black uppercase lg:text-base">{banner.title}</div>
+                <div className="mt-0.5 overflow-hidden whitespace-nowrap text-xs font-medium text-slate-500 lg:text-sm">{banner.description || 'Ưu đãi hôm nay'}</div>
             </button>
           ))}
           </div>
-          <div className="pointer-events-none absolute inset-y-0 left-0 w-7 bg-gradient-to-r from-white to-transparent" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 w-7 bg-gradient-to-l from-white to-transparent" />
-          {displayBanners.length > 1 && (
-            <>
-              <button
-                type="button"
-                onClick={() => scrollBannerTabs('left')}
-                aria-label="Lướt banner sang trái"
-                className="absolute left-1 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-600 shadow-sm transition hover:border-red-200 hover:text-primary"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => scrollBannerTabs('right')}
-                aria-label="Lướt banner sang phải"
-                className="absolute right-1 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/95 text-slate-600 shadow-sm transition hover:border-red-200 hover:text-primary"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </>
+          {banners.length > 1 && (
+            <button
+              type="button"
+              onClick={() => scrollBannerTabs('right')}
+              aria-label="Lướt banner sang phải"
+              className="z-10 flex w-9 shrink-0 items-center justify-center border-l border-slate-100 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-primary"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
           )}
         </div>
 
-        <div className="relative">
-          <Swiper
-            modules={[Autoplay]}
-            onSwiper={setSwiper}
-            onSlideChange={(instance) => setActiveIndex(instance.realIndex)}
-            autoplay={{ delay: 4500, disableOnInteraction: false }}
-            loop={displayBanners.length > 1}
-            className="h-[210px] w-full sm:h-[280px] lg:h-[390px]"
-          >
-            {displayBanners.map((banner) => (
-              <SwiperSlide key={banner.id}>
-                <Link to={banner.href || '/products'} className="relative block h-full w-full overflow-hidden bg-slate-100">
-                  <ImageWithFallback
-                    src={banner.imageUrl}
-                    alt={banner.title}
-                    className="h-full w-full object-cover"
-                    loading="eager"
-                  />
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/35 to-transparent" />
-                  <div className="pointer-events-none absolute bottom-4 left-4 hidden text-white drop-shadow sm:block">
-                    <div className="text-xl font-black uppercase">{banner.title}</div>
-                    {banner.description && <div className="mt-1 text-sm font-semibold">{banner.description}</div>}
-                  </div>
-                </Link>
-              </SwiperSlide>
-            ))}
-          </Swiper>
+        <div className="relative min-h-[210px] flex-1 sm:min-h-[280px] lg:min-h-[390px]">
+          {banners.length ? (
+            <Swiper
+              modules={[Autoplay]}
+              onSwiper={setSwiper}
+              onSlideChange={(instance) => selectBanner(instance.realIndex)}
+              autoplay={{ delay: 4500, disableOnInteraction: false }}
+              loop={banners.length > 1}
+              className="absolute inset-0 h-full w-full"
+            >
+              {banners.map((banner) => (
+                <SwiperSlide key={banner.id}>
+                  <Link to={banner.href || '/products'} className="relative block h-full w-full overflow-hidden bg-slate-100">
+                    {banner.imageUrl ? (
+                      <ImageWithFallback
+                        src={banner.imageUrl}
+                        alt={banner.title}
+                        className="h-full w-full object-fill"
+                        loading="eager"
+                      />
+                    ) : (
+                      <div className="flex h-full flex-col items-center justify-center bg-gradient-to-br from-red-600 via-red-500 to-orange-400 px-8 text-center text-white">
+                        <div className="text-2xl font-black uppercase sm:text-3xl lg:text-4xl">{banner.title}</div>
+                        {banner.description && <div className="mt-3 max-w-2xl text-sm font-semibold sm:text-base lg:text-lg">{banner.description}</div>}
+                      </div>
+                    )}
+                  </Link>
+                </SwiperSlide>
+              ))}
+            </Swiper>
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-slate-50 px-6 text-center text-sm font-medium text-slate-500">
+              {loading ? 'Đang tải banner...' : 'Hiện chưa có banner đang hiển thị.'}
+            </div>
+          )}
 
           {activeBanner && (
             <div className="absolute bottom-3 right-3 rounded-full bg-white/90 px-3 py-1 text-xs font-bold text-slate-700 shadow-sm">
-              {activeIndex + 1}/{displayBanners.length}
+              {activeIndex + 1}/{banners.length}
             </div>
           )}
         </div>

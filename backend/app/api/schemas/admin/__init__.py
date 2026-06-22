@@ -1,8 +1,8 @@
-from .category import CategoryPayload, CategorySlugCheckPayload, CategoryReorderItem, CategoryReorderPayload, CategoryBulkPayload
+from .category import CategoryPayload, CategorySlugCheckPayload, CategoryReorderItem, CategoryReorderPayload, CategoryBulkPayload, CategoryIdentifierMigrationCreatePayload, CategoryIdentifierMigrationScanPayload, CategoryIdentifierMigrationCancelPayload
 from .brand import BrandPayload, BrandCodeCheckPayload, BrandImportItem, BrandImportPayload, BrandStatusPayload, BrandBulkStatusPayload
 from .supplier import SupplierPayload, SupplierCodeCheckPayload, SupplierStatusPayload, SupplierBulkStatusPayload
 from .product import ProductBulkActionPayload, ProductImportPayload, ProductVariantPayload, ProductAccessoryOfferPayload, ProductAttachedServicePayload, AttachedServicePayload, ProductPayload
-from .inventory import InventoryAdjustmentPayload, InventoryAdjustmentRequestPayload, InventoryAdjustmentRequestStatusPayload, InventoryIdentifierEditDecisionPayload, InventoryIdentifierEditRequestPayload, InventoryReceiptImeiPayload, InventoryReceiptPayload, InventoryReceiptReversePayload, InventoryReceiptStatusPayload, InventorySettingsPayload, InventoryStockCountPayload, InventoryStockCountStatusPayload, VariantInventoryPayload
+from .inventory import InventoryAdjustmentPayload, InventoryAdjustmentRequestPayload, InventoryAdjustmentRequestStatusPayload, InventoryIdentifierEditDecisionPayload, InventoryIdentifierEditRequestPayload, InventoryLocationPayload, InventoryLocationStatusPayload, InventoryReceiptImeiPayload, InventoryReceiptPayload, InventoryReceiptQualityPayload, InventoryReceiptReversePayload, InventoryReceiptStatusPayload, InventorySettingsPayload, InventoryStockCountPayload, InventoryStockCountStatusPayload, VariantInventoryPayload
 from .voucher import VoucherPayload
 from .content import ContentCommentPayload, ContentPayload, AdminVideoCommentReplyPayload, AdminVideoCommentVisibilityPayload
 from .review import ReviewStatusPayload
@@ -16,6 +16,9 @@ __all__ = [
     "CategoryReorderItem",
     "CategoryReorderPayload",
     "CategoryBulkPayload",
+    "CategoryIdentifierMigrationCreatePayload",
+    "CategoryIdentifierMigrationScanPayload",
+    "CategoryIdentifierMigrationCancelPayload",
     "BrandPayload",
     "BrandCodeCheckPayload",
     "BrandImportItem",
@@ -38,8 +41,11 @@ __all__ = [
     "InventoryAdjustmentRequestStatusPayload",
     "InventoryIdentifierEditDecisionPayload",
     "InventoryIdentifierEditRequestPayload",
+    "InventoryLocationPayload",
+    "InventoryLocationStatusPayload",
     "InventoryReceiptImeiPayload",
     "InventoryReceiptPayload",
+    "InventoryReceiptQualityPayload",
     "InventoryReceiptReversePayload",
     "InventoryReceiptStatusPayload",
     "InventorySettingsPayload",

@@ -28,4 +28,20 @@ export const categoryApi = {
   adminCategoryMetrics: () => request<any>('/admin/categories/ops/metrics'),
   adminCategoryAuditLogs: (id: string) => request<any[]>(`/admin/categories/${encodeURIComponent(id)}/audit-logs`),
   adminCategoryMigrationJobs: (id: string) => request<any[]>(`/admin/categories/${encodeURIComponent(id)}/migration-jobs`),
+  adminIdentifierPolicyMigrations: (id: string) => request<any[]>(`/admin/categories/${encodeURIComponent(id)}/identifier-policy/migrations`),
+  adminCreateIdentifierPolicyMigration: (id: string, data: any) => request<any>(`/admin/categories/${encodeURIComponent(id)}/identifier-policy/migrations`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  adminScanIdentifierPolicyMigration: (migrationId: string, data: any) => request<any>(`/admin/identifier-policy/migrations/${encodeURIComponent(migrationId)}/scan`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  adminCompleteIdentifierPolicyMigration: (migrationId: string) => request<any>(`/admin/identifier-policy/migrations/${encodeURIComponent(migrationId)}/complete`, {
+    method: 'POST',
+  }),
+  adminCancelIdentifierPolicyMigration: (migrationId: string, reason: string) => request<any>(`/admin/identifier-policy/migrations/${encodeURIComponent(migrationId)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  }),
 };

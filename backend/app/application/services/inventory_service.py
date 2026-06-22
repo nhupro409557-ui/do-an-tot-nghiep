@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services import document_export_service
 from app.application.services.product_helper_service import persisted_sales_config, sync_parent_price_from_variants
-from app.api.schemas.admin import InventoryAdjustmentPayload, InventoryAdjustmentRequestPayload, InventoryAdjustmentRequestStatusPayload, InventoryIdentifierEditDecisionPayload, InventoryIdentifierEditRequestPayload, InventoryReceiptImeiPayload, InventoryReceiptPayload, InventoryReceiptReversePayload, InventorySettingsPayload, InventoryStockCountPayload, InventoryStockCountStatusPayload, VariantInventoryPayload
+from app.api.schemas.admin import InventoryAdjustmentPayload, InventoryAdjustmentRequestPayload, InventoryAdjustmentRequestStatusPayload, InventoryIdentifierEditDecisionPayload, InventoryIdentifierEditRequestPayload, InventoryLocationPayload, InventoryLocationStatusPayload, InventoryReceiptImeiPayload, InventoryReceiptPayload, InventoryReceiptQualityPayload, InventoryReceiptReversePayload, InventorySettingsPayload, InventoryStockCountPayload, InventoryStockCountStatusPayload, VariantInventoryPayload
 from app.infrastructure.database.repositories import inventory_repo
 
 IMEI_PATTERN = re.compile(r"^[0-9]{15}$")
@@ -40,6 +40,105 @@ INVENTORY_RECEIPT_REASONS = {
 }
 
 STOCK_COUNT_STATUSES = {"DRAFT", "APPROVED", "CANCELLED"}
+QUALITY_STATUS_LABELS = {
+    "PENDING": "Chờ kiểm tra",
+    "PASSED": "Đạt",
+    "FAILED": "Không đạt",
+}
+
+
+def _receipt_metadata_from_payload(payload: InventoryReceiptPayload) -> dict:
+    quality_status = str(payload.qualityStatus or "PENDING").strip().upper()
+    if quality_status not in QUALITY_STATUS_LABELS:
+        raise HTTPException(status_code=400, detail="Trạng thái kiểm tra chất lượng không hợp lệ.")
+    attachments = []
+    for item in payload.attachments:
+        name = item.name.strip()
+        url = item.url.strip()
+        if not name or not url:
+            raise HTTPException(status_code=400, detail="Chứng từ đính kèm phải có tên và đường dẫn.")
+        attachments.append(
+            {
+                "type": item.type,
+                "name": name,
+                "url": url,
+                "note": (item.note or "").strip() or None,
+            }
+        )
+    discrepancies = []
+    for item in payload.discrepancies:
+        description = item.description.strip()
+        if not description:
+            raise HTTPException(status_code=400, detail="Biên bản sai lệch phải có mô tả.")
+        discrepancies.append(
+            {
+                "type": item.type,
+                "description": description,
+                "quantity": item.quantity,
+                "action": (item.action or "").strip() or None,
+            }
+        )
+    return {
+        "qualityStatus": quality_status,
+        "qualityLabel": QUALITY_STATUS_LABELS[quality_status],
+        "qualityNote": (payload.qualityNote or "").strip() or None,
+        "quarantine": bool(payload.quarantine),
+        "quarantineLocation": (payload.quarantineLocation or "").strip() or None,
+        "attachments": attachments,
+        "discrepancies": discrepancies,
+    }
+
+
+def _normalize_location_code(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_-]+", "-", value.strip().upper())
+    normalized = re.sub(r"-{2,}", "-", normalized).strip("-")
+    return normalized
+
+
+def _location_sort_order_from_code(code: str, fallback: int = 99999) -> int:
+    match = re.match(r"^([A-Z])-([0-9]{2})-([0-9]{2})$", code)
+    if match:
+        aisle = ord(match.group(1)) - ord("A") + 1
+        return aisle * 10000 + int(match.group(2)) * 100 + int(match.group(3))
+    if code.startswith("QC-"):
+        return 90000
+    if code.startswith("BH-"):
+        return 91000
+    if code.startswith("ERR-"):
+        return 92000
+    if code.startswith("RT-"):
+        return 93000
+    return fallback
+
+
+async def _get_active_inventory_location(session: AsyncSession, location_id: UUID, line_label: str = "Kệ hàng") -> dict:
+    location = await inventory_repo.get_inventory_location_by_id(session, location_id)
+    if not location:
+        raise HTTPException(status_code=404, detail=f"{line_label} không tồn tại.")
+    if str(location.get("status") or "").upper() != "ACTIVE":
+        raise HTTPException(status_code=400, detail=f"{line_label} đã bị khóa, không thể nhập thêm hàng.")
+    return location
+
+
+async def _resolve_receipt_line_location(session: AsyncSession, line, fallback_location_id: UUID, index: int) -> dict:
+    selected_location_id = getattr(line, "warehouseLocationId", None)
+    if selected_location_id:
+        return await _get_active_inventory_location(session, selected_location_id, f"Dòng {index}: kệ hàng")
+
+    storage_location_code = (line.storageLocationCode or "").strip()
+    storage_location_name = (line.storageLocationName or "").strip()
+    if storage_location_code:
+        location = await inventory_repo.get_inventory_location_by_code(session, storage_location_code)
+        if not location:
+            raise HTTPException(status_code=404, detail=f"Dòng {index}: mã kệ {storage_location_code} không tồn tại trong danh mục kệ hàng.")
+        if str(location.get("status") or "").upper() != "ACTIVE":
+            raise HTTPException(status_code=400, detail=f"Dòng {index}: kệ {storage_location_code} đã bị khóa, không thể nhập thêm hàng.")
+        return location
+
+    fallback = await _get_active_inventory_location(session, fallback_location_id, f"Dòng {index}: kệ mặc định")
+    if storage_location_name and storage_location_name != fallback.get("name"):
+        return {**fallback, "name": storage_location_name}
+    return fallback
 
 
 def _same_actor(left: UUID | str | None, right: UUID | str | None) -> bool:
@@ -49,6 +148,11 @@ def _same_actor(left: UUID | str | None, right: UUID | str | None) -> bool:
 def _ensure_receipt_approval_allowed(receipt: dict, current_user_id: UUID | None) -> None:
     if _same_actor(receipt.get("created_by"), current_user_id):
         raise HTTPException(status_code=403, detail="Người lập phiếu không được tự duyệt phiếu nhập kho.")
+
+
+def _ensure_super_admin_inventory_action(role_code: str | None, action_label: str) -> None:
+    if role_code != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail=f"Chỉ Super Admin được {action_label}.")
 
 
 def _policy_tracks_imei(policy_row: dict | None) -> bool:
@@ -77,6 +181,61 @@ def _policy_tracks_serial_number(policy_row: dict | None) -> bool:
     if child_policy and not child_policy.get("inheritSerialPolicy", True):
         return bool(child_policy.get("trackSerialNumber"))
     return bool(parent_policy.get("trackSerialNumber"))
+
+
+def _effective_package_volume_cm3(policy_row: dict | None) -> float:
+    if not policy_row:
+        return 16 * 9 * 6 / 0.70
+    child_policy = policy_row.get("child_policy") if isinstance(policy_row.get("child_policy"), dict) else {}
+    parent_policy = policy_row.get("parent_policy") if isinstance(policy_row.get("parent_policy"), dict) else {}
+    policy = parent_policy
+    if child_policy and not child_policy.get("inheritStorageDimensions", True):
+        policy = child_policy
+
+    def positive_number(key: str, fallback: float) -> float:
+        try:
+            value = float(policy.get(key) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        return value if value > 0 else fallback
+
+    length_cm = positive_number("packageLengthCm", 16)
+    width_cm = positive_number("packageWidthCm", 9)
+    height_cm = positive_number("packageHeightCm", 6)
+    packing_ratio = min(1, max(0.01, positive_number("packingRatio", 0.70)))
+    return (length_cm * width_cm * height_cm) / packing_ratio
+
+
+async def _ensure_location_has_receipt_capacity(
+    session: AsyncSession,
+    *,
+    location_id: UUID,
+    line_index: int,
+    quantity: int,
+    policy_row: dict | None,
+    requested_volume_by_location: dict[str, float],
+) -> None:
+    if quantity <= 0:
+        return
+
+    usage = await inventory_repo.get_inventory_location_capacity_usage(session, location_id)
+    if not usage or usage.get("usableVolumeCm3") is None or usage.get("availableVolumeCm3") is None:
+        return
+
+    location_key = str(location_id)
+    required_volume = quantity * _effective_package_volume_cm3(policy_row)
+    previous_requested = requested_volume_by_location.get(location_key, 0)
+    available_volume = float(usage.get("availableVolumeCm3") or 0) - previous_requested
+    if required_volume > available_volume + 0.0001:
+        location_code = usage.get("code") or "kệ đã chọn"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Dòng {line_index}: kệ {location_code} không đủ dung lượng. "
+                f"Cần thêm {required_volume:,.0f} cm³, còn {max(available_volume, 0):,.0f} cm³."
+            ),
+        )
+    requested_volume_by_location[location_key] = previous_requested + required_volume
 
 
 def _clean_imeis(raw_imeis: list[str]) -> list[str]:
@@ -154,6 +313,7 @@ def _shape_inventory_level_row(row: dict) -> dict:
         "reservedStock": reserved_quantity,
         "availableStock": available_quantity,
         "averageUnitCost": float(row.get("averageUnitCost") or 0),
+        "locations": row.get("locations") if isinstance(row.get("locations"), list) else [],
         "minimumStock": minimum_stock,
         "stockAlert": "LOW" if available_quantity <= minimum_stock else "OK",
         "stockState": stock_state,
@@ -300,9 +460,230 @@ async def export_inventory_snapshot(session: AsyncSession, search: str = "") -> 
     )
 
 
-async def list_inventory_levels(session: AsyncSession, search: str = "") -> list[dict]:
+async def list_inventory_levels(
+    session: AsyncSession,
+    search: str = "",
+    stock_filter: str = "",
+    location: str = "",
+    category_id: str = "",
+    brand_id: str = "",
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
     rows = await inventory_repo.list_inventory_level_rows(session, search.strip())
-    return [_shape_inventory_level_row(row) for row in rows]
+    category_id = category_id.strip()
+    brand_id = brand_id.strip()
+    if category_id:
+        rows = [
+            row for row in rows
+            if str(row.get("categoryId") or "") == category_id
+            or str(row.get("subcategoryId") or "") == category_id
+        ]
+    if brand_id:
+        rows = [row for row in rows if str(row.get("brandId") or "") == brand_id]
+    shaped_rows = [_shape_inventory_level_row(row) for row in rows]
+    stock_filter = stock_filter.strip().upper()
+    location = location.strip().lower()
+    if stock_filter == "LOW":
+        shaped_rows = [row for row in shaped_rows if row["stockAlert"] == "LOW"]
+    elif stock_filter == "IN_STOCK":
+        shaped_rows = [row for row in shaped_rows if row["physicalStock"] > 0]
+    elif stock_filter == "RESERVED":
+        shaped_rows = [row for row in shaped_rows if row["reservedStock"] > 0]
+    if location:
+        shaped_rows = [
+            row for row in shaped_rows
+            if any(
+                location in str(item.get("code") or "").lower()
+                or location in str(item.get("name") or "").lower()
+                for item in row.get("locations") or []
+            )
+        ]
+    total = len(shaped_rows)
+    start = (page - 1) * page_size
+    return {
+        "items": shaped_rows[start:start + page_size],
+        "page": page,
+        "pageSize": page_size,
+        "total": total,
+        "totalPages": max(1, (total + page_size - 1) // page_size),
+    }
+
+
+async def list_inventory_locations(
+    session: AsyncSession,
+    search: str = "",
+    include_inactive: bool = True,
+    zone: str = "",
+    purpose: str = "",
+    status: str = "",
+    aisle: str = "",
+    shelf: str = "",
+    bin: str = "",
+) -> list[dict]:
+    normalized_purpose = str(purpose or "").strip().upper()
+    normalized_status = str(status or "").strip().upper()
+    normalized_aisle = str(aisle or "").strip().upper()
+    normalized_shelf = str(shelf or "").strip()
+    normalized_bin = str(bin or "").strip()
+    if normalized_purpose and normalized_purpose not in {"STORAGE", "WARRANTY", "QC", "DAMAGED", "RETURN", "VIRTUAL"}:
+        raise HTTPException(status_code=400, detail="Loại kệ hàng không hợp lệ.")
+    if normalized_status and normalized_status not in {"ACTIVE", "INACTIVE"}:
+        raise HTTPException(status_code=400, detail="Trạng thái kệ hàng không hợp lệ.")
+    if normalized_aisle and not re.fullmatch(r"[A-Z]", normalized_aisle):
+        raise HTTPException(status_code=400, detail="Dãy kệ không hợp lệ.")
+    if normalized_shelf and not re.fullmatch(r"\d{1,2}", normalized_shelf):
+        raise HTTPException(status_code=400, detail="Số kệ không hợp lệ.")
+    if normalized_bin and not re.fullmatch(r"\d{1,2}", normalized_bin):
+        raise HTTPException(status_code=400, detail="Số ô không hợp lệ.")
+    return await inventory_repo.list_inventory_locations(
+        session,
+        search,
+        include_inactive,
+        zone.strip(),
+        normalized_purpose,
+        normalized_status,
+        normalized_aisle,
+        normalized_shelf.zfill(2) if normalized_shelf else "",
+        normalized_bin.zfill(2) if normalized_bin else "",
+    )
+
+
+async def create_inventory_location(session: AsyncSession, payload: InventoryLocationPayload) -> dict:
+    code = _normalize_location_code(payload.code)
+    name = payload.name.strip()
+    purpose = str(payload.purpose or "STORAGE").strip().upper()
+    sort_order = int(payload.sortOrder or 0) or _location_sort_order_from_code(code)
+    if not code:
+        raise HTTPException(status_code=400, detail="Mã kệ hàng không hợp lệ.")
+    existing = await inventory_repo.get_inventory_location_by_code(session, code)
+    if existing:
+        raise HTTPException(status_code=409, detail="Mã kệ hàng đã tồn tại.")
+    location = await inventory_repo.create_inventory_location(
+        session,
+        location_id=uuid4(),
+        code=code,
+        name=name,
+        zone=(payload.zone or "").strip() or None,
+        purpose=purpose,
+        sort_order=sort_order,
+        allow_mixed_sku=bool(payload.allowMixedSku),
+        length_cm=payload.lengthCm,
+        width_cm=payload.widthCm,
+        height_cm=payload.heightCm,
+        usable_ratio=payload.usableRatio,
+        description=(payload.description or "").strip() or None,
+    )
+    await session.commit()
+    return location
+
+
+async def update_inventory_location(session: AsyncSession, location_id: UUID, payload: InventoryLocationPayload) -> dict:
+    current = await inventory_repo.get_inventory_location_by_id(session, location_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Không tìm thấy kệ hàng.")
+    code = _normalize_location_code(payload.code)
+    purpose = str(payload.purpose or "STORAGE").strip().upper()
+    sort_order = int(payload.sortOrder or 0) or _location_sort_order_from_code(code)
+    if not code:
+        raise HTTPException(status_code=400, detail="Mã kệ hàng không hợp lệ.")
+    existing = await inventory_repo.get_inventory_location_by_code(session, code)
+    if existing and str(existing["id"]) != str(location_id):
+        raise HTTPException(status_code=409, detail="Mã kệ hàng đã tồn tại.")
+    location = await inventory_repo.update_inventory_location(
+        session,
+        location_id=location_id,
+        code=code,
+        name=payload.name.strip(),
+        zone=(payload.zone or "").strip() or None,
+        purpose=purpose,
+        sort_order=sort_order,
+        allow_mixed_sku=bool(payload.allowMixedSku),
+        length_cm=payload.lengthCm,
+        width_cm=payload.widthCm,
+        height_cm=payload.heightCm,
+        usable_ratio=payload.usableRatio,
+        description=(payload.description or "").strip() or None,
+    )
+    if not location:
+        raise HTTPException(status_code=404, detail="Không tìm thấy kệ hàng.")
+    await session.commit()
+    return location
+
+
+async def update_inventory_location_status(session: AsyncSession, location_id: UUID, payload: InventoryLocationStatusPayload) -> dict:
+    current = await inventory_repo.get_inventory_location_by_id(session, location_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Không tìm thấy kệ hàng.")
+    if current.get("isDefault") and not payload.isActive:
+        raise HTTPException(status_code=400, detail="Không thể khóa kệ mặc định của kho chính.")
+    if not payload.isActive and await inventory_repo.inventory_location_has_stock(session, location_id):
+        raise HTTPException(status_code=400, detail="Kệ còn tồn kho, cần xử lý hết tồn trước khi khóa.")
+    location = await inventory_repo.set_inventory_location_status(
+        session,
+        location_id=location_id,
+        status="ACTIVE" if payload.isActive else "INACTIVE",
+    )
+    if not location:
+        raise HTTPException(status_code=404, detail="Không tìm thấy kệ hàng.")
+    await session.commit()
+    return location
+
+
+async def get_inventory_dashboard(session: AsyncSession, search: str = "") -> dict:
+    raw_rows = await inventory_repo.list_inventory_level_rows(session, search.strip())
+    rows = [_shape_inventory_level_row(row) for row in raw_rows]
+    total_sku = len(rows)
+    low_stock_rows = [row for row in rows if row["stockAlert"] == "LOW"]
+    inventory_value = sum(float(row["physicalStock"] or 0) * float(row["averageUnitCost"] or 0) for row in rows)
+    top_stock = sorted(rows, key=lambda row: int(row["physicalStock"] or 0), reverse=True)[:8]
+    top_need_restock = sorted(
+        low_stock_rows,
+        key=lambda row: int(row["minimumStock"] or 0) - int(row["availableStock"] or 0),
+        reverse=True,
+    )[:8]
+    return {
+        "totalSku": total_sku,
+        "lowStockCount": len(low_stock_rows),
+        "inventoryValue": inventory_value,
+        "reservedSkuCount": len([row for row in rows if row["reservedStock"] > 0]),
+        "topStock": top_stock,
+        "topNeedRestock": top_need_restock,
+    }
+
+
+async def list_inventory_ledger(
+    session: AsyncSession,
+    search: str = "",
+    product_id: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    transaction_type: str = "",
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    for label, value in {"Từ ngày": date_from, "Đến ngày": date_to}.items():
+        if value:
+            try:
+                datetime.strptime(value, "%Y-%m-%d")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=f"{label} không hợp lệ.") from exc
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="Từ ngày không được lớn hơn đến ngày.")
+    transaction_type = transaction_type.strip().upper()
+    if transaction_type and transaction_type not in {"RECEIPT", "ADJUSTMENT", "SALE", "RETURN", "REVERSAL"}:
+        raise HTTPException(status_code=400, detail="Loại giao dịch sổ kho không hợp lệ.")
+    rows = await inventory_repo.list_inventory_ledger_rows(
+        session,
+        search=search.strip(),
+        product_id=product_id.strip(),
+        date_from=date_from.strip(),
+        date_to=date_to.strip(),
+        transaction_type=transaction_type,
+    )
+    total = len(rows)
+    start = (page - 1) * page_size
+    return {"items": rows[start:start + page_size], "page": page, "pageSize": page_size, "total": total, "totalPages": max(1, (total + page_size - 1) // page_size)}
 
 
 async def list_inventory_identifiers(session: AsyncSession, product_id: UUID, variant_id: UUID | None = None) -> dict:
@@ -321,6 +702,75 @@ async def list_inventory_identifiers(session: AsyncSession, product_id: UUID, va
         "serialNumbers": serial_numbers,
         "editRequests": edit_requests,
     }
+
+
+async def list_inventory_issue_suggestions(
+    session: AsyncSession,
+    product_id: UUID,
+    variant_id: UUID | None = None,
+    quantity: int = 1,
+) -> list[dict]:
+    requested_quantity = max(1, min(int(quantity or 1), 500))
+    identifier_rows = await inventory_repo.list_identifier_issue_candidates(
+        session,
+        product_id=product_id,
+        variant_id=variant_id,
+        limit=requested_quantity,
+    )
+    if identifier_rows:
+        grouped: dict[str, dict] = {}
+        for item in identifier_rows:
+            location_id = str(item.get("locationId") or "")
+            if not location_id:
+                continue
+            group = grouped.setdefault(
+                location_id,
+                {
+                    "warehouseLocationId": location_id,
+                    "locationCode": item.get("locationCode"),
+                    "locationName": item.get("locationName"),
+                    "availableQuantity": 0,
+                    "suggestedQuantity": 0,
+                    "oldestReceivedAt": item.get("receivedAt"),
+                    "identifiers": [],
+                    "mode": "IDENTIFIER",
+                },
+            )
+            group["availableQuantity"] += 1
+            group["suggestedQuantity"] += 1
+            if not group.get("oldestReceivedAt") or (item.get("receivedAt") and item.get("receivedAt") < group["oldestReceivedAt"]):
+                group["oldestReceivedAt"] = item.get("receivedAt")
+            group["identifiers"].append(
+                {
+                    "type": item.get("identifierType"),
+                    "value": item.get("value"),
+                    "receivedAt": item.get("receivedAt"),
+                }
+            )
+        return list(grouped.values())
+
+    level_rows = await inventory_repo.list_level_issue_candidates(session, product_id=product_id, variant_id=variant_id)
+    remaining = requested_quantity
+    suggestions: list[dict] = []
+    for row in level_rows:
+        available = int(row.get("availableQuantity") or 0)
+        if available <= 0 or remaining <= 0:
+            continue
+        suggested = min(available, remaining)
+        suggestions.append(
+            {
+                "warehouseLocationId": row.get("locationId"),
+                "locationCode": row.get("locationCode"),
+                "locationName": row.get("locationName"),
+                "availableQuantity": available,
+                "suggestedQuantity": suggested,
+                "oldestReceivedAt": row.get("updatedAt"),
+                "identifiers": [],
+                "mode": "QUANTITY",
+            }
+        )
+        remaining -= suggested
+    return suggestions
 
 
 async def list_inventory_identifier_edit_requests(session: AsyncSession, status_filter: str = "PENDING") -> list[dict]:
@@ -432,8 +882,49 @@ async def decide_inventory_identifier_edit_request(
     return {"ok": True, "requestId": str(request_id), "status": decision}
 
 
-async def list_inventory_receipts(session: AsyncSession, search: str = "") -> list[dict]:
-    return await inventory_repo.list_inventory_receipts(session, search.strip())
+async def list_inventory_receipts(
+    session: AsyncSession,
+    search: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    status: str = "",
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    if date_from:
+        try:
+            datetime.strptime(date_from, "%Y-%m-%d")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Từ ngày không hợp lệ.") from exc
+    if date_to:
+        try:
+            datetime.strptime(date_to, "%Y-%m-%d")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Đến ngày không hợp lệ.") from exc
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="Từ ngày không được lớn hơn đến ngày.")
+    rows = await inventory_repo.list_inventory_receipts(
+        session,
+        search.strip(),
+        date_from.strip(),
+        date_to.strip(),
+    )
+    normalized_status = status.strip().upper()
+    if normalized_status:
+        rows = [row for row in rows if str(row.get("status") or "COMPLETED").upper() == normalized_status]
+    total = len(rows)
+    start = (page - 1) * page_size
+    return {
+        "items": rows[start:start + page_size],
+        "page": page,
+        "pageSize": page_size,
+        "total": total,
+        "totalPages": max(1, (total + page_size - 1) // page_size),
+    }
+
+
+async def get_inventory_receipt_report(session: AsyncSession) -> dict:
+    return await inventory_repo.get_inventory_receipt_report(session)
 
 
 async def export_inventory_receipt_document(session: AsyncSession, reference_code: str, export_format: str) -> Response:
@@ -937,6 +1428,7 @@ async def create_inventory_receipt(
         code=(payload.locationCode or "MAIN").strip() or "MAIN",
         name=(payload.locationName or "Kho chính").strip() or "Kho chính",
     )
+    receipt_metadata = _receipt_metadata_from_payload(payload)
     document_id = uuid4()
     await inventory_repo.insert_inventory_receipt_document(
         session,
@@ -948,6 +1440,7 @@ async def create_inventory_receipt(
         note=payload.note,
         location_id=location["id"],
         created_by=current_user_id,
+        metadata=receipt_metadata,
     )
 
     prepared_lines: list[dict] = []
@@ -976,6 +1469,7 @@ async def create_inventory_receipt(
         metadata={
             "status": requested_status,
             "reason": receipt_reason_code,
+            "metadata": receipt_metadata,
             "lineCount": len(prepared_lines),
             "lines": prepared_lines,
         },
@@ -989,6 +1483,7 @@ async def update_inventory_receipt(
     reference_code: str,
     payload: InventoryReceiptPayload,
     current_user_id: UUID | None = None,
+    current_role_code: str | None = None,
 ) -> dict:
     reference_code = reference_code.strip()
     payload_reference_code = payload.referenceCode.strip()
@@ -1000,7 +1495,10 @@ async def update_inventory_receipt(
         raise HTTPException(status_code=404, detail="Không tìm thấy phiếu nhập kho.")
     if receipt.get("posted_at") or receipt["status"] not in RECEIPT_EDITABLE_STATUSES:
         raise HTTPException(status_code=400, detail="Chỉ có thể chỉnh sửa phiếu nhập chưa hoàn tất quy trình.")
+    if receipt["status"] in {"PENDING_APPROVAL", "PENDING_SHORTAGE_APPROVAL", "APPROVED"}:
+        _ensure_super_admin_inventory_action(current_role_code, "trả phiếu nhập đã gửi duyệt về nháp để chỉnh sửa")
     previous_lines = await inventory_repo.list_inventory_receipt_lines(session, receipt["id"])
+    await inventory_repo.release_pending_inbound_identifiers(session, reference_code)
 
     receipt_reason_code = str(payload.receiptReasonCode or receipt.get("reason") or "NK_MUA").strip().upper()
     if receipt_reason_code not in INVENTORY_RECEIPT_REASONS:
@@ -1013,6 +1511,7 @@ async def update_inventory_receipt(
         code=(payload.locationCode or receipt.get("locationCode") or "MAIN").strip() or "MAIN",
         name=(payload.locationName or receipt.get("locationName") or "Kho chính").strip() or "Kho chính",
     )
+    receipt_metadata = _receipt_metadata_from_payload(payload)
     await inventory_repo.update_inventory_receipt_document(
         session,
         document_id=receipt["id"],
@@ -1020,6 +1519,7 @@ async def update_inventory_receipt(
         supplier_name=payload.supplierName,
         note=payload.note,
         location_id=location["id"],
+        metadata=receipt_metadata,
     )
     await inventory_repo.delete_inventory_receipt_lines(session, receipt["id"])
 
@@ -1034,6 +1534,7 @@ async def update_inventory_receipt(
             "fromStatus": receipt["status"],
             "toStatus": "DRAFT",
             "reason": receipt_reason_code,
+            "metadata": receipt_metadata,
             "previousLines": [
                 {
                     "lineId": str(line["id"]),
@@ -1057,6 +1558,51 @@ async def update_inventory_receipt(
         "lineCount": len(prepared_lines),
         "postedLineCount": 0,
         "lines": prepared_lines,
+    }
+
+
+async def update_inventory_receipt_quality(
+    session: AsyncSession,
+    reference_code: str,
+    payload: InventoryReceiptQualityPayload,
+    current_user_id: UUID | None = None,
+) -> dict:
+    reference_code = reference_code.strip()
+    receipt = await inventory_repo.get_inventory_receipt_for_update(session, reference_code)
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiếu nhập kho.")
+    if receipt.get("posted_at") or receipt["status"] in {"COMPLETED", "REVERSED", "CANCELLED"}:
+        raise HTTPException(status_code=400, detail="Không thể cập nhật QC cho phiếu nhập đã kết thúc.")
+    quality_status = str(payload.qualityStatus or "PENDING").strip().upper()
+    if quality_status not in QUALITY_STATUS_LABELS:
+        raise HTTPException(status_code=400, detail="Trạng thái kiểm tra chất lượng không hợp lệ.")
+    await inventory_repo.update_inventory_receipt_quality(
+        session,
+        document_id=receipt["id"],
+        quality_status=quality_status,
+        quality_note=(payload.qualityNote or "").strip() or None,
+        quarantine=bool(payload.quarantine),
+        quarantine_location=(payload.quarantineLocation or "").strip() or None,
+    )
+    await inventory_repo.insert_inventory_receipt_audit_log(
+        session,
+        actor_id=current_user_id,
+        action="quality_updated",
+        reference_code=reference_code,
+        metadata={
+            "fromQualityStatus": receipt.get("qualityStatus"),
+            "toQualityStatus": quality_status,
+            "qualityNote": (payload.qualityNote or "").strip() or None,
+            "quarantine": bool(payload.quarantine),
+            "quarantineLocation": (payload.quarantineLocation or "").strip() or None,
+        },
+    )
+    await session.commit()
+    return {
+        "ok": True,
+        "referenceCode": reference_code,
+        "qualityStatus": quality_status,
+        "quarantine": bool(payload.quarantine),
     }
 
 
@@ -1106,6 +1652,7 @@ async def _validate_and_store_receipt_lines(
     prepared_lines: list[dict],
 ) -> None:
     seen_keys: set[tuple[str, str]] = set()
+    requested_volume_by_location: dict[str, float] = {}
     for index, line in enumerate(lines, start=1):
         product_id = line.productId
         actual_variant_id = line.variantId
@@ -1159,6 +1706,18 @@ async def _validate_and_store_receipt_lines(
         policy_row = await inventory_repo.get_product_inventory_policy(session, product_id)
         tracks_imei = _policy_tracks_imei(policy_row)
         tracks_serial_number = _policy_tracks_serial_number(policy_row)
+        line_location = await _resolve_receipt_line_location(session, line, location_id, index)
+        line_location_id = line_location["id"]
+        storage_location_code = str(line_location.get("code") or line.storageLocationCode or "").strip()
+        storage_location_name = str(line_location.get("name") or line.storageLocationName or "").strip()
+        await _ensure_location_has_receipt_capacity(
+            session,
+            location_id=line_location_id,
+            line_index=index,
+            quantity=quantity,
+            policy_row=policy_row,
+            requested_volume_by_location=requested_volume_by_location,
+        )
 
         await inventory_repo.insert_inventory_receipt_line(
             session,
@@ -1166,7 +1725,7 @@ async def _validate_and_store_receipt_lines(
             document_id=document_id,
             product_id=product_id,
             variant_id=actual_variant_id,
-            location_id=location_id,
+            location_id=line_location_id,
             quantity=quantity,
             unit_cost=line.unitCost,
             note=line.note,
@@ -1174,6 +1733,8 @@ async def _validate_and_store_receipt_lines(
             tracks_imei=tracks_imei,
             serial_numbers=[],
             tracks_serial_number=tracks_serial_number,
+            storage_location_code=storage_location_code or None,
+            storage_location_name=storage_location_name or None,
         )
         prepared_lines.append(
             {
@@ -1184,6 +1745,9 @@ async def _validate_and_store_receipt_lines(
                 "tracksImei": tracks_imei,
                 "serialNumberCount": 0,
                 "tracksSerialNumber": tracks_serial_number,
+                "warehouseLocationId": str(line_location_id),
+                "storageLocationCode": storage_location_code or None,
+                "storageLocationName": storage_location_name or None,
             }
         )
 
@@ -1202,6 +1766,7 @@ async def _post_inventory_receipt(
     document_lines = await inventory_repo.list_inventory_receipt_lines(session, document_id)
     posted_lines: list[dict] = []
     touched_products: set[UUID] = set()
+    requested_volume_by_location: dict[str, float] = {}
 
     for index, line in enumerate(document_lines, start=1):
         product_id = line["productId"]
@@ -1228,38 +1793,68 @@ async def _post_inventory_receipt(
         if tracks_serial_number and len(serial_numbers) != quantity:
             raise HTTPException(status_code=400, detail=f"Dòng {index}: số serial number phải khớp số lượng thực nhận trước khi hoàn tất.")
 
-        existing_imeis = await inventory_repo.list_existing_imeis(session, imeis)
-        if existing_imeis:
-            raise HTTPException(status_code=409, detail=f"Dòng {index}: IMEI đã tồn tại: {', '.join(existing_imeis[:5])}")
-        existing_serial_numbers = await inventory_repo.list_existing_serial_numbers(session, serial_numbers, product_id=product_id)
-        if existing_serial_numbers:
-            raise HTTPException(status_code=409, detail=f"Dòng {index}: serial number đã tồn tại trong cùng sản phẩm: {', '.join(existing_serial_numbers[:5])}")
+        imei_statuses = await inventory_repo.list_imei_statuses(session, imeis)
+        if tracks_imei and (
+            len(imei_statuses) != len(imeis)
+            or any(
+                str(item.get("status")) != "PENDING_INBOUND"
+                or str(item.get("source_reference")) != reference_code
+                for item in imei_statuses
+            )
+        ):
+            raise HTTPException(status_code=409, detail=f"Dòng {index}: IMEI chưa được giữ chỗ hợp lệ cho phiếu nhập này.")
+        serial_statuses = await inventory_repo.list_product_serial_number_statuses(
+            session,
+            product_id=product_id,
+            serial_numbers=serial_numbers,
+        )
+        if tracks_serial_number and (
+            len(serial_statuses) != len(serial_numbers)
+            or any(
+                str(item.get("status")) != "PENDING_INBOUND"
+                or str(item.get("source_reference")) != reference_code
+                for item in serial_statuses
+            )
+        ):
+            raise HTTPException(status_code=409, detail=f"Dòng {index}: serial number chưa được giữ chỗ hợp lệ cho phiếu nhập này.")
 
         await inventory_repo.update_variant_stock(session, variant_id=actual_variant_id, quantity=new_quantity)
-        if location_id:
+        line_location_id = line.get("locationId") or location_id
+        if line_location_id:
+            await _get_active_inventory_location(session, line_location_id, f"Dòng {index}: kệ hàng")
+            policy_row = await inventory_repo.get_product_inventory_policy(session, product_id)
+            await _ensure_location_has_receipt_capacity(
+                session,
+                location_id=line_location_id,
+                line_index=index,
+                quantity=quantity,
+                policy_row=policy_row,
+                requested_volume_by_location=requested_volume_by_location,
+            )
             await inventory_repo.post_inventory_level_receipt(
                 session,
                 product_id=product_id,
                 variant_id=actual_variant_id,
-                location_id=location_id,
+                location_id=line_location_id,
                 quantity=quantity,
                 unit_cost=line.get("unitCost"),
             )
-        for imei in imeis:
-            await inventory_repo.insert_product_imei(
+            await inventory_repo.create_inventory_lot_for_receipt(
                 session,
+                document_id=document_id,
+                reference_code=reference_code,
                 product_id=product_id,
                 variant_id=actual_variant_id,
-                imei=imei,
-                source_reference=reference_code,
+                location_id=line_location_id,
+                quantity=quantity,
+                unit_cost=line.get("unitCost"),
             )
-        for serial_number in serial_numbers:
-            await inventory_repo.insert_product_serial_number(
+            await inventory_repo.assign_identifier_locations_for_receipt_line(
                 session,
                 product_id=product_id,
-                variant_id=actual_variant_id,
-                serial_number=serial_number,
-                source_reference=reference_code,
+                location_id=line_location_id,
+                imeis=imeis,
+                serial_numbers=serial_numbers,
             )
         await inventory_repo.insert_inventory_adjustment_log(
             session,
@@ -1275,8 +1870,8 @@ async def _post_inventory_receipt(
             note=line.get("note") or note,
             supplier_name=supplier_name,
             unit_cost=line.get("unitCost"),
-            location_code=location_code or "MAIN",
-            location_name=location_name or "Kho chính",
+            location_code=line.get("storageLocationCode") or location_code or "MAIN",
+            location_name=line.get("storageLocationName") or location_name or "Kho chính",
         )
         touched_products.add(product_id)
         posted_lines.append(
@@ -1296,6 +1891,7 @@ async def _post_inventory_receipt(
     for product_id in touched_products:
         await sync_parent_price_from_variants(session, product_id)
 
+    await inventory_repo.activate_pending_inbound_identifiers(session, reference_code)
     return posted_lines
 
 
@@ -1395,6 +1991,8 @@ async def submit_inventory_receipt_imeis(
         total_planned += planned_quantity
         total_received += received_quantity
 
+    await inventory_repo.release_pending_inbound_identifiers(session, reference_code)
+
     existing_imeis = await inventory_repo.list_existing_imeis(session, list(seen_imeis))
     if existing_imeis:
         raise HTTPException(status_code=409, detail=f"IMEI đã tồn tại: {', '.join(existing_imeis[:5])}")
@@ -1421,6 +2019,40 @@ async def submit_inventory_receipt_imeis(
             received_quantity=received_quantity,
             shortage_reason=line_shortage_reason if received_quantity < int(line.get("quantity") or 0) else None,
         )
+        for imei in imeis:
+            await inventory_repo.insert_pending_product_imei(
+                session,
+                product_id=line["productId"],
+                variant_id=line["variantId"],
+                imei=imei,
+                source_reference=reference_code,
+            )
+        for serial_number in serial_numbers:
+            await inventory_repo.insert_pending_product_serial_number(
+                session,
+                product_id=line["productId"],
+                variant_id=line["variantId"],
+                serial_number=serial_number,
+                source_reference=reference_code,
+            )
+
+    pending_imei_statuses = await inventory_repo.list_imei_statuses(session, list(seen_imeis))
+    if len(pending_imei_statuses) != len(seen_imeis) or any(
+        str(item.get("status")) != "PENDING_INBOUND" or str(item.get("source_reference")) != reference_code
+        for item in pending_imei_statuses
+    ):
+        raise HTTPException(status_code=409, detail="Không thể giữ chỗ một số IMEI cho phiếu nhập này. Vui lòng kiểm tra mã trùng.")
+    for product_id, serial_numbers in seen_serial_numbers_by_product.items():
+        pending_serial_statuses = await inventory_repo.list_product_serial_number_statuses(
+            session,
+            product_id=product_id,
+            serial_numbers=list(serial_numbers),
+        )
+        if len(pending_serial_statuses) != len(serial_numbers) or any(
+            str(item.get("status")) != "PENDING_INBOUND" or str(item.get("source_reference")) != reference_code
+            for item in pending_serial_statuses
+        ):
+            raise HTTPException(status_code=409, detail="Không thể giữ chỗ một số serial number cho phiếu nhập này. Vui lòng kiểm tra mã trùng.")
 
     next_status = "PENDING_SHORTAGE_APPROVAL" if has_shortage else "PENDING_APPROVAL"
     document_shortage_note = "; ".join(dict.fromkeys(shortage_reasons)) if has_shortage else None
@@ -1461,6 +2093,7 @@ async def update_inventory_receipt_status(
     reference_code: str,
     status_payload,
     current_user_id: UUID | None = None,
+    current_role_code: str | None = None,
 ) -> dict:
     target_status = status_payload.status
     reference_code = reference_code.strip()
@@ -1474,6 +2107,17 @@ async def update_inventory_receipt_status(
     note = status_payload.cancelReason if target_status == "CANCELLED" else None
     summary = await _receipt_imei_summary(session, receipt["id"])
 
+    if target_status in {"APPROVED", "COMPLETED", "CANCELLED"}:
+        _ensure_super_admin_inventory_action(
+            current_role_code,
+            {
+                "APPROVED": "duyệt phiếu nhập kho",
+                "COMPLETED": "hoàn tất nhập kho và cập nhật tồn",
+                "CANCELLED": "hủy phiếu nhập kho",
+            }[target_status],
+        )
+    if target_status == "CANCELLED":
+        await inventory_repo.release_pending_inbound_identifiers(session, reference_code)
     if target_status == "PROCESSING_IMEI" and summary["trackedLineCount"] == 0:
         raise HTTPException(status_code=400, detail="Phiếu nhập này không có dòng cần quản lý IMEI hoặc serial number.")
     if target_status == "APPROVED":
@@ -1489,6 +2133,10 @@ async def update_inventory_receipt_status(
     if target_status == "COMPLETED":
         if receipt.get("posted_at"):
             raise HTTPException(status_code=409, detail="Phiếu nhập kho này đã được hoàn tất trước đó.")
+        if str(receipt.get("qualityStatus") or "PENDING").upper() != "PASSED":
+            raise HTTPException(status_code=400, detail="Phiếu nhập phải có kết quả kiểm tra chất lượng Đạt trước khi hoàn tất.")
+        if bool(receipt.get("quarantine")):
+            raise HTTPException(status_code=400, detail="Phiếu nhập đang ở khu cách ly, chưa thể cập nhật vào tồn khả dụng.")
         posted_lines = await _post_inventory_receipt(
             session,
             receipt["id"],
@@ -1579,14 +2227,27 @@ async def reverse_inventory_receipt(
 
         new_quantity = old_quantity - quantity
         await inventory_repo.update_variant_stock(session, variant_id=variant_id, quantity=new_quantity)
-        if receipt.get("target_location_id"):
+        line_location_id = line.get("locationId") or receipt.get("target_location_id")
+        if line_location_id:
             await inventory_repo.post_inventory_level_reversal(
                 session,
                 product_id=product_id,
                 variant_id=variant_id,
-                location_id=receipt["target_location_id"],
+                location_id=line_location_id,
                 quantity=quantity,
             )
+            try:
+                await inventory_repo.reverse_inventory_lots_for_receipt(
+                    session,
+                    document_id=receipt["id"],
+                    location_id=line_location_id,
+                    product_id=product_id,
+                    variant_id=variant_id,
+                    quantity=quantity,
+                    reversal_reference=reversal_code,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: {exc}") from exc
         await inventory_repo.mark_imeis_reversed(session, imeis)
         await inventory_repo.mark_serial_numbers_reversed(session, serial_numbers, product_id=product_id)
         await inventory_repo.insert_inventory_adjustment_log(
@@ -1603,8 +2264,8 @@ async def reverse_inventory_receipt(
             note=payload.note or f"Đảo phiếu nhập {reference_code}",
             supplier_name=receipt.get("supplier_name"),
             unit_cost=line.get("unitCost"),
-            location_code=receipt.get("locationCode") or "MAIN",
-            location_name=receipt.get("locationName") or "Kho chính",
+            location_code=line.get("storageLocationCode") or receipt.get("locationCode") or "MAIN",
+            location_name=line.get("storageLocationName") or receipt.get("locationName") or "Kho chính",
         )
         touched_products.add(product_id)
         reversed_lines.append(
@@ -1645,7 +2306,7 @@ async def reverse_inventory_receipt(
             document_id=reversal_document_id,
             product_id=line["productId"],
             variant_id=line["variantId"],
-            location_id=receipt.get("target_location_id"),
+            location_id=line.get("locationId") or receipt.get("target_location_id"),
             quantity=quantity,
             unit_cost=line.get("unitCost"),
             note=payload.note or f"Đảo dòng phiếu nhập {reference_code}",
@@ -1653,6 +2314,8 @@ async def reverse_inventory_receipt(
             tracks_imei=tracks_imei,
             serial_numbers=_clean_serial_numbers(line.get("serialNumbers") or []),
             tracks_serial_number=tracks_serial_number,
+            storage_location_code=line.get("storageLocationCode"),
+            storage_location_name=line.get("storageLocationName"),
         )
 
     await inventory_repo.mark_inventory_receipt_reversed(

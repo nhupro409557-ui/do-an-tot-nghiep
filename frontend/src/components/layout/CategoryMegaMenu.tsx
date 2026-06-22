@@ -142,7 +142,7 @@ const getMenuGroups = (slug: string, subcategoryGroups: CatalogGroup[], brands: 
 };
 
 const quickLinks = [
-  { icon: Zap, title: 'Flash sale', text: 'Giá tốt hôm nay', href: '/search?flash_sale=true' },
+  { icon: Zap, title: 'Flash sale', text: 'Giá tốt hôm nay', href: '/flash-sale' },
   { icon: Truck, title: 'Giao nhanh', text: 'Nội thành 2 giờ', href: '/delivery-policy' },
   { icon: ShieldCheck, title: 'Bảo hành', text: 'Chính hãng rõ ràng', href: '/warranty' },
 ];
@@ -204,11 +204,11 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
         if (compact) setActiveId(null);
       }}
       className={`relative flex overflow-visible text-slate-900 ${
-        compact ? 'h-full w-[274px]' : 'w-full'
+        compact ? 'h-full min-h-0 w-[274px]' : 'w-full'
       } ${compact ? '' : 'flex-col gap-3 md:flex-row md:gap-4'}`}
     >
-      <nav className={`${compact ? 'h-full w-[274px]' : 'w-full md:max-h-[min(640px,calc(100vh-96px))] md:w-[248px] xl:w-[274px]'} flex shrink-0 flex-col overflow-hidden rounded-xl border border-slate-100 bg-white py-2 shadow-xl`}>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+      <nav className={`${compact ? 'h-full min-h-0 w-[274px]' : 'w-full md:max-h-[min(640px,calc(100vh-96px))] md:w-[248px] xl:w-[274px]'} flex shrink-0 flex-col overflow-hidden rounded-xl border border-slate-100 bg-white py-2 shadow-xl`}>
+        <div className={`${compact ? 'flex flex-col' : ''} min-h-0 flex-1 overflow-y-auto`}>
           {categories.map((category) => {
             const Icon = category.icon;
             const isActive = activeCategory?.id === category.id;
@@ -220,7 +220,9 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
                 onMouseEnter={() => setActiveId(category.id)}
                 onFocus={() => setActiveId(category.id)}
                 onClick={(event) => handleCategoryClick(event, category)}
-                className={`flex h-11 min-w-[196px] items-center justify-between px-5 text-[15px] font-semibold transition md:min-w-0 ${
+                className={`flex min-w-[196px] items-center justify-between px-5 text-[15px] font-semibold transition md:min-w-0 ${
+                  compact ? 'min-h-11 flex-1' : 'h-11'
+                } ${
                   isActive ? 'bg-red-50 text-primary' : 'text-slate-800 hover:bg-slate-50 hover:text-primary'
                 }`}
               >
@@ -234,7 +236,7 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
           })}
         </div>
 
-        <div className="mx-3 mt-2 grid gap-2 border-t border-slate-100 pt-3">
+        <div className="mx-3 mt-2 grid shrink-0 gap-2 border-t border-slate-100 pt-3">
             {quickLinks.map((item) => {
               const Icon = item.icon;
               return (

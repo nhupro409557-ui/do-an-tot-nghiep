@@ -114,8 +114,6 @@ def validate_content_payload(payload: ContentPayload) -> dict:
     now_utc = datetime.now(timezone.utc)
     if content_type == "VIDEO" and not video_url:
         raise HTTPException(status_code=422, detail="Video content requires videoUrl.")
-    if content_type == "BANNER" and not (banner_image_url or thumbnail_url):
-        raise HTTPException(status_code=422, detail="Banner content requires bannerImageUrl or thumbnailUrl.")
     if video_url and video_source == "UPLOAD" and not any(str(video_url).lower().split("?")[0].endswith(ext) for ext in (".mp4", ".webm")):
         raise HTTPException(status_code=422, detail="videoUrl must use mp4 or webm.")
     if video_url and video_source == "YOUTUBE" and not is_youtube_url(video_url):
@@ -157,12 +155,16 @@ def content_storefront_cache_key(page: int, limit: int) -> str:
 
 
 async def invalidate_content_storefront_cache(redis: Redis, max_pages: int = 12, page_sizes: tuple[int, ...] = (12, 24, 48)) -> None:
-    tracked_key = "storefront:content:videos:keys"
     try:
-        tracked = await redis.smembers(tracked_key)
-        if tracked:
-            await redis.delete(*list(tracked))
-        await redis.delete(tracked_key)
+        tracked_keys = (
+            "storefront:content:videos:keys",
+            "storefront:content:banners:keys",
+        )
+        for tracked_key in tracked_keys:
+            tracked = await redis.smembers(tracked_key)
+            if tracked:
+                await redis.delete(*list(tracked))
+            await redis.delete(tracked_key)
     except Exception:
         return
 

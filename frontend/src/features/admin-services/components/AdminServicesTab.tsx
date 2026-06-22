@@ -26,19 +26,23 @@ export default function AdminServicesTab(props: AdminServicesTabProps) {
     setServiceFormOpen,
     viewService,
     warrantyDurationOptions,
+    usePermission,
   } = props;
+  const canCreateService = usePermission('product:create');
+  const canUpdateService = usePermission('product:update');
+  const canDeleteService = usePermission('product:delete');
 
   return (
     <AdminPanel
       title="Quản lý dịch vụ đi kèm"
-      action={
+      action={canCreateService ? (
         <button type="button" onClick={() => { resetServiceForm(); setServiceFormOpen(true); }} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-red-700"><Plus className="h-4 w-4" /> Thêm</button>
-      }
+      ) : undefined}
       filters={
         <SearchBox value={query} onChange={setQuery} placeholder="Tìm dịch vụ, mã, nhóm" />
       }
     >
-      {serviceFormOpen && (
+      {serviceFormOpen && (canCreateService || canUpdateService || serviceViewOnly) && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-6 backdrop-blur-sm">
           <div className="w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-2xl">
             <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
@@ -97,10 +101,10 @@ export default function AdminServicesTab(props: AdminServicesTabProps) {
             <td className="px-4 py-3">
               <RowActions
                 onView={() => viewService(service)}
-                onEdit={() => editService(service)}
-                onHide={service.isActive ? () => deactivateService(service) : undefined}
-                onRestore={!service.isActive ? () => reactivateService(service) : undefined}
-                onDelete={() => deleteService(service)}
+                onEdit={canUpdateService ? () => editService(service) : undefined}
+                onHide={canUpdateService && service.isActive ? () => deactivateService(service) : undefined}
+                onRestore={canUpdateService && !service.isActive ? () => reactivateService(service) : undefined}
+                onDelete={canDeleteService ? () => deleteService(service) : undefined}
               />
             </td>
           </tr>

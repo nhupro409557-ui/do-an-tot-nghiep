@@ -41,7 +41,11 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
     setSelectedBrandIds,
     uploadFiles,
     viewBrand,
+    usePermission,
   } = props;
+  const canCreateBrand = usePermission('brand:create');
+  const canUpdateBrand = usePermission('brand:update');
+  const canDeleteBrand = usePermission('brand:delete');
 
   const logoPreviewUrl = resolveImageUrl(brandForm.logoUrl);
 
@@ -55,7 +59,7 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
         </>
       }
     >
-      <CollapsibleSection title={brandViewOnly ? 'Đang xem thông tin thương hiệu' : editingBrandId ? 'Đang chỉnh sửa thương hiệu' : 'Thêm thương hiệu mới'} description="Mở khi cần tạo hoặc cập nhật tên, mã và logo thương hiệu." defaultOpen={false} forceOpen={Boolean(editingBrandId)} forceOpenKey={editingBrandId} closeSignal={brandCloseSignal} onClose={resetBrandForm}>
+      {(canCreateBrand || canUpdateBrand || brandViewOnly) && <CollapsibleSection title={brandViewOnly ? 'Đang xem thông tin thương hiệu' : editingBrandId ? 'Đang chỉnh sửa thương hiệu' : 'Thêm thương hiệu mới'} description="Mở khi cần tạo hoặc cập nhật tên, mã và logo thương hiệu." defaultOpen={false} forceOpen={Boolean(editingBrandId)} forceOpenKey={editingBrandId} closeSignal={brandCloseSignal} onClose={resetBrandForm}>
         <form onSubmit={brandViewOnly ? (event) => event.preventDefault() : handleBrandSubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-6">
           <fieldset disabled={Boolean(brandViewOnly)} className="contents">
           <Input label="Tên thương hiệu" value={brandForm.name} required onChange={(value) => setBrandForm({ ...brandForm, name: value, slug: brandForm.slug || slugifyText(value) })} />
@@ -96,8 +100,8 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
             <SubmitButtons editing={Boolean(editingBrandId)} onCancel={resetBrandForm} />
           )}
         </form>
-      </CollapsibleSection>
-      <CollapsibleSection title="Import thương hiệu hàng loạt" description="Upload CSV có cột: Tên, Mã, Logo URL, Thứ tự. Dữ liệu có dấu phẩy nên đặt trong dấu ngoặc kép." defaultOpen={false}>
+      </CollapsibleSection>}
+      {canCreateBrand && <CollapsibleSection title="Import thương hiệu hàng loạt" description="Upload CSV có cột: Tên, Mã, Logo URL, Thứ tự. Dữ liệu có dấu phẩy nên đặt trong dấu ngoặc kép." defaultOpen={false}>
         <div className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4">
           <Select label="Chế độ import" value={brandImportMode} onChange={setBrandImportMode} options={[['skip', 'Thêm mới, bỏ qua trùng'], ['upsert', 'Thêm mới, cập nhật theo mã']]} />
           <FileInput label="File CSV" accept=".csv,text/csv" onFiles={handleBrandImportFile} />
@@ -136,8 +140,8 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
             ))}
           </div>
         </div>
-      </CollapsibleSection>
-      {selectedBrandIds.length > 0 && <div className="mb-3 flex gap-2"><button type="button" onClick={() => bulkUpdateBrandStatus(false)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Ẩn đã chọn</button><button type="button" onClick={() => bulkUpdateBrandStatus(true)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Khôi phục đã chọn</button></div>}
+      </CollapsibleSection>}
+      {canUpdateBrand && selectedBrandIds.length > 0 && <div className="mb-3 flex gap-2"><button type="button" onClick={() => bulkUpdateBrandStatus(false)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Ẩn đã chọn</button><button type="button" onClick={() => bulkUpdateBrandStatus(true)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Khôi phục đã chọn</button></div>}
       <AdminTable
         headers={['', 'Logo', 'Thương hiệu', 'Mã', 'Landing', 'Sản phẩm', 'Số danh mục', 'Thứ tự', 'Cập nhật', 'Trạng thái', 'Thao tác']}
         currentPage={brandPage}
@@ -148,7 +152,7 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
       >
         {filteredBrands.map((brand: any) => (
           <tr key={brand.id}>
-            <td className="px-4 py-3"><input type="checkbox" checked={selectedBrandIds.includes(brand.id)} onChange={(event) => setSelectedBrandIds((ids: string[]) => event.target.checked ? [...ids, brand.id] : ids.filter((id) => id !== brand.id))} /></td>
+            <td className="px-4 py-3">{canUpdateBrand && <input type="checkbox" checked={selectedBrandIds.includes(brand.id)} onChange={(event) => setSelectedBrandIds((ids: string[]) => event.target.checked ? [...ids, brand.id] : ids.filter((id) => id !== brand.id))} />}</td>
             <td className="px-4 py-3"><BrandLogo brand={brand} /></td>
             <td className="px-4 py-3 font-semibold text-slate-900">{brand.name}</td>
             <td className="px-4 py-3 font-mono text-xs">{brand.code || '-'}</td>
@@ -168,15 +172,15 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
                 >
                   <Eye className="h-4 w-4" />
                 </button>
-                <button
+                {canUpdateBrand && <button
                   type="button"
                   onClick={() => editBrand(brand)}
                   title="Sửa"
                   className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
                 >
                   <Edit2 className="h-4 w-4" />
-                </button>
-                {brand.isActive ? (
+                </button>}
+                {canUpdateBrand && (brand.isActive ? (
                   <button
                     type="button"
                     onClick={() => hideBrand(brand)}
@@ -194,15 +198,15 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
                   >
                     <RotateCcw className="h-4 w-4" />
                   </button>
-                )}
-                <button
+                ))}
+                {canDeleteBrand && <button
                   type="button"
                   onClick={() => confirmDelete(brand.name, () => brandApi.adminDeleteBrand(brand.id))}
                   title="Xóa"
                   className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-red-200 bg-white text-red-600 transition hover:border-red-300 hover:bg-red-50"
                 >
                   <Trash2 className="h-4 w-4" />
-                </button>
+                </button>}
               </div>
             </td>
           </tr>

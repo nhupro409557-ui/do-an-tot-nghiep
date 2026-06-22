@@ -1,5 +1,19 @@
 ﻿# Order Management Notes
 
+## Update 2026-06-18 - Xác nhận xuất từ nhiều kệ
+
+- Một dòng đơn hàng có thể phân bổ số lượng xuất từ nhiều kệ khác nhau.
+- Nhân viên thêm/xóa dòng kệ trong màn chi tiết đơn trước khi chuyển sang `SHIPPED`.
+- Tổng số lượng của các kệ phải bằng số lượng dòng đơn; cùng một dòng không được chọn trùng kệ.
+- Nếu không nhập phân bổ thủ công, hệ thống tiếp tục tự chọn theo FIFO.
+
+## Update 2026-06-18 - Xuất hàng theo lô nội bộ
+
+- Khi đơn chuyển sang `SHIPPED`, tồn kho được trừ đồng thời ở cấp tổng, cấp kệ và cấp lô nội bộ.
+- Trong kệ nhân viên xác nhận, backend tự lấy lô có `received_at` cũ nhất trước; nhân viên không cần thấy hoặc chọn mã lô.
+- Mỗi lần tiêu thụ lô ghi `inventory_lot_movements` loại `SALE`, liên kết với `order_id` và `order_code`.
+- Nếu tồn theo kệ còn nhưng tổng số lượng lô trong kệ không đủ, transaction giao hàng bị rollback để tránh sai lệch dữ liệu.
+
 ## Scope of the 2026-05 upgrade
 - Added richer admin operations for order handling instead of status-only updates.
 - Added order detail data for admin review, printing, staff assignment, shipping tracking, and cancellation handling.

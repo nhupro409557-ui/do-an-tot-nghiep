@@ -343,6 +343,9 @@ async def list_rankings(
                         'id', pv.id::text, 'sku', pv.sku, 'colorName', pv.color_name, 'colorCode', pv.color_code,
                         'storage', pv.storage, 'ram', pv.ram, 'configuration', pv.configuration, 'specs', pv.specs,
                         'imageUrl', pv.image_url, 'images', pv.images, 'price', pv.price, 'salePrice', pv.sale_price,
+                        'flashSaleId', vfs.id::text, 'flashSaleDiscountType', vfs.discount_type,
+                        'flashSaleDiscountValue', vfs.discount_value, 'flashSaleStartsAt', vfs.starts_at,
+                        'flashSaleEndsAt', vfs.ends_at,
                         'stockQuantity', pv.stock_quantity, 'stockState', CASE WHEN pv.stock_quantity > 0 THEN 'IN_STOCK' ELSE 'OUT_OF_STOCK' END
                     )
                 ) FILTER (WHERE pv.id IS NOT NULL),
@@ -398,6 +401,18 @@ async def list_rankings(
             SELECT id, discount_type, discount_value, starts_at, ends_at
             FROM flash_sales
             WHERE product_id = p.id
+              AND variant_id = pv.id
+              AND status = 'ACTIVE'
+              AND (starts_at IS NULL OR starts_at <= NOW())
+              AND (ends_at IS NULL OR ends_at >= NOW())
+            ORDER BY updated_at DESC
+            LIMIT 1
+        ) vfs ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT id, discount_type, discount_value, starts_at, ends_at
+            FROM flash_sales
+            WHERE product_id = p.id
+              AND variant_id IS NULL
               AND status = 'ACTIVE'
               AND (starts_at IS NULL OR starts_at <= NOW())
               AND (ends_at IS NULL OR ends_at >= NOW())

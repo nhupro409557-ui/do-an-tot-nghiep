@@ -14,24 +14,24 @@ export function CategoryTableRow({
 }: {
   category: any;
   level: number;
-  onEdit: () => void;
+  onEdit?: () => void;
   onView?: () => void;
-  onHide: () => void;
-  onDelete: () => void;
+  onHide?: () => void;
+  onDelete?: () => void;
   onRestore?: () => void;
-  onReorder: (draggedId: string, targetId: string) => void;
+  onReorder?: (draggedId: string, targetId: string) => void;
 }) {
   return (
     <tr
-      draggable
-      onDragStart={(event) => event.dataTransfer.setData('categoryId', category.id)}
-      onDragOver={(event) => event.preventDefault()}
+      draggable={Boolean(onReorder)}
+      onDragStart={(event) => onReorder && event.dataTransfer.setData('categoryId', category.id)}
+      onDragOver={(event) => onReorder && event.preventDefault()}
       onDrop={(event) =>
-        onReorder(event.dataTransfer.getData('categoryId'), category.id)
+        onReorder?.(event.dataTransfer.getData('categoryId'), category.id)
       }
     >
       <td className="px-4 py-3 text-slate-400">
-        <GripVertical className="h-4 w-4" />
+        {onReorder && <GripVertical className="h-4 w-4" />}
       </td>
       <td className="px-4 py-3">
         {category.iconUrl ? (
@@ -98,15 +98,15 @@ export function CategoryTableRow({
               <Eye className="h-4 w-4" />
             </button>
           )}
-          <button
+          {onEdit && <button
             type="button"
             onClick={onEdit}
             title="Sửa"
             className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
           >
             <Edit2 className="h-4 w-4" />
-          </button>
-          {category.isActive ? (
+          </button>}
+          {onHide && category.isActive ? (
             <button
               type="button"
               onClick={onHide}
@@ -127,14 +127,14 @@ export function CategoryTableRow({
               </button>
             )
           )}
-          <button
+          {onDelete && <button
             type="button"
             onClick={onDelete}
             title="Xóa"
             className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-red-200 bg-white text-red-600 transition hover:border-red-300 hover:bg-red-50"
           >
             <Trash2 className="h-4 w-4" />
-          </button>
+          </button>}
         </div>
       </td>
     </tr>

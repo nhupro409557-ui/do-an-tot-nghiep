@@ -14,6 +14,18 @@ type UseAdminCategoriesLogicParams = {
   setCategories: React.Dispatch<React.SetStateAction<any[]>>;
 };
 
+const defaultInventoryPolicy = {
+  inheritImeiPolicy: true,
+  trackImei: false,
+  inheritSerialPolicy: true,
+  trackSerialNumber: false,
+  inheritStorageDimensions: true,
+  packageLengthCm: 16,
+  packageWidthCm: 9,
+  packageHeightCm: 6,
+  packingRatio: 0.75,
+};
+
 export function useAdminCategoriesLogic({
   query,
   categories,
@@ -31,7 +43,7 @@ export function useAdminCategoriesLogic({
     status: 'ACTIVE',
     specFields: [] as SpecField[],
     filterConfig: [] as CategoryFilterField[],
-    inventoryPolicy: { inheritImeiPolicy: true, trackImei: false, inheritSerialPolicy: true, trackSerialNumber: false },
+    inventoryPolicy: defaultInventoryPolicy,
     warrantyPolicy: { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 },
     version: null as number | null,
   });
@@ -41,6 +53,7 @@ export function useAdminCategoriesLogic({
   const [categoryMetrics, setCategoryMetrics] = useState<any>({});
   const [categoryAuditLogs, setCategoryAuditLogs] = useState<any[]>([]);
   const [categoryMigrationJobs, setCategoryMigrationJobs] = useState<any[]>([]);
+  const [identifierPolicyMigrations, setIdentifierPolicyMigrations] = useState<any[]>([]);
   const [categoryPanelBusy, setCategoryPanelBusy] = useState(false);
   const [categoryCloseSignal, setCategoryCloseSignal] = useState(0);
   const [categoryStatusFilter, setCategoryStatusFilter] = useState('all');
@@ -109,7 +122,8 @@ export function useAdminCategoriesLogic({
     setCategorySlugStatus('idle');
     setCategoryAuditLogs([]);
     setCategoryMigrationJobs([]);
-    setCategoryForm({ name: '', slug: '', icon: 'phone', iconUrl: '', bannerUrl: '', parentId: '', order: 0, isActive: true, status: 'ACTIVE', specFields: [] as SpecField[], filterConfig: [] as CategoryFilterField[], inventoryPolicy: { inheritImeiPolicy: true, trackImei: false, inheritSerialPolicy: true, trackSerialNumber: false }, warrantyPolicy: { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 }, version: null });
+    setIdentifierPolicyMigrations([]);
+    setCategoryForm({ name: '', slug: '', icon: 'phone', iconUrl: '', bannerUrl: '', parentId: '', order: 0, isActive: true, status: 'ACTIVE', specFields: [] as SpecField[], filterConfig: [] as CategoryFilterField[], inventoryPolicy: defaultInventoryPolicy, warrantyPolicy: { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 }, version: null });
     setCategoryCloseSignal((value) => value + 1);
   }
 
@@ -152,7 +166,32 @@ export function useAdminCategoriesLogic({
       else await categoryApi.adminCreateCategory(payload);
     } catch (error: any) {
       const message = error instanceof Error ? error.message : '';
-      if (message.includes('SPEC_TYPE_CHANGE_REQUIRES_CONFIRMATION') || message.includes('Thay đổi kiểu thông số')) {
+      if (message.includes('IDENTIFIER_POLICY_MIGRATION_REQUIRED') && editingCategoryId) {
+        let detail: any = null;
+        try {
+          detail = JSON.parse(message);
+        } catch {
+          detail = null;
+        }
+        const previews = Array.isArray(detail?.previews) ? detail.previews : [];
+        const summary = previews
+          .map((item: any) => `${item.identifierType}: ${item.requiredIdentifiers} mã cho ${item.affectedProducts} sản phẩm`)
+          .join('\n');
+        if (!window.confirm(`Tồn kho cũ cần được bổ sung mã trước khi bật chính sách:\n${summary}\n\nTạo tác vụ bổ sung ngay?`)) return;
+        try {
+          for (const preview of previews) {
+            await categoryApi.adminCreateIdentifierPolicyMigration(editingCategoryId, {
+              identifierType: preview.identifierType,
+              targetInventoryPolicy: detail.targetInventoryPolicy || payload.inventoryPolicy,
+            });
+          }
+          await refreshCategoryWorkspace(editingCategoryId);
+          notifyAdmin('Đã tạo tác vụ bổ sung IMEI/Serial. Chính sách sẽ được bật sau khi quét đủ mã.', 'info');
+        } catch (migrationError) {
+          window.alert(`Không thể tạo tác vụ bổ sung mã:\n${categorySubmitErrorMessage(migrationError)}`);
+        }
+        return;
+      } else if (message.includes('SPEC_TYPE_CHANGE_REQUIRES_CONFIRMATION') || message.includes('Thay đổi kiểu thông số')) {
         if (!window.confirm('Thay đổi kiểu dữ liệu thông số có thể ảnh hưởng dữ liệu sản phẩm hiện tại. Tiếp tục và tạo phiên bản thông số mới?')) return;
         try {
           if (editingCategoryId) await categoryApi.adminUpdateCategory(editingCategoryId, { ...payload, allowSpecTypeMigration: true });
@@ -199,7 +238,7 @@ export function useAdminCategoriesLogic({
       status: category.status || (category.isActive === false ? 'INACTIVE' : 'ACTIVE'),
       specFields: category.ownSpecFields || category.specFields || [],
       filterConfig: category.ownFilterConfig || category.filterConfig || [],
-      inventoryPolicy: category.inventoryPolicy || { inheritImeiPolicy: true, trackImei: false },
+      inventoryPolicy: { ...defaultInventoryPolicy, ...(category.inventoryPolicy || {}) },
       warrantyPolicy: category.warrantyPolicy || { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 },
       version: Number(category.version || 1),
     });
@@ -231,7 +270,7 @@ export function useAdminCategoriesLogic({
       status: 'INACTIVE',
       specFields: category.ownSpecFields || category.specFields || [],
       filterConfig: category.ownFilterConfig || category.filterConfig || [],
-      inventoryPolicy: category.inventoryPolicy || { inheritImeiPolicy: true, trackImei: false },
+      inventoryPolicy: { ...defaultInventoryPolicy, ...(category.inventoryPolicy || {}) },
       warrantyPolicy: category.warrantyPolicy || { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 },
       version: Number(category.version || 1),
     });
@@ -278,16 +317,18 @@ export function useAdminCategoriesLogic({
   async function loadCategoryWorkspace(categoryId?: string | null) {
     setCategoryPanelBusy(true);
     try {
-      const [categoryData, metricsData, auditData, migrationData] = await Promise.all([
+      const [categoryData, metricsData, auditData, migrationData, identifierMigrationData] = await Promise.all([
         categoryApi.adminListCategories().catch(() => categoryApi.listCategories()),
         categoryApi.adminCategoryMetrics().catch(() => ({})),
         categoryId ? categoryApi.adminCategoryAuditLogs(categoryId).catch(() => []) : Promise.resolve([]),
         categoryId ? categoryApi.adminCategoryMigrationJobs(categoryId).catch(() => []) : Promise.resolve([]),
+        categoryId ? categoryApi.adminIdentifierPolicyMigrations(categoryId).catch(() => []) : Promise.resolve([]),
       ]);
       setCategories(categoryData);
       setCategoryMetrics(metricsData);
       setCategoryAuditLogs(auditData);
       setCategoryMigrationJobs(migrationData);
+      setIdentifierPolicyMigrations(identifierMigrationData);
     } finally {
       setCategoryPanelBusy(false);
     }
@@ -319,6 +360,25 @@ export function useAdminCategoriesLogic({
     setCategoryForm((prev) => ({ ...prev, filterConfig: prev.filterConfig.map((item, i) => (i === index ? { ...item, ...patch } : item)) }));
   }
 
+  async function scanIdentifierPolicyMigration(migrationId: string, lineId: string, identifiers: string[]) {
+    await categoryApi.adminScanIdentifierPolicyMigration(migrationId, { lineId, identifiers });
+    await refreshCategoryWorkspace(editingCategoryId);
+  }
+
+  async function completeIdentifierPolicyMigration(migrationId: string) {
+    await categoryApi.adminCompleteIdentifierPolicyMigration(migrationId);
+    await refreshCategoryWorkspace(editingCategoryId);
+    notifyAdmin('Đã hoàn tất bổ sung mã và kích hoạt chính sách danh mục.');
+  }
+
+  async function cancelIdentifierPolicyMigration(migrationId: string) {
+    const reason = window.prompt('Nhập lý do hủy tác vụ bổ sung mã:')?.trim();
+    if (!reason) return;
+    await categoryApi.adminCancelIdentifierPolicyMigration(migrationId, reason);
+    await refreshCategoryWorkspace(editingCategoryId);
+    notifyAdmin('Đã hủy tác vụ bổ sung mã.', 'info');
+  }
+
   return {
     categoryForm,
     setCategoryForm,
@@ -334,6 +394,8 @@ export function useAdminCategoriesLogic({
     setCategoryAuditLogs,
     categoryMigrationJobs,
     setCategoryMigrationJobs,
+    identifierPolicyMigrations,
+    setIdentifierPolicyMigrations,
     categoryPanelBusy,
     setCategoryPanelBusy,
     categoryCloseSignal,
@@ -364,5 +426,8 @@ export function useAdminCategoriesLogic({
     patchSpecField,
     addCategoryFilter,
     patchCategoryFilter,
+    scanIdentifierPolicyMigration,
+    completeIdentifierPolicyMigration,
+    cancelIdentifierPolicyMigration,
   };
 }

@@ -1,6 +1,5 @@
-import React from 'react';
-import { AdminPanel, AdminTable, SearchBox } from '../../admin-shell/components/AdminDashboardParts';
 import { Eye } from 'lucide-react';
+import { AdminPanel, AdminTable, SearchBox } from '../../admin-shell/components/AdminDashboardParts';
 
 type AdminCustomersTabProps = Record<string, any>;
 
@@ -21,13 +20,11 @@ export default function AdminCustomersTab(props: AdminCustomersTabProps) {
     setQuery,
     setSelectedCustomerIds,
     updateUserAccess,
-    usePermission,
   } = props;
-  const canManageUsers = usePermission('sys:manage_users');
 
   return (
     <AdminPanel
-      title={canManageUsers ? 'Quản lý khách hàng và phân quyền' : 'Tra cứu khách hàng'}
+      title={(canManageCustomerAccess || canManageCustomerProfile) ? 'Quản lý tài khoản khách hàng' : 'Tra cứu khách hàng'}
       filters={<SearchBox value={query} onChange={setQuery} placeholder="Tìm khách hàng, email, hạng" />}
     >
       {(canManageCustomerAccess || canManageCustomerProfile) && (
@@ -38,7 +35,7 @@ export default function AdminCustomersTab(props: AdminCustomersTabProps) {
         </div>
       )}
       <AdminTable
-        headers={['Chọn', 'Khách hàng', 'Email', 'Vai trò/Hạng', 'Điểm', 'Số đơn', 'Đã chi tiêu', 'Trạng thái', 'Chi tiết']}
+        headers={['Chọn', 'Khách hàng', 'Email', 'Hạng', 'Điểm', 'Số đơn', 'Đã chi tiêu', 'Trạng thái', 'Chi tiết']}
         currentPage={customerPage}
         totalPages={Math.max(1, Math.ceil(customerTotal / 20))}
         onPageChange={setCustomerPage}
@@ -54,9 +51,7 @@ export default function AdminCustomersTab(props: AdminCustomersTabProps) {
             </td>
             <td className="px-4 py-3 font-semibold text-slate-900">{item.fullName || item.email}</td>
             <td className="px-4 py-3">{item.email}</td>
-            <td className="px-4 py-3">
-              {item.role === 'SUPER_ADMIN' ? 'Super Admin' : item.role === 'STAFF_ADMIN' ? 'Staff Admin' : item.tier}
-            </td>
+            <td className="px-4 py-3">{item.tier}</td>
             <td className="px-4 py-3">{item.points ?? 0}</td>
             <td className="px-4 py-3">{item.orderCount || 0} đơn</td>
             <td className="px-4 py-3">{currency.format(Number(item.totalSpent || 0))}</td>

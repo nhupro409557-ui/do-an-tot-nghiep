@@ -651,6 +651,7 @@ class CreateOrderUseCase:
             order_id = uuid4()
             order_code = f"EC{uuid4().hex[:10].upper()}"
 
+            reservation_lines: dict[tuple[str, UUID], dict] = {}
             for item in request.items:
                 if item.variant_id:
                     inventory_row = await commerce_repo.get_variant_inventory_for_update(
@@ -661,43 +662,39 @@ class CreateOrderUseCase:
                     if not inventory_row:
                         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product variant not found.")
                     old_quantity = int(inventory_row["stock_quantity"] or 0)
-                    new_quantity = old_quantity - item.quantity
-                    if new_quantity < 0:
-                        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Not enough stock for {item.product_name}.")
-                    await commerce_repo.update_variant_stock(self._session, variant_id=item.variant_id, quantity=new_quantity)
-                    await commerce_repo.insert_inventory_adjustment(
+                    reserved_quantity = await commerce_repo.get_active_reserved_quantity(
                         self._session,
-                        product_id=item.product_id or inventory_row["product_id"],
+                        product_id=None,
                         variant_id=item.variant_id,
-                        old_quantity=old_quantity,
-                        new_quantity=new_quantity,
-                        delta=-item.quantity,
-                        transaction_type="SALE",
-                        reference_code=order_code,
-                        reason="ORDER_CREATED",
-                        note=f"Reserve stock during checkout for {item.product_name}.",
                     )
+                    reservation_key = ("variant", item.variant_id)
+                    already_requested = int(reservation_lines.get(reservation_key, {}).get("quantity", 0))
+                    if old_quantity - reserved_quantity - already_requested - item.quantity < 0:
+                        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Not enough stock for {item.product_name}.")
+                    reservation_lines[reservation_key] = {
+                        "product_id": item.product_id or inventory_row["product_id"],
+                        "variant_id": item.variant_id,
+                        "quantity": already_requested + item.quantity,
+                    }
                 elif item.product_id:
                     inventory_row = await commerce_repo.get_product_inventory_for_update(self._session, item.product_id)
                     if not inventory_row:
                         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
                     old_quantity = int(inventory_row["stock_quantity"] or 0)
-                    new_quantity = old_quantity - item.quantity
-                    if new_quantity < 0:
-                        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Not enough stock for {item.product_name}.")
-                    await commerce_repo.update_product_stock(self._session, product_id=item.product_id, quantity=new_quantity)
-                    await commerce_repo.insert_inventory_adjustment(
+                    reserved_quantity = await commerce_repo.get_active_reserved_quantity(
                         self._session,
                         product_id=item.product_id,
                         variant_id=None,
-                        old_quantity=old_quantity,
-                        new_quantity=new_quantity,
-                        delta=-item.quantity,
-                        transaction_type="SALE",
-                        reference_code=order_code,
-                        reason="ORDER_CREATED",
-                        note=f"Reserve stock during checkout for {item.product_name}.",
                     )
+                    reservation_key = ("product", item.product_id)
+                    already_requested = int(reservation_lines.get(reservation_key, {}).get("quantity", 0))
+                    if old_quantity - reserved_quantity - already_requested - item.quantity < 0:
+                        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Not enough stock for {item.product_name}.")
+                    reservation_lines[reservation_key] = {
+                        "product_id": item.product_id,
+                        "variant_id": None,
+                        "quantity": already_requested + item.quantity,
+                    }
 
             if voucher is not None:
                 claimed_voucher = await voucher_service.mark_voucher_used(
@@ -731,6 +728,16 @@ class CreateOrderUseCase:
                 shipping_address=request.shipping.shipping_address,
             )
             commerce_repo.save_model(self._session, order)
+            await self._session.flush()
+            for line in reservation_lines.values():
+                await commerce_repo.create_inventory_reservation(
+                    self._session,
+                    order_id=order.id,
+                    order_code=order.order_code,
+                    product_id=line["product_id"] if line["variant_id"] is None else None,
+                    variant_id=line["variant_id"],
+                    quantity=line["quantity"],
+                )
             commerce_repo.save_model(
                 self._session,
                 OrderHistoryLog(
@@ -839,6 +846,7 @@ class CompleteOrderUseCase:
         tracking_code: str | None = None,
         refund_payment: bool = False,
         changed_by: str | None = None,
+        issue_allocations: list | None = None,
     ) -> None:
         async with self._session.begin():
             order = await commerce_repo.get_order_for_update(self._session, order_id)
@@ -875,6 +883,7 @@ class CompleteOrderUseCase:
                 if status_value in {"PAID", "COMPLETED"}:
                     order.payment_status = "PAID"
                 if status_value == "SHIPPED":
+                    await self._ship_order_items(order, issue_allocations=issue_allocations or [])
                     shipment = await self._shipping_gateway.register_shipment(
                         provider=order.shipping_provider,
                         order_code=order.order_code,
@@ -891,15 +900,17 @@ class CompleteOrderUseCase:
                 if status_value == "CANCELLED":
                     order.cancelled_at = now
                     order.cancellation_reason = (cancellation_reason or order.cancellation_reason or "").strip() or None
-                    await self._restock_order_items(order)
+                    await self._release_or_restock_unshipped_order(order, reservation_status="CANCELLED")
                     refund_payment = refund_payment or order.payment_method != "COD"
                 if status_value == "REFUNDED":
                     order.refunded_at = now
+                    if previous_status not in {"SHIPPED", "RETURNING", "RETURNED", "COMPLETED"}:
+                        await self._release_or_restock_unshipped_order(order, reservation_status="RELEASED")
                     refund_payment = True
                 if status_value == "PAYMENT_FAILED":
                     order.cancelled_at = now
                     order.payment_status = "FAILED"
-                    await self._restock_order_items(order)
+                    await self._release_or_restock_unshipped_order(order, reservation_status="EXPIRED")
                 if status_value == "RETURNED":
                     await self._restock_order_items(order)
 
@@ -969,6 +980,7 @@ class CompleteOrderUseCase:
             tracking_code=request.tracking_code,
             refund_payment=request.refund_payment,
             changed_by=request.changed_by,
+            issue_allocations=request.issue_allocations,
         )
 
     async def expire_pending_orders(self, *, online_timeout_minutes: int = 15, cod_timeout_hours: int = 24) -> int:
@@ -1012,6 +1024,191 @@ class CompleteOrderUseCase:
                 commerce_repo.save_model(self._session, transaction)
         order.payment_status = "REFUNDED"
         order.refunded_at = order.refunded_at or now
+
+    async def _release_or_restock_unshipped_order(self, order: Order, *, reservation_status: str) -> None:
+        if await commerce_repo.order_has_inventory_adjustment_reason(
+            self._session,
+            order_code=order.order_code,
+            reason="ORDER_CREATED",
+        ):
+            await self._restock_order_items(order)
+            return
+        await commerce_repo.close_active_order_reservations(
+            self._session,
+            order_id=order.id,
+            status=reservation_status,
+        )
+
+    async def _ship_order_items(self, order: Order, *, issue_allocations: list | None = None) -> None:
+        if await commerce_repo.order_has_inventory_adjustment_reason(
+            self._session,
+            order_code=order.order_code,
+            reason="ORDER_SHIPPED",
+        ):
+            return
+        if await commerce_repo.order_has_inventory_adjustment_reason(
+            self._session,
+            order_code=order.order_code,
+            reason="ORDER_CREATED",
+        ):
+            await commerce_repo.close_active_order_reservations(
+                self._session,
+                order_id=order.id,
+                status="CONSUMED",
+            )
+            return
+
+        allocations_by_item_id: dict[str, list[dict]] = {}
+        for allocation in issue_allocations or []:
+            if isinstance(allocation, dict):
+                order_item_id_value = allocation.get("order_item_id") or allocation.get("orderItemId")
+                location_id_value = allocation.get("location_id") or allocation.get("locationId")
+                quantity_value = allocation.get("quantity")
+            else:
+                order_item_id_value = getattr(allocation, "order_item_id", None)
+                location_id_value = getattr(allocation, "location_id", None)
+                quantity_value = getattr(allocation, "quantity", None)
+            order_item_id = str(order_item_id_value or "")
+            if not order_item_id:
+                continue
+            allocations_by_item_id.setdefault(order_item_id, []).append(
+                {
+                    "location_id": location_id_value,
+                    "quantity": int(quantity_value or 0),
+                }
+            )
+
+        for item in await commerce_repo.list_restock_items(self._session, order_id=order.id, order_code=order.order_code):
+            quantity = int(item["quantity"] or 0)
+            variant_id = item["order_variant_id"] or item["variant_id"]
+            manual_allocations = allocations_by_item_id.get(str(item["id"]), [])
+            if manual_allocations and sum(int(allocation.get("quantity") or 0) for allocation in manual_allocations) != quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Dòng {item['product_name']}: tổng số lượng xác nhận kệ phải bằng số lượng cần xuất.",
+                )
+            if manual_allocations:
+                location_ids = [str(allocation.get("location_id") or "") for allocation in manual_allocations]
+                if any(not location_id for location_id in location_ids) or len(set(location_ids)) != len(location_ids):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Dòng {item['product_name']}: kệ xác nhận không hợp lệ hoặc bị trùng.",
+                    )
+            if variant_id:
+                inventory_row = await commerce_repo.get_variant_stock_for_update(self._session, variant_id)
+                if not inventory_row:
+                    continue
+                old_quantity = int(inventory_row["stock_quantity"] or 0)
+                new_quantity = old_quantity - quantity
+                if new_quantity < 0:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Not enough stock for {item['product_name']}.")
+                await commerce_repo.update_variant_stock(self._session, variant_id=variant_id, quantity=new_quantity)
+                try:
+                    if manual_allocations:
+                        allocations = await commerce_repo.deduct_inventory_levels_from_locations(
+                            self._session,
+                            product_id=inventory_row["product_id"],
+                            variant_id=variant_id,
+                            location_quantities=manual_allocations,
+                        )
+                    else:
+                        allocations = await commerce_repo.deduct_inventory_levels_fifo(
+                            self._session,
+                            product_id=inventory_row["product_id"],
+                            variant_id=variant_id,
+                            quantity=quantity,
+                        )
+                except ValueError as exc:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+                for allocation in allocations:
+                    try:
+                        await commerce_repo.consume_inventory_lots_fifo(
+                            self._session,
+                            product_id=inventory_row["product_id"],
+                            variant_id=variant_id,
+                            location_id=allocation["locationId"],
+                            quantity=int(allocation["quantity"]),
+                            reference_code=order.order_code,
+                            order_id=order.id,
+                        )
+                    except ValueError as exc:
+                        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+                    await commerce_repo.insert_inventory_adjustment(
+                        self._session,
+                        product_id=inventory_row["product_id"],
+                        variant_id=variant_id,
+                        old_quantity=int(allocation["oldQuantity"]),
+                        new_quantity=int(allocation["newQuantity"]),
+                        delta=-int(allocation["quantity"]),
+                        transaction_type="SALE",
+                        reference_code=order.order_code,
+                        reason="ORDER_SHIPPED",
+                        note=f"Xuất kho khi giao đơn hàng cho {item['product_name']}.",
+                        location_code=allocation.get("locationCode"),
+                        location_name=allocation.get("locationName"),
+                    )
+                continue
+
+            if not item["product_id"]:
+                continue
+            inventory_row = await commerce_repo.get_product_stock_for_update(self._session, item["product_id"])
+            if not inventory_row:
+                continue
+            old_quantity = int(inventory_row["stock_quantity"] or 0)
+            new_quantity = old_quantity - quantity
+            if new_quantity < 0:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Not enough stock for {item['product_name']}.")
+            await commerce_repo.update_product_stock(self._session, product_id=item["product_id"], quantity=new_quantity)
+            try:
+                if manual_allocations:
+                    allocations = await commerce_repo.deduct_inventory_levels_from_locations(
+                        self._session,
+                        product_id=item["product_id"],
+                        variant_id=None,
+                        location_quantities=manual_allocations,
+                    )
+                else:
+                    allocations = await commerce_repo.deduct_inventory_levels_fifo(
+                        self._session,
+                        product_id=item["product_id"],
+                        variant_id=None,
+                        quantity=quantity,
+                    )
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            for allocation in allocations:
+                try:
+                    await commerce_repo.consume_inventory_lots_fifo(
+                        self._session,
+                        product_id=item["product_id"],
+                        variant_id=None,
+                        location_id=allocation["locationId"],
+                        quantity=int(allocation["quantity"]),
+                        reference_code=order.order_code,
+                        order_id=order.id,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+                await commerce_repo.insert_inventory_adjustment(
+                    self._session,
+                    product_id=item["product_id"],
+                    variant_id=None,
+                    old_quantity=int(allocation["oldQuantity"]),
+                    new_quantity=int(allocation["newQuantity"]),
+                    delta=-int(allocation["quantity"]),
+                    transaction_type="SALE",
+                    reference_code=order.order_code,
+                    reason="ORDER_SHIPPED",
+                    note=f"Xuất kho khi giao đơn hàng cho {item['product_name']}.",
+                    location_code=allocation.get("locationCode"),
+                    location_name=allocation.get("locationName"),
+                )
+
+        await commerce_repo.close_active_order_reservations(
+            self._session,
+            order_id=order.id,
+            status="CONSUMED",
+        )
 
     async def _restock_order_items(self, order: Order) -> None:
         for item in await commerce_repo.list_restock_items(self._session, order_id=order.id, order_code=order.order_code):

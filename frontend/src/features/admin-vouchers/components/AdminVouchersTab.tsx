@@ -19,14 +19,18 @@ export default function AdminVouchersTab(props: AdminVouchersTabProps) {
     setVoucherForm,
     voucherCloseSignal,
     voucherForm,
+    usePermission,
   } = props;
+  const canCreateVoucher = usePermission('voucher:create');
+  const canUpdateVoucher = usePermission('voucher:update');
+  const canDeleteVoucher = usePermission('voucher:delete');
 
   return (
     <AdminPanel 
       title="Quản lý voucher" 
       filters={<SearchBox value={query} onChange={setQuery} placeholder="Tìm mã voucher, loại, trạng thái" />}
     >
-      <CollapsibleSection title={editingVoucherId ? 'Đang chỉnh sửa voucher' : 'Thêm voucher mới'} description="Mở khi cần thiết lập mã giảm giá, điều kiện đơn tối thiểu và giới hạn sử dụng." defaultOpen={false} forceOpen={Boolean(editingVoucherId)} forceOpenKey={editingVoucherId} closeSignal={voucherCloseSignal} onClose={resetVoucherForm}>
+      {(canCreateVoucher || canUpdateVoucher) && <CollapsibleSection title={editingVoucherId ? 'Đang chỉnh sửa voucher' : 'Thêm voucher mới'} description="Mở khi cần thiết lập mã giảm giá, điều kiện đơn tối thiểu và giới hạn sử dụng." defaultOpen={false} forceOpen={Boolean(editingVoucherId)} forceOpenKey={editingVoucherId} closeSignal={voucherCloseSignal} onClose={resetVoucherForm}>
         <form onSubmit={handleVoucherSubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-6">
           <Input label="Mã voucher" value={voucherForm.code} required onChange={(value) => setVoucherForm({ ...voucherForm, code: value.toUpperCase() })} />
           <Select label="Mục tiêu" value={voucherForm.campaignType} onChange={(value) => setVoucherForm({ ...voucherForm, campaignType: value })} options={voucherCampaignOptions} />
@@ -71,7 +75,7 @@ export default function AdminVouchersTab(props: AdminVouchersTabProps) {
           <textarea className="min-h-20 rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-red-500 md:col-span-5" placeholder="Ghi chú nội bộ: lý do tạo, khách hàng được cấp, kênh gửi..." value={voucherForm.internalNote} onChange={(event) => setVoucherForm({ ...voucherForm, internalNote: event.target.value })} />
           <SubmitButtons editing={Boolean(editingVoucherId)} onCancel={resetVoucherForm} />
         </form>
-      </CollapsibleSection>
+      </CollapsibleSection>}
       <AdminTable headers={['Mã', 'Chiến dịch', 'Đối tượng', 'Giá trị', 'Điều kiện', 'Lượt dùng', 'Trạng thái', 'Thao tác']}>
         {filteredVouchers.map((voucher: any) => (
           <tr key={voucher.id}>
@@ -82,7 +86,7 @@ export default function AdminVouchersTab(props: AdminVouchersTabProps) {
             <td className="px-4 py-3"><VoucherConditions voucher={voucher} /></td>
             <td className="px-4 py-3">{voucher.usedCount || 0}/{voucher.usageLimit || '∞'}<div className="text-xs text-slate-500">/user: {voucher.perUserLimit || '∞'}</div>{voucher.totalBudgetCap ? <div className="text-xs text-slate-500">NS: {currency.format(Number(voucher.totalDiscountUsed || 0))}/{currency.format(Number(voucher.totalBudgetCap || 0))}</div> : null}</td>
             <td className="px-4 py-3"><AdminBadge tone={voucher.status === 'ACTIVE' ? 'green' : 'slate'}>{voucher.status === 'ACTIVE' ? 'Đang chạy' : 'Tạm dừng'}</AdminBadge></td>
-            <td className="px-4 py-3"><RowActions onEdit={() => editVoucher(voucher)} onDelete={() => confirmDelete(voucher.code, () => adminVouchersApi.adminDeleteVoucher(voucher.id))} /></td>
+            <td className="px-4 py-3"><RowActions onEdit={canUpdateVoucher ? () => editVoucher(voucher) : undefined} onDelete={canDeleteVoucher ? () => confirmDelete(voucher.code, () => adminVouchersApi.adminDeleteVoucher(voucher.id)) : undefined} /></td>
           </tr>
         ))}
       </AdminTable>

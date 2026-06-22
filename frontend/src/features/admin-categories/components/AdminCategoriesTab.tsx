@@ -6,6 +6,101 @@ import { CategoryTableRow } from './CategoryTableRow';
 
 type AdminCategoriesTabProps = Record<string, any>;
 
+function IdentifierPolicyMigrationPanel({ migrations, onScan, onComplete, onCancel }: any) {
+  const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+  const [error, setError] = React.useState('');
+  const [busyKey, setBusyKey] = React.useState('');
+  const activeMigrations = (migrations || []).filter((item: any) => ['PENDING', 'IN_PROGRESS'].includes(item.status));
+  if (activeMigrations.length === 0) return null;
+
+  async function submitLine(migration: any, line: any) {
+    const key = `${migration.id}-${line.id}`;
+    const identifiers = String(drafts[key] || '').split(/[\s,;]+/).map((value) => value.trim()).filter(Boolean);
+    if (identifiers.length === 0) {
+      setError('Hãy quét hoặc dán ít nhất một mã.');
+      return;
+    }
+    setError('');
+    setBusyKey(key);
+    try {
+      await onScan(migration.id, line.id, identifiers);
+      setDrafts((current) => ({ ...current, [key]: '' }));
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : 'Không thể lưu danh sách mã.');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function completeMigration(migrationId: string) {
+    setError('');
+    setBusyKey(`complete-${migrationId}`);
+    try {
+      await onComplete(migrationId);
+    } catch (completeError) {
+      setError(completeError instanceof Error ? completeError.message : 'Không thể hoàn tất tác vụ.');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function cancelMigration(migrationId: string) {
+    setError('');
+    try {
+      await onCancel(migrationId);
+    } catch (cancelError) {
+      setError(cancelError instanceof Error ? cancelError.message : 'Không thể hủy tác vụ.');
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 md:col-span-5">
+      <div className="mb-2 text-sm font-bold text-amber-900">Tác vụ bổ sung IMEI/Serial cho tồn kho cũ</div>
+      <p className="mb-3 text-xs font-medium text-amber-800">Chính sách mới chỉ được kích hoạt sau khi tất cả dòng tồn kho đã có đủ mã hợp lệ.</p>
+      {error && <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</div>}
+      <div className="space-y-3">
+        {activeMigrations.map((migration: any) => {
+          const complete = Number(migration.stagedIdentifierCount || 0) === Number(migration.requiredIdentifierCount || 0);
+          return (
+            <div key={migration.id} className="rounded-md border border-amber-200 bg-white p-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-bold text-slate-800">{migration.identifierType}</div>
+                  <div className="text-xs font-semibold text-slate-500">Đã quét {migration.stagedIdentifierCount}/{migration.requiredIdentifierCount} mã</div>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" disabled={!complete || busyKey === `complete-${migration.id}`} onClick={() => completeMigration(migration.id)} className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{busyKey === `complete-${migration.id}` ? 'Đang hoàn tất...' : 'Hoàn tất và kích hoạt'}</button>
+                  <button type="button" onClick={() => cancelMigration(migration.id)} className="rounded-md border border-red-200 px-3 py-2 text-xs font-bold text-red-600">Hủy tác vụ</button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {(migration.lines || []).map((line: any) => {
+                  const remaining = Number(line.requiredIdentifierCount || 0) - Number(line.stagedIdentifierCount || 0);
+                  const key = `${migration.id}-${line.id}`;
+                  return (
+                    <div key={line.id} className="grid gap-2 rounded-md bg-slate-50 p-2 lg:grid-cols-[minmax(220px,1fr)_120px_minmax(280px,1.5fr)_90px] lg:items-end">
+                      <div>
+                        <div className="text-sm font-bold text-slate-700">{line.productName}</div>
+                        <div className="text-xs font-medium text-slate-500">{line.variantName || 'Sản phẩm không có biến thể'}</div>
+                      </div>
+                      <div className="text-xs font-bold text-slate-600">Còn thiếu: {remaining}</div>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-bold text-slate-500">Quét hoặc dán danh sách mã</span>
+                        <textarea disabled={remaining <= 0} value={drafts[key] || ''} onChange={(event) => setDrafts((current) => ({ ...current, [key]: event.target.value }))} className="min-h-16 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 disabled:bg-slate-100" placeholder="Mỗi mã một dòng hoặc cách nhau bằng dấu phẩy" />
+                      </label>
+                      <button type="button" disabled={remaining <= 0 || busyKey === key} onClick={() => submitLine(migration, line)} className="h-10 rounded-md bg-indigo-600 px-3 text-xs font-bold text-white disabled:opacity-40">{busyKey === key ? 'Đang lưu...' : 'Lưu mã'}</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
   const {
     addCategoryFilter,
@@ -14,6 +109,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
     categoryForm,
     categoryMetrics = {},
     categoryMigrationJobs,
+    identifierPolicyMigrations,
     categoryPanelBusy,
     categoryParentMigrationHint,
     categoryCloseSignal,
@@ -35,6 +131,9 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
     hideCategory,
     patchCategoryFilter,
     patchSpecField,
+    scanIdentifierPolicyMigration,
+    completeIdentifierPolicyMigration,
+    cancelIdentifierPolicyMigration,
     query,
     reactivateCategory,
     refreshCategoryWorkspace,
@@ -48,7 +147,11 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
     slugifyText,
     uploadFiles,
     viewCategory,
+    usePermission,
   } = props;
+  const canCreateCategory = usePermission('category:create');
+  const canUpdateCategory = usePermission('category:update');
+  const canDeleteCategory = usePermission('category:delete');
   return (
     <AdminPanel 
       title="Quản lý danh mục và form thông số" 
@@ -59,7 +162,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
         </>
       }
     >
-      <CollapsibleSection title={categoryViewOnly ? 'Đang xem thông tin danh mục' : editingCategoryId ? 'Đang chỉnh sửa danh mục' : 'Thêm danh mục và form thông số'} description="Mở khi cần tạo danh mục cha, danh mục con hoặc cấu hình form thông số kỹ thuật cho danh mục cha." defaultOpen={false} forceOpen={Boolean(editingCategoryId)} forceOpenKey={editingCategoryId} closeSignal={categoryCloseSignal} onClose={resetCategoryForm}>
+      {(canCreateCategory || canUpdateCategory || categoryViewOnly) && <CollapsibleSection title={categoryViewOnly ? 'Đang xem thông tin danh mục' : editingCategoryId ? 'Đang chỉnh sửa danh mục' : 'Thêm danh mục và form thông số'} description="Mở khi cần tạo danh mục cha, danh mục con hoặc cấu hình form thông số kỹ thuật cho danh mục cha." defaultOpen={false} forceOpen={Boolean(editingCategoryId)} forceOpenKey={editingCategoryId} closeSignal={categoryCloseSignal} onClose={resetCategoryForm}>
         <form onSubmit={categoryViewOnly ? (event) => event.preventDefault() : handleCategorySubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-5">
           <fieldset disabled={Boolean(categoryViewOnly)} className="contents">
           <Input label="Tên danh mục" value={categoryForm.name} required onChange={(value) => setCategoryForm({ ...categoryForm, name: value, slug: categoryForm.slug || slugifyText(value) })} />
@@ -96,6 +199,11 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
               <Checkbox label="Quản lý IMEI" checked={Boolean(categoryForm.inventoryPolicy.trackImei)} disabled={Boolean(categoryForm.inventoryPolicy.inheritImeiPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, trackImei: checked } })} />
               <Checkbox label="Theo serial của cha" checked={Boolean(categoryForm.inventoryPolicy.inheritSerialPolicy)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, inheritSerialPolicy: checked } })} />
               <Checkbox label="Quản lý serial number" checked={Boolean(categoryForm.inventoryPolicy.trackSerialNumber)} disabled={Boolean(categoryForm.inventoryPolicy.inheritSerialPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, trackSerialNumber: checked } })} />
+              <Checkbox label="Theo kích thước của cha" checked={Boolean(categoryForm.inventoryPolicy.inheritStorageDimensions)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, inheritStorageDimensions: checked } })} />
+              <Input label="Dài đóng gói (cm)" type="number" value={Number(categoryForm.inventoryPolicy.packageLengthCm || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, packageLengthCm: Math.max(0, Number(value)) } })} />
+              <Input label="Rộng đóng gói (cm)" type="number" value={Number(categoryForm.inventoryPolicy.packageWidthCm || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, packageWidthCm: Math.max(0, Number(value)) } })} />
+              <Input label="Cao đóng gói (cm)" type="number" value={Number(categoryForm.inventoryPolicy.packageHeightCm || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, packageHeightCm: Math.max(0, Number(value)) } })} />
+              <Input label="Hệ số xếp hàng" type="number" value={Number(categoryForm.inventoryPolicy.packingRatio || 0.7)} onChange={(value) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, packingRatio: Math.min(1, Math.max(0.01, Number(value))) } })} />
               <Checkbox label="Theo bảo hành của cha" checked={Boolean(categoryForm.warrantyPolicy.inheritWarrantyPolicy)} onChange={(checked) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, inheritWarrantyPolicy: checked } })} />
               <Checkbox label="Có bảo hành" checked={Boolean(categoryForm.warrantyPolicy.hasWarranty)} disabled={Boolean(categoryForm.warrantyPolicy.inheritWarrantyPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, hasWarranty: checked } })} />
               <Input label="Tháng bảo hành" type="number" value={Number(categoryForm.warrantyPolicy.warrantyMonths || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, warrantyMonths: Math.max(0, Number(value)) } })} />
@@ -103,6 +211,12 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
               <Input label="Ngày 1 đổi 1" type="number" value={Number(categoryForm.warrantyPolicy.oneForOneDays || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, warrantyPolicy: { ...categoryForm.warrantyPolicy, oneForOneDays: Math.max(0, Number(value)) } })} />
             </div>
           </div>
+          <IdentifierPolicyMigrationPanel
+            migrations={identifierPolicyMigrations}
+            onScan={scanIdentifierPolicyMigration}
+            onComplete={completeIdentifierPolicyMigration}
+            onCancel={cancelIdentifierPolicyMigration}
+          />
           <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-5">
             <div className="mb-3 flex items-center justify-between">
               <div>
@@ -113,7 +227,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
             </div>
             <div className="space-y-2">
               {categoryForm.specFields.map((field, index) => (
-                <div key={index} className="grid gap-2 rounded-md bg-slate-50 p-2 md:grid-cols-[1fr_1fr_1fr_130px_90px_100px_110px_130px_40px]">
+                <div key={index} className="grid gap-2 rounded-md bg-slate-50 p-2 md:grid-cols-2 xl:grid-cols-4">
                   <Input label="Mã trường" value={field.key} onChange={(value) => patchSpecField(index, { key: value })} />
                   <Input label="Tên hiển thị" value={field.label} onChange={(value) => patchSpecField(index, { label: value })} />
                   <Input label="Nhóm cha" value={field.group || ''} onChange={(value) => patchSpecField(index, { group: value })} />
@@ -122,7 +236,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
                   <Checkbox label="Dùng cho biến thể" checked={field.variant} onChange={(checked) => patchSpecField(index, { variant: checked })} />
                   <Checkbox label="Dùng làm lọc" checked={Boolean(field.isFilterable)} onChange={(checked) => patchSpecField(index, { isFilterable: checked })} />
                   <Select label="Kiểu lọc" value={field.filterType || (field.type === 'number' ? 'range' : 'checkbox')} onChange={(value) => patchSpecField(index, { filterType: value })} options={[['checkbox', 'Checkbox'], ['range', 'Khoảng'], ['select', 'Danh sách']]} />
-                  {!categoryViewOnly && <button type="button" onClick={() => setCategoryForm({ ...categoryForm, specFields: categoryForm.specFields.filter((_, i) => i !== index) })} className="mt-5 text-red-600"><Trash2 className="h-4 w-4" /></button>}
+                  {!categoryViewOnly && <button type="button" aria-label={`Xóa trường ${field.label || field.key || index + 1}`} onClick={() => setCategoryForm({ ...categoryForm, specFields: categoryForm.specFields.filter((_, i) => i !== index) })} className="justify-self-end text-red-600 md:col-span-2 xl:col-span-4"><Trash2 className="h-4 w-4" /></button>}
                 </div>
               ))}
               {categoryForm.specFields.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-500">Chưa có trường thông số. Hãy thêm các trường như màn hình, chip, pin, camera, chất liệu...</div>}
@@ -165,7 +279,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
             <SubmitButtons editing={Boolean(editingCategoryId)} onCancel={resetCategoryForm} />
           )}
         </form>
-      </CollapsibleSection>
+      </CollapsibleSection>}
       <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
         <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -256,11 +370,11 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
             category={category}
             level={category.parentId ? 1 : 0}
             onView={() => viewCategory(category)}
-            onEdit={() => editCategory(category)}
-            onHide={() => hideCategory(category)}
-            onDelete={() => confirmDelete(category.name, () => categoryApi.adminDeleteCategory(category.id))}
-            onRestore={category.isActive ? undefined : () => reactivateCategory(category)}
-            onReorder={reorderCategory}
+            onEdit={canUpdateCategory ? () => editCategory(category) : undefined}
+            onHide={canUpdateCategory ? () => hideCategory(category) : undefined}
+            onDelete={canDeleteCategory ? () => confirmDelete(category.name, () => categoryApi.adminDeleteCategory(category.id)) : undefined}
+            onRestore={canUpdateCategory && !category.isActive ? () => reactivateCategory(category) : undefined}
+            onReorder={canUpdateCategory ? reorderCategory : undefined}
           />
         ))}
       </AdminTable>

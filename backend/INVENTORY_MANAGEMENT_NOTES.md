@@ -1,5 +1,271 @@
 # Inventory Management Notes
 
+## Update 2026-06-20 - Backfill IMEI/Serial khi đổi chính sách danh mục
+
+- Bổ sung chứng từ kỹ thuật `inventory_policy_migrations` để xử lý hàng tồn cũ khi danh mục chuyển từ không quản lý sang quản lý IMEI hoặc serial number.
+- Danh sách mã quét được giữ ở staging; chỉ khi đủ số lượng và đối soát tồn không thay đổi mới chuyển vào `product_imeis` hoặc `product_serial_numbers` với trạng thái `IN_STOCK`.
+- Tác vụ bị hủy giữ mã ở trạng thái `CANCELLED` để audit, không đưa vào read-model tồn kho.
+- Một mã chỉ được tồn tại trong một staging đang hoạt động; database có unique index để chặn xung đột đồng thời.
+- IMEI và serial được kích hoạt độc lập, tránh hoàn tất một tác vụ nhưng vô tình bật policy của loại còn lại.
+- Giao diện danh mục hỗ trợ quét liên tục hoặc dán nhiều mã theo từng sản phẩm/biến thể, hiển thị tiến độ và lỗi backend ngay trong khối tác vụ.
+- Phạm vi giữ ở mức WMS-light cho luận văn: không thêm queue, tracking mode theo lô hoặc quy trình đối soát doanh nghiệp nhiều tầng.
+
+## Update 2026-06-19 - Bổ sung dãy C và giải phóng các ô quá tải
+
+- Thêm migration `013_inventory_location_aisle_c_and_rebalance_full_bins.sql` để tạo dãy C theo mô hình 10 kệ x 4 ô, mã từ `C-01-01` đến `C-10-04`.
+- Các ô dãy C dùng cùng kích thước và hệ số sử dụng với dãy A/B: `100 x 60 x 40 cm`, `usable_ratio = 0.75`, cho phép nhiều SKU.
+- Migration xác định các ô A/B đang vượt 100% dung lượng, chọn nguyên dòng SKU theo thể tích tăng dần cho đến khi ô nguồn hết quá tải và chuyển mỗi dòng sang một ô C trống.
+- Vị trí của tồn kho, IMEI, serial và lô nội bộ được cập nhật đồng bộ; metadata lô ghi lại kệ nguồn, kệ đích và thời điểm chuyển.
+- Migration dừng với lỗi rõ ràng nếu số ô C không đủ hoặc có một dòng SKU lớn hơn dung lượng một ô, tránh cập nhật dở dang.
+- Verification local: migration chạy thành công; tạo đủ 40 ô C, dùng 20 ô để chuyển 20 dòng SKU; số ô vượt dung lượng giảm từ 20 xuống 0; tổng tồn và tổng lô đều giữ nguyên `4.470`; số IMEI, serial và lô lệch vị trí so với tồn kho đều bằng 0.
+
+## Update 2026-06-18 - Xuất một sản phẩm từ nhiều kệ
+
+- Màn chi tiết đơn hàng cho phép thêm nhiều dòng kệ thực tế cho cùng một sản phẩm bằng nút `Thêm kệ`, đồng thời hỗ trợ xóa từng dòng kệ.
+- Giao diện hiển thị `Đã phân bổ / cần xuất` theo từng dòng sản phẩm và đổi trạng thái màu khi tổng số lượng đã khớp.
+- Frontend chặn lưu nếu dòng kệ thiếu vị trí, số lượng không hợp lệ, chọn trùng kệ hoặc tổng phân bổ khác số lượng đơn hàng.
+- Backend kiểm tra lại tổng số lượng và kệ trùng trước khi trừ tồn; từng phần phân bổ tiếp tục trừ đúng tồn kệ và lô FIFO trong kệ đó.
+- Nếu nhân viên không thêm bất kỳ kệ nào cho một dòng sản phẩm, hệ thống giữ hành vi fallback FIFO tự động.
+- Verification: frontend `npm run lint` pass; backend `py_compile` pass cho commerce use case/repository.
+
+## Update 2026-06-18 - Lô tồn kho nội bộ tự động
+
+- Thêm migration `012_inventory_internal_lots.sql` tạo `inventory_lots` và `inventory_lot_movements`.
+- Khi hoàn tất phiếu nhập, hệ thống tự sinh lô nội bộ theo từng dòng sản phẩm/biến thể và kệ; nhân viên không cần nhập hay chọn mã lô.
+- Khi xuất đơn hàng, hệ thống tiêu thụ lô cũ trước theo `received_at` bên trong đúng kệ thực tế đã xác nhận; nếu chưa xác nhận kệ thì vẫn chọn kệ theo FIFO rồi chọn lô FIFO trong kệ.
+- Mỗi lần nhập, bán hoặc đảo phiếu đều có movement để truy vết nguồn phiếu, đơn hàng và số lượng của lô.
+- Đảo phiếu nhập chỉ được phép khi lô của chính phiếu đó còn đủ số lượng; nếu lô đã được bán một phần thì hệ thống chặn đảo toàn bộ.
+- Migration backfill tồn hiện tại thành 298 lô nội bộ. Đối soát local: tổng `inventory_levels = 4470`, tổng lô còn lại `= 4470`, số nhóm sản phẩm/kệ lệch `= 0`.
+- Verification: migration local thành công; backend `py_compile` pass cho inventory và commerce service/repository.
+
+## Update 2026-06-18 - Xác nhận kệ xuất thực tế khi giao hàng
+
+- API admin cập nhật đơn hàng nhận thêm `issue_allocations`, gồm `order_item_id`, `location_id` và `quantity` để nhân viên xác nhận kệ xuất thực tế.
+- Khi chuyển đơn sang `SHIPPED`, nếu dòng đơn có xác nhận kệ thì backend trừ đúng kệ nhân viên chọn; nếu dòng đơn chưa có xác nhận thì fallback FIFO theo kệ cũ trước.
+- Backend kiểm tra tổng số lượng xác nhận của từng dòng phải bằng số lượng cần xuất và kệ được chọn phải còn đủ tồn khả dụng.
+- Màn chi tiết đơn hàng hiển thị khối `Xác nhận kệ xuất thực tế` khi chuẩn bị chuyển đơn sang `SHIPPED`; chọn `SHIPPED` từ dropdown nhanh ngoài bảng sẽ mở chi tiết đơn thay vì trừ kho ngay.
+- Verification: backend `py_compile` pass cho `commerce/schemas.py`, `commerce/use_cases.py`, `commerce_repo.py`; frontend `npm run lint` pass.
+
+## Update 2026-06-18 - Xuất kho theo kệ cũ trước khi giao hàng
+
+- Khi đơn hàng chuyển sang giao hàng, backend không chỉ trừ `stock_quantity` tổng mà còn trừ tồn trong `inventory_levels` theo từng kệ.
+- Nếu một sản phẩm/biến thể nằm ở nhiều kệ, hệ thống lấy từ kệ có `inventory_levels.updated_at` cũ nhất trước, sau đó mới tới kệ mới hơn.
+- Mỗi phần xuất từ một kệ được ghi log `SALE/ORDER_SHIPPED` riêng kèm `location_code` và `location_name`, giúp tra lại đơn hàng đã lấy hàng từ ô nào.
+- Nếu tổng tồn còn nhưng tồn khả dụng theo kệ không đủ, hệ thống trả lỗi `Không đủ tồn khả dụng ở các kệ để xuất kho.` để tránh lệch giữa tồn tổng và tồn theo vị trí.
+- Giới hạn hiện tại: đây là FIFO theo mức kệ/vị trí dựa trên `updated_at`, chưa phải FIFO theo từng lô nhập riêng trong cùng một kệ.
+- Verification: backend `py_compile` pass cho `commerce/use_cases.py` và `commerce_repo.py`.
+
+## Update 2026-06-18 - Chặn nhập kho vượt dung lượng ô/kệ
+
+- Backend kiểm tra dung lượng còn trống của `inventory_locations` khi lưu phiếu nhập và kiểm tra lại khi hoàn tất phiếu nhập.
+- Dung lượng cần thêm được tính theo số lượng nhập nhân với kích thước đóng gói hiệu lực của danh mục, có chia cho `packingRatio` để bù hao hụt xếp hàng.
+- Nếu nhiều dòng phiếu cùng chọn một ô, hệ thống cộng dồn dung lượng yêu cầu trong cùng phiếu trước khi so với dung lượng còn lại.
+- Dropdown chọn kệ trong phiếu nhập hiển thị thêm phần trăm đầy và dung lượng còn lại theo cm³ để nhân viên thấy trước khi lưu.
+- Nếu ô/kệ không có cấu hình kích thước, luồng hiện tại chưa chặn theo thể tích để tránh khóa các khu chức năng cũ; các ô A/B đã có kích thước nên được kiểm soát.
+- Verification: backend `py_compile` pass cho `inventory_service.py` và `inventory_repo.py`; frontend `npm run lint` pass.
+
+## Update 2026-06-18 - Điều chỉnh hệ số dùng được và xếp hàng
+
+- Thêm migration `011_tune_storage_packing_ratios.sql` để tinh chỉnh hệ số theo giả định nghiệp vụ mới: ô lưu hàng thường/nhiều loại dùng `usable_ratio = 0.75`, khu/cồng kềnh mặc định `0.70`.
+- Điều chỉnh `packingRatio` theo danh mục: laptop và tablet `0.80`, phụ kiện nhỏ và điện thoại/đồng hồ `0.85`, camera và tai nghe `0.75`.
+- Sau điều chỉnh, ô mẫu `A-01-01` có thể tích dùng được `180000 cm³`, đã dùng khoảng `130676 cm³`, mức đầy còn khoảng `72.6%`.
+- Verification: migration local thành công; backend `py_compile` pass; frontend `npm run lint` pass.
+
+## Update 2026-06-18 - Tính đầy/trống kệ theo thể tích có hao hụt
+
+- Thêm migration `010_storage_volume_utilization_ratios.sql` bổ sung `usable_ratio` cho `inventory_locations` để mô phỏng hao hụt không gian do nhân viên xếp hàng, khoảng hở và trộn SKU.
+- API danh mục kệ hàng tính thêm `usableVolumeCm3`, `usedVolumeCm3`, `availableVolumeCm3`, `fillRatio` dựa trên kích thước ô, `usable_ratio`, tồn hiện tại và kích thước đóng gói danh mục.
+- Frontend tab `Kệ hàng` hiển thị phần trăm đầy và dung lượng còn lại theo cm³; form kệ hàng có thêm trường `Hệ số sử dụng`.
+- Verification: migration local thành công; backend `py_compile` pass; frontend `npm run lint` pass; service kiểm tra `A-01-01` trả fill khoảng `83.77%`.
+
+## Update 2026-06-18 - Bổ sung kích thước riêng cho từng ô/kệ
+
+- Thêm migration `008_inventory_location_bin_dimensions.sql` bổ sung `length_cm`, `width_cm`, `height_cm` cho `inventory_locations`.
+- Các ô lưu hàng active thuộc dãy A/B được gán mặc định `100 x 60 x 40 cm`; từng ô có thể sửa kích thước riêng trong form kệ hàng.
+- API danh mục kệ trả thêm `lengthCm`, `widthCm`, `heightCm` và `capacityVolumeCm3` để chuẩn bị tính sức chứa theo thể tích thay vì chỉ theo số lượng.
+- Frontend tab `Kệ hàng` hiển thị kích thước/thể tích và form thêm/sửa kệ có trường `Dài`, `Rộng`, `Cao`.
+- Verification: chạy migration local thành công; backend `py_compile` pass; frontend `npm run lint` pass; service lọc `A-01-01` trả `100 x 60 x 40 cm`, thể tích `240000 cm³`.
+
+## Update 2026-06-18 - Phân bổ sản phẩm đang bán vào kệ A/B
+
+- Thêm migration `007_assign_active_inventory_to_storage_bins.sql` để chuyển tồn kho của sản phẩm/biến thể đang bán từ vị trí hệ thống `MAIN` sang các ô lưu hàng active thuộc dãy A/B.
+- Do hiện có 298 SKU/biến thể đang bán nhưng chỉ có 80 ô A/B, các ô lưu hàng A/B được bật `allow_mixed_sku = TRUE` để cho phép nhiều SKU trong cùng một ô.
+- Phân bổ theo thứ tự sản phẩm/danh mục và xoay vòng qua 80 ô; sau khi chạy local, dãy A có 160 dòng tồn/2.400 cái, dãy B có 138 dòng tồn/2.070 cái, `MAIN` còn 0 tồn.
+- Đồng bộ `location_id` cho serial/IMEI theo kệ mới; đối soát serial `IN_STOCK` cho thấy 0 dòng lệch kệ so với `inventory_levels`.
+
+## Update 2026-06-18 - Thêm bộ lọc chi tiết cho danh mục kệ hàng
+
+- API `GET /admin/inventory/locations` hỗ trợ thêm bộ lọc theo `aisle`, `shelf`, `bin` để lọc trực tiếp theo cấu trúc mã `Dãy-Kệ-Ô`, ví dụ `B-02-03`.
+- Tab `Kệ hàng` trong màn `Quản lý tồn kho` có thêm bộ lọc mã/tên/khu, dãy, kệ, ô, khu vực, loại và trạng thái.
+- Verification: backend `py_compile` pass; frontend `npm run lint` pass; gọi service lọc dãy B, kệ 02, ô 03 trả đúng `B-02-03`.
+
+## Update 2026-06-18 - Bổ sung dãy B và chuẩn hóa nhãn khu đặc biệt
+
+- Dãy B được seed theo cùng mô hình với dãy A: 10 kệ x 4 ô, mã từ `B-01-01` đến `B-10-04`.
+- Thêm migration `006_inventory_location_aisle_b_and_special_zone_labels.sql` để database hiện tại tự bổ sung đủ 40 vị trí active cho dãy B.
+- Chuẩn hóa nhãn các khu đặc biệt cho gọn trên bảng: `QC - Ô 01`, `Bảo hành - Ô 01`, `Hàng lỗi - Ô 01`, `Hàng trả - Ô 01`; mã `QC-01`, `BH-01`, `ERR-01`, `RT-01` được giữ nguyên vì đây là khu chức năng, không phải dãy lưu hàng.
+
+## Update 2026-06-18 - Chuẩn hóa dãy A theo mô hình 10 kệ x 4 ô
+
+- Dãy A được chuẩn hóa thành 10 kệ, mỗi kệ có 4 ô, theo mã `A-01-01` đến `A-10-04`.
+- Baseline `init_database.sql` seed 40 vị trí active cho dãy A theo đúng quy ước `Dãy-Kệ-Ô`.
+- Thêm migration `005_inventory_location_aisle_a_10_shelves_4_bins.sql` để database hiện tại tự bổ sung đủ 40 vị trí và khóa các mã cũ `A-01-05` đến `A-01-10` nếu chưa có tồn kho.
+
+## Update 2026-06-18 - Sửa triệt để các cột chứa tiếng Việt bị lỗi dấu hỏi trong database
+
+- Phát hiện và sửa lỗi encoding mojibake (các chữ tiếng Việt có dấu biến thành dấu hỏi `?` literal) trong 3 bảng database chính: `inventory_adjustment_logs`, `inventory_document_lines` và `inventory_documents`.
+- Các giá trị đã sửa:
+  - `"Nh?p kho kh?i t?o"` -> `"Nhập kho khởi tạo"` (298 dòng trong `inventory_adjustment_logs.reason`)
+  - `"Kh?i t?o t?n kho th?t t? d? li?u s?n ph?m/bi?n th? hi?n c?."` -> `"Khởi tạo tồn kho thực tế từ dữ liệu sản phẩm/biến thể hiện có."` (298 dòng trong `inventory_adjustment_logs.note`)
+  - `"T?n kho kh?i t?o t? d? li?u s?n ph?m"` -> `"Tồn kho khởi tạo từ dữ liệu sản phẩm"` (298 dòng trong `inventory_adjustment_logs.supplier_name` và 1 dòng trong `inventory_documents.supplier_name`)
+  - `"D?ng nh?p kh?i t?o t? t?n catalog."` -> `"Dòng nhập khởi tạo từ tồn catalog."` (298 dòng trong `inventory_document_lines.note`)
+  - `"Kh?i t?o t?n kho th?t t? to?n b? s?n ph?m/bi?n th? active, m?i d?ng 15 c?i."` -> `"Khởi tạo tồn kho thực tế từ toàn bộ sản phẩm/biến thể active, mỗi dòng 15 cái."` (1 dòng trong `inventory_documents.note`)
+- Verification: Chạy truy vấn đối soát dữ liệu thực tế cho thấy các trường này hiển thị tiếng Việt có dấu chuẩn 100%. Giao diện admin của Nhập kho và Quản lý tồn kho không còn bất kỳ dấu hỏi lỗi nào.
+
+## Update 2026-06-18 - Bổ sung 10 vị trí kệ cho dãy A
+
+- Baseline `init_database.sql` hiện seed đủ 10 vị trí lưu hàng bán được cho dãy A, từ `A-01-01` đến `A-01-10`.
+- Thêm migration `004_inventory_location_aisle_a_shelves.sql` để database đã tồn tại được bổ sung các vị trí `A-01-03` đến `A-01-10` mà không cần tạo lại database.
+- Các vị trí mới dùng `purpose = STORAGE`, `zone = Dãy A`, `allow_mixed_sku = FALSE` và `sort_order` theo quy ước mã kệ hiện có.
+
+## Update 2026-06-18 - Kiểm kê theo danh sách chọn hoặc toàn bộ
+
+- Màn `Quản lý tồn kho` bổ sung checkbox chọn dòng tồn kho để lập phiếu kiểm kê theo danh sách đã chọn.
+- Nút kiểm kê được tách thành `Kiểm kê đã chọn` và `Kiểm kê toàn bộ`; kiểm kê toàn bộ sẽ tải tất cả trang tồn kho theo bộ lọc hiện tại thay vì chỉ dùng trang đang hiển thị.
+- Popup tạo phiếu kiểm kê giữ nguyên danh sách dòng đã chọn/toàn bộ để admin nhập `Thực đếm` trước khi tạo phiếu.
+- Tăng giới hạn payload kiểm kê từ 300 lên 1000 dòng để tránh kẹt khi kiểm kê toàn bộ có thêm sản phẩm/biến thể trong tương lai.
+- Verification: frontend `npm run lint` thành công; backend `py_compile` cho schema inventory, service inventory và repository inventory thành công.
+
+## Update 2026-06-18 - Sửa lỗi mã hóa vị trí kho trong phiếu nhập khởi tạo
+
+- Sửa dữ liệu local bị lưu sai `Kho ch?nh` thành `Kho chính` trong `inventory_adjustment_logs.location_name` và `inventory_document_lines.metadata.storageLocationName` của phiếu nhập khởi tạo.
+- Nguyên nhân thao tác dữ liệu trước đó truyền literal tiếng Việt qua PowerShell làm mất ký tự `í`; khi cập nhật dữ liệu tiếng Việt từ script cần truyền chuỗi Unicode qua parameter hoặc dùng escape Unicode.
+- Verification: `inventory_service.list_inventory_receipts` trả `storageLocationName = "Kho chính"` và `locationName = "Kho chính"` cho phiếu `NK-KHOI-TAO-20260615-0001`.
+
+## Update 2026-06-18 - Chuẩn hóa phiếu nhập kho khởi tạo theo toàn bộ biến thể active
+
+- Tái tạo dữ liệu local của phiếu `NK-KHOI-TAO-20260615-0001` để bao phủ toàn bộ sản phẩm/biến thể đang active: 290 biến thể và 8 sản phẩm active không có biến thể.
+- Mỗi dòng nhập khởi tạo được đặt số lượng 15 cái, tránh tình trạng một lần nhập khởi tạo ghi 25-45 cái hoặc nhiều hơn cho một biến thể.
+- Đồng bộ lại `inventory_document_lines`, `inventory_adjustment_logs`, `inventory_levels`, tồn kho biến thể/sản phẩm cha và danh sách serial number theo cùng mức 15 cái mỗi dòng.
+- Sau điều chỉnh, phiếu có 298 dòng, tổng số lượng 4.470 và tổng giá trị 89.685.600.000đ.
+- Verification: gọi trực tiếp `inventory_service.list_inventory_receipts` trả `lineCount = 298`, `totalQuantity = 4470`; truy vấn đối soát cho thấy thiếu 0 dòng active, sai số lượng 0 dòng và mọi dòng đều có 15 serial.
+
+## Update 2026-06-18 - Lọc kệ nhập kho theo lý do nhập
+
+- Form lập phiếu nhập kho lọc danh sách kệ theo `receiptReasonCode` và `purpose` của kệ hàng.
+- Nhập mua, chuyển kho, sản xuất, khởi tạo và điều chỉnh tăng ưu tiên kệ `STORAGE`; khách trả hàng ưu tiên `RETURN`/`QC`; nhập bảo hành ưu tiên `WARRANTY`; nhà cung cấp trả/bổ sung hàng ưu tiên `STORAGE`/`QC`; nhập khác cho chọn tất cả kệ đang hoạt động.
+- Khi đổi lý do nhập, nếu dòng phiếu đang chọn kệ không còn phù hợp với nhóm lý do mới thì frontend tự bỏ chọn kệ đó để người dùng chọn lại đúng nhóm.
+- Verification: frontend `npm run lint` và backend `py_compile` thành công.
+
+## Update 2026-06-18 - Sửa lỗi ledger và modal IMEI/serial 500
+
+- Sửa router `GET /admin/inventory/ledger` trả kiểu `dict` để khớp response phân trang `{items, page, pageSize, total, totalPages}`, tránh lỗi FastAPI response validation khi tab sổ kho tải dữ liệu.
+- Bổ sung migration `003_inventory_identifier_locations.sql` thêm `location_id` cho `product_imeis` và `product_serial_numbers`, backfill vị trí từ dòng phiếu nhập hoặc `inventory_levels` hiện có.
+- Modal IMEI/serial trong tồn kho đọc được vị trí kệ của mã định danh mà không còn lỗi thiếu cột `product_imeis.location_id`.
+- Verification: chạy migration local, gọi trực tiếp service ledger trả 50/290 dòng và service identifiers trả dữ liệu serial thành công; backend `py_compile` thành công.
+
+## Update 2026-06-18 - Sửa lỗi kệ hàng 500 và ổn định hook admin
+
+- Bổ sung migration `001_inventory_location_master_columns.sql` để database đã khởi tạo trước đó có đủ metadata kệ hàng: `zone`, `description`, `purpose`, `sort_order`, `allow_mixed_sku` và seed các kệ mẫu.
+- Bổ sung migration `002_inventory_location_main_sort_order.sql` để kệ mặc định `MAIN` luôn đứng đầu danh sách.
+- Sửa truy vấn `list_inventory_locations` không còn truyền `NULL` vào tham số tìm kiếm, tránh lỗi asyncpg `could not determine data type of parameter` khi gọi `GET /admin/inventory/locations?includeInactive=true`.
+- Đưa hook phân quyền trong `useAdminLogic` lên trước các logic/memo phụ thuộc để tránh cảnh báo React đổi thứ tự hook trong màn admin sau khi hot reload.
+- Verification: chạy migration local, gọi trực tiếp service `list_inventory_locations` trả dữ liệu thành công, backend `py_compile` và frontend `npm run lint` đều thành công.
+
+## Update 2026-06-18 - Phân trang tồn kho và phiếu nhập
+
+- API `GET /admin/inventory/levels` và `GET /admin/inventory/receipts` hỗ trợ `page` và `pageSize`, mặc định 50 dòng/trang và tối đa 100 dòng/trang.
+- Kết quả hai API trả về `items`, `page`, `pageSize`, `total` và `totalPages` để frontend hiển thị đúng tổng số bản ghi.
+- Bộ lọc trạng thái phiếu nhập được chuyển vào request backend để phân trang không tạo ra các trang trống hoặc thiếu dòng phù hợp.
+- Bộ lọc danh mục và thương hiệu tồn kho cũng được áp dụng trước khi tính tổng và chia trang, tránh bỏ sót dữ liệu phù hợp nằm ở trang khác.
+- Màn `Quản lý tồn kho` và `Quản lý nhập kho` có nút `Trang trước` / `Trang sau`, chỉ báo trang hiện tại và khoảng bản ghi đang hiển thị.
+- Khi tìm kiếm hoặc áp dụng/xóa bộ lọc, danh sách quay về trang đầu tiên.
+- Verification: backend `py_compile` và frontend `npm run lint` đều thành công.
+
+## Update 2026-06-18 - Đưa bộ lọc xuống dưới tổng quan
+
+- Màn `Quản lý tồn kho` hiển thị dashboard tổng quan trước, sau đó mới đến bộ lọc danh mục, thương hiệu, trạng thái tồn, kệ hàng và tìm kiếm.
+- Màn `Quản lý nhập kho` hiển thị khối tổng quan nhập kho/nhà cung cấp trước, sau đó mới đến tìm kiếm, khoảng ngày và trạng thái phiếu.
+- Chỉ thay đổi vị trí hiển thị; hành vi lọc và phân trang giữ nguyên.
+- Verification: frontend `npm run lint` thành công và nội dung tiếng Việt mới không có dấu hiệu lỗi mã hóa.
+
+## Update 2026-06-18 - Hiển thị biến thể trong dashboard tồn kho
+
+- Danh sách `Top tồn nhiều` và `Top cần nhập thêm` hiển thị màu sắc và cấu hình biến thể dưới tên sản phẩm để phân biệt các dòng cùng sản phẩm; không hiển thị SKU.
+- Sản phẩm không có biến thể không hiển thị dòng thông tin phụ.
+- Dashboard tồn kho tiếp tục tổng hợp trên toàn bộ read-model thay vì dùng response đã phân trang của bảng tồn kho.
+
+## Update 2026-06-18 - Tách tab và phân trang sổ kho
+
+- `Sổ kho / lịch sử biến động tồn` được tách thành tab con `Sổ kho` cạnh `Tồn kho` và `Kệ hàng`, không còn kéo dài nội dung của danh sách tồn kho.
+- API sổ kho hỗ trợ `page` và `pageSize`, mặc định 50 biến động/trang.
+- Tab sổ kho có điều khiển trang trước/sau, tổng số biến động và khoảng dữ liệu đang hiển thị.
+
+## Update 2026-06-18 - Chuẩn hóa kệ hàng trong kho
+
+- Nâng cấp `inventory_locations` thành danh mục kệ hàng quản trị được, bổ sung `zone` và `description`, seed các kệ mẫu `KE-A1`, `KE-B1`, `TU-01` bên cạnh `MAIN / Kho chính`.
+- Thêm API quản lý kệ hàng: `GET/POST/PUT /admin/inventory/locations` và `PATCH /admin/inventory/locations/{location_id}/status`.
+- Backend chuẩn hóa mã kệ, chặn trùng mã, chặn khóa kệ mặc định và chặn khóa kệ còn tồn kho.
+- Dòng phiếu nhập nhận thêm `warehouseLocationId`; backend ưu tiên kệ được chọn từ danh mục, vẫn fallback theo `storageLocationCode` cho dữ liệu cũ.
+- Khi hoàn tất phiếu nhập, hệ thống cộng `inventory_levels` theo đúng kệ của từng dòng và gán `location_id` cho các IMEI/serial number thực nhận.
+- Bổ sung migration `072_inventory_locations_master_data.sql` để thêm metadata kệ, backfill vị trí IMEI/serial từ dòng phiếu nhập và tạo index tra cứu theo kệ/trạng thái.
+- Frontend màn `Quản lý tồn kho` có khối danh mục kệ hàng để thêm/sửa/khóa/mở kệ; bộ lọc vị trí đổi sang chọn kệ từ danh mục.
+- Màn `Quản lý tồn kho` tách tab con `Tồn kho` và `Kệ hàng`, giữ kệ hàng trong cùng module tồn kho nhưng không trộn lẫn với bảng SKU/sổ kho.
+- Form phiếu nhập đổi vị trí dòng phiếu từ nhập text tự do sang combobox chọn kệ hàng, giúp dữ liệu kệ thống nhất và phục vụ truy vết IMEI/serial khi xuất kho sau này.
+- Danh sách IMEI/serial trong tồn kho hiển thị thêm kệ hiện tại của từng mã định danh.
+- Bổ sung API `GET /admin/inventory/issue-suggestions` để gợi ý xuất kho theo kệ: với hàng có IMEI/serial, FIFO lấy từ mã định danh còn `IN_STOCK`; với hàng không định danh, hệ thống gợi ý từ tồn khả dụng theo kệ.
+- Frontend có nút `Gợi ý xuất` trên dòng tồn kho khả dụng, hiển thị kệ nên lấy, số lượng gợi ý và danh sách IMEI/serial đề xuất nếu có.
+- Modal `Bổ sung IMEI/serial number` có thêm chế độ quét mã liên tục: máy quét nhập mã rồi Enter sẽ tự thêm vào danh sách, chặn trùng trong frontend và không cho vượt số lượng dự kiến; backend vẫn validate lần cuối khi xác nhận.
+- Danh mục kệ hàng bổ sung phân loại vị trí `STORAGE`/`QC`/`WARRANTY`/`DAMAGED`/`RETURN`/`VIRTUAL`, `sortOrder` để sắp xếp đường lấy hàng và `allowMixedSku` để ghi nhận kệ có cho phép nhiều SKU hay không.
+- Quy ước mã kệ chuyển sang dạng `A-01-01`, `B-01-01`, `QC-01`, `BH-01`, `ERR-01`, `RT-01`; migration seed sẵn các vị trí mẫu theo nhóm lưu hàng, kiểm tra chất lượng, bảo hành, hàng lỗi và hàng trả.
+
+## Update 2026-06-17 - Bổ sung WMS nhẹ cho quy trình nhập kho đồ án
+
+- Màn `Quản lý tồn kho` có thêm dashboard: tổng SKU theo dõi, số SKU sắp hết, giá trị tồn kho, SKU đang giữ hàng, top tồn nhiều và top cần nhập thêm.
+- API `GET /admin/inventory/dashboard` tổng hợp dashboard từ read-model tồn kho hiện tại.
+- API `GET /admin/inventory/ledger` trả sổ kho/lịch sử biến động từ `inventory_adjustment_logs`, hỗ trợ lọc theo tìm kiếm, sản phẩm, khoảng ngày và loại giao dịch `RECEIPT`/`SALE`/`ADJUSTMENT`/`RETURN`/`REVERSAL`.
+- API `GET /admin/inventory/levels` nhận thêm `stockFilter` và `location` để lọc hàng sắp hết, còn tồn, đang giữ và theo vị trí/kệ.
+- Snapshot tồn kho trả thêm `locations` từ `inventory_levels`, giúp UI lọc và hiển thị vị trí/kệ có tồn.
+- Màn `Quản lý nhập kho` có thêm bộ lọc khoảng thời gian `Từ ngày` / `Đến ngày`; API `GET /admin/inventory/receipts` nhận `dateFrom` và `dateTo`, lọc theo ngày tạo phiếu cho cả chứng từ nhập mới và receipt legacy từ log.
+- Phiếu nhập kho có thêm metadata nghiệp vụ: chứng từ đính kèm, biên bản sai lệch, trạng thái kiểm tra chất lượng, ghi chú QC, trạng thái cách ly và vị trí cách ly.
+- Dòng phiếu nhập có thêm vị trí lưu kho đơn giản bằng `storageLocationCode` và `storageLocationName`, phù hợp mức `Kho chính`, `Kệ A1`, `Kệ B2` thay vì triển khai slotting WMS đầy đủ.
+- Vị trí dòng phiếu nay được dùng làm `inventory_document_lines.location_id`; khi hoàn tất hoặc đảo phiếu, `inventory_levels` được cộng/trừ theo vị trí dòng thay vì chỉ dùng kho header.
+- Upload chứng từ nhập kho dùng folder `inventory` trong API upload hiện có, cho phép ảnh và tài liệu PDF/DOC/DOCX/XLS/XLSX.
+- Bổ sung API `PATCH /admin/inventory/receipts/{reference_code}/quality` để cập nhật QC/cách ly riêng, không cần sửa lại toàn bộ phiếu nhập.
+- Migration `071_inventory_receipt_wms_lightweight_metadata.sql` bổ sung `inventory_documents.metadata` và index tra cứu QC/vị trí.
+- Backend chặn hoàn tất phiếu nhập nếu QC chưa `PASSED` hoặc phiếu còn đánh dấu cách ly, tránh cập nhật hàng lỗi vào tồn khả dụng.
+- API `GET /admin/inventory/receipts/report` trả báo cáo nhập kho theo ngày, theo tháng và thống kê nhà cung cấp gồm số lần nhập, số phiếu sai lệch, số lần QC không đạt và tỷ lệ lỗi.
+- Frontend màn `Quản lý nhập kho` hiển thị QC/cách ly, chứng từ, biên bản sai lệch, vị trí kệ và khối thống kê nhà cung cấp ngay trong tab nhập kho.
+
+## Update 2026-06-17 - Liên kết giữ hàng đơn hàng với tồn kho khả dụng
+
+- Luồng đơn hàng mới sử dụng `inventory_reservations` để giữ hàng khi checkout, giúp màn tồn kho phân biệt tồn vật lý, tồn đang giữ và tồn có thể bán.
+- Tồn vật lý chỉ bị trừ khi đơn chuyển sang `SHIPPED`; các trạng thái hủy/thanh toán lỗi trước khi giao chỉ giải phóng giữ hàng.
+- Backend giữ tương thích với đơn cũ từng trừ tồn ngay lúc tạo đơn qua log `ORDER_CREATED`, tránh trừ tồn lần hai khi giao và vẫn hoàn tồn đúng khi hủy.
+
+## Update 2026-06-17 - Thiết kế lại quyền nhập kho theo mô hình Super Admin duyệt
+
+- Bổ sung migration `070_inventory_pending_inbound_identifiers.sql` để thêm trạng thái `PENDING_INBOUND` cho IMEI/serial number.
+- Khi staff xác nhận IMEI/serial ở bước `PROCESSING_IMEI`, backend tạo bản ghi giữ chỗ trong `product_imeis` và `product_serial_numbers` với `source_reference` là mã phiếu nhập và trạng thái `PENDING_INBOUND`.
+- Khi phiếu nhập được hoàn tất, các mã `PENDING_INBOUND` đúng phiếu mới được chuyển sang `IN_STOCK`; nếu mã không được giữ chỗ đúng phiếu thì backend chặn hoàn tất.
+- Khi phiếu đã gửi duyệt bị trả về nháp để sửa hoặc bị hủy, các mã `PENDING_INBOUND` của phiếu được giải phóng để tránh rác dữ liệu và tránh giữ mã sai sau khi đổi dòng phiếu.
+- Frontend tồn kho hiển thị trạng thái mã `PENDING_INBOUND` là `Chờ nhập kho`.
+- Mô hình vận hành hiện tại không có vai trò kế toán riêng; `SUPER_ADMIN` là quản lý cấp cao nhất và chịu trách nhiệm các quyết định kho có rủi ro.
+- `STAFF_ADMIN` giữ các thao tác cơ bản: xem tồn kho, tạo phiếu nhập, sửa phiếu ở trạng thái `DRAFT`/`PROCESSING_IMEI`, xử lý IMEI/serial, tạo yêu cầu điều chỉnh hoặc kiểm kê nếu được cấp quyền tương ứng.
+- Các quyết định quản lý gồm duyệt phiếu nhập, hoàn tất phiếu để cập nhật tồn, hủy phiếu đã đi vào quy trình, đảo phiếu nhập, duyệt kiểm kê, duyệt điều chỉnh tồn và duyệt chỉnh sửa IMEI/serial chỉ dành cho `SUPER_ADMIN`.
+- Hai endpoint điều chỉnh tồn trực tiếp theo sản phẩm/biến thể được khóa về `SUPER_ADMIN`; staff phải đi qua phiếu điều chỉnh tồn có duyệt để tránh bỏ qua chứng từ.
+- Endpoint đổi trạng thái phiếu nhập vẫn dùng quyền vận hành `inventory:adjust` để staff có thể chuyển phiếu từ `DRAFT` sang `PROCESSING_IMEI`; service chặn các trạng thái `APPROVED`, `COMPLETED`, `CANCELLED` nếu người gọi không phải `SUPER_ADMIN`.
+- Migration `069_inventory_super_admin_approval_scope.sql` rút quyền `inventory:approve` và `inventory:reserve` khỏi role `STAFF_ADMIN`, đồng thời bảo đảm `SUPER_ADMIN` có các quyền quyết định kho.
+- Frontend màn `Quản lý nhập kho` chỉ hiển thị nút duyệt, hoàn tất, hủy và đảo phiếu cho Super Admin; staff chỉ thấy các thao tác phù hợp với vai trò vận hành.
+- Nếu phiếu đã ở `PENDING_APPROVAL`, `PENDING_SHORTAGE_APPROVAL` hoặc `APPROVED` mà cần sửa, chỉ Super Admin được trả phiếu về `DRAFT`; thao tác này tiếp tục ghi audit theo cơ chế reset phiếu hiện có.
+- Chưa đưa PO/GRN/invoice matching, kế toán giá vốn đầy đủ hoặc đa kho vào phạm vi vì hệ thống hiện tại là cửa hàng một chi nhánh, không có module kế toán riêng.
+
+## Update 2026-06-17 - Hiển thị lỗi xác nhận IMEI/serial trong modal nhập kho
+
+- Modal `Bổ sung IMEI/serial number` nay bắt lỗi khi gọi API xác nhận danh sách mã định danh và hiển thị thông báo lỗi ngay trong modal thay vì để promise lỗi văng ra console.
+- Trạng thái đang gửi được khóa nút xác nhận để tránh bấm lặp trong lúc backend đang kiểm tra danh sách IMEI/serial.
+- Quy tắc backend validate serial number không đổi: serial phải có định dạng hợp lệ theo `SERIAL_PATTERN`; các mã quá ngắn như `Y`, `A`, `YA` vẫn bị từ chối và thông báo lỗi được trả về UI.
+
 ## Update 2026-06-16 - Siết chuẩn doanh nghiệp cho phiếu nhập kho
 
 - Hoàn tất và đảo phiếu nhập kho nay kiểm tra serial number theo đúng phạm vi sản phẩm, đồng bộ với migration unique `(product_id, serial_number)`. Tránh chặn nhầm hoặc đảo nhầm khi hai sản phẩm khác nhau có cùng serial number.
@@ -551,3 +817,7 @@
 - Phiếu nhập có thể chỉnh sửa khi còn trong luồng chưa ghi sổ: `DRAFT`, `PROCESSING_IMEI`, `PENDING_SHORTAGE_APPROVAL`, `APPROVED`.
 - Khi lưu thay đổi, backend cập nhật header/dòng phiếu, xóa dòng cũ và đưa phiếu về `DRAFT`; các thông tin duyệt/hủy cũ được xóa để bắt buộc chạy lại quy trình duyệt và nhập IMEI/Serial nếu cần.
 - Phiếu đã `COMPLETED`, đã có `posted_at`, `CANCELLED` hoặc `REVERSED` không được chỉnh sửa qua API cập nhật phiếu nhập.
+# Update 2026-06-18 - Consolidate database migrations
+
+- Toàn bộ migration tồn kho cũ đến `073` đã được gộp vào `backend/migrations/init_database.sql`.
+- Các file migration rời cũ đã được loại bỏ; thay đổi schema tiếp theo bắt đầu từ `001_*.sql`.

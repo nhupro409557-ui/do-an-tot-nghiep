@@ -1,6 +1,6 @@
 import type React from 'react';
 import { useState } from 'react';
-import { Pencil, Plus, Trash2, X, Zap } from 'lucide-react';
+import { Check, Pencil, Plus, Search, Trash2, X, Zap } from 'lucide-react';
 import { AdminBadge, AdminPanel, AdminTable, Input, SearchBox, Select, SubmitButtons } from '../../admin-shell/components/AdminDashboardParts';
 
 type AdminFlashSalesTabProps = Record<string, any>;
@@ -13,14 +13,37 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
     editingFlashSaleId,
     filteredFlashSales,
     flashSaleForm,
+    flashSaleBrandFilter,
+    flashSaleBrandOptions,
+    flashSaleCategoryFilter,
+    flashSaleCategoryOptions,
+    flashSaleProductChoices,
+    flashSaleProductSearch,
+    flashSaleStatusFilter,
     handleFlashSaleSubmit,
-    productOptions,
+    products,
     query,
     resetFlashSaleForm,
     setFlashSaleForm,
+    setFlashSaleBrandFilter,
+    setFlashSaleCategoryFilter,
+    setFlashSaleProductSearch,
+    setFlashSaleStatusFilter,
     setQuery,
+    usePermission,
   } = props;
   const [showForm, setShowForm] = useState(false);
+  const canManageFlashSale = usePermission('product:update');
+  const selectedFlashSaleProduct = (products || flashSaleProductChoices).find(
+    (product: any) => String(product.id) === String(flashSaleForm.productId),
+  );
+  const variantOptions = [
+    ['', 'Toàn bộ sản phẩm'],
+    ...((selectedFlashSaleProduct?.variants || []).map((variant: any) => [
+      String(variant.id),
+      [variant.sku, variant.configuration, variant.storage, variant.ram, variant.colorName].filter(Boolean).join(' · '),
+    ])),
+  ];
 
   const openCreateForm = () => {
     resetFlashSaleForm();
@@ -45,7 +68,7 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
   return (
     <AdminPanel
       title="Quản lý flash sale"
-      action={
+      action={canManageFlashSale ? (
         <button
           type="button"
           onClick={openCreateForm}
@@ -54,10 +77,25 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
           <Plus className="h-4 w-4" />
           Tạo flash sale
         </button>
-      }
-      filters={<SearchBox value={query} onChange={setQuery} placeholder="Tìm sản phẩm đang flash sale" />}
+      ) : undefined}
+      filters={(
+        <div className="relative z-10 grid items-end gap-3 pb-1 sm:grid-cols-2 xl:grid-cols-[minmax(280px,1.35fr)_repeat(3,minmax(190px,1fr))]">
+          <div>
+            <div className="mb-1 text-sm font-semibold text-slate-600">Tìm kiếm</div>
+            <SearchBox value={query} onChange={setQuery} placeholder="Tên sản phẩm hoặc SKU" />
+          </div>
+          <Select label="Danh mục" value={flashSaleCategoryFilter} onChange={setFlashSaleCategoryFilter} options={flashSaleCategoryOptions} />
+          <Select label="Thương hiệu" value={flashSaleBrandFilter} onChange={setFlashSaleBrandFilter} options={flashSaleBrandOptions} />
+          <Select
+            label="Trạng thái"
+            value={flashSaleStatusFilter}
+            onChange={setFlashSaleStatusFilter}
+            options={[['', 'Tất cả trạng thái'], ['RUNNING', 'Đang chạy'], ['SCHEDULED', 'Đã lên lịch'], ['INACTIVE', 'Tạm tắt']]}
+          />
+        </div>
+      )}
     >
-      {showForm && (
+      {showForm && canManageFlashSale && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6 backdrop-blur-sm">
           <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
@@ -71,8 +109,62 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
             </div>
             <form onSubmit={submitForm} className="grid gap-3 p-5 md:grid-cols-2">
               <div className="md:col-span-2">
-                <Select label="Sản phẩm" value={flashSaleForm.productId} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, productId: value })} options={productOptions} />
+                <span className="mb-1.5 block text-xs font-bold text-slate-500">Sản phẩm áp dụng</span>
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  <label className="relative block border-b border-slate-200">
+                    <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={flashSaleProductSearch}
+                      onChange={(event) => setFlashSaleProductSearch(event.target.value)}
+                      placeholder="Tìm theo tên, SKU hoặc thương hiệu"
+                      className="h-11 w-full bg-white pl-10 pr-4 text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                    />
+                  </label>
+                  <div className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500">
+                    {flashSaleProductChoices.length} sản phẩm phù hợp
+                  </div>
+                  <div className="max-h-60 overflow-y-auto p-2">
+                    {flashSaleProductChoices.length > 0 ? flashSaleProductChoices.map((product: any) => {
+                      const selected = String(product.id) === String(flashSaleForm.productId);
+                      return (
+                        <button
+                          key={product.id}
+                          type="button"
+                          onClick={() => setFlashSaleForm({ ...flashSaleForm, productId: String(product.id), variantId: '' })}
+                          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition ${
+                            selected ? 'bg-red-50 ring-1 ring-red-200' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          {product.imageUrl ? (
+                            <img src={product.imageUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-slate-100 bg-white object-contain" />
+                          ) : (
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
+                              <Zap className="h-4 w-4" />
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-bold text-slate-800">{product.name}</span>
+                            <span className="block truncate text-xs text-slate-500">
+                              {[product.sku, product.brand].filter(Boolean).join(' · ')}
+                            </span>
+                          </span>
+                          {selected && <Check className="h-5 w-5 shrink-0 text-red-600" />}
+                        </button>
+                      );
+                    }) : (
+                      <div className="px-3 py-6 text-center text-sm text-slate-500">Không tìm thấy sản phẩm phù hợp.</div>
+                    )}
+                  </div>
+                </div>
               </div>
+              {flashSaleForm.productId && (
+                <Select
+                  label="Phạm vi áp dụng"
+                  value={flashSaleForm.variantId}
+                  onChange={(value) => setFlashSaleForm({ ...flashSaleForm, variantId: value })}
+                  options={variantOptions}
+                />
+              )}
               <Select label="Kiểu giảm" value={flashSaleForm.discountType} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, discountType: value as 'PERCENT' | 'FIXED' })} options={[['PERCENT', 'Theo %'], ['FIXED', 'Theo số tiền']]} />
               <Input label={flashSaleForm.discountType === 'PERCENT' ? 'Giảm (%)' : 'Giảm (VND)'} type="number" value={flashSaleForm.discountValue} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, discountValue: Number(value) })} />
               <Input label="Bắt đầu" type="datetime-local" value={flashSaleForm.startsAt} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, startsAt: value })} />
@@ -97,7 +189,11 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
                 {item.imageUrl ? <img src={item.imageUrl} alt="" className="h-11 w-11 rounded-md object-contain" /> : <div className="flex h-11 w-11 items-center justify-center rounded-md bg-red-50 text-red-600"><Zap className="h-5 w-5" /></div>}
                 <div>
                   <div className="font-semibold text-slate-900">{item.productName}</div>
-                  <div className="text-xs text-slate-500">{item.productSku || item.productId}</div>
+                  <div className="text-xs text-slate-500">
+                    {item.variantId
+                      ? `Biến thể: ${[item.variantSku, item.variantName].filter(Boolean).join(' · ')}`
+                      : `Toàn bộ sản phẩm · ${item.productSku || item.productId}`}
+                  </div>
                 </div>
               </div>
             </td>
@@ -119,12 +215,12 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
             </td>
             <td className="px-4 py-3">
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => openEditForm(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50" title="Sửa flash sale">
+                {canManageFlashSale && <button type="button" onClick={() => openEditForm(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50" title="Sửa flash sale">
                   <Pencil className="h-4 w-4" />
-                </button>
-                <button type="button" onClick={() => deleteFlashSale(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-100 text-red-600 hover:bg-red-50" title="Xóa flash sale">
+                </button>}
+                {canManageFlashSale && <button type="button" onClick={() => deleteFlashSale(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-100 text-red-600 hover:bg-red-50" title="Xóa flash sale">
                   <Trash2 className="h-4 w-4" />
-                </button>
+                </button>}
               </div>
             </td>
           </tr>

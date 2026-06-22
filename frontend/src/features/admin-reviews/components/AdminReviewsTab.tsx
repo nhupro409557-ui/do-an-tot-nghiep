@@ -19,7 +19,10 @@ export default function AdminReviewsTab(props: AdminReviewsTabProps) {
     setReviewStarFilter,
     setReviewStatusFilter,
     updateReviewStatus,
+    usePermission,
   } = props;
+  const canUpdateReview = usePermission('review:update');
+  const canDeleteReview = usePermission('review:delete');
 
   return (
     <AdminPanel
@@ -90,18 +93,18 @@ export default function AdminReviewsTab(props: AdminReviewsTabProps) {
             </td>
             <td className="px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
-                {review.status === 'PENDING' ? (
+                {canUpdateReview && (review.status === 'PENDING' ? (
                   <button type="button" onClick={() => updateReviewStatus(review, 'PUBLISHED')} className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100">Duyệt</button>
                 ) : review.status === 'PUBLISHED' ? (
                   <button type="button" onClick={() => updateReviewStatus(review, 'HIDDEN')} className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:bg-slate-50">Ẩn</button>
                 ) : (
                   <button type="button" onClick={() => updateReviewStatus(review, 'PUBLISHED')} className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100">Hiện lại</button>
-                )}
-                <button type="button" onClick={() => updateReviewStatus(review, 'REJECTED')} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 transition hover:bg-amber-100">Từ chối</button>
-                <button type="button" onClick={() => replyToReview(review)} className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100">Phản hồi</button>
-                <button type="button" onClick={() => flagReview(review)} className="rounded-md border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700 transition hover:bg-orange-100">Báo xấu</button>
-                <button type="button" onClick={() => markReviewSpam(review)} className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100">Spam</button>
-                <button type="button" onClick={() => deleteReview(review)} className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100">Xóa</button>
+                ))}
+                {canUpdateReview && <button type="button" onClick={() => updateReviewStatus(review, 'REJECTED')} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 transition hover:bg-amber-100">Từ chối</button>}
+                {canUpdateReview && <button type="button" onClick={() => replyToReview(review)} className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100">Phản hồi</button>}
+                {canUpdateReview && <button type="button" onClick={() => flagReview(review)} className="rounded-md border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700 transition hover:bg-orange-100">Báo xấu</button>}
+                {canUpdateReview && <button type="button" onClick={() => markReviewSpam(review)} className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100">Spam</button>}
+                {canDeleteReview && <button type="button" onClick={() => deleteReview(review)} className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100">Xóa</button>}
               </div>
             </td>
           </tr>

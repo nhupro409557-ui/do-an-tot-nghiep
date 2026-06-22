@@ -24,6 +24,7 @@ export function useAdminCustomersLogic({
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [customerDetailOpen, setCustomerDetailOpen] = useState(false);
   const [customerDetailBusy, setCustomerDetailBusy] = useState(false);
+  const [customerDetailError, setCustomerDetailError] = useState('');
   const [customerActiveSection, setCustomerActiveSection] = useState<CustomerSection>('summary');
   const [customerOrders, setCustomerOrders] = useState<any[]>([]);
   const [customerLoyaltyHistory, setCustomerLoyaltyHistory] = useState<any[]>([]);
@@ -39,6 +40,8 @@ export function useAdminCustomersLogic({
   async function openCustomerDetail(customer: any) {
     setCustomerDetailOpen(true);
     setCustomerDetailBusy(true);
+    setCustomerDetailError('');
+    setSelectedCustomer(null);
     setCustomerActiveSection('summary');
     try {
       const detail = await adminCustomersApi.adminGetCustomerOverview(customer.id);
@@ -53,6 +56,8 @@ export function useAdminCustomersLogic({
       setCustomerPointDelta('0');
       setCustomerPointReason('');
       setCustomerNoteDraft('');
+    } catch (error) {
+      setCustomerDetailError(error instanceof Error ? error.message : 'Không thể tải thông tin khách hàng.');
     } finally {
       setCustomerDetailBusy(false);
     }
@@ -139,6 +144,8 @@ export function useAdminCustomersLogic({
     setCustomerDetailOpen,
     customerDetailBusy,
     setCustomerDetailBusy,
+    customerDetailError,
+    setCustomerDetailError,
     customerActiveSection,
     setCustomerActiveSection,
     customerOrders,
