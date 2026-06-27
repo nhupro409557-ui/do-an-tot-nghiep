@@ -330,8 +330,9 @@ async def list_rankings(
             p.description, p.specifications, p.price, p.sale_price AS "discountPrice",
             p.stock_quantity AS "stock", p.status, p.image_url AS "imageUrl",
             p.video_url AS "videoUrl", p.images, p.colors, p.capacities, p.promotions,
-            p.badge, p.rating, COALESCE(p.review_count, 0) AS "reviewCount",
-            COALESCE(p.favorite_count, 0) AS "favoriteCount",
+            p.badge, COALESCE(review_stats.rating, 0) AS rating,
+            COALESCE(review_stats.review_count, 0) AS "reviewCount",
+            COALESCE(favorite_counts.favorite_count, 0) AS "favoriteCount",
             COALESCE(os.sold_count, 0) AS "soldCount",
             p.is_featured AS "isFeatured", p.is_flash_sale AS "isFlashSale",
             fs.id::text AS "flashSaleId", fs.discount_type AS "flashSaleDiscountType",
@@ -426,6 +427,18 @@ async def list_rankings(
             WHERE o.status = 'COMPLETED'
             GROUP BY oi.product_id
         ) os ON os.product_id = p.id
+        LEFT JOIN (
+            SELECT product_id, ROUND(AVG(rating), 2)::numeric(3, 2) AS rating, COUNT(*) AS review_count
+            FROM product_reviews
+            WHERE status = 'PUBLISHED'
+            GROUP BY product_id
+        ) review_stats ON review_stats.product_id = p.id
+        LEFT JOIN (
+            SELECT product_id, COUNT(*) AS favorite_count
+            FROM user_favorites
+            WHERE is_active = TRUE
+            GROUP BY product_id
+        ) favorite_counts ON favorite_counts.product_id = p.id
         LEFT JOIN period_views pv_stats ON pv_stats.product_id = p.id
         LEFT JOIN period_searches ps_stats ON ps_stats.product_id = p.id
         LEFT JOIN period_solds pso_stats ON pso_stats.product_id = p.id
@@ -463,7 +476,8 @@ async def list_rankings(
         
         LEFT JOIN historical_stats h ON h.p_id = p.id
         WHERE p.status = 'ACTIVE' AND p.deleted_at IS NULL {category_filter_sql}
-        GROUP BY p.id, c.id, sc.id, os.sold_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at,
+        GROUP BY p.id, c.id, sc.id, os.sold_count, review_stats.rating, review_stats.review_count,
+            favorite_counts.favorite_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at,
             pv_stats.view_count, ps_stats.search_count, pso_stats.sold_count, pso_stats.revenue, pl_stats.like_count, pr_stats.review_count,
             prev_pv.view_count, prev_ps.search_count, prev_pso.sold_count, prev_pl.like_count, prev_pr.review_count,
             v24.view_count, s24.search_count, sl24.sold_count, l24.like_count, r24.review_count, r24.avg_rating,

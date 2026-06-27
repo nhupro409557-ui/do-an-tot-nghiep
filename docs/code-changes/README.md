@@ -1,24 +1,19 @@
 # Code Changes Documentation
 
-Thu muc nay gom cac tai lieu lien quan den thay doi code trong do an.
+Thư mục này chỉ lưu tài liệu thay đổi code còn giá trị tham khảo cho dự án.
 
-## Cau truc
+## Cấu trúc
 
-- `CHANGELOG.md`: nhat ky thay doi theo ngay, doc file nay truoc neu can nam nhanh lich su.
-- `frontend-backend-catalog-images-2026-05-29.md`: mo ta dot chuyen tinh toan tu frontend ve backend va sua trang `/images`.
-- `existing-docs/`: ban sao cac file `.md` hien co co lien quan den logic code/module, de tien doi chieu khi review.
+- `CHANGELOG.md`: nhật ký thay đổi theo ngày, đọc file này trước nếu cần nắm nhanh lịch sử.
+- `frontend-backend-catalog-images-2026-05-29.md`: mô tả đợt chuyển tính toán từ frontend về backend và sửa trang `/images`.
 
-## Nguyen tac cap nhat
+## Nguyên tắc cập nhật
 
-- Khi sua logic quan trong, them mot muc moi vao `CHANGELOG.md`.
-- Neu thay doi lon, tao them mot file rieng theo mau `ten-tinh-nang-yyyy-mm-dd.md`.
-- Neu sua cac file notes goc trong `backend/` hoac `frontend/`, dong bo lai ban sao trong `existing-docs/`.
-- Khong dua log, file build, cache, virtual environment hoac file sinh tu dong vao thu muc nay.
+- Khi sửa logic quan trọng, thêm một mục mới vào `CHANGELOG.md`.
+- Nếu thay đổi lớn, tạo thêm một file riêng theo mẫu `ten-tinh-nang-yyyy-mm-dd.md`.
+- Cập nhật trực tiếp notes gốc trong `backend/` hoặc `frontend/`; không duy trì bản sao thủ công vì dễ lệch logic hiện tại.
+- Không đưa log, file build, cache, virtual environment hoặc file sinh tự động vào thư mục này.
 
-## Tai lieu hien co da gom vao
+## Dọn dẹp 2026-06-24
 
-- `AGENTS.md`
-- `backend/*_NOTES.md`
-- `frontend/README.md`
-- `frontend/security_spec.md`
-- `frontend/docs/admin-dashboard-ui-audit.md`
+- Đã xóa `existing-docs/` vì đây là bản sao cũ của các file notes gốc và không còn phù hợp với workflow cập nhật trực tiếp notes hiện tại.

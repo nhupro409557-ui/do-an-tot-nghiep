@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+import json
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, text
@@ -60,6 +61,24 @@ async def get_existing_user_voucher(session: AsyncSession, *, user_id: UUID, vou
         .where(UserVoucher.voucher_id == voucher_id)
         .where(UserVoucher.status.in_(["AVAILABLE", "RESERVED", "USED"]))
     )
+
+
+async def has_user_voucher_assignment(session: AsyncSession, *, user_id: UUID, voucher_id: UUID) -> bool:
+    result = await session.execute(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM user_vouchers
+                WHERE user_id = :user_id
+                  AND voucher_id = :voucher_id
+                  AND status IN ('AVAILABLE', 'RESERVED', 'USED')
+            )
+            """
+        ),
+        {"user_id": user_id, "voucher_id": voucher_id},
+    )
+    return bool(result.scalar())
 
 
 async def add_user_voucher(session: AsyncSession, wallet_voucher: UserVoucher) -> None:
@@ -143,7 +162,7 @@ async def get_user(session: AsyncSession, user_id: UUID) -> User | None:
 
 async def list_product_categories(session: AsyncSession, product_ids: list[UUID]) -> list:
     result = await session.execute(
-        select(Product.id, Product.category_id, Product.subcategory_id).where(Product.id.in_(product_ids))
+        select(Product.id, Product.category_id, Product.subcategory_id, Product.brand_id).where(Product.id.in_(product_ids))
     )
     return list(result)
 
@@ -395,9 +414,10 @@ async def consume_inventory_lots_fifo(
                 """
                 SELECT id, lot_code, remaining_quantity
                 FROM inventory_lots
-                WHERE (
-                        (:variant_id_marker = 'BASE' AND product_id = :product_id AND variant_id IS NULL)
-                     OR (:variant_id_marker = 'VALUE' AND variant_id = CAST(:variant_id AS UUID))
+                WHERE product_id = :product_id
+                  AND (
+                        (CAST(:variant_id AS uuid) IS NULL)
+                     OR (variant_id = CAST(:variant_id AS uuid))
                   )
                   AND location_id = :location_id
                   AND status = 'ACTIVE'
@@ -409,7 +429,6 @@ async def consume_inventory_lots_fifo(
             {
                 "product_id": product_id,
                 "variant_id": variant_id,
-                "variant_id_marker": "VALUE" if variant_id else "BASE",
                 "location_id": location_id,
             },
         )
@@ -546,11 +565,7 @@ async def deduct_inventory_levels_fifo(
         remaining -= take_quantity
 
     if remaining > 0:
-        raise ValueError("Không đủ tồn khả dụng ở các kệ để xuất kho.")
-    return allocations
-
-
-async def deduct_inventory_levels_from_locations(
+        raise ValueError("Không đủ tồn khả dụng �async def deduct_inventory_levels_from_locations(
     session: AsyncSession,
     *,
     product_id: UUID,
@@ -564,13 +579,15 @@ async def deduct_inventory_levels_from_locations(
         if not location_id or quantity <= 0:
             continue
 
-        row = (
-            await session.execute(
+        if variant_id is None:
+            # Fetch all levels at this location for this product
+            result = await session.execute(
                 text(
                     """
                     SELECT
                         il.id,
                         il.location_id,
+                        il.variant_id,
                         loc.code AS "locationCode",
                         loc.name AS "locationName",
                         il.on_hand_quantity::int AS "onHandQuantity",
@@ -578,46 +595,132 @@ async def deduct_inventory_levels_from_locations(
                         GREATEST(il.on_hand_quantity - il.reserved_quantity, 0)::int AS "availableQuantity"
                     FROM inventory_levels il
                     JOIN inventory_locations loc ON loc.id = il.location_id
-                    WHERE (
-                            (:variant_id_marker = 'BASE' AND il.product_id = :product_id AND il.variant_id IS NULL)
-                         OR (:variant_id_marker = 'VALUE' AND il.variant_id = CAST(:variant_id AS UUID))
-                      )
+                    WHERE il.product_id = :product_id
                       AND il.location_id = :location_id
                     FOR UPDATE OF il
                     """
                 ),
                 {
                     "product_id": product_id,
-                    "variant_id": variant_id,
-                    "variant_id_marker": "VALUE" if variant_id else "BASE",
                     "location_id": location_id,
                 },
             )
-        ).mappings().first()
-        if not row or int(row["availableQuantity"] or 0) < quantity:
-            raise ValueError("Kệ nhân viên chọn không đủ tồn khả dụng để xuất kho.")
+            rows = [dict(r) for r in result.mappings().all()]
+            if not rows:
+                raise ValueError("Kệ nhân viên chọn không đủ tồn khả dụng để xuất kho.")
+            
+            total_available = sum(row["availableQuantity"] for row in rows)
+            if total_available < quantity:
+                raise ValueError("Kệ nhân viên chọn không đủ tồn khả dụng để xuất kho.")
+            
+            remaining_to_deduct = quantity
+            # Sort rows by availableQuantity descending to deduct from the largest stock first
+            rows.sort(key=lambda r: r["availableQuantity"], reverse=True)
+            
+            for row in rows:
+                if remaining_to_deduct <= 0:
+                    break
+                available = row["availableQuantity"]
+                if available <= 0:
+                    continue
+                
+                take = min(remaining_to_deduct, available)
+                old_quantity = row["onHandQuantity"]
+                new_quantity = old_quantity - take
+                
+                await session.execute(
+                    text(
+                        """
+                        UPDATE inventory_levels
+                        SET on_hand_quantity = :new_quantity,
+                            updated_at = NOW()
+                        WHERE id = :id
+                        """
+                    ),
+                    {"id": row["id"], "new_quantity": new_quantity},
+                )
 
-        old_quantity = int(row["onHandQuantity"] or 0)
-        new_quantity = old_quantity - quantity
-        await session.execute(
-            text(
-                """
-                UPDATE inventory_levels
-                SET on_hand_quantity = :new_quantity,
-                    updated_at = NOW()
-                WHERE id = :id
-                """
-            ),
-            {"id": row["id"], "new_quantity": new_quantity},
-        )
-        allocations.append(
-            {
-                "locationId": row["location_id"],
-                "locationCode": row["locationCode"],
-                "locationName": row["locationName"],
-                "oldQuantity": old_quantity,
-                "newQuantity": new_quantity,
-                "quantity": quantity,
+                if row.get("variant_id"):
+                    # Update variant stock in product_variants table
+                    v_row = await session.execute(
+                        text("SELECT stock_quantity FROM product_variants WHERE id = :variant_id FOR UPDATE"),
+                        {"variant_id": row["variant_id"]}
+                    )
+                    v_stock = v_row.scalar()
+                    if v_stock is not None:
+                        new_v_stock = max(0, v_stock - take)
+                        await session.execute(
+                            text("UPDATE product_variants SET stock_quantity = :qty, updated_at = NOW() WHERE id = :variant_id"),
+                            {"qty": new_v_stock, "variant_id": row["variant_id"]}
+                        )
+                
+                allocations.append(
+                    {
+                        "locationId": row["location_id"],
+                        "locationCode": row["locationCode"],
+                        "locationName": row["locationName"],
+                        "oldQuantity": old_quantity,
+                        "newQuantity": new_quantity,
+                        "quantity": take,
+                    }
+                )
+                remaining_to_deduct -= take
+                
+            if remaining_to_deduct > 0:
+                raise ValueError("Kệ nhân viên chọn không đủ tồn khả dụng để xuất kho.")
+        else:
+            row = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT
+                            il.id,
+                            il.location_id,
+                            loc.code AS "locationCode",
+                            loc.name AS "locationName",
+                            il.on_hand_quantity::int AS "onHandQuantity",
+                            il.reserved_quantity::int AS "reservedQuantity",
+                            GREATEST(il.on_hand_quantity - il.reserved_quantity, 0)::int AS "availableQuantity"
+                        FROM inventory_levels il
+                        JOIN inventory_locations loc ON loc.id = il.location_id
+                        WHERE il.variant_id = CAST(:variant_id AS UUID)
+                          AND il.location_id = :location_id
+                        FOR UPDATE OF il
+                        """
+                    ),
+                    {
+                        "variant_id": variant_id,
+                        "location_id": location_id,
+                    },
+                )
+            ).mappings().first()
+            if not row or int(row["availableQuantity"] or 0) < quantity:
+                raise ValueError("Kệ nhân viên chọn không đủ tồn khả dụng để xuất kho.")
+
+            old_quantity = int(row["onHandQuantity"] or 0)
+            new_quantity = old_quantity - quantity
+            await session.execute(
+                text(
+                    """
+                    UPDATE inventory_levels
+                    SET on_hand_quantity = :new_quantity,
+                        updated_at = NOW()
+                    WHERE id = :id
+                    """
+                ),
+                {"id": row["id"], "new_quantity": new_quantity},
+            )
+            allocations.append(
+                {
+                    "locationId": row["location_id"],
+                    "locationCode": row["locationCode"],
+                    "locationName": row["locationName"],
+                    "oldQuantity": old_quantity,
+                    "newQuantity": new_quantity,
+                    "quantity": quantity,
+                }
+            )
+    return allocations          "quantity": quantity,
             }
         )
     return allocations
@@ -680,6 +783,144 @@ async def get_checkout_url(session: AsyncSession, order_id: UUID) -> str | None:
     return result.scalar_one_or_none()
 
 
+async def get_latest_payment_transaction(session: AsyncSession, order_id: UUID) -> PaymentTransaction | None:
+    return await session.scalar(
+        select(PaymentTransaction)
+        .where(PaymentTransaction.order_id == order_id)
+        .order_by(PaymentTransaction.attempt_number.desc(), PaymentTransaction.created_at.desc())
+        .limit(1)
+    )
+
+
+async def get_payment_transaction(session: AsyncSession, payment_id: UUID) -> PaymentTransaction | None:
+    return await session.scalar(select(PaymentTransaction).where(PaymentTransaction.id == payment_id))
+
+
+async def get_payment_transaction_for_update(
+    session: AsyncSession,
+    *,
+    order_id: UUID,
+    provider: str,
+) -> PaymentTransaction | None:
+    return await session.scalar(
+        select(PaymentTransaction)
+        .where(
+            PaymentTransaction.order_id == order_id,
+            PaymentTransaction.provider == provider,
+        )
+        .order_by(PaymentTransaction.attempt_number.desc(), PaymentTransaction.created_at.desc())
+        .with_for_update()
+        .limit(1)
+    )
+
+
+async def get_payment_transaction_by_reference_for_update(
+    session: AsyncSession,
+    *,
+    provider: str,
+    transaction_ref: str,
+) -> PaymentTransaction | None:
+    return await session.scalar(
+        select(PaymentTransaction)
+        .where(
+            PaymentTransaction.provider == provider,
+            PaymentTransaction.transaction_ref == transaction_ref,
+        )
+        .with_for_update()
+        .limit(1)
+    )
+
+
+async def expire_pending_payment_transactions(session: AsyncSession) -> int:
+    result = await session.execute(
+        text(
+            """
+            UPDATE payment_transactions
+            SET status = 'EXPIRED', failed_at = NOW(), updated_at = NOW()
+            WHERE status = 'PENDING'
+              AND expires_at IS NOT NULL
+              AND expires_at <= NOW()
+            """
+        )
+    )
+    await session.commit()
+    return int(result.rowcount or 0)
+
+
+async def create_webhook_event(
+    session: AsyncSession,
+    *,
+    event_id: UUID,
+    provider: str,
+    event_key: str,
+    order_id: UUID | None,
+    payment_transaction_id: UUID | None,
+    signature_valid: bool,
+    payload: dict,
+) -> bool:
+    result = await session.execute(
+        text(
+            """
+            INSERT INTO payment_webhook_events (
+                id, provider, event_key, order_id, payment_transaction_id,
+                signature_valid, processing_status, payload
+            )
+            VALUES (
+                :id, :provider, :event_key, :order_id, :payment_transaction_id,
+                :signature_valid, 'RECEIVED', CAST(:payload AS JSONB)
+            )
+            ON CONFLICT (provider, event_key) DO UPDATE
+            SET id = EXCLUDED.id,
+                order_id = EXCLUDED.order_id,
+                payment_transaction_id = EXCLUDED.payment_transaction_id,
+                signature_valid = EXCLUDED.signature_valid,
+                processing_status = 'RECEIVED',
+                payload = EXCLUDED.payload,
+                error_message = NULL,
+                processed_at = NULL,
+                created_at = NOW()
+            WHERE payment_webhook_events.processing_status = 'FAILED'
+            RETURNING id
+            """
+        ),
+        {
+            "id": event_id,
+            "provider": provider,
+            "event_key": event_key,
+            "order_id": order_id,
+            "payment_transaction_id": payment_transaction_id,
+            "signature_valid": signature_valid,
+            "payload": json.dumps(payload, ensure_ascii=False),
+        },
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def finish_webhook_event(
+    session: AsyncSession,
+    *,
+    event_id: UUID,
+    processing_status: str,
+    error_message: str | None = None,
+) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE payment_webhook_events
+            SET processing_status = :processing_status,
+                error_message = :error_message,
+                processed_at = NOW()
+            WHERE id = :event_id
+            """
+        ),
+        {
+            "event_id": event_id,
+            "processing_status": processing_status,
+            "error_message": error_message,
+        },
+    )
+
+
 async def get_order_for_update(session: AsyncSession, order_id: UUID) -> Order | None:
     return await session.scalar(select(Order).where(Order.id == order_id).with_for_update())
 
@@ -697,9 +938,8 @@ async def list_pending_order_ids_to_expire(
             FROM orders
             WHERE status = 'PENDING'
               AND (
-                (payment_method <> 'COD' AND created_at < NOW() - make_interval(mins => :online_timeout_minutes))
-                OR
-                (payment_method = 'COD' AND created_at < NOW() - make_interval(hours => :cod_timeout_hours))
+                payment_method = 'COD'
+                AND created_at < NOW() - make_interval(hours => :cod_timeout_hours)
               )
             ORDER BY created_at ASC
             """

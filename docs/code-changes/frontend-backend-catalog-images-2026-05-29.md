@@ -1,26 +1,26 @@
-﻿# Frontend Backend Catalog Images - 2026-05-29
+# Frontend Backend Catalog Images - 2026-05-29
 
-## Tom tat
+## Tóm tắt
 
-Dot thay doi nay tap trung vao viec dua cac phep tinh catalog tu frontend ve backend, dong thoi khoi phuc va nang cap trang `/images`.
+Đợt thay đổi này tập trung vào việc đưa các phép tính catalog từ frontend về backend, đồng thời khôi phục và nâng cấp trang `/images`.
 
-Ket qua chinh:
+Kết quả chính:
 
-- Frontend khong con phai tu loc/sap xep/tong hop danh sach anh san pham o quy mo lon.
-- Backend co endpoint rieng cho thu vien hinh anh san pham.
-- Trang `/images` phan trang 30 san pham moi trang.
-- Danh sach anh duoc sap theo diem xu huong.
-- CORS va loi 404/500 cua `/catalog/images` da duoc xu ly.
+- Frontend không còn phải tự lọc/sắp xếp/tổng hợp danh sách ảnh sản phẩm ở quy mô lớn.
+- Backend có endpoint riêng cho thư viện hình ảnh sản phẩm.
+- Trang `/images` phân trang 30 sản phẩm mỗi trang.
+- Danh sách ảnh được sắp xếp theo điểm xu hướng.
+- CORS và lỗi 404/500 của `/catalog/images` đã được xử lý.
 
-## Thay doi backend
+## Thay đổi backend
 
-File chinh:
+File chính:
 
 - `backend/app/api/v1/routers/catalog.py`
 
-Noi dung:
+Nội dung:
 
-- Mo rong `list_products` de nhan tham so loc va sap xep:
+- Mở rộng `list_products` để nhận tham số lọc và sắp xếp:
   - `q`
   - `category`
   - `brand`
@@ -31,24 +31,23 @@ Noi dung:
   - `offset`
   - `flash_sale`
   - `featured`
-- Mo rong `list_rankings` de backend tinh du lieu xep hang theo:
+- Mở rộng `list_rankings` để backend tính dữ liệu xếp hạng theo:
   - `period`
   - `criteria`
   - `category`
   - `limit`
-- Them `list_product_images` cho route `/catalog/images`.
-- Them cac helper tinh toan:
-  - chuan hoa tu khoa tim kiem
-  - chuan hoa danh muc
-  - tinh diem khop tu khoa
-  - tinh gia hien tai
-  - tinh diem xu huong xap xi
+- Thêm `list_product_images` cho route `/catalog/images`.
+- Thêm các helper tính toán:
+  - chuẩn hóa từ khóa tìm kiếm
+  - chuẩn hóa danh mục
+  - tính điểm khớp từ khóa
+  - tính giá hiện tại
+  - tính điểm xu hướng xấp xỉ
 
-## Thay doi frontend
+## Thay đổi frontend
 
-File chinh:
+File chính:
 
-- `legacy apiDb.ts`
 - `frontend/src/features/media/pages/ImagesPage.tsx`
 - `frontend/src/features/products/pages/ProductListPage.tsx`
 - `frontend/src/features/products/pages/RankingsPage.tsx`
@@ -57,23 +56,22 @@ File chinh:
 - `frontend/src/features/products/components/SuggestedProducts.tsx`
 - `frontend/src/components/layout/NotificationDropdown.tsx`
 
-Noi dung:
+Nội dung:
 
-- `apiDb.listProducts` nhan them tham so loc/sap xep va truyen ve backend.
-- `apiDb.listRankings` dung tham so backend thay vi tinh gia lap o frontend.
-- `apiDb.listProductImages` goi `/catalog/images`.
-- `ImagesPage` chi render du lieu backend da phan trang.
-- `NotificationDropdown` bo qua request thong bao neu chua co token dang nhap.
+- Các service catalog/product/ranking truyền tham số lọc, sắp xếp và phân trang về backend.
+- Service thư viện ảnh gọi `/catalog/images`.
+- `ImagesPage` chỉ render dữ liệu backend đã phân trang.
+- `NotificationDropdown` bỏ qua request thông báo nếu chưa có token đăng nhập.
 
 ## API `/catalog/images`
 
-Request mau:
+Request mẫu:
 
 ```text
 GET /api/v1/catalog/images?page=1&limit=30
 ```
 
-Response chinh:
+Response chính:
 
 ```json
 {
@@ -88,58 +86,58 @@ Response chinh:
 }
 ```
 
-## Loi da sua
+## Lỗi đã sửa
 
-- Frontend goi `/api/v1/catalog/images` nhung backend chua co route nen bi `404`.
-- Sau khi them route, backend tung bi `500` do goi truc tiep function FastAPI co default `Query(...)`.
-- Khi backend tra `500`, browser bao CORS vi response loi khong co header mong doi.
-- Da sua bang cach truyen ro tham so khi endpoint images tai danh sach san pham noi bo.
-- Da restart backend va kiem tra lai response `200` co CORS dung.
+- Frontend gọi `/api/v1/catalog/images` nhưng backend chưa có route nên bị `404`.
+- After adding route, backend từng bị `500` do gọi trực tiếp function FastAPI có mặc định `Query(...)`.
+- Khi backend trả `500`, trình duyệt báo lỗi CORS vì phản hồi lỗi không có header mong đợi.
+- Đã sửa bằng cách truyền rõ tham số khi endpoint images tải danh sách sản phẩm nội bộ.
+- Đã khởi động lại (restart) backend và kiểm tra lại response `200` có CORS đúng.
 
-## Danh gia hieu nang
+## Đánh giá hiệu năng
 
-Thay doi nay giup frontend muot hon vi:
+Thay đổi này giúp frontend mượt hơn vì:
 
-- Giam so san pham/anh can tai va xu ly trong mot lan render.
-- Giam viec loc/sap xep lap lai tren client khi nguoi dung tim kiem, doi danh muc hoac doi trang.
-- Backend co the toi uu them bang SQL/index/cache ma khong can sua UI nhieu.
+- Giảm số sản phẩm/ảnh cần tải và xử lý trong một lần render.
+- Giảm việc lọc/sắp xếp lặp lại trên client khi người dùng tìm kiếm, đổi danh mục hoặc đổi trang.
+- Backend có thể tối ưu thêm bằng SQL/index/cache mà không cần sửa UI nhiều.
 
-Frontend van co the toi uu tiep:
+Frontend vẫn có thể tối ưu tiếp:
 
-- Dung virtualized masonry neu so luong anh tang len hang tram/hang nghin.
-- Toi uu modal 3D de khong auto-rotate bang interval lien tuc.
-- Chi preload anh can thiet trong modal.
+- Dùng virtualized masonry nếu số lượng ảnh tăng lên hàng trăm/hàng nghin.
+- Tối ưu modal 3D để không tự động xoay bằng interval liên tục.
+- Chỉ tải trước (preload) ảnh cần thiết trong modal.
 
-## Kiem tra da thuc hien
+## Kiểm tra đã thực hiện
 
-- Backend `/health` hoat dong.
-- `GET /api/v1/catalog/images?page=1&limit=30` tra `200`.
-- Response co CORS cho `http://localhost:3000`.
-- Trang dau co 30 item.
-- Tong du lieu kiem tra: 61 san pham, 3 trang, 158 anh.
-- `npm run build` frontend thanh cong.
+- Backend `/health` hoạt động.
+- `GET /api/v1/catalog/images?page=1&limit=30` trả `200`.
+- Response có CORS cho `http://localhost:3000`.
+- Trang đầu có 30 mục.
+- Tổng dữ liệu kiểm tra: 61 sản phẩm, 3 trang, 158 ảnh.
+- `npm run build` frontend thành công.
 
-## Viec nen lam tiep
+## Việc nên làm tiếp
 
-- Can nhac doi text "Thu Vien Anh 3D" thanh "Thu Vien Anh San Pham" neu du lieu khong phai anh 3D that.
+- Cân nhắc đổi văn bản "Thư Viện Ảnh 3D" thành "Thư Viện Ảnh Sản Phẩm" nếu dữ liệu không phải ảnh 3D thật.
 
-## Bo sung sau review modal
+## Bổ sung sau review modal
 
-- Da them API resolve image by `viewId` de link chia se `/images?view=...` mo dung anh o moi trang.
-- San pham co it hon 3 anh hien viewer anh don thay vi carousel 360.
-- San pham co tu 3 anh tro len moi hien carousel/360.
-- Auto rotate modal da chuyen sang `requestAnimationFrame`.
-- Modal ton trong `prefers-reduced-motion` va khong tu xoay khi nguoi dung bat giam chuyen dong.
+- Đã thêm API phân giải ảnh bằng `viewId` để liên kết chia sẻ `/images?view=...` mở đúng ảnh ở mọi trang.
+- Sản phẩm có ít hơn 3 ảnh hiển thị bộ xem ảnh đơn thay vì carousel 360.
+- Sản phẩm có từ 3 ảnh trở lên mới hiện carousel/360.
+- Tự động xoay modal đã chuyển sang `requestAnimationFrame`.
+- Modal tôn trọng `prefers-reduced-motion` và không tự xoay khi người dùng bật giảm chuyển động.
 
-## Bo sung layout pixel/mosaic
+## Bổ sung layout pixel/mosaic
 
-- Giao dien `/images` tiep tuc giu phong cach pixel/mosaic voi cac the anh cao thap khac nhau.
-- Thay `columns` masonry bang CSS grid `auto-rows` + `row-span` de han che khoang trong lon giua cac cot.
-- Backend khong dua anh placeholder vao thu vien anh, giup trang khong con nhieu the "Chua co anh".
-- Trang hien chi dem san pham co anh that trong `totalProducts` va `totalImages`.
-- Sau khi sua, endpoint `/catalog/images?page=1&limit=30` tra 23 san pham va 63 anh.
+- Giao diện `/images` tiếp tục giữ phong cách pixel/mosaic với các thẻ ảnh cao thấp khác nhau.
+- Thay `columns` masonry bằng CSS grid `auto-rows` + `row-span` để hạn chế khoảng trống lớn giữa các cột.
+- Backend không đưa ảnh placeholder vào thư viện ảnh, giúp trang không còn nhiều thẻ "Chưa có ảnh".
+- Trang hiện chỉ đếm sản phẩm có ảnh thật trong `totalProducts` và `totalImages`.
+- Sau khi sửa, endpoint `/catalog/images?page=1&limit=30` trả 23 sản phẩm và 63 ảnh.
 
-## Viec nen lam tiep sau bo sung
+## Việc nên làm tiếp sau bổ sung
 
-- Neu du lieu anh tang len hang nghin san pham, toi uu endpoint resolve de truy van truc tiep thay vi build collection day du.
-- Bo sung nut chuyen anh trai/phai cho truong hop san pham co 2 anh nhung chua can carousel 360.
+- Nếu dữ liệu ảnh tăng lên hàng nghìn sản phẩm, tối ưu endpoint resolve để truy vấn trực tiếp thay vì dựng lại toàn bộ collection.
+- Bổ sung nút chuyển ảnh trái/phải cho trường hợp sản phẩm có 2 ảnh nhưng chưa cần carousel 360.

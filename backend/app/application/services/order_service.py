@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.repositories import order_repo
+from app.infrastructure.database.repositories import commerce_repo
 
 
 async def list_orders(session: AsyncSession, user_id: UUID | None = None) -> list[dict]:
@@ -15,3 +16,7 @@ async def get_order_detail(session: AsyncSession, order_id: UUID) -> dict:
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
     return order
+
+
+async def expire_pending_payments(session: AsyncSession) -> int:
+    return await commerce_repo.expire_pending_payment_transactions(session)

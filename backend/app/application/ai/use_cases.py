@@ -126,7 +126,7 @@ def keyword_tokens(message: str) -> list[str]:
 
 
 def order_code_from_message(message: str) -> str | None:
-    match = re.search(r"\b(?:ORD|DH|ORDER)[-_]?[A-Z0-9]{4,}\b", message, flags=re.IGNORECASE)
+    match = re.search(r"\b(?:EMV[0-9]{10}|(?:ORD|DH|ORDER)[-_]?[A-Z0-9]{4,})\b", message, flags=re.IGNORECASE)
     return match.group(0).upper().replace("_", "-") if match else None
 
 

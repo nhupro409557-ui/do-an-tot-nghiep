@@ -16,6 +16,7 @@ const AdminCustomersTab = React.lazy(() => import('../../admin-customers/compone
 const AdminFlashSalesTab = React.lazy(() => import('../../admin-flash-sales/components/AdminFlashSalesTab'));
 const AdminInventoryReceiptsTab = React.lazy(() => import('../../admin-inventory/components/AdminInventoryReceiptsTab'));
 const AdminInventoryTab = React.lazy(() => import('../../admin-inventory/components/AdminInventoryTab'));
+const AdminInventoryOutboundsTab = React.lazy(() => import('../../admin-inventory/components/AdminInventoryOutboundsTab'));
 const AdminProductInteractionsTab = React.lazy(() => import('../../admin-interactions/components/AdminProductInteractionsTab'));
 const AdminOrdersTab = React.lazy(() => import('../../admin-orders/components/AdminOrdersTab'));
 const AdminOverviewTab = React.lazy(() => import('../../admin-overview/components/AdminOverviewTab'));
@@ -25,6 +26,9 @@ const AdminReviewsTab = React.lazy(() => import('../../admin-reviews/components/
 const AdminServicesTab = React.lazy(() => import('../../admin-services/components/AdminServicesTab'));
 const AdminSuppliersTab = React.lazy(() => import('../../admin-suppliers/components/AdminSuppliersTab'));
 const AdminVouchersTab = React.lazy(() => import('../../admin-vouchers/components/AdminVouchersTab'));
+const AdminAfterSalesTab = React.lazy(() => import('../../admin-after-sales/components/AdminAfterSalesTab'));
+const AdminPaymentMethodsTab = React.lazy(() => import('../../admin-payment-methods/components/AdminPaymentMethodsTab'));
+const AdminStoreInfoTab = React.lazy(() => import('../../admin-store-info/components/AdminStoreInfoTab'));
 
 type AdminDashboardTabContentProps = {
   admin: any;
@@ -108,6 +112,8 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
       return <AdminServicesTab {...sharedProps} />;
     case 'orders':
       return <AdminOrdersTab {...sharedProps} />;
+    case 'afterSales':
+      return <AdminAfterSalesTab />;
     case 'vouchers':
       return <AdminVouchersTab {...sharedProps} />;
     case 'customers':
@@ -116,6 +122,8 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
       return <AdminInventoryReceiptsTab {...sharedProps} />;
     case 'inventory':
       return <AdminInventoryTab {...sharedProps} />;
+    case 'inventoryOutbounds':
+      return <AdminInventoryOutboundsTab {...sharedProps} />;
     case 'reviews':
       return <AdminReviewsTab {...sharedProps} />;
     case 'interactions':
@@ -128,6 +136,10 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
       return <AdminAuditTab {...sharedProps} />;
     case 'permissions':
       return <AdminPermissionsTab {...sharedProps} />;
+    case 'paymentMethods':
+      return <AdminPaymentMethodsTab {...sharedProps} />;
+    case 'storeInfo':
+      return <AdminStoreInfoTab {...sharedProps} />;
     default:
       return (
         <AdminOverviewTab

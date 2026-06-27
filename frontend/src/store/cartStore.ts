@@ -1,23 +1,64 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { useShallow } from 'zustand/shallow';
+
+export interface AttachedServiceItem {
+  serviceId: string;
+  code: string;
+  name: string;
+  price: number;
+}
 
 export interface CartItem {
-  productId: string;
+  cartItemId?: string; // Khóa chính duy nhất trong store
+  productId: string; // ID sản phẩm/variant thực tế
   name: string;
   price: number;
   imageUrl: string;
   quantity: number;
   originalPrice?: number;
+  
+  // Dịch vụ đi kèm
+  attachedServices?: AttachedServiceItem[];
+  
+  // Sản phẩm mua kèm
+  isAccessory?: boolean;
+  parentProductId?: string;
+
+  // Trạng thái tích chọn để thanh toán
+  checked?: boolean;
 }
 
 interface CartState {
   items: CartItem[];
   addToCart: (item: CartItem) => void;
-  removeFromCart: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
+  removeFromCart: (cartItemId: string) => void;
+  updateQuantity: (cartItemId: string, quantity: number) => void;
   clearCart: () => void;
+  toggleCheckItem: (cartItemId: string) => void;
+  toggleCheckAll: (checked: boolean) => void;
+  clearCheckedItems: () => void;
 }
+
+// Hàm so sánh các dịch vụ đi kèm có giống nhau không
+const areServicesEqual = (a?: AttachedServiceItem[], b?: AttachedServiceItem[]) => {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  const aIds = a.map(s => s.serviceId).sort();
+  const bIds = b.map(s => s.serviceId).sort();
+  return aIds.every((id, idx) => id === bIds[idx]);
+};
+
+// Hàm sinh cartItemId duy nhất cho item trong store
+export const generateCartItemId = (item: CartItem): string => {
+  const serviceSuffix = item.attachedServices && item.attachedServices.length > 0
+    ? `_srv-${item.attachedServices.map(s => s.serviceId).sort().join('-')}`
+    : '';
+  const accessorySuffix = item.isAccessory
+    ? `_acc-${item.parentProductId}`
+    : '';
+  return `${item.productId}${serviceSuffix}${accessorySuffix}`;
+};
 
 export const useCartStore = create<CartState>()(
   persist(
@@ -25,33 +66,79 @@ export const useCartStore = create<CartState>()(
       items: [],
       addToCart: (newItem) =>
         set((state) => {
-          const existing = state.items.find((item) => item.productId === newItem.productId);
-          if (!existing) {
-            return { items: [...state.items, newItem] };
+          const cartItemId = newItem.cartItemId || generateCartItemId(newItem);
+          const itemToInsert = { ...newItem, cartItemId, checked: newItem.checked ?? true };
+          
+          const existingIdx = state.items.findIndex((item) => item.cartItemId === cartItemId);
+          if (existingIdx === -1) {
+            return { items: [...state.items, itemToInsert] };
           }
 
-          return {
-            items: state.items.map((item) =>
-              item.productId === newItem.productId
-                ? { ...item, quantity: item.quantity + newItem.quantity }
-                : item,
-            ),
+          const updatedItems = [...state.items];
+          updatedItems[existingIdx] = {
+            ...updatedItems[existingIdx],
+            quantity: updatedItems[existingIdx].quantity + newItem.quantity,
+            checked: updatedItems[existingIdx].checked ?? true,
           };
+          return { items: updatedItems };
         }),
-      removeFromCart: (productId) =>
+      removeFromCart: (cartItemId) =>
         set((state) => ({
-          items: state.items.filter((item) => item.productId !== productId),
+          items: state.items.filter((item) => (item.cartItemId || generateCartItemId(item)) !== cartItemId),
         })),
-      updateQuantity: (productId, quantity) =>
+      updateQuantity: (cartItemId, quantity) =>
         set((state) => ({
           items:
             quantity <= 0
-              ? state.items.filter((item) => item.productId !== productId)
+              ? state.items.filter((item) => (item.cartItemId || generateCartItemId(item)) !== cartItemId)
               : state.items.map((item) =>
-                  item.productId === productId ? { ...item, quantity } : item,
+                  (item.cartItemId || generateCartItemId(item)) === cartItemId
+                    ? { ...item, cartItemId: item.cartItemId || generateCartItemId(item), quantity }
+                    : item,
                 ),
         })),
       clearCart: () => set({ items: [] }),
+      toggleCheckItem: (cartItemId) =>
+        set((state) => {
+          // 1. Cập nhật checked của item đích
+          const updatedItems = state.items.map((item) => {
+            const currentId = item.cartItemId || generateCartItemId(item);
+            if (currentId === cartItemId) {
+              return { ...item, checked: !item.checked };
+            }
+            return item;
+          });
+
+          // 2. Tìm item vừa toggle
+          const targetItem = state.items.find(
+            (item) => (item.cartItemId || generateCartItemId(item)) === cartItemId
+          );
+
+          if (targetItem && !targetItem.isAccessory) {
+            // targetItem là sản phẩm chính. Đồng bộ checked của các phụ kiện đi kèm với nó.
+            const targetId = targetItem.productId;
+            const parentChecked = !targetItem.checked; // Trạng thái mới sau khi toggle
+
+            return {
+              items: updatedItems.map((item) => {
+                if (item.isAccessory && item.parentProductId === targetId) {
+                  return { ...item, checked: parentChecked };
+                }
+                return item;
+              }),
+            };
+          }
+
+          return { items: updatedItems };
+        }),
+      toggleCheckAll: (checked) =>
+        set((state) => ({
+          items: state.items.map((item) => ({ ...item, checked })),
+        })),
+      clearCheckedItems: () =>
+        set((state) => ({
+          items: state.items.filter((item) => item.checked === false),
+        })),
     }),
     {
       name: 'cartItems',
@@ -60,11 +147,103 @@ export const useCartStore = create<CartState>()(
   ),
 );
 
-export const useCartTotals = () =>
-  useCartStore(
-    useShallow((state) => ({
-      totalQuantity: state.items.reduce((sum, item) => sum + item.quantity, 0),
-      totalPrice: state.items.reduce((sum, item) => sum + item.price * item.quantity, 0),
-    }))
-  );
+// Helper chuẩn hóa, phân bổ và tách dòng phụ kiện mua kèm
+export function getNormalizedCartItems(items: CartItem[]): CartItem[] {
+  // Đảm bảo mọi item đều có cartItemId
+  const sanitizedItems = (items || []).map(item => ({
+    ...item,
+    cartItemId: item.cartItemId || generateCartItemId(item)
+  }));
 
+  // 1. Phân loại sản phẩm chính và sản phẩm phụ
+  const mainItems = sanitizedItems.filter(item => !item.isAccessory);
+  const accessoryItems = sanitizedItems.filter(item => item.isAccessory);
+  
+  // Lưu trữ danh sách ID các sản phẩm chính đang có trong giỏ hàng
+  const mainProductIds = new Set(mainItems.map(item => item.productId));
+  
+  const normalized: CartItem[] = [];
+  
+  // Thêm tất cả sản phẩm chính vào danh sách normalized
+  mainItems.forEach(item => {
+    normalized.push({ ...item });
+  });
+  
+  // Nhóm các accessory theo productId để gộp số lượng trước khi phân bổ
+  const accessoryGroups: Record<string, CartItem[]> = {};
+  accessoryItems.forEach(item => {
+    if (!accessoryGroups[item.productId]) {
+      accessoryGroups[item.productId] = [];
+    }
+    accessoryGroups[item.productId].push(item);
+  });
+  
+  // Phân bổ từng nhóm accessory
+  Object.entries(accessoryGroups).forEach(([productId, group]) => {
+    // Tổng số lượng của phụ kiện này trong giỏ hàng
+    const totalQty = group.reduce((sum, item) => sum + item.quantity, 0);
+    
+    // Tìm xem phụ kiện này đi kèm với sản phẩm chính nào (lấy parentProductId từ item đầu tiên)
+    const parentProductId = group[0].parentProductId;
+    
+    // Kiểm tra xem sản phẩm chính đó có trong giỏ hàng không
+    const hasParentInCart = parentProductId && mainProductIds.has(parentProductId);
+    
+    if (hasParentInCart) {
+      // Có sản phẩm chính -> được hưởng ưu đãi mua kèm tối đa là 1 chiếc
+      const discountQty = 1;
+      const normalQty = totalQty - discountQty;
+      
+      // Tự động kiểm tra và giảm giá nếu giá mua kèm ưu đãi đang bị 0đ hoặc không hợp lệ
+      let finalPrice = Number(group[0].price || 0);
+      const baseOriginalPrice = Number(group[0].originalPrice || 0);
+      
+      // Nếu giá bán kèm là 0 hoặc bằng giá gốc, và có giá gốc hợp lệ -> tự giảm giá (mặc định giảm 25%)
+      if (finalPrice <= 0 && baseOriginalPrice > 0) {
+        finalPrice = Math.round(baseOriginalPrice * 0.75); // Tự động giảm giá 25%
+      }
+      
+      // Dòng 1: Mua kèm giảm giá (tối đa 1 chiếc)
+      normalized.push({
+        ...group[0],
+        cartItemId: `${group[0].cartItemId}-accessory`, // ID hiển thị đặc trưng
+        productId: `${productId}-accessory`, // ID hiển thị để UI render/tương tác
+        name: `${group[0].name} (Sản phẩm mua kèm được giảm giá)`,
+        quantity: discountQty,
+        price: finalPrice, // Giá ưu đãi bán kèm đã tự động xử lý
+        originalPrice: baseOriginalPrice,
+      });
+      
+      // Dòng 2: Bình thường (số lượng còn lại, nếu có)
+      if (normalQty > 0) {
+        normalized.push({
+          ...group[0],
+          cartItemId: `${group[0].cartItemId}-normal`, // ID hiển thị đặc trưng
+          productId: `${productId}-normal`, // ID hiển thị để UI render/tương tác
+          name: group[0].name.replace(' (Sản phẩm mua kèm được giảm giá)', ''),
+          quantity: normalQty,
+          price: baseOriginalPrice || group[0].price, // Sử dụng giá gốc
+          originalPrice: undefined,
+          isAccessory: false,
+          parentProductId: undefined,
+        });
+      }
+    } else {
+      // Không có sản phẩm chính -> tính theo giá gốc cho toàn bộ số lượng
+      const baseOriginalPrice = Number(group[0].originalPrice || 0);
+      normalized.push({
+        ...group[0],
+        cartItemId: `${group[0].cartItemId}-normal`,
+        productId: `${productId}-normal`,
+        name: group[0].name.replace(' (Sản phẩm mua kèm được giảm giá)', ''),
+        quantity: totalQty,
+        price: baseOriginalPrice || group[0].price, // Sử dụng giá gốc
+        originalPrice: undefined,
+        isAccessory: false,
+        parentProductId: undefined,
+      });
+    }
+  });
+  
+  return normalized;
+}

@@ -5,6 +5,15 @@ type GoogleCredentialResponse = {
   credential?: string;
 };
 
+interface GooglePromptNotification {
+  isNotDisplayed: () => boolean;
+  getNotDisplayedReason: () => string;
+  isSkippedMoment: () => boolean;
+  getSkippedReason: () => string;
+  isDismissedMoment: () => boolean;
+  getDismissedReason: () => string;
+}
+
 declare global {
   interface Window {
     google?: {
@@ -14,8 +23,17 @@ declare global {
             client_id: string;
             callback: (response: GoogleCredentialResponse) => void;
           }) => void;
-          prompt: (listener?: (notification: unknown) => void) => void;
+          prompt: (listener?: (notification: GooglePromptNotification) => void) => void;
           cancel: () => void;
+        };
+        oauth2: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            callback: (response: { access_token: string; error?: string }) => void;
+          }) => {
+            requestAccessToken: () => void;
+          };
         };
       };
     };
@@ -66,29 +84,48 @@ export async function requestGoogleProfile() {
   await loadGoogleScript();
 
   return new Promise<{ email: string; name: string; picture?: string }>((resolve, reject) => {
-    if (!window.google?.accounts?.id) {
-      reject(new Error('Google Login chưa sẵn sàng.'));
+    if (!window.google?.accounts?.oauth2) {
+      reject(new Error('Thư viện Google Login chưa sẵn sàng.'));
       return;
     }
 
-    window.google.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: response => {
-        try {
-          if (!response.credential) throw new Error('Không nhận được phản hồi từ Google.');
-          const payload = decodeJwtPayload(response.credential);
-          if (!payload.email) throw new Error('Tài khoản Google chưa có email.');
-          resolve({
-            email: payload.email,
-            name: payload.name || payload.email,
-            picture: payload.picture,
-          });
-        } catch (error) {
-          reject(error);
-        }
-      },
-    });
+    try {
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: 'email profile openid',
+        callback: async (tokenResponse) => {
+          if (tokenResponse.error) {
+            reject(new Error(`Yêu cầu truy cập Google thất bại: ${tokenResponse.error}`));
+            return;
+          }
 
-    window.google.accounts.id.prompt();
+          const accessToken = tokenResponse.access_token;
+          if (!accessToken) {
+            reject(new Error('Không lấy được Token truy cập từ Google.'));
+            return;
+          }
+
+          try {
+            const res = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${accessToken}`);
+            if (!res.ok) throw new Error('Không thể tải thông tin hồ sơ từ Google.');
+
+            const userInfo = await res.json();
+            if (!userInfo.email) throw new Error('Tài khoản Google chưa liên kết Email.');
+
+            resolve({
+              email: userInfo.email,
+              name: userInfo.name || userInfo.email,
+              picture: userInfo.picture,
+            });
+          } catch (fetchErr: any) {
+            reject(fetchErr);
+          }
+        },
+      });
+
+      client.requestAccessToken();
+    } catch (err: any) {
+      reject(err);
+    }
   });
 }

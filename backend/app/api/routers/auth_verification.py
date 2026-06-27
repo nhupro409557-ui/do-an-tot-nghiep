@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -145,6 +145,8 @@ async def verify_registration(
     )
     await auth_repo.add_user(session, user)
     await auth_repo.delete_registration_token_by_email(session, email)
+    from app.api.routers.auth_utils import sync_and_link_offline_orders
+    await sync_and_link_offline_orders(session, user)
     await session.flush()
     return await issue_auth_response(session, response, request, user, event_type="register_verified")
 

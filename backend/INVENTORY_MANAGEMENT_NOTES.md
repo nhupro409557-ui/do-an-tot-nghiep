@@ -1,5 +1,85 @@
 # Inventory Management Notes
 
+### Update 2026-06-27 (6) - Sửa lỗi tải chi tiết phiếu xuất kho do lệch key
+
+- Bổ sung các trường `document_no`, `created_at`, và `created_by` (snake_case) vào kết quả trả về của API danh sách phiếu xuất kho (`list_inventory_outbound_documents` ở repository) bên cạnh các trường camelCase sẵn có.
+- Khắc phục lỗi `document_no` bị rỗng (undefined) ở frontend làm cho request tải chi tiết phiếu xuất kho trỏ đến `/admin/inventory/outbounds/undefined` và trả về 404.
+- Khắc phục việc cột Ngày tạo bị trống do không tìm thấy trường `created_at`.
+
+### Update 2026-06-27 (5) - Tinh gọn thao tác đóng hàng và chọn kệ xuất
+
+- Chi tiết phiếu xuất kho nay trả thêm `availableLocations` cho từng dòng sản phẩm, chỉ gồm các kệ đang còn tồn khả dụng của đúng sản phẩm/biến thể đó.
+- Màn đóng hàng không còn hiển thị toàn bộ danh sách kệ trong dropdown; nhân viên chỉ chọn trong các kệ có hàng tương ứng, giảm nhầm lẫn cho mô hình một chi nhánh.
+- Nút thao tác được tinh gọn: `Lưu đóng hàng` đổi thành `Cập nhật`, `Hoàn tất xuất kho` đổi thành `Xác nhận xuất kho`.
+- Khi bấm `Xác nhận xuất kho`, frontend tự lưu thông tin kệ/IMEI/Serial trước rồi mới gọi xác nhận xuất kho, nên nhân viên không bắt buộc phải bấm `Cập nhật` như một bước riêng nếu đã nhập đủ dữ liệu.
+- Các nhãn hiển thị chuyển từ “bốc hàng” sang “đóng hàng/kệ xuất” để phù hợp ngữ cảnh cửa hàng bán lẻ.
+
+### Update 2026-06-27 (4) - IMEI phụ thuộc serial
+
+- Helper đọc policy tồn kho coi serial là định danh gốc: nếu policy hiệu lực có IMEI thì hệ thống cũng xem sản phẩm là có quản lý serial, kể cả dữ liệu cũ đang lưu `trackImei = true` nhưng `trackSerialNumber = false`.
+- Quy tắc này bảo đảm luồng nhập/xuất kho luôn yêu cầu serial cho sản phẩm có IMEI, phù hợp mô hình serial + IMEI1 + IMEI2 tùy chọn.
+- Verification: backend `py_compile` pass cho `inventory_service.py`.
+
+### Update 2026-06-27 (3) - Ghép cặp IMEI và serial khi xuất kho
+
+- **Database**: Thêm migration `035_product_identifier_pairs.sql` tạo bảng `product_identifier_pairs` để lưu cặp IMEI/serial thuộc cùng một máy vật lý theo từng sản phẩm/biến thể.
+- **Nhập kho**: Khi nhập sản phẩm quản lý đồng thời IMEI và serial, hệ thống ghép cặp theo thứ tự hai danh sách đã nhập; IMEI và serial cùng chỉ số được xem là cùng một máy.
+- **Xuất kho**: Thêm API `GET /admin/inventory/outbound-identifier-pair` để màn phiếu xuất kho quét một IMEI hoặc serial và tự lấy mã còn lại nếu cặp mã đang `IN_STOCK` tại đúng kệ đã chọn.
+- **Frontend**: Màn phiếu xuất kho tự thêm cả IMEI và serial vào cùng allocation khi sản phẩm quản lý cả hai loại mã, giúp nhân viên kho không phải quét lặp lại hai mã của cùng một máy.
+- **Update 036**: Chuyển mô hình sang serial là định danh chính của máy, `imei1` là IMEI chính bắt buộc khi sản phẩm bật IMEI, `imei2` là IMEI phụ tùy chọn. Khi xuất kho có thể quét serial, IMEI1 hoặc IMEI2; allocation vẫn lưu serial và IMEI1 để khớp số lượng máy hiện tại.
+- **Đồng bộ trạng thái**: Khi hoàn tất xuất kho, nếu máy có `imei2` trong bảng ghép cặp thì hệ thống cũng chuyển IMEI2 sang `SOLD` cùng IMEI1/serial để tránh tồn kho định danh bị lệch.
+
+### Update 2026-06-27 (2) - Khắc phục lỗi chặn luồng và tối ưu hóa bộ lọc
+
+- **Database Constraint & Migrations**: Thêm file migration `034_allow_picking_picked_outbound_status.sql` và sửa baseline `init_database.sql` để cho phép trạng thái `PICKING` và `PICKED` trong check constraint `inventory_documents_status_check`.
+- **Auto-Suggest Outbound Document**:
+  - Tách nhánh kiểm tra `tracks_imei` và `tracks_serial` thành độc lập trong `auto_suggest_outbound_document` để hỗ trợ bốc hàng song song cả hai định danh cho sản phẩm cấu hình song song.
+  - Sửa lỗi mapping allocations của hàm `_determine_outbound_status` (đọc từ trường phẳng `allocations` trả về từ SQL thay vì truy cập `metadata.allocations` bị rỗng).
+  - Cập nhật tự động bốc hàng lưu kèm chi tiết `allocations_data` vào metadata dòng phiếu, và tự động gọi `_determine_outbound_status` để nâng trạng thái phiếu xuất lên `PICKED` ngay sau gợi ý bốc.
+- **Đồng bộ trạng thái mã định danh khi xuất kho**: Đổi logic cập nhật trạng thái IMEI/Serial sang `SOLD` khi hoàn tất xuất kho (`_post_inventory_outbound`) từ `elif tracks_serial_number` thành `if tracks_serial_number` độc lập, bảo đảm cập nhật đầy đủ cả hai loại định danh cho sản phẩm áp dụng song song cả hai chính sách.
+- **Frontend Cleanups & Filtering**:
+  - Dọn dẹp logic bốc hàng cũ `issue_allocations` và validate dư thừa trong hook `useAdminOrdersLogic.ts` khi lưu đơn hàng.
+  - Thêm các tùy chọn bộ lọc `'PICKING'`, `'PICKED'`, và `'CANCELLED'` vào dropdown select ở tab phiếu xuất kho (`AdminInventoryOutboundsTab.tsx`).
+- **Verification**: Chạy thành công script test luồng xuất kho `test_outbound_flow.py`, kiểm thử chuyển trạng thái và các ràng buộc đạt kết quả 100%.
+
+### Update 2026-06-27 - Nâng cấp quy trình bốc hàng đa kệ và đồng bộ đơn hàng
+
+- **Commerce Logic & Sync**: Khi phiếu xuất kho (`inventory_documents.document_type = OUTBOUND`) chuyển sang trạng thái `COMPLETED`, hệ thống tự động giải phóng và đóng các giữ hàng (`inventory_reservations`) liên quan của đơn hàng sang `CONSUMED` (trong `CompleteOrderUseCase.execute`), khắc phục triệt để lỗi treo giữ hàng.
+- **Vòng đời trạng thái Phiếu xuất kho (Outbound Lifecycle)**:
+  - Bổ sung các trạng thái trung gian `PICKING` (đang bốc hàng) và `PICKED` (đã bốc xong - chờ duyệt), tự động tính toán từ tiến trình bốc kệ thực tế trong `_determine_outbound_status`.
+  - Hỗ trợ tự động hủy phiếu xuất liên kết sang `CANCELLED` khi đơn hàng bị hủy.
+  - Siết chặt phê duyệt: Chỉ cho phép hoàn tất xuất kho (`COMPLETED`) khi phiếu xuất đã ở trạng thái `PICKED` và người duyệt có vai trò `SUPER_ADMIN`.
+- **Frontend UX & Controls**:
+  - Ẩn hoàn toàn khối "Xác nhận kệ xuất thực tế" trên màn hình chi tiết đơn hàng (AdminOrdersTab) khi chuyển trạng thái sang `SHIPPED`. Toàn bộ nghiệp vụ chọn vị trí bốc hàng được quy hoạch tập trung tại màn Phiếu xuất kho.
+  - Tab Outbound tự động chuyển đổi giao diện thành read-only (khóa mọi nút bốc hàng, xóa kệ, quét IMEI/Serial) khi phiếu ở trạng thái kết thúc `COMPLETED` hoặc `CANCELLED`.
+  - Hiển thị badge trạng thái trực quan: `DRAFT` (slate), `PICKING` (amber), `PICKED` (blue), `COMPLETED` (green), `CANCELLED` (red).
+- **Bốc hàng đa kệ (Multi-shelf Allocations)**: Cập nhật API và service `inventory_service.py` để hỗ trợ xuất một dòng sản phẩm từ nhiều kệ khác nhau. Danh sách phân bổ chi tiết được lưu trữ dạng mảng `allocations` (gồm `locationId`, `quantity`, `imeis`, `serialNumbers`) trong trường `metadata JSONB` của `inventory_document_lines`.
+- **Quét định danh song song**: Tách biệt UI nhập mã IMEI và Serial trên màn hình phiếu xuất kho, cho phép hiển thị song song cả hai ô quét nếu sản phẩm được cấu hình áp dụng đồng thời cả hai chính sách quản lý.
+- **Chuẩn hóa API Router**: Khắc phục triệt để các lỗi cú pháp dở dang và loại bỏ các route trùng lặp của inventory receipts tại `admin_inventory.py`.
+
+## Update 2026-06-24 - Bảo vệ tồn kho khi chỉnh sửa biến thể catalog
+
+- `product_variant_service.upsert_product_variants` nay giữ nguyên `stock_quantity` của biến thể hiện có khi admin lưu form sản phẩm.
+- Biến thể mới được tạo từ catalog bắt đầu với tồn kho `0`; mọi tăng/giảm tồn phải đi qua phiếu nhập, xuất kho, điều chỉnh kho hoặc luồng đơn hàng.
+- Biến thể đã có ràng buộc kho/đơn hàng/IMEI/serial không được đổi các trường định danh như SKU, màu sắc, dung lượng, RAM, cấu hình, thuộc tính và thông số định danh.
+- Mục tiêu là tránh làm sai lịch sử chứng từ và tránh lệch giữa tồn thực tế, lot, reservation, IMEI/serial với dữ liệu biến thể hiển thị.
+
+## Update 2026-06-24 - Bổ sung phiếu nhập cho tồn sản phẩm mới
+
+- Tạo script `backend/scripts/create_receipt_for_virtual_new_products.py` để hợp thức hóa nhóm sản phẩm mới tạo ngày 2026-06-23 đang có tồn trong `inventory_levels` nhưng chưa có phiếu nhập hoàn tất.
+- Script tạo phiếu nhập `NK20260624-BO-SUNG-TON-MOI` ở trạng thái `COMPLETED`, gồm 72 dòng và tổng số lượng 5.160 sản phẩm.
+- Đây là phiếu đối soát tồn đã có sẵn: metadata có `reconcilesExistingStock = true` và `stockMutationSkipped = true`; script không gọi luồng post chuẩn và không cộng tồn lần nữa.
+- Script bổ sung `inventory_document_lines`, `inventory_lots`, `inventory_lot_movements`, `inventory_adjustment_logs` và audit log để lịch sử nhập kho, lô nội bộ và báo cáo truy vết khớp lại với tồn hiện tại.
+- Verification local: trước/sau khi chạy script, tổng `inventory_levels` giữ nguyên 9.630; tổng lô active tăng khớp lên 9.630; không còn dòng tồn mới từ 2026-06-23 có số lượng nhưng thiếu chứng từ nhập hoàn tất.
+
+## Update 2026-06-23 - Soft Lock hậu mãi và vòng đời IMEI lỗi
+
+- Module hậu mãi bổ sung `after_sales_allocations` để giữ tồn khả dụng trong 48 giờ sau khi QC duyệt đổi/thay máy, không gán cứng IMEI cho đến lúc admin quét máy thay thế.
+- Công thức tồn khả dụng của luồng hậu mãi trừ thêm allocation `LOCKED`, bên cạnh tồn đang giữ cho đơn hàng và IMEI/serial đã reserved.
+- Khi hoàn tất đổi/thay máy, hệ thống chuyển IMEI mới sang `SOLD`, trừ tồn vật lý ở vị trí của IMEI và ghi `inventory_adjustment_logs` với lý do `AFTER_SALES_REPLACEMENT`.
+- IMEI cũ được chuyển sang `DEFECTIVE_RETURNED` và có bảng sự kiện disposition để theo dõi tiếp các trạng thái `INSPECTION_PENDING`, `RTV_PENDING`, `LIQUIDATION_PENDING`, `RTV_COMPLETED`, `LIQUIDATED`, `SCRAP`, `OUT_OF_SYSTEM`.
+- Không cho xuất IMEI khỏi hệ thống nếu chưa có kết quả RTV, thanh lý hoặc phế phẩm; mỗi lần chuyển trạng thái lưu lý do, chứng từ, đối tác và giá trị thu hồi.
+
 ## Update 2026-06-20 - Backfill IMEI/Serial khi đổi chính sách danh mục
 
 - Bổ sung chứng từ kỹ thuật `inventory_policy_migrations` để xử lý hàng tồn cũ khi danh mục chuyển từ không quản lý sang quản lý IMEI hoặc serial number.
@@ -441,331 +521,16 @@
 - Read-model tồn kho và export CSV trả thêm `primaryImei` và `supplementalImei`; UI tồn kho hiển thị IMEI chính, số IMEI phụ và các trạng thái trong kho/đang giữ/đã bán.
 - Verification: `python -m py_compile backend/app/application/services/inventory_service.py backend/app/infrastructure/database/repositories/inventory_repo.py backend/app/api/schemas/admin/inventory.py backend/scripts/run_migrations.py` pass; `npm run lint` trong `frontend` pass; migration `061_product_imei_primary.sql` đã chạy thành công trên DB local.
 
-## Update 2026-06-13 qu?n l? serial number song song IMEI
+## Update 2026-06-13 quản lý serial number song song IMEI
 
-- Th?m migration `060_product_serial_number_management.sql` ?? t?o b?ng `product_serial_numbers` v? m? r?ng `categories.inventory_policy` v?i `inheritSerialPolicy`/`trackSerialNumber`.
-- Backend t?n kho x?c ??nh ch?nh s?ch serial number theo c?ng th? t? ?u ti?n c?a IMEI: s?n ph?m `sales_config.serialPolicy` ? ch? ?? `MANUAL` ???c ?u ti?n, n?u kh?ng th? l?y theo danh m?c con/cha.
-- Phi?u nh?p kho l?u metadata d?ng phi?u g?m `tracksSerialNumber` v? `serialNumbers`; b??c x? l? m? ??nh danh hi?n nh?n c? IMEI v? serial number. N?u m?t d?ng y?u c?u c? hai, s? l??ng th?c nh?n ???c t?nh theo s? c?p m? ??y ?? nh? nh?t.
-- Khi ho?n t?t phi?u nh?p, backend ghi serial number v?o `product_serial_numbers` v?i tr?ng th?i `IN_STOCK`, ??ng th?i v?n c?ng t?n kho v? ghi log nh?p kho nh? tr??c.
-- Read-model t?n kho v? export CSV tr? th?m `tracksSerialNumber` v? `serialNumberSummary` ?? admin theo d?i serial trong kho/?ang gi?/?? b?n/b?o h?nh/ph? ph?m.
-- Frontend nh?p kho hi?n th? s?n ph?m c?n serial, modal b? sung m? ??nh danh cho ph?p nh?p/import IMEI v? serial number theo t?ng d?ng, b?ng t?n kho hi?n th? t?m t?t c? IMEI v? serial.
+- Thêm migration `060_product_serial_number_management.sql` để tạo bảng `product_serial_numbers` và mở rộng `categories.inventory_policy` với `inheritSerialPolicy`/`trackSerialNumber`.
+- Backend tồn kho xác định chính sách serial number theo cùng thứ tự ưu tiên của IMEI: sản phẩm có `sales_config.serialPolicy` ở chế độ `MANUAL` được ưu tiên, nếu không thì lấy theo danh mục con/cha.
+- Phiếu nhập kho lưu metadata dòng phiếu gồm `tracksSerialNumber` và `serialNumbers`; bước xử lý mã định danh hiện nhận cả IMEI và serial number. Nếu một dòng yêu cầu cả hai, số lượng thực nhận được tính theo số cặp mã đầy đủ nhỏ nhất.
+- Khi hoàn tất phiếu nhập, backend ghi serial number vào `product_serial_numbers` với trạng thái `IN_STOCK`, đồng thời vẫn cộng tồn kho và ghi log nhập kho như trước.
+- Read-model tồn kho và export CSV trả thêm `tracksSerialNumber` và `serialNumberSummary` để admin theo dõi serial trong kho/đang giữ/đã bán/bảo hành/phế phẩm.
+- Frontend nhập kho hiển thị sản phẩm cần serial; modal bổ sung mã định danh cho phép nhập/import IMEI và serial number theo từng dòng; bảng tồn kho hiển thị tóm tắt cả IMEI và serial.
 - Verification: `python -m py_compile backend/app/application/services/inventory_service.py backend/app/infrastructure/database/repositories/inventory_repo.py backend/app/api/schemas/admin/inventory.py backend/scripts/run_migrations.py` pass; `npm run lint` trong `frontend` pass.
 
-﻿# Inventory Management Notes
-
-## 1. Document purpose
-- This file upgrades the inventory module notes from feature bullets into a combined BRD/SRS style reference.
-- It separates business process, system design, data model, API direction, and phased implementation.
-- It also records the gap between the current implementation and the enterprise-grade target architecture.
-
-## 2. Current-state critique
-
-### 2.1 Business logic mixed with UI flow
-- The old description leaned on UI actions such as opening a popup or clicking inventory actions.
-- For thesis-grade or enterprise documentation, inventory must be modeled as business processes and state transitions, not screen steps.
-
-### 2.2 Single-stock-column bottleneck
-- The current runtime still stores stock in `products.stock_quantity` and `product_variants.stock_quantity`.
-- This is acceptable for a single logical warehouse, but it is not structurally sufficient for multi-warehouse inventory.
-
-### 2.3 Costing model gap
-- The current stock log can already capture `unit_cost`, but outgoing valuation and COGS are not yet controlled by a formal costing method.
-- The target design standardizes on `MOVING_AVERAGE` first, with room to evolve to `FIFO` later if needed.
-
-### 2.4 Internal control gap
-- Direct inventory adjustment by one actor is fast, but it does not satisfy maker-checker control for high-risk operations such as stock count adjustments or reversals.
-
-### 2.5 Concurrency gap
-- The current implementation already uses transactional writes and row locking.
-- The next enterprise step is to supplement direct deduction with `inventory_reservations` so checkout and payment flows can reserve stock first and post final issue later.
-
-## 3. Target business process model
-
-### 3.1 Inbound inventory process
-1. Warehouse staff creates inbound document.
-2. Document captures supplier, location, item lines, quantity, and unit cost.
-3. Document stays `DRAFT` or `PENDING_APPROVAL`.
-4. Checker approves document.
-5. System posts inventory transaction.
-6. On-hand quantity increases at `(item, location)`.
-7. Moving-average cost is recalculated.
-8. Immutable ledger entry is stored.
-
-### 3.2 Outbound inventory process
-1. Sales order or internal request creates reservation.
-2. Reservation reduces allocable stock but does not reduce posted stock yet.
-3. When shipment or issue is confirmed, reservation is consumed.
-4. System posts outbound inventory transaction.
-5. On-hand quantity decreases at `(item, location)`.
-6. COGS is derived from the active costing method.
-
-### 3.3 Stock count and adjustment process
-1. Counter creates count sheet for a location.
-2. Expected quantity is loaded from system balance.
-3. Counted quantity is entered.
-4. Variance is reviewed.
-5. Checker approves variance posting.
-6. Adjustment ledger entries are generated.
-
-### 3.4 Reversal process
-1. Authorized maker requests reversal of an existing posted document.
-2. Checker approves reversal.
-3. System posts compensating entries instead of editing old rows.
-
-## 4. System requirements
-
-### 4.1 Functional requirements
-- Support inventory by product or variant and by warehouse location.
-- Support inbound, outbound, transfer-ready, count, adjustment, reversal, and reservation flows.
-- Support minimum stock, reorder point, cycle count period, and sale blocking rule.
-- Support immutable transaction logs.
-- Support approval workflow for high-risk inventory movements.
-- Support inventory export for audit and operational use.
-
-### 4.2 Non-functional requirements
-- ACID transaction handling for all posted stock movements.
-- Idempotency for API requests that can be retried.
-- Row-level locking for balance updates.
-- Clear audit trail for who created, approved, posted, and reversed stock documents.
-- Backward compatibility during migration from single-warehouse to multi-warehouse mode.
-
-## 5. Technical architecture
-
-### 5.1 Current implementation
-- Backend: FastAPI + Pydantic + async SQLAlchemy.
-- Database: PostgreSQL.
-- Admin UI: React + TypeScript.
-- Current stock mutation safety: transaction boundary, pessimistic locking, append-only adjustment logs.
-
-### 5.2 Enterprise target architecture
-- Inventory balance source of truth moves to `inventory_levels`.
-- Stock movement source of truth moves to `inventory_transactions`.
-- Human workflow source of truth moves to `inventory_documents` and `inventory_document_lines`.
-- Checkout and payment race mitigation moves to `inventory_reservations`.
-- Cost valuation is controlled explicitly through `costing_method`.
-
-## 6. Database design direction
-
-### 6.1 New normalized entities
-- `inventory_locations`
-  - master data for warehouse, branch, or virtual fulfillment location
-- `inventory_levels`
-  - stock by `(product or variant, location)`
-  - stores `on_hand_quantity`, `reserved_quantity`, `safety_stock_quantity`, `reorder_point_quantity`
-- `inventory_documents`
-  - document header for inbound, count, adjustment, reversal, transfer, reservation release
-- `inventory_document_lines`
-  - item-level quantities and costing context
-- `inventory_transactions`
-  - immutable posted ledger rows
-- `inventory_reservations`
-  - temporary allocation for cart, checkout, or order payment flow
-
-### 6.2 Costing rule
-- Standardized initial costing method: `MOVING_AVERAGE`
-- Why this first:
-  - easier to operate than FIFO in the current codebase
-  - sufficient for thesis and mid-market commerce scope
-  - compatible with multi-location inventory if cost is tracked per item/location or consolidated by rule set
-
-## 7. Approval and control model
-
-### 7.1 Maker-checker
-- Maker creates draft or pending inventory document.
-- Checker approves or rejects.
-- Only approved documents can post stock movements.
-
-### 7.2 Segregation of duties
-- `inventory:adjust` is no longer the only future permission.
-- Additional permissions are introduced for:
-  - `inventory:approve`
-  - `inventory:count`
-  - `inventory:reserve`
-
-## 8. Concurrency and risk handling
-
-### 8.1 Current control
-- `SELECT ... FOR UPDATE` is already used for direct stock updates.
-
-### 8.2 Next control layer
-- Introduce reservation records with expiration windows.
-- Post final issue only after payment or fulfillment checkpoint.
-- Handle lock timeout or retry logic at service layer.
-- Preserve compensating transactions for reversals instead of editing posted rows.
-
-## 9. API design direction
-
-### 9.1 Current endpoints retained
-- `GET /admin/products/{product_id}/inventory`
-- `POST /admin/products/{product_id}/inventory/adjust`
-- `PATCH /admin/products/{product_id}/inventory/settings`
-- `GET /admin/inventory/export`
-
-### 9.2 Next endpoints to add
-- `POST /admin/inventory/documents`
-- `POST /admin/inventory/documents/{id}/submit`
-- `POST /admin/inventory/documents/{id}/approve`
-- `POST /admin/inventory/documents/{id}/reject`
-- `POST /admin/inventory/reservations`
-- `POST /admin/inventory/reservations/{id}/release`
-- `GET /admin/inventory/levels`
-- `GET /admin/inventory/transactions`
-
-## 10. What is implemented now
-- Product and variant inventory view.
-- Adjustment popup and manual inventory transaction capture.
-- Supplier, unit cost, location code, and location name on inventory adjustments.
-- Product-level minimum stock and sale-block setting.
-- CSV export compatible with Excel.
-- Automatic stock restoration on order cancellation in order flow.
-- Immutable-style inventory log through append-only API behavior.
-
-## 11. What is added in this phase
-- Formal documentation restructure to BRD/SRS style.
-- Non-breaking schema foundation for:
-  - multi-warehouse inventory levels
-  - inventory documents and approval workflow
-  - posted transaction ledger
-  - reservation handling
-  - moving-average costing metadata
-
-## 12. Migration strategy
-
-### Phase A: Compatibility mode
-- Keep existing `stock_quantity` columns active.
-- Mirror initial balances into default location `MAIN`.
-- Keep current UI running while new tables are introduced.
-
-### Phase B: Dual-write mode
-- New inventory services write to both legacy stock columns and new normalized inventory tables.
-- Read models can still use legacy fields until validation is complete.
-
-### Phase C: Full normalized mode
-- Balance reads move to `inventory_levels`.
-- Outbound flows use reservation plus posting.
-- Legacy stock columns become derived or deprecated fields.
-
-## 13. Files touched in this phase
-- `backend/INVENTORY_MANAGEMENT_NOTES.md`
-- `backend/migrations/036_inventory_settings_and_receipt_metadata.sql`
-- `backend/migrations/037_inventory_enterprise_foundation.sql`
-- `backend/migrations/017_admin_rbac_permissions.sql`
-- `backend/migrations/init_database.sql`
-
-## 14. Open decisions
-- Whether product-level inventory should remain supported long-term or all stock should move to variant-only control.
-- Whether moving-average cost is tracked globally or per location.
-- Whether reservation happens at cart stage, checkout stage, or payment-initiation stage.
-
-## 15. Update 2026-05-23
-
-- Nhap kho co them danh sach IMEI tuy chon trong payload/UI.
-- Neu giao dich la `RECEIPT`, co `variantId`, so luong tang > 0 va admin de thieu/bo trong IMEI, backend tu sinh IMEI theo `SKU bien the + 10 so ngau nhien`.
-- Neu admin da nhap IMEI thi backend giu nguyen, chi bo qua IMEI trung bang `ON CONFLICT DO NOTHING`.
-- Nen du lieu IMEI nam o bang `product_imeis`, gan duoc voi `product_id`, `variant_id`, trang thai ton kho va `service_payload` cho bao hanh/dich vu sau ban.
-- Chinh sach danh muc nao can/khong can quan ly IMEI nam o `categories.inventory_policy`; danh muc con co the ke thua cha hoac override.
-- File migration lien quan: `backend/migrations/040_catalog_inventory_services_foundation.sql`.
-
-## 16. Update 2026-05-23 bo sung dich vu
-
-- Man quan ly dich vu di kem co cac lua chon nhanh cho nhom dich vu:
-  - `WARRANTY`
-  - `EXTENDED_WARRANTY`
-  - `ONE_FOR_ONE`
-  - `INSTALLATION`
-  - `CLEANING`
-  - `SUPPORT`
-- Thoi han dich vu chon theo cac moc 0/3/6/9/12/18/24/36 thang de phu hop yeu cau bao hanh va 1 doi 1, han che nhap tay sai.
-- San pham chi gan dich vu tu danh sach admin da tao trong `attached_services`; khong nhap dich vu truc tiep trong form san pham.
-- Man them/sua dich vu di kem trong admin da chuyen sang popup rieng, dong/moi/sua nhieu dich vu lien tiep khong can reload trang.
-- Da them script `backend/scripts/seed_attached_services.py` de seed cac goi dich vu pho bien tren thi truong:
-  - Bao hanh mo rong dien thoai/laptop 12-24 thang.
-  - VIP 1 doi 1 dien thoai/laptop 12 thang.
-  - Bao ve roi vo vao nuoc dien thoai 12 thang.
-  - Ve sinh laptop, cai dat/chuyen du lieu, lap dat tai nha va ho tro ky thuat tai nha.
-- `backend/scripts/run_migrations.py` da them migration `040_catalog_inventory_services_foundation.sql` de tao bang `attached_services` truoc khi seed.
-- Lan seed moi nhat co 25 dich vu:
-  - `PRODUCT_SERVICE`: 6 goi bao hanh mo rong, 4 goi VIP 1 doi 1, 2 goi bao ve roi vo/vao nuoc.
-  - `SUPPORT_SERVICE`: 3 goi ve sinh, 5 goi lap dat, 5 goi ho tro/cai dat/chuyen du lieu.
-- Ngay 2026-05-23 da sua truy van danh sach don hang de group them thong tin khach hang, tranh loi SQL lam admin khong tai duoc quy trinh sau ban.
-
-## 17. Update 2026-05-23 chinh sach bao hanh mo rong ElectroMart
-
-- `backend/scripts/seed_attached_services.py` da duoc cap nhat theo chinh sach bao hanh mo rong ElectroMart Viet Nam.
-- Cac goi bao hanh san pham hien dung `price_mode = TIERED_AMOUNT`, bieu phi theo khoang gia nam trong `attached_services.metadata.priceTiers`.
-- Danh sach goi bao hanh san pham dang seed:
-  - `VIP-1D1-MOBILE-6M`, `VIP-1D1-MOBILE-12M`: 1 doi 1 VIP dien thoai/may tinh bang theo 17 bac gia.
-  - `RVVN-MOBILE-12M`: roi vo - roi nuoc dien thoai/may tinh bang, ho tro toi da 90% chi phi sua chua.
-  - `S24-MOBILE-12M`: S24+ dien thoai/may tinh bang moi theo 17 bac gia.
-  - `VIP-1D1-LAPTOP-12M`: 1 doi 1 VIP laptop/MacBook theo 8 bac gia.
-  - `S24-LAPTOP-12M`, `S24-LAPTOP-24M`: S24+ laptop/MacBook theo 8 bac gia.
-  - `VIP-1D1-ACCESSORY-12M`, `S24-ACCESSORY-12M`: phu kien cao cap theo 11 bac gia.
-  - `VIP-1D1-TV-12M`: 1 doi 1 VIP Tivi theo 17 bac gia.
-- Metadata moi co cac truong chinh: `policyName`, `appliesTo`, `bindsToImei`, `priceTiers`, `processingTime`, `benefits`, `exclusions`, `refundRule`, `transferable`.
-- Cac ma seed bao hanh cu dang dung percent da duoc an (`is_active = FALSE`) de tranh admin chon nham goi cu.
-
-## 18. Update 2026-05-23 khoa bieu phi dich vu san pham
-
-- Man dich vu khoa `PRODUCT_SERVICE` ve `price_mode = TIERED_AMOUNT`; admin khong con chon cach tinh gia hoac nhap gia/%/dinh muc cho nhom dich vu san pham.
-- API admin cung enforce rule nay khi tao/sua `attached_services`, tranh payload cu ghi de ve gia thu cong.
-- Khi gan dich vu vao san pham, he thong chi luu `service_id`; phi bao hanh se tra theo bieu phi chinh sach cua goi dich vu.
-
-## 19. Update 2026-05-31 tự động phân giải tồn kho cấp sản phẩm
-
-- Khắc phục lỗi điều chỉnh tồn kho cấp sản phẩm (khi `variantId` là NULL) bị ghi đè trở lại giá trị cũ bởi hàm `sync_parent_price_from_variants`.
-- Khi nhận yêu cầu điều chỉnh tồn kho không chứa `variantId`:
-  - Hệ thống tự động truy vấn danh sách các biến thể hoạt động của sản phẩm.
-  - Nếu sản phẩm chỉ có duy nhất 1 biến thể hoạt động (sản phẩm đơn giản): tự động áp dụng điều chỉnh lên chính biến thể đó và đồng bộ ngược lại sản phẩm cha.
-  - Nếu sản phẩm có từ 2 biến thể hoạt động trở lên: ném lỗi `HTTPException(400)` yêu cầu người dùng phải chỉ định biến thể cụ thể cần nhập/điều chỉnh kho nhằm đảm bảo tính chính xác nghiệp vụ.
-  - Nếu không có biến thể hoạt động nào: ném lỗi `HTTPException(400)`.
-
-## 20. Update 2026-06-01 admin service form completion feedback
-
-- Sau khi thêm hoặc chỉnh sửa dịch vụ đi kèm thành công, popup dịch vụ được đóng như cũ và nay có thêm thông báo thành công rõ ràng.
-- Thay đổi này giữ nhất quán với các form quản trị khác sau khi lưu xong, tránh để admin phải tự suy đoán thao tác đã hoàn tất hay chưa.
-
-## 21. Update 2026-06-04 nhập kho một chi nhánh
-
-- Màn nhập kho admin đã bỏ hai ô `Mã kho / chi nhánh` và `Tên kho / chi nhánh` vì cửa hàng đang vận hành một chi nhánh.
-- Frontend không còn lưu cấu hình `preferredLocationCode` và `preferredLocationName` trong phần cài đặt tồn kho của sản phẩm.
-- Backend không còn nhận/trả hai trường kho ưu tiên trong payload cấu hình tồn kho và file xuất CSV tồn kho.
-- Các cột `location_code` và `location_name` trong lịch sử điều chỉnh kho vẫn được giữ lại để ghi nhận mặc định `MAIN` / `Kho chính` cho giao dịch nhập/xuất, tránh mất khả năng truy vết dữ liệu cũ.
-
-## 22. Update 2026-06-08 tách tồn kho khỏi form sản phẩm
-
-- Form quản trị sản phẩm không còn nhập `Tồn kho chung`.
-- Lưu sản phẩm không được ghi đè `products.stock_quantity`; số lượng tồn kho do module Tồn kho/Nhập kho và luồng đơn hàng cập nhật.
-- Biến thể mới tạo từ form catalog bắt đầu với tồn kho `0`, sau đó nhập kho qua màn tồn kho để đảm bảo có lịch sử giao dịch.
-
-## 23. Update 2026-06-11 phiếu nhập kho nhiều dòng và IMEI bắt buộc theo chính sách
-
-- Thêm API `POST /admin/inventory/receipts` để tạo một phiếu nhập kho có nhiều dòng sản phẩm/biến thể trong cùng một giao dịch.
-- Mỗi dòng nhập kho cập nhật tồn kho biến thể, ghi `inventory_adjustment_logs` với `transaction_type = RECEIPT`, ghi nhà cung cấp, giá nhập, ghi chú và mã phiếu tham chiếu chung.
-- Backend xác định sản phẩm có cần IMEI theo `categories.inventory_policy`: danh mục con được ưu tiên nếu không kế thừa, còn mặc định lấy theo danh mục cha.
-- Nếu sản phẩm cần quản lý IMEI, số IMEI nhập phải đúng bằng số lượng của dòng nhập, không được trùng trong phiếu và không được trùng với `product_imeis` hiện có.
-- Nếu sản phẩm không bật quản lý IMEI, backend từ chối payload có IMEI để tránh nhập dữ liệu serial sai nghiệp vụ.
-- Luồng điều chỉnh tồn kho cũ cũng không còn tự sinh IMEI cho sản phẩm cần IMEI; admin phải nhập IMEI thật để phục vụ bán hàng và bảo hành sau này.
-- Frontend tab Tồn kho có nút `Tạo phiếu nhập`, form phiếu nhập nhiều dòng, chọn sản phẩm/biến thể theo từng dòng và chỉ hiển thị vùng nhập IMEI khi sản phẩm thuộc nhóm cần theo dõi IMEI.
-- Form phiếu nhập tự sinh mã theo dạng `NKyyyyMMdd-HHmmss`, ví dụ `NK20260611-153000`, để admin không phải nhập tay mã phiếu.
-- Nhà cung cấp trong phiếu nhập được chọn từ danh sách nhà cung cấp đang hoạt động thay vì nhập text tự do; backend hiện vẫn lưu tên nhà cung cấp vào log để tương thích schema cũ.
-- Bổ sung khối chọn nhanh sản phẩm trong form phiếu nhập: lọc theo danh mục, thương hiệu, từ khóa; tick nhiều sản phẩm rồi thêm vào phiếu. Nếu sản phẩm có nhiều biến thể, UI tự sinh một dòng nhập cho từng biến thể.
-- Tách màn `Nhập kho` khỏi màn `Tồn kho`: `Nhập kho` quản lý danh sách phiếu nhập và tạo phiếu nhập mới; `Tồn kho` chỉ còn theo dõi số lượng, cảnh báo và xuất báo cáo tồn kho sản phẩm.
-- Bổ sung API `GET /admin/inventory/receipts` để đọc danh sách phiếu nhập bằng cách gom các log `RECEIPT` theo `reference_code`, hiển thị nhà cung cấp, ngày nhập, tổng dòng, tổng số lượng, tổng giá trị và các dòng sản phẩm.
-- Cập nhật UX chọn sản phẩm trong phiếu nhập: không còn tick sản phẩm cha rồi tự sinh toàn bộ biến thể. Admin chọn một sản phẩm cha, sau đó tick đúng các biến thể thực tế cần nhập; hệ thống chỉ sinh dòng cho các biến thể đã chọn để tránh rác dòng nhập và giảm tải giao diện.
-- Cập nhật lưới dòng phiếu nhập từ card dọc sang table ngang để hiển thị được nhiều dòng cùng lúc. Các trường nhập thường xuyên (`Sản phẩm`, `Biến thể`, `Số lượng`, `Giá nhập`) nằm cùng hàng; `Lý do`, `Ghi chú`, `IMEI` được giữ gọn trong từng dòng.
-
-## Refactor Structure Notes (June 2026)
-
-### 1. Backend Service Layer Pattern
-- Logic nghiệp vụ, các truy vấn database SQL, xử lý đồng bộ giá trị, quản lý IMEI, idempotency và xuất báo cáo tồn kho (CSV) đã được tách hoàn toàn ra khỏi Router Layer (`admin_inventory.py`) và chuyển giao sang Service Layer chuyên biệt: [inventory_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/inventory_service.py).
-- Router [admin_inventory.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/api/v1/routers/admin_inventory.py) được tối giản hóa tối đa, chỉ giữ vai trò định nghĩa endpoints FastAPI, Dependency Injection và chuyển tiếp lời gọi cho `inventory_service.py`.
-
-### 2. Frontend Feature-First Architecture
-- Module Quản lý Tồn kho được đóng gói hoàn chỉnh về thư mục tính năng độc lập tại: [src/features/admin-inventory/](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/)
-  - **Services**: [adminInventoryApi.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/services/adminInventoryApi.ts) chứa các hàm API tồn kho (được bóc tách từ `adminProductsApi.ts`).
-  - **Hooks**: [useAdminInventoryLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/hooks/useAdminInventoryLogic.ts) xử lý logic nghiệp vụ và state của UI.
-  - **Components**: [AdminInventoryTab.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-inventory/components/AdminInventoryTab.tsx) chứa UI tab Tồn kho.
-- Các file điều phối chung như [apiDb.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/legacy apiDb.ts), [useAdminLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/hooks/useAdminLogic.ts), và [AdminDashboardTabContent.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/components/AdminDashboardTabContent.tsx) đã được cập nhật đường dẫn import mới.
 ## Update 2026-06-05 Inventory Service Repository Split
 
 - Tạo `app/infrastructure/database/repositories/inventory_repo.py` để gom truy vấn DB của module tồn kho.
@@ -821,3 +586,11 @@
 
 - Toàn bộ migration tồn kho cũ đến `073` đã được gộp vào `backend/migrations/init_database.sql`.
 - Các file migration rời cũ đã được loại bỏ; thay đổi schema tiếp theo bắt đầu từ `001_*.sql`.
+
+## Update 2026-06-27 (7) - Khắc phục hiển thị danh sách kệ xuất và ràng buộc số lượng
+
+- **Sửa lỗi lọc kệ xuất**: Thay đổi điều kiện lọc trong `list_level_issue_candidates` của `inventory_repo.py` từ `GREATEST(il.on_hand_quantity - il.reserved_quantity, 0) > 0` thành `il.on_hand_quantity > 0`. Điều này khắc phục lỗi khi sản phẩm đã được giữ hàng (reserved) cho đơn hàng hiện tại, làm cho tồn khả dụng tạm thời bằng 0 và dẫn tới việc dropdown chọn kệ bị trống (không hiển thị kệ nào để bốc hàng).
+- **Cải tiến UI dropdown chọn kệ**: Màn phiếu xuất kho (`AdminInventoryOutboundsTab.tsx`) hiển thị chi tiết cả số lượng thực tế trên kệ (`Tồn`) và số lượng còn dư chưa giữ (`Khả dụng`) theo định dạng `Kệ - Tên kệ (Tồn: X | Khả dụng: Y)` để nhân viên kho nắm thông tin rõ ràng.
+- **Ràng buộc số lượng xuất kho**:
+  - Bổ sung validation tại frontend chặn việc bấm `Cập nhật` (lưu nháp) nếu tổng số lượng đã chọn trên các kệ vượt quá số lượng yêu cầu của dòng sản phẩm.
+  - Hiển thị thêm thông báo cảnh báo màu đỏ trực quan `(Vượt quá số lượng yêu cầu!)` ở dòng trạng thái khi số lượng đã chọn lớn hơn số lượng yêu cầu.

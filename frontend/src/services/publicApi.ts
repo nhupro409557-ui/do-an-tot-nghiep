@@ -293,4 +293,5 @@ export const publicApi = {
     const list = await request<any[]>('/catalog/favorites');
     return list.map(formatProductDemoData);
   },
+  getShippingConfig: () => request<{ free_shipping_threshold: number }>('/shipping-config'),
 };

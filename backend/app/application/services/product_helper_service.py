@@ -48,6 +48,13 @@ def persisted_sales_config(sales_config: dict) -> dict:
     serial_mode = str(raw_serial_policy.get("mode") or "CATEGORY").upper()
     if serial_mode not in {"CATEGORY", "MANUAL"}:
         serial_mode = "CATEGORY"
+    track_imei = bool(raw_imei_policy.get("trackImei", False))
+    track_serial_number = bool(raw_serial_policy.get("trackSerialNumber", False))
+    if imei_mode == "MANUAL" and track_imei:
+        serial_mode = "MANUAL"
+        track_serial_number = True
+    if serial_mode == "MANUAL" and not track_serial_number and imei_mode == "MANUAL":
+        track_imei = False
     return {
         "variantSpecKeys": sales_config.get("variantSpecKeys", []) or [],
         "targetProductStatus": normalize_target_product_status(sales_config.get("targetProductStatus")),
@@ -56,11 +63,11 @@ def persisted_sales_config(sales_config: dict) -> dict:
         "attachedServices": normalized_attached_services,
         "imeiPolicy": {
             "mode": imei_mode,
-            "trackImei": bool(raw_imei_policy.get("trackImei", False)),
+            "trackImei": track_imei,
         },
         "serialPolicy": {
             "mode": serial_mode,
-            "trackSerialNumber": bool(raw_serial_policy.get("trackSerialNumber", False)),
+            "trackSerialNumber": track_serial_number,
         },
         "minimumStock": max(0, int(sales_config.get("minimumStock") or 0)),
         "blockSaleWhenOutOfStock": bool(sales_config.get("blockSaleWhenOutOfStock", True)),

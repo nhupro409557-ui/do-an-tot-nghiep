@@ -1,4 +1,4 @@
-﻿from uuid import uuid4
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +38,8 @@ async def google_login(
             addresses=[],
         )
         await auth_repo.add_user(session, user)
+        from app.api.routers.auth_utils import sync_and_link_offline_orders
+        await sync_and_link_offline_orders(session, user)
     else:
         profile = dict(user.profile_json or {})
         profile.update({"displayName": payload.name or user.full_name, "avatarUrl": payload.picture})

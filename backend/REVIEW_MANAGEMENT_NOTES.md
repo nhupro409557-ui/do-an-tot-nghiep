@@ -1,4 +1,4 @@
-﻿# Review Management Notes
+# Review Management Notes
 
 ## Scope of the 2026-05 upgrade
 - Added pre-public moderation for new product reviews with default `PENDING` flow.
@@ -24,7 +24,6 @@
 - `backend/migrations/init_database.sql`
 - `backend/migrations/038_review_management_upgrade.sql`
 - `backend/migrations/039_review_resilience_and_user_controls.sql`
-- `legacy apiDb.ts`
 - `frontend/src/features/products/components/ProductReviews.tsx`
 - `frontend/src/features/admin-shell/pages/AdminDashboard.tsx`
 

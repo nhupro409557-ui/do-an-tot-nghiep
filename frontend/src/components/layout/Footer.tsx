@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Facebook, Headphones, Mail, MapPin, Phone, ShieldCheck, Truck, Youtube } from 'lucide-react';
 import emvLogo from '../../assets/emv-logo-new.svg';
+import { storeInfoApi, type StoreInfo } from '../../services/storeInfoApi';
 
 const footerGroups = [
   {
@@ -46,36 +47,47 @@ const footerGroups = [
 const paymentMethods = ['COD', 'VNPAY', 'MOMO', 'Visa', 'Mastercard'];
 
 export function Footer() {
+  const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
+
+  useEffect(() => {
+    storeInfoApi.getStoreInfo()
+      .then(setStoreInfo)
+      .catch(console.error);
+  }, []);
+
+  const storeName = storeInfo?.name || 'ElectroMart Vietnam';
+  const hotlineClean = storeInfo?.hotline?.replace(/\./g, '') || '18002097';
+
   return (
     <footer className="relative z-10 mt-10 border-t border-slate-200 bg-white pb-20 text-slate-600 lg:pb-0">
       <div className="mx-auto max-w-7xl px-4 py-12 lg:px-6">
         <div className="grid gap-10 lg:grid-cols-[1fr_2.5fr]">
           <div className="max-w-sm">
-            <Link to="/" className="inline-flex items-center rounded-lg bg-[#d70018] px-4 py-2.5 shadow-sm transition-transform hover:-translate-y-0.5" aria-label="ElectroMart Vietnam">
-              <img src={emvLogo} alt="ElectroMart Vietnam" className="h-12 w-[110px] object-contain brightness-0 invert" />
+            <Link to="/" className="inline-flex items-center rounded-lg bg-[#d70018] px-4 py-2.5 shadow-sm transition-transform hover:-translate-y-0.5" aria-label={storeName}>
+              <img src={emvLogo} alt={storeName} className="h-12 w-[110px] object-contain brightness-0 invert" />
             </Link>
             <p className="mt-5 text-sm leading-relaxed text-slate-500">
-              Hệ thống bán lẻ điện thoại, laptop và phụ kiện chính hãng. Mang đến trải nghiệm mua sắm thông minh với hệ thống tích điểm và ưu đãi cá nhân hóa.
+              {storeInfo?.description || 'Hệ thống bán lẻ điện thoại, laptop và phụ kiện chính hãng. Mang đến trải nghiệm mua sắm thông minh với hệ thống tích điểm và ưu đãi cá nhân hóa.'}
             </p>
 
             <div className="mt-6 flex flex-col gap-4 text-sm">
-              <a href="tel:18002097" className="group flex items-center gap-3 font-bold text-slate-700 transition hover:text-[#d70018]">
+              <a href={`tel:${hotlineClean}`} className="group flex items-center gap-3 font-bold text-slate-700 transition hover:text-[#d70018]">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-[#d70018] transition-colors group-hover:bg-[#d70018] group-hover:text-white">
                   <Phone className="h-4 w-4" />
                 </div>
-                <span>Hotline: 1800.2097</span>
+                <span>Hotline: {storeInfo?.hotline || '1800.2097'}</span>
               </a>
-              <a href="mailto:support@echophone.local" className="group flex items-center gap-3 font-semibold text-slate-700 transition hover:text-[#d70018]">
+              <a href={`mailto:${storeInfo?.email || 'support@echophone.local'}`} className="group flex items-center gap-3 font-semibold text-slate-700 transition hover:text-[#d70018]">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-50 text-slate-500 transition-colors group-hover:bg-[#d70018] group-hover:text-white">
                   <Mail className="h-4 w-4" />
                 </div>
-                <span>support@echophone.local</span>
+                <span>{storeInfo?.email || 'support@echophone.local'}</span>
               </a>
               <div className="flex items-start gap-3 font-medium text-slate-500">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-50 text-slate-500">
                   <MapPin className="h-4 w-4" />
                 </div>
-                <span className="mt-2 leading-relaxed">Hệ thống mô phỏng, hỗ trợ vận hành bán lẻ điện tử.</span>
+                <span className="mt-2 leading-relaxed">{storeInfo?.address || 'Hệ thống mô phỏng, hỗ trợ vận hành bán lẻ điện tử.'}</span>
               </div>
             </div>
           </div>

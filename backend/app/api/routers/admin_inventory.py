@@ -1,10 +1,28 @@
-﻿from uuid import UUID
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_role_code, get_current_user_id, require_permission, require_super_admin
-from app.api.schemas.admin import InventoryAdjustmentPayload, InventoryAdjustmentRequestPayload, InventoryAdjustmentRequestStatusPayload, InventoryIdentifierEditDecisionPayload, InventoryIdentifierEditRequestPayload, InventoryLocationPayload, InventoryLocationStatusPayload, InventoryReceiptImeiPayload, InventoryReceiptPayload, InventoryReceiptQualityPayload, InventoryReceiptReversePayload, InventoryReceiptStatusPayload, InventorySettingsPayload, InventoryStockCountPayload, InventoryStockCountStatusPayload, VariantInventoryPayload
+from app.api.schemas.admin import (
+    InventoryAdjustmentPayload,
+    InventoryAdjustmentRequestPayload,
+    InventoryAdjustmentRequestStatusPayload,
+    InventoryIdentifierEditDecisionPayload,
+    InventoryIdentifierEditRequestPayload,
+    InventoryLocationPayload,
+    InventoryLocationStatusPayload,
+    InventoryReceiptImeiPayload,
+    InventoryReceiptPayload,
+    InventoryReceiptQualityPayload,
+    InventoryReceiptReversePayload,
+    InventoryReceiptStatusPayload,
+    InventorySettingsPayload,
+    InventoryStockCountPayload,
+    InventoryStockCountStatusPayload,
+    VariantInventoryPayload,
+    InventoryPutawaySuggestion,
+)
 from app.infrastructure.database.session import get_session
 from app.application.services import inventory_service
 
@@ -138,6 +156,23 @@ async def list_inventory_issue_suggestions(
     return await inventory_service.list_inventory_issue_suggestions(session, product_id, variant_id, quantity)
 
 
+@router.get("/inventory/putaway-suggestions", response_model=list[InventoryPutawaySuggestion], dependencies=[Depends(require_permission("inventory:read"))])
+async def list_inventory_putaway_suggestions(
+    product_id: UUID = Query(alias="productId"),
+    variant_id: UUID | None = Query(default=None, alias="variantId"),
+    quantity: int = Query(default=1, ge=1, le=500),
+    reason_code: str = Query(default="NK_MUA", alias="reasonCode"),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await inventory_service.list_inventory_putaway_suggestions(
+        session,
+        product_id=product_id,
+        variant_id=variant_id,
+        quantity=quantity,
+        reason_code=reason_code,
+    )
+
+
 @router.get("/inventory/identifier-edit-requests", dependencies=[Depends(require_permission("inventory:read"))])
 async def list_inventory_identifier_edit_requests(
     status_filter: str = Query(default="PENDING", alias="status"),
@@ -219,6 +254,7 @@ async def decide_inventory_identifier_edit_request(
     return await inventory_service.decide_inventory_identifier_edit_request(session, request_id, payload, current_user_id)
 
 
+# Receipts
 @router.get("/inventory/receipts", dependencies=[Depends(require_permission("inventory:read"))])
 async def list_inventory_receipts(
     search: str = Query(default=""),
@@ -337,3 +373,106 @@ async def set_variant_inventory(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     return await inventory_service.set_variant_inventory(session, product_id, variant_id, payload)
+
+
+# Outbound Delivery Documents
+from pydantic import BaseModel
+
+class OutboundAllocationPayload(BaseModel):
+    locationId: str | None = None
+    quantity: int = 0
+    imeis: list[str] = []
+    serialNumbers: list[str] = []
+
+class OutboundLineUpdatePayload(BaseModel):
+    id: str | None = None
+    lineId: str | None = None
+    locationId: str | None = None
+    approvedQuantity: int | None = None
+    imeis: list[str] = []
+    serialNumbers: list[str] = []
+    allocations: list[OutboundAllocationPayload] = []
+
+
+@router.get("/inventory/outbounds", dependencies=[Depends(require_permission("inventory:read"))])
+async def list_inventory_outbounds(
+    search: str = Query("", description="Tìm kiếm mã phiếu, mã đơn hàng, người nhận"),
+    status: str = Query("", description="Trạng thái phiếu"),
+    dateFrom: str = Query("", description="Từ ngày"),
+    dateTo: str = Query("", description="Đến ngày"),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await inventory_service.list_outbound_documents(
+        session,
+        search=search,
+        status=status,
+        date_from=dateFrom,
+        date_to=dateTo,
+    )
+
+
+@router.get("/inventory/outbound-identifier-pair", dependencies=[Depends(require_permission("inventory:read"))])
+async def resolve_outbound_identifier_pair(
+    product_id: UUID = Query(alias="productId"),
+    variant_id: UUID | None = Query(default=None, alias="variantId"),
+    location_id: UUID = Query(alias="locationId"),
+    identifier_type: str = Query(alias="identifierType"),
+    identifier_value: str = Query(alias="identifierValue"),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await inventory_service.resolve_outbound_identifier_pair(
+        session,
+        product_id=product_id,
+        variant_id=variant_id,
+        location_id=location_id,
+        identifier_type=identifier_type,
+        identifier_value=identifier_value,
+    )
+
+
+@router.get("/inventory/outbounds/{document_no}", dependencies=[Depends(require_permission("inventory:read"))])
+async def get_inventory_outbound(
+    document_no: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await inventory_service.get_outbound_document(session, document_no)
+
+
+@router.put("/inventory/outbounds/{document_no}", dependencies=[Depends(require_permission("inventory:adjust"))])
+async def update_inventory_outbound(
+    document_no: str,
+    payload: list[OutboundLineUpdatePayload],
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    lines_data = [item.model_dump() for item in payload]
+    return await inventory_service.update_outbound_document_lines(
+        session,
+        document_no,
+        lines_data,
+        current_user_id,
+    )
+
+
+@router.patch("/inventory/outbounds/{document_no}/status", dependencies=[Depends(require_permission("inventory:adjust"))])
+async def update_inventory_outbound_status(
+    document_no: str,
+    payload: InventoryReceiptStatusPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+    current_role_code: str = Depends(get_current_role_code),
+) -> dict:
+    return await inventory_service.post_outbound_document(
+        session,
+        document_no,
+        current_user_id,
+        current_role_code,
+    )
+
+
+@router.post("/inventory/outbounds/{document_no}/auto-suggest", dependencies=[Depends(require_permission("inventory:adjust"))])
+async def auto_suggest_outbound(
+    document_no: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await inventory_service.auto_suggest_outbound_document(session, document_no)

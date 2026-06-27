@@ -55,6 +55,15 @@ Các nguyên tắc này được chắt lọc từ bộ hướng dẫn `andrej-k
 - Sau khi sửa, chạy kiểm tra phù hợp với phạm vi thay đổi nếu môi trường cho phép.
 - Không báo xong chỉ vì đã sửa file; phải biết thay đổi đã được kiểm tra bằng cách nào hoặc nói rõ vì sao chưa kiểm tra được.
 
+### Tự đánh giá sau khi code
+
+- Sau mỗi lần sửa code, tự đánh giá ngắn gọn phần vừa làm trước khi báo hoàn tất.
+- Bắt buộc trong phản hồi hoàn tất sau mỗi lần sửa code phải có mục `Tự đánh giá`, gồm `Điểm`, `Chưa được` và `Hướng giải quyết`; không chờ user hỏi mới đánh giá.
+- Đánh giá phải nghiêm khắc, thực chất, không qua loa cho có; nếu còn rủi ro, thiếu kiểm thử, code chưa gọn hoặc có giả định yếu thì phải nói thẳng.
+- Báo điểm chất lượng cho lần sửa đó, ví dụ `8/10`, dựa trên độ đúng yêu cầu, độ gọn, mức độ rủi ro và mức kiểm tra đã chạy.
+- Chỉ ra rõ chỗ chưa được, rủi ro còn lại hoặc phần chưa kiểm tra được.
+- Đưa hướng giải quyết hoặc cải thiện tiếp theo cho các điểm chưa tốt, ưu tiên hướng đơn giản và đúng phạm vi.
+
 ## Maintenance Notes
 
 - Trước khi sửa product/category/inventory/service, đọc các file:
@@ -68,7 +77,7 @@ Các nguyên tắc này được chắt lọc từ bộ hướng dẫn `andrej-k
 - Khi tạo hoặc sửa code, giao diện, thông báo lỗi, tài liệu `.md`, seed data hoặc dữ liệu hiển thị cho người dùng, phải dùng tiếng Việt có dấu đầy đủ.
 - Không viết tiếng Việt không dấu cho nội dung mới, trừ khi đó là mã định danh kỹ thuật bắt buộc như tên biến, tên file, slug, key JSON hoặc lệnh hệ thống.
 - Tránh làm hỏng mã hóa tiếng Việt. Nếu thấy nội dung bị lỗi font/mã hóa, sửa lại sang Unicode UTF-8 đúng dấu khi đang chỉnh cùng khu vực đó.
-- Trước khi hoàn tất các thay đổi có chữ tiếng Việt, kiểm tra nhanh nội dung vừa sửa để bảo đảm không có lỗi ký tự như `Ä`, `á»`, `Æ`.
+- Sau mỗi lần sửa code, trước khi báo hoàn tất, kiểm tra nhanh các file vừa chỉnh để bảo đảm nội dung tiếng Việt có dấu đầy đủ và không có lỗi ký tự như `Ä`, `á»`, `Æ`.
 
 ## UTF-8 Runtime Defaults
 
@@ -94,3 +103,14 @@ Các nguyên tắc này được chắt lọc từ bộ hướng dẫn `andrej-k
 - Sau khi sửa và kiểm tra, ghi lại thay đổi quan trọng vào file notes.
 - Nếu notes chưa có cho chức năng đó, tạo file notes mới trong khu vực phù hợp.
 - Khi phát hiện ghi chú hoặc code cũ không còn đúng với hệ thống, cập nhật/xóa phần lỗi thời sau khi đã xác minh.
+
+## Runtime IPN / Cloudflare Tunnel
+
+- Trước mỗi lần chạy đồ án có kiểm thử thanh toán/IPN, bắt buộc bật Cloudflare Tunnel trước backend/frontend để có URL public nhận webhook:
+  - `cloudflared tunnel --url http://localhost:8000`
+- Sau khi Cloudflare in ra URL dạng `https://<subdomain>.trycloudflare.com`, cập nhật lại các IPN/callback trong `backend/.env` cho đúng URL mới trước khi tạo giao dịch thanh toán:
+  - `MOMO_IPN_PATH=https://<subdomain>.trycloudflare.com/api/payments/momo/ipn`
+  - `ZALOPAY_CALLBACK_URL=https://<subdomain>.trycloudflare.com/api/payments/zalopay/callback`
+  - Với SePay, cấu hình webhook/IPN trên dashboard hoặc môi trường tích hợp trỏ về `https://<subdomain>.trycloudflare.com/api/payments/sepay/ipn`.
+- Sau khi sửa `backend/.env`, phải restart backend bằng `.\scripts\run-backend.ps1` để backend nạp lại URL IPN/callback mới.
+- Không dùng URL Cloudflare cũ cho lần chạy mới; tunnel tạm thời thường đổi domain, nếu env còn domain cũ thì IPN sẽ không chạy về máy local.

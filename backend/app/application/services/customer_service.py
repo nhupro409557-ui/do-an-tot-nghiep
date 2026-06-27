@@ -237,6 +237,44 @@ async def update_admin_customer_tags(
     return {"ok": True, "tags": tags}
 
 
+async def update_admin_customer_profile(
+    session: AsyncSession,
+    user_id: UUID,
+    payload: CustomerProfilePayload,
+    current_user_id: UUID,
+) -> dict:
+    before = await customer_repo.get_customer_profile_for_update(session, user_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản khách hàng.")
+    full_name = payload.fullName.strip()
+    phone = payload.phone.strip() if payload.phone else None
+    tier = payload.tier.strip().upper()
+    await customer_repo.update_customer_profile(
+        session,
+        user_id=user_id,
+        full_name=full_name,
+        phone=phone,
+        tier=tier,
+        wallet_status=payload.walletStatus,
+    )
+    after = {
+        "fullName": full_name,
+        "phone": phone,
+        "tier": tier,
+        "walletStatus": payload.walletStatus,
+    }
+    await audit_admin_event(
+        session,
+        actor_id=current_user_id,
+        event_type="admin_customer_profile_updated",
+        resource="customer",
+        target_user_id=user_id,
+        metadata={"before": before, "after": after},
+    )
+    await session.commit()
+    return {"ok": True, **after}
+
+
 async def bulk_update_admin_customer_tags(
     session: AsyncSession,
     payload: CustomerBulkTagsPayload,

@@ -116,6 +116,62 @@ async def get_admin_customer_summary(session: AsyncSession, user_id: UUID) -> di
     return dict(row) if row else None
 
 
+async def get_customer_profile_for_update(session: AsyncSession, user_id: UUID) -> dict | None:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    u.full_name AS "fullName",
+                    u.phone,
+                    u.loyalty_tier AS tier,
+                    u.loyalty_wallet_status AS "walletStatus"
+                FROM users u
+                JOIN roles r ON r.id = u.role_id
+                WHERE u.id = :user_id
+                  AND u.status != 'DELETED'
+                  AND r.code = 'CUSTOMER'
+                FOR UPDATE
+                """
+            ),
+            {"user_id": user_id},
+        )
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+async def update_customer_profile(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    full_name: str,
+    phone: str | None,
+    tier: str,
+    wallet_status: str,
+) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE users
+            SET full_name = :full_name,
+                phone = :phone,
+                loyalty_tier = :tier,
+                loyalty_wallet_status = :wallet_status,
+                profile = COALESCE(profile, '{}'::jsonb) || jsonb_build_object('displayName', :full_name, 'phone', :phone),
+                updated_at = NOW()
+            WHERE id = :user_id
+            """
+        ),
+        {
+            "user_id": user_id,
+            "full_name": full_name,
+            "phone": phone,
+            "tier": tier,
+            "wallet_status": wallet_status,
+        },
+    )
+
+
 async def list_customer_tags(session: AsyncSession, user_id: UUID) -> list[str]:
     result = await session.execute(text("SELECT tag FROM customer_tags WHERE user_id = :user_id ORDER BY tag"), {"user_id": user_id})
     return [str(tag) for tag in result.scalars().all()]
@@ -192,8 +248,12 @@ async def list_customer_loyalty_history(session: AsyncSession, user_id: UUID) ->
                 lt.balance_after AS "balanceAfter",
                 lt.reason,
                 lt.metadata,
+                actor.id::text AS "actorId",
+                actor.full_name AS "actorName",
+                actor.email AS "actorEmail",
                 lt.created_at AS "createdAt"
             FROM loyalty_transactions lt
+            LEFT JOIN users actor ON actor.id::text = lt.metadata->>'adjustedBy'
             WHERE lt.user_id = :user_id
             ORDER BY lt.created_at DESC
             LIMIT 200

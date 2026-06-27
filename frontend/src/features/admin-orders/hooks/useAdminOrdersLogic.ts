@@ -34,6 +34,8 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
   const [orderPanelOpen, setOrderPanelOpen] = useState(false);
   const [orderPanelBusy, setOrderPanelBusy] = useState(false);
   const [orderSaving, setOrderSaving] = useState(false);
+  const [carrierShipmentBusy, setCarrierShipmentBusy] = useState(false);
+  const [carrierQuote, setCarrierQuote] = useState<any | null>(null);
   const [orderDraft, setOrderDraft] = useState<OrderDraft>(initialOrderDraft);
 
   function syncOrderDraft(order: any) {
@@ -52,6 +54,7 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
   async function openOrderPanel(orderId: string) {
     setOrderPanelOpen(true);
     setOrderPanelBusy(true);
+    setCarrierQuote(null);
     try {
       const detail = await adminOrdersApi.getOrderDetail(orderId);
       setSelectedOrder(detail);
@@ -72,26 +75,6 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
 
   async function saveOrderDraft() {
     if (!selectedOrder) return;
-    if (orderDraft.status === 'SHIPPED') {
-      for (const item of selectedOrder.items || []) {
-        const itemAllocations = orderDraft.issueAllocations.filter((allocation) => allocation.orderItemId === String(item.id));
-        if (itemAllocations.length === 0) continue;
-        if (itemAllocations.some((allocation) => !allocation.locationId || Number(allocation.quantity || 0) <= 0)) {
-          window.alert(`Sản phẩm "${item.productName}" có dòng kệ chưa hợp lệ.`);
-          return;
-        }
-        const uniqueLocationIds = new Set(itemAllocations.map((allocation) => allocation.locationId));
-        if (uniqueLocationIds.size !== itemAllocations.length) {
-          window.alert(`Sản phẩm "${item.productName}" đang chọn trùng kệ.`);
-          return;
-        }
-        const allocatedQuantity = itemAllocations.reduce((sum, allocation) => sum + Number(allocation.quantity || 0), 0);
-        if (allocatedQuantity !== Number(item.quantity || 0)) {
-          window.alert(`Sản phẩm "${item.productName}" phải phân bổ đúng ${item.quantity} sản phẩm.`);
-          return;
-        }
-      }
-    }
     setOrderSaving(true);
     try {
       await adminOrdersApi.adminUpdateOrder(selectedOrder.id, {
@@ -102,13 +85,7 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
         shipping_provider: orderDraft.shippingProvider || null,
         tracking_code: orderDraft.trackingCode || null,
         refund_payment: orderDraft.refundPayment,
-        issue_allocations: orderDraft.issueAllocations
-          .filter((allocation) => allocation.orderItemId && allocation.locationId && Number(allocation.quantity || 0) > 0)
-          .map((allocation) => ({
-            order_item_id: allocation.orderItemId,
-            location_id: allocation.locationId,
-            quantity: Number(allocation.quantity),
-          })),
+        issue_allocations: [],
       });
       const detail = await adminOrdersApi.getOrderDetail(selectedOrder.id);
       setSelectedOrder(detail);
@@ -123,6 +100,70 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
     printOrderDocumentPopup(order, mode, { currency, compactId, statusLabel });
   }
 
+  async function quoteCarrierShipment(provider?: string) {
+    if (!selectedOrder) return;
+    setCarrierShipmentBusy(true);
+    try {
+      const quote = await adminOrdersApi.quoteCarrierShipment(selectedOrder.id, {
+        provider: provider || orderDraft.shippingProvider || 'MOCK_GHN',
+      });
+      setCarrierQuote(quote);
+      setOrderDraft((draft) => ({ ...draft, shippingProvider: quote.provider || draft.shippingProvider }));
+    } finally {
+      setCarrierShipmentBusy(false);
+    }
+  }
+
+  async function createCarrierShipment(provider?: string) {
+    if (!selectedOrder) return;
+    setCarrierShipmentBusy(true);
+    try {
+      const result = await adminOrdersApi.createCarrierShipment(selectedOrder.id, {
+        provider: provider || orderDraft.shippingProvider || 'MOCK_GHN',
+      });
+      setCarrierQuote(result);
+      const detail = await adminOrdersApi.getOrderDetail(selectedOrder.id);
+      setSelectedOrder(detail);
+      syncOrderDraft(detail);
+      mergeOrderListItem(detail);
+    } finally {
+      setCarrierShipmentBusy(false);
+    }
+  }
+
+  async function cancelCarrierShipment(reason?: string) {
+    if (!selectedOrder) return;
+    setCarrierShipmentBusy(true);
+    try {
+      const result = await adminOrdersApi.cancelCarrierShipment(selectedOrder.id, { reason });
+      setCarrierQuote(result);
+      const detail = await adminOrdersApi.getOrderDetail(selectedOrder.id);
+      setSelectedOrder(detail);
+      syncOrderDraft(detail);
+      mergeOrderListItem(detail);
+    } finally {
+      setCarrierShipmentBusy(false);
+    }
+  }
+
+  async function simulateCarrierEvent(eventCode: string, note?: string) {
+    if (!selectedOrder) return;
+    setCarrierShipmentBusy(true);
+    try {
+      const result = await adminOrdersApi.updateCarrierEvent(selectedOrder.id, {
+        event_code: eventCode,
+        note,
+      });
+      setCarrierQuote(result);
+      const detail = await adminOrdersApi.getOrderDetail(selectedOrder.id);
+      setSelectedOrder(detail);
+      syncOrderDraft(detail);
+      mergeOrderListItem(detail);
+    } finally {
+      setCarrierShipmentBusy(false);
+    }
+  }
+
   return {
     selectedOrder,
     setSelectedOrder,
@@ -132,6 +173,9 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
     setOrderPanelBusy,
     orderSaving,
     setOrderSaving,
+    carrierShipmentBusy,
+    carrierQuote,
+    setCarrierQuote,
     orderDraft,
     setOrderDraft,
     openOrderPanel,
@@ -140,5 +184,9 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
     syncOrderDraft,
     mergeOrderListItem,
     printOrderDocument,
+    quoteCarrierShipment,
+    createCarrierShipment,
+    cancelCarrierShipment,
+    simulateCarrierEvent,
   };
 }

@@ -13,11 +13,25 @@ async def list_active_products_for_ai(session: AsyncSession) -> list[dict]:
             SELECT p.id::text, p.slug, p.name, p.brand, p.price, p.sale_price AS "salePrice",
                    p.image_url AS "imageUrl", p.description, p.specifications,
                    c.name AS "categoryName", c.slug AS "categorySlug",
-                   p.rating, p.review_count AS "reviewCount", p.favorite_count AS "favoriteCount"
+                   COALESCE(review_stats.rating, 0) AS rating,
+                   COALESCE(review_stats.review_count, 0) AS "reviewCount",
+                   COALESCE(favorite_counts.favorite_count, 0) AS "favoriteCount"
             FROM products p
             LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN (
+                SELECT product_id, ROUND(AVG(rating), 2)::numeric(3, 2) AS rating, COUNT(*) AS review_count
+                FROM product_reviews
+                WHERE status = 'PUBLISHED'
+                GROUP BY product_id
+            ) review_stats ON review_stats.product_id = p.id
+            LEFT JOIN (
+                SELECT product_id, COUNT(*) AS favorite_count
+                FROM user_favorites
+                WHERE is_active = TRUE
+                GROUP BY product_id
+            ) favorite_counts ON favorite_counts.product_id = p.id
             WHERE p.status = 'ACTIVE'
-            ORDER BY p.is_featured DESC, p.rating DESC NULLS LAST, p.created_at DESC
+            ORDER BY p.is_featured DESC, review_stats.rating DESC NULLS LAST, p.created_at DESC
             LIMIT 200
             """
         )

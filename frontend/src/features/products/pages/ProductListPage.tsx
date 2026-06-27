@@ -134,8 +134,8 @@ export default function ProductListPage() {
       </div>
 
       <div className="flex flex-col gap-6 lg:flex-row">
-        <aside className="w-full shrink-0 lg:w-72">
-          <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+        <aside className="w-full shrink-0 lg:w-72 lg:self-start">
+          <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
             <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 font-bold text-slate-800">
               <SlidersHorizontal className="h-4 w-4" />
               Bộ lọc

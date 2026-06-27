@@ -388,16 +388,42 @@ export function useAdminProductsLogic({
       seoTitle: product.seoMetadata?.title || product.specifications?._seoTitle || '',
       seoDescription: product.seoMetadata?.description || product.specifications?._seoDescription || '',
       seoSlug: product.seoMetadata?.slug || product.specifications?._seoSlug || product.slug || '',
-      accessoryOffers: accessoryOffers.map((item: any) => ({
-        productId: item.productId || '',
-        productName: item.productName || '',
-        productSku: item.productSku || '',
-        imageUrl: item.imageUrl || '',
-        images: item.images || [],
-        discountType: item.discountType === 'FIXED' ? 'FIXED' : 'PERCENT',
-        discountValue: Number(item.discountValue || 0),
-        maxQuantity: Number(item.maxQuantity || 1),
-      })),
+      accessoryOffers: accessoryOffers.map((item: any) => {
+        const prod = products.find((p) => String(p.id) === String(item.productId));
+        
+        const variantStock = prod && Array.isArray(prod.variants)
+          ? prod.variants.reduce((total: number, variant: any) => {
+              const status = String(variant?.status || '').toLowerCase();
+              const isVariantSellable = variant?.isActive !== false
+                && !['deleted', 'archived', 'inactive', 'discontinued'].includes(status)
+                && Number(variant?.stockQuantity ?? variant?.stock ?? 0) > 0;
+              return total + (isVariantSellable ? Number(variant.stockQuantity ?? variant.stock) : 0);
+            }, 0)
+          : 0;
+        const prodStock = prod ? Math.max(variantStock, Number(prod.stockQuantity ?? prod.stock ?? 0)) : 0;
+        
+        const isProdActive = prod && (String(prod.status || '').toUpperCase() === 'ACTIVE' || String(prod.status || '').toUpperCase() === 'APPROVED');
+        const isProdSellable = prod 
+          ? (isProdActive && prod.isActive !== false && prod.isDeleted !== true && prodStock > 0)
+          : false;
+
+        return {
+          productId: item.productId || '',
+          productName: prod?.name || item.productName || 'Sản phẩm mua kèm',
+          productSku: prod?.sku || item.productSku || '',
+          imageUrl: prod?.imageUrl || item.imageUrl || '',
+          images: prod?.images || item.images || [],
+          stockQuantity: prod ? prodStock : Number(item.stockQuantity || 0),
+          isSellable: prod ? isProdSellable : (item.isSellable !== false && Number(item.stockQuantity || 0) > 0),
+          discountType: item.discountType === 'FIXED' ? 'FIXED' : 'PERCENT',
+          discountValue: Number(item.discountValue || 0),
+          maxQuantity: Number(item.maxQuantity || 1),
+          originalPrice: prod ? Number(prod.price || 0) : Number(item.originalPrice || 0),
+          salePrice: prod ? Number(prod.discountPrice || prod.price || 0) : Number(item.salePrice || 0),
+          normalDiscountPrice: prod ? Number(prod.discountPrice || prod.price || 0) : Number(item.normalDiscountPrice || 0),
+          price: Number(item.price || 0),
+        };
+      }),
       attachedServices: attachedServices.map((item: any) => ({
         serviceId: item.serviceId || '',
         name: item.name || '',
@@ -409,17 +435,6 @@ export function useAdminProductsLogic({
         fixedPrice: Number(item.fixedPrice || 0),
         percentValue: Number(item.percentValue || 0),
       })),
-      warrantyPolicy: normalizeWarrantyPolicy(warrantyPolicy),
-      imeiPolicy: {
-        mode: savedImeiPolicy?.mode === 'MANUAL' ? 'MANUAL' : 'CATEGORY',
-        trackImei: Boolean(savedImeiPolicy?.trackImei),
-      },
-      serialPolicy: {
-        mode: savedSerialPolicy?.mode === 'MANUAL' ? 'MANUAL' : 'CATEGORY',
-        trackSerialNumber: Boolean(savedSerialPolicy?.trackSerialNumber),
-      },
-      updatedAt: product.updatedAt || '',
-      version: Number(product.version || 1),
       variantSpecKeys: savedVariantSpecKeys,
       variants: (product.variants || []).map((item: any) => {
         const attributes = item.attributes || {};
@@ -450,12 +465,28 @@ export function useAdminProductsLogic({
           isDefault: Boolean(item.isDefault),
           status: item.status || 'active',
           attributes,
+          attributeGroup: item.attributeGroup || '',
+          durationMonths: Number(item.durationMonths || 0),
+          priceMode: item.priceMode || 'FIXED',
+          fixedPrice: Number(item.fixedPrice || 0),
+          percentValue: Number(item.percentValue || 0),
         };
       }),
       options: product.options || [],
       status: targetProductStatus || 'ACTIVE',
       isFeatured: Boolean(product.isFeatured),
       isFlashSale: Boolean(product.isFlashSale),
+      warrantyPolicy: normalizeWarrantyPolicy(warrantyPolicy),
+      imeiPolicy: {
+        mode: savedImeiPolicy?.mode === 'MANUAL' ? 'MANUAL' : 'CATEGORY',
+        trackImei: Boolean(savedImeiPolicy?.trackImei),
+      },
+      serialPolicy: {
+        mode: savedSerialPolicy?.mode === 'MANUAL' ? 'MANUAL' : 'CATEGORY',
+        trackSerialNumber: Boolean(savedSerialPolicy?.trackSerialNumber),
+      },
+      updatedAt: product.updatedAt || '',
+      version: Number(product.version || 1),
     });
     setProductFormOpen(true);
   }

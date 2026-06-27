@@ -333,6 +333,8 @@ export function useAdminLogic() {
   const revenue = useMemo(() => orders.reduce((sum, order) => sum + Number(order.totalAmount || order.total_amount || 0), 0), [orders]);
   const availableTabs = useMemo(() => adminTabs.filter((item) => tabAccess[item.id]), [tabAccess]);
   const canLoadTab = (targetTab: AdminTab) => Boolean(tabAccess[targetTab]);
+  const canAdjustCustomerPoints = usePermission('customer:loyalty_adjust');
+  const canUpdateCustomerProfile = useAnyPermission(['customer:update', 'sys:manage_users']);
   const permissionLogic = useAdminPermissionsLogic({
     customers,
     canManageCustomerAccess,
@@ -342,9 +344,9 @@ export function useAdminLogic() {
   const customerLogic = useAdminCustomersLogic({
     canManageCustomerAccess,
     canManageCustomerProfile,
-    canAdjustCustomerPoints: usePermission('customer:loyalty_adjust'),
+    canAdjustCustomerPoints,
     canIssueCustomerVoucher: usePermission('customer:issue_voucher'),
-    canUpdateCustomerProfile: useAnyPermission(['customer:update', 'sys:manage_users']),
+    canUpdateCustomerProfile,
     reloadCurrentTab: () => loadData(tab, { force: true }),
   });
   const loadedAdminSectionsRef = useRef<Set<AdminTab>>(new Set());
@@ -555,13 +557,14 @@ export function useAdminLogic() {
         const saleData = await adminFlashSalesApi.adminListFlashSales().catch(() => []);
         setFlashSales(saleData);
       };
-      const loadCustomers = async (role: 'CUSTOMER' | 'STAFF_ADMIN' = 'CUSTOMER') => {
+      const customerPickerLimit = 100;
+      const loadCustomers = async (role: 'CUSTOMER' | 'STAFF_ADMIN' = 'CUSTOMER', options: { picker?: boolean } = {}) => {
         const customerData = await adminCustomersApi.adminListCustomers({
-          search: role === 'CUSTOMER' ? query : undefined,
-          page: role === 'CUSTOMER' ? customerPage : 1,
-          limit: role === 'CUSTOMER' ? 20 : 100,
+          search: role === 'CUSTOMER' && !options.picker ? query : undefined,
+          page: role === 'CUSTOMER' && !options.picker ? customerPage : 1,
+          limit: role === 'CUSTOMER' && !options.picker ? 20 : customerPickerLimit,
           role,
-        }).catch(() => ({ items: [], total: 0, page: 1, limit: role === 'CUSTOMER' ? 20 : 100 }));
+        }).catch(() => ({ items: [], total: 0, page: 1, limit: role === 'CUSTOMER' && !options.picker ? 20 : customerPickerLimit }));
         setCustomers(Array.isArray(customerData) ? customerData : customerData.items || []);
         setCustomerTotal(Array.isArray(customerData) ? customerData.length : customerData.total || 0);
       };
@@ -665,6 +668,7 @@ export function useAdminLogic() {
           loadVouchers(),
           canLoadTab('products') ? loadProducts() : Promise.resolve(),
           canLoadTab('categories') ? loadCategories() : Promise.resolve(),
+          canLoadTab('customers') ? loadCustomers('CUSTOMER', { picker: true }) : Promise.resolve(),
         ]);
       } else if (targetTab === 'flashSales') {
         await Promise.all([
@@ -835,6 +839,7 @@ export function useAdminLogic() {
     setCustomerPage,
     customerTotal,
     setCustomerTotal,
+    canAdjustCustomerPoints,
     ...customerLogic,
     reviews,
     setReviews,
@@ -990,6 +995,7 @@ export function useAdminLogic() {
     productSpecFields,
     canManageCustomerAccess,
     canManageCustomerProfile,
+    canUpdateCustomerProfile,
     canCreateContent,
     canUpdateContent,
     canDeleteContent,

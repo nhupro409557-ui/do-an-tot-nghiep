@@ -91,8 +91,8 @@ async def list_active_products_by_brand(
                 p.capacities,
                 p.promotions,
                 p.badge,
-                p.rating,
-                COALESCE(p.review_count, 0) AS "reviewCount",
+                COALESCE(review_stats.rating, 0) AS rating,
+                COALESCE(review_stats.review_count, 0) AS "reviewCount",
                 COALESCE(os.sold_count, 0) AS "soldCount",
                 p.is_featured AS "isFeatured",
                 p.is_flash_sale AS "isFlashSale",
@@ -107,9 +107,15 @@ async def list_active_products_by_brand(
                 WHERE o.status = 'COMPLETED'
                 GROUP BY oi.product_id
             ) os ON os.product_id = p.id
+            LEFT JOIN (
+                SELECT product_id, ROUND(AVG(rating), 2)::numeric(3, 2) AS rating, COUNT(*) AS review_count
+                FROM product_reviews
+                WHERE status = 'PUBLISHED'
+                GROUP BY product_id
+            ) review_stats ON review_stats.product_id = p.id
             WHERE p.status = 'ACTIVE'
               AND (p.brand_id = CAST(:brand_id AS uuid) OR p.brand = :brand_name)
-            GROUP BY p.id, c.id, sc.id, os.sold_count
+            GROUP BY p.id, c.id, sc.id, os.sold_count, review_stats.rating, review_stats.review_count
             ORDER BY p.is_featured DESC, p.created_at DESC
             LIMIT :limit OFFSET :offset
             """

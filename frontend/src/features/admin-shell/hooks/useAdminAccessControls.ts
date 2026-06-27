@@ -31,6 +31,7 @@ export function useAdminAccessControls(
   const canCreateContent = usePermission('content:create');
   const canUpdateContent = usePermission('content:update');
   const canDeleteContent = usePermission('content:delete');
+  const canReadPaymentMethods = useAnyPermission(['payment_method:read']);
 
   const tabAccess = useMemo<Record<AdminTab, boolean>>(() => ({
     overview: canReadOverview,
@@ -40,17 +41,21 @@ export function useAdminAccessControls(
     suppliers: canReadSuppliers,
     services: canManageProducts,
     orders: canReadOrders,
+    afterSales: canReadOrders && canReadInventory,
     vouchers: canReadVouchers,
     flashSales: canManageProducts || canManageVouchers,
     customers: canReadCustomers,
     inventoryReceipts: canManageInventory,
     inventory: canReadInventory,
+    inventoryOutbounds: canReadInventory,
     reviews: canReadReviews,
     interactions: canManageReviews,
     content: canReadContent,
     banners: canManageContent,
     audit: canReadAudit,
     permissions: canManageRoles,
+    paymentMethods: canReadPaymentMethods,
+    storeInfo: canReadOverview,
   }), [
     canManageRoles,
     canReadAudit,
@@ -70,6 +75,7 @@ export function useAdminAccessControls(
     canManageProducts,
     canManageReviews,
     canManageVouchers,
+    canReadPaymentMethods,
   ]);
 
   return {

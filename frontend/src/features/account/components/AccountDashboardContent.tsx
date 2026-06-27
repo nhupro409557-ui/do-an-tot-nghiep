@@ -5,6 +5,8 @@ import { MembershipTab } from './MembershipTab';
 import { OrdersTab } from './OrdersTab';
 import { OverviewTab } from './OverviewTab';
 import { SettingsTab } from './SettingsTab';
+import { AfterSalesTab } from './AfterSalesTab';
+import { NotificationsTab, TransactionsTab, VoucherWalletTab } from './CustomerCenterTabs';
 
 type AccountDashboardContentProps = {
   activeTab: string;
@@ -75,6 +77,11 @@ export function AccountDashboardContent(props: AccountDashboardContentProps) {
       {props.activeTab === 'orders' && (
         <OrdersTab orders={props.orders} />
       )}
+      {props.activeTab === 'returns' && <AfterSalesTab kind="return" orders={props.orders} />}
+      {props.activeTab === 'warranties' && <AfterSalesTab kind="warranty" orders={props.orders} />}
+      {props.activeTab === 'vouchers' && <VoucherWalletTab />}
+      {props.activeTab === 'transactions' && <TransactionsTab />}
+      {props.activeTab === 'notifications' && <NotificationsTab />}
 
       {props.activeTab === 'membership' && (
         <MembershipTab points={props.points} nextTierInfo={props.nextTierInfo} />

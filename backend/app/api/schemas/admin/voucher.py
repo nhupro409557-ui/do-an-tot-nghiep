@@ -17,13 +17,21 @@ class VoucherPayload(BaseModel):
     perIpLimit: int = Field(default=0, ge=0)
     campaignType: str = Field(default="CONVERSION", max_length=40)
     audienceType: str = Field(default="PUBLIC", max_length=40)
+    displayTitle: str | None = Field(default=None, max_length=120)
+    displayDescription: str | None = Field(default=None, max_length=500)
+    publicTerms: str | None = Field(default=None, max_length=2000)
+    applicableChannels: list[str] = Field(default_factory=lambda: ["WEB"])
+    applicablePaymentMethods: list[str] = Field(default_factory=list)
     eligibleTiers: list[str] = Field(default_factory=list)
     eligibleUserRegisteredAfter: str | None = None
     assignedUserId: UUID | None = None
+    assignedUserIds: list[UUID] = Field(default_factory=list)
     includeProductIds: list[str] = Field(default_factory=list)
     excludeProductIds: list[str] = Field(default_factory=list)
     includeCategoryIds: list[str] = Field(default_factory=list)
     excludeCategoryIds: list[str] = Field(default_factory=list)
+    includeBrandIds: list[str] = Field(default_factory=list)
+    excludeBrandIds: list[str] = Field(default_factory=list)
     firstOrderOnly: bool = False
     hiddenCode: bool = False
     abandonedCartOnly: bool = False

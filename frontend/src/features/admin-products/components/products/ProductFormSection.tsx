@@ -230,7 +230,7 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
     }
     return Boolean(parentPolicy.trackImei);
   })();
-  const effectiveTracksImei = productForm.imeiPolicy?.mode === 'MANUAL'
+  const rawEffectiveTracksImei = productForm.imeiPolicy?.mode === 'MANUAL'
     ? Boolean(productForm.imeiPolicy?.trackImei)
     : categoryTracksImei;
   const categoryTracksSerialNumber = (() => {
@@ -244,6 +244,7 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
   const effectiveTracksSerialNumber = productForm.serialPolicy?.mode === 'MANUAL'
     ? Boolean(productForm.serialPolicy?.trackSerialNumber)
     : categoryTracksSerialNumber;
+  const effectiveTracksImei = rawEffectiveTracksImei && effectiveTracksSerialNumber;
   const productPublicationStatusOptions: [string, string][] = [
     ['ACTIVE', 'Đang bán'],
     ['INACTIVE', 'Tạm ẩn'],
@@ -453,7 +454,7 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
           <Checkbox
             label="Có quản lý IMEI"
             checked={effectiveTracksImei}
-            disabled={(productForm.imeiPolicy?.mode || 'CATEGORY') === 'CATEGORY'}
+            disabled={(productForm.imeiPolicy?.mode || 'CATEGORY') === 'CATEGORY' || !effectiveTracksSerialNumber}
             onChange={(checked) =>
               setProductForm({
                 ...productForm,
@@ -509,6 +510,12 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
                   mode: 'MANUAL',
                   trackSerialNumber: checked,
                 },
+                imeiPolicy: checked
+                  ? productForm.imeiPolicy
+                  : {
+                      mode: 'MANUAL',
+                      trackImei: false,
+                    },
               })
             }
           />

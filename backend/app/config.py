@@ -41,6 +41,19 @@ class Settings(BaseSettings):
     momo_redirect_url: str = "http://localhost:3000/dashboard"
     momo_ipn_path: str = "/api/payments/momo/ipn"
     momo_request_type: str = "captureWallet"
+    momo_payment_timeout_minutes: int = 15
+    zalopay_app_id: int = 2554
+    zalopay_key1: str = ""
+    zalopay_key2: str = ""
+    zalopay_create_endpoint: str = "https://sb-openapi.zalopay.vn/v2/create"
+    zalopay_query_endpoint: str = "https://sb-openapi.zalopay.vn/v2/query"
+    zalopay_callback_url: str = ""
+    zalopay_payment_timeout_minutes: int = 15
+    sepay_env: str = "sandbox"
+    sepay_merchant_id: str = ""
+    sepay_secret_key: str = ""
+    sepay_checkout_version: str = "v1"
+    sepay_payment_timeout_minutes: int = 15
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

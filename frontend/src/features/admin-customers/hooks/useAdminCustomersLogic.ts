@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { adminCustomersApi } from '../services/adminCustomersApi';
+import { notifyAdmin } from '../../admin-shell/utils/adminNotice';
 
 type CustomerSection = 'summary' | 'orders' | 'loyalty' | 'notes' | 'audit';
 
@@ -31,6 +32,7 @@ export function useAdminCustomersLogic({
   const [customerNotes, setCustomerNotes] = useState<any[]>([]);
   const [customerAuditLogs, setCustomerAuditLogs] = useState<any[]>([]);
   const [customerTagDraft, setCustomerTagDraft] = useState('');
+  const [customerProfileDraft, setCustomerProfileDraft] = useState({ fullName: '', phone: '', tier: 'MEMBER', walletStatus: 'ACTIVE' });
   const [customerNoteDraft, setCustomerNoteDraft] = useState('');
   const [customerVoucherId, setCustomerVoucherId] = useState('');
   const [customerVoucherNote, setCustomerVoucherNote] = useState('');
@@ -51,6 +53,12 @@ export function useAdminCustomersLogic({
       setCustomerNotes([]);
       setCustomerAuditLogs([]);
       setCustomerTagDraft(Array.isArray(detail.tags) ? detail.tags.join(', ') : '');
+      setCustomerProfileDraft({
+        fullName: detail.fullName || '',
+        phone: detail.phone || '',
+        tier: detail.tier || 'MEMBER',
+        walletStatus: detail.walletStatus || 'ACTIVE',
+      });
       setCustomerVoucherId('');
       setCustomerVoucherNote('');
       setCustomerPointDelta('0');
@@ -68,6 +76,12 @@ export function useAdminCustomersLogic({
     const detail = await adminCustomersApi.adminGetCustomerOverview(selectedCustomer.id);
     setSelectedCustomer(detail);
     setCustomerTagDraft(Array.isArray(detail.tags) ? detail.tags.join(', ') : '');
+    setCustomerProfileDraft({
+      fullName: detail.fullName || '',
+      phone: detail.phone || '',
+      tier: detail.tier || 'MEMBER',
+      walletStatus: detail.walletStatus || 'ACTIVE',
+    });
     await reloadCurrentTab();
   }
 
@@ -91,33 +105,76 @@ export function useAdminCustomersLogic({
   async function saveCustomerTags() {
     if (!selectedCustomer?.id || !canUpdateCustomerProfile) return;
     const tags = customerTagDraft.split(',').map((item) => item.trim()).filter(Boolean);
-    await adminCustomersApi.adminUpdateCustomerTags(selectedCustomer.id, tags);
-    await refreshSelectedCustomer();
+    try {
+      setCustomerDetailError('');
+      await adminCustomersApi.adminUpdateCustomerTags(selectedCustomer.id, tags);
+      await refreshSelectedCustomer();
+      notifyAdmin('Đã lưu tag khách hàng.');
+    } catch (error) {
+      setCustomerDetailError(error instanceof Error ? error.message : 'Không thể lưu tag khách hàng.');
+    }
+  }
+
+  async function saveCustomerProfile() {
+    if (!selectedCustomer?.id || !canUpdateCustomerProfile) return;
+    if (!customerProfileDraft.fullName.trim() || !customerProfileDraft.tier.trim()) return;
+    try {
+      setCustomerDetailError('');
+      await adminCustomersApi.adminUpdateCustomerProfile(selectedCustomer.id, {
+        fullName: customerProfileDraft.fullName.trim(),
+        phone: customerProfileDraft.phone.trim() || undefined,
+        tier: customerProfileDraft.tier.trim(),
+        walletStatus: customerProfileDraft.walletStatus,
+      });
+      await refreshSelectedCustomer();
+      notifyAdmin('Đã cập nhật thông tin khách hàng.');
+    } catch (error) {
+      setCustomerDetailError(error instanceof Error ? error.message : 'Không thể cập nhật thông tin khách hàng.');
+    }
   }
 
   async function addCustomerNote() {
     if (!selectedCustomer?.id || !customerNoteDraft.trim() || !canUpdateCustomerProfile) return;
-    await adminCustomersApi.adminCreateCustomerNote(selectedCustomer.id, customerNoteDraft.trim());
-    setCustomerNoteDraft('');
-    await refreshSelectedCustomer();
+    try {
+      setCustomerDetailError('');
+      await adminCustomersApi.adminCreateCustomerNote(selectedCustomer.id, customerNoteDraft.trim());
+      setCustomerNoteDraft('');
+      await refreshSelectedCustomer();
+      notifyAdmin('Đã thêm ghi chú CSKH.');
+    } catch (error) {
+      setCustomerDetailError(error instanceof Error ? error.message : 'Không thể thêm ghi chú CSKH.');
+    }
   }
 
   async function adjustCustomerPoints() {
     if (!selectedCustomer?.id || !canAdjustCustomerPoints) return;
     const delta = Number(customerPointDelta || 0);
-    if (!delta || !customerPointReason.trim()) return;
-    await adminCustomersApi.adminAdjustCustomerLoyalty(selectedCustomer.id, { delta, reason: customerPointReason.trim() });
-    setCustomerPointDelta('0');
-    setCustomerPointReason('');
-    await refreshSelectedCustomer();
+    if (!Number.isInteger(delta) || !delta || !customerPointReason.trim()) return;
+    try {
+      setCustomerDetailError('');
+      await adminCustomersApi.adminAdjustCustomerLoyalty(selectedCustomer.id, { delta, reason: customerPointReason.trim() });
+      setCustomerPointDelta('0');
+      setCustomerPointReason('');
+      setCustomerLoyaltyHistory(await adminCustomersApi.adminGetCustomerLoyaltyHistory(selectedCustomer.id).catch(() => []));
+      await refreshSelectedCustomer();
+      notifyAdmin('Đã cập nhật điểm khách hàng.');
+    } catch (error) {
+      setCustomerDetailError(error instanceof Error ? error.message : 'Không thể cập nhật điểm khách hàng.');
+    }
   }
 
   async function issueCustomerVoucher() {
     if (!selectedCustomer?.id || !customerVoucherId || !canIssueCustomerVoucher) return;
-    await adminCustomersApi.adminIssueCustomerVoucher(selectedCustomer.id, { voucherId: customerVoucherId, note: customerVoucherNote.trim() || undefined });
-    setCustomerVoucherId('');
-    setCustomerVoucherNote('');
-    await refreshSelectedCustomer();
+    try {
+      setCustomerDetailError('');
+      await adminCustomersApi.adminIssueCustomerVoucher(selectedCustomer.id, { voucherId: customerVoucherId, note: customerVoucherNote.trim() || undefined });
+      setCustomerVoucherId('');
+      setCustomerVoucherNote('');
+      await refreshSelectedCustomer();
+      notifyAdmin('Đã gửi voucher cho khách hàng.');
+    } catch (error) {
+      setCustomerDetailError(error instanceof Error ? error.message : 'Không thể gửi voucher cho khách hàng.');
+    }
   }
 
   async function bulkSuspendCustomers() {
@@ -158,6 +215,8 @@ export function useAdminCustomersLogic({
     setCustomerAuditLogs,
     customerTagDraft,
     setCustomerTagDraft,
+    customerProfileDraft,
+    setCustomerProfileDraft,
     customerNoteDraft,
     setCustomerNoteDraft,
     customerVoucherId,
@@ -172,6 +231,7 @@ export function useAdminCustomersLogic({
     refreshSelectedCustomer,
     loadCustomerSection,
     saveCustomerTags,
+    saveCustomerProfile,
     addCustomerNote,
     adjustCustomerPoints,
     issueCustomerVoucher,

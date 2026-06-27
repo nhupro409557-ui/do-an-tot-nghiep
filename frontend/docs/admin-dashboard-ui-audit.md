@@ -1,87 +1,87 @@
 # Admin dashboard UI audit
 
-## Muc tieu su dung chinh
+## Mục tiêu sử dụng chính
 
-Nguoi quan tri vao dashboard de nam nhanh tinh hinh van hanh cua hang, phat hien canh bao can xu ly ngay va di nhanh vao cac luong quan trong.
+Người quản trị vào dashboard để nắm nhanh tình hình vận hành cửa hàng, phát hiện cảnh báo cần xử lý ngay và đi nhanh vào các luồng quan trọng.
 
-## 3 hanh dong quan trong nhat
+## 3 hành động quan trọng nhất
 
-- Xu ly don hang dang cho.
-- Cap nhat san pham, ton kho va danh muc.
-- Kiem tra canh bao ve voucher, review, ton kho va doanh thu.
+- Xử lý đơn hàng đang chờ.
+- Cập nhật sản phẩm, tồn kho và danh mục.
+- Kiểm tra cảnh báo về voucher, đánh giá, tồn kho và doanh thu.
 
-## Canh bao can noi bat
+## Cảnh báo cần nổi bật
 
-- Don hang cho xu ly.
-- Ton kho am hoac sap het hang.
-- Voucher da dung gan het ngan sach.
-- Danh gia moi can kiem duyet.
+- Đơn hàng chờ xử lý.
+- Tồn kho âm hoặc sắp hết hàng.
+- Voucher đã dùng gần hết ngân sách.
+- Đánh giá mới cần kiểm duyệt.
 
-## Audit theo 5 tieu chi
+## Kiểm tra theo 5 tiêu chí
 
-- Phan cap thi giac: overview cu co nhieu card cung do nang, khong co tang uu tien ro.
-- Mat do thong tin: nhieu khoi canh nhau ngang cap, mat nguoi dung phai quet qua nhieu vung.
-- Tinh nhat quan: padding, radius, mau trang thai va shadow chua co quy tac chung.
-- Toc do quet mat: sidebar qua nhieu muc ngang cap, search chua thay doi theo ngu canh.
-- Do ro cua hanh dong chinh: cac action import, export, them moi, sua, xoa dang nam gan nhau va can tach cap uu tien.
+- Phân cấp thị giác: phần tổng quan cũ có nhiều thẻ (card) cùng độ nặng, không có tầng ưu tiên rõ.
+- Mật độ thông tin: nhiều khối cạnh nhau ngang cấp, mắt người dùng phải quét qua nhiều vùng.
+- Tính nhất quán: padding, radius, màu trạng thái và shadow chưa có quy tắc chung.
+- Tốc độ quét mắt: thanh bên (sidebar) quá nhiều mục ngang cấp, ô tìm kiếm chưa thay đổi theo ngữ cảnh.
+- Độ rõ của hành động chính: các hành động nhập (import), xuất (export), thêm mới, sửa, xóa đang nằm gần nhau và cần tách cấp ưu tiên.
 
-## Uu tien cao
+## Ưu tiên cao
 
-- Sua cac text loi encoding o vung admin hien thi chinh.
-- Tao mini design system cho card, metric, alert, table va form.
-- Rut gon navigation thanh nhom: Tong quan, Kinh doanh, Catalog, Van hanh, Khach hang, He thong.
-- Tai cau truc overview thanh KPI, canh bao, bieu do va danh sach van hanh.
+- Sửa các văn bản lỗi mã hóa ở vùng admin hiển thị chính.
+- Tạo mini design system cho card, metric, alert, table và form.
+- Rút gọn điều hướng (navigation) thành nhóm: Tổng quan, Kinh doanh, Catalog, Vận hành, Khách hàng, Hệ thống.
+- Tái cấu trúc tổng quan thành KPI, cảnh báo, biểu đồ và danh sách vận hành.
 
-## Uu tien trung binh
+## Ưu tiên trung bình
 
-- Chia form dai thanh section ro hon.
-- Lam sticky header va row action gon hon cho bang.
-- Chuan hoa microcopy trang thai va hanh dong.
+- Chia biểu mẫu (form) dài thành các phần rõ ràng hơn.
+- Làm sticky header và các nút hành động trên dòng gọn hơn cho bảng.
+- Chuẩn hóa microcopy trạng thái và hành động.
 
-## Uu tien thap
+## Ưu tiên thấp
 
-- Tinh chinh animation nho.
-- Them dashboard theo vai tro sau khi cac module chinh da on dinh.
+- Tinh chỉnh hiệu ứng động (animation) nhỏ.
+- Thêm dashboard theo vai trò sau khi các mô-đun chính đã ổn định.
 
-## Giu lai
+## Giữ lại
 
-- Logic API va permission hien co.
-- Recharts cho bieu do doanh thu.
-- Ant Design cho shell, menu, input va action bar.
-- Mau do thuong hieu cho CTA va diem can chu y.
+- Logic API và phân quyền (permission) hiện có.
+- Recharts cho biểu đồ doanh thu.
+- Ant Design cho shell, menu, input và action bar.
+- Màu đỏ thương hiệu cho CTA và điểm cần chú ý.
 
-## Can thay doi
+## Cần thay đổi
 
-- Sidebar phang thanh cac nhom dieu huong.
-- Overview khong con la tap hop card ngang cap.
-- Search phai co placeholder theo tab.
-- Card, alert va metric dung chung mot nhip spacing va border.
+- Thanh bên phẳng chuyển thành các nhóm điều hướng.
+- Tổng quan không còn là tập hợp thẻ ngang cấp.
+- Tìm kiếm phải có placeholder theo tab.
+- Card, alert và metric dùng chung một nhịp spacing và border.
 
-## Cap nhat 2026-05-22
+## Cập nhật 2026-05-22
 
-- Da nhom lai dieu huong admin theo: Tong quan, Kinh doanh, Catalog, Van hanh, Khach hang, He thong.
-- Da doi sidebar sang be mat sang, bo goc lon hon va dung accent indigo de giam cam giac nang cua mau do.
-- Da nang cap top bar de search thay doi theo tab va lam noi bat thao tac quan trong.
-- Da lam moi KPI card overview theo huong card trang, gradient nhe, badge icon va trend chip.
-- Da chuan hoa them copy hien thi cho shell admin va mot phan tieu de dashboard de giam loi font o vung nhin thay ngay.
-- Da tang contrast cho data table bang nen header slate nhe va duong tach border ro hon.
-- Da bat dau dong bo CTA chinh sang tone indigo de gan voi sidebar active va ngon ngu hanh dong chinh.
-- Da bo sung them mot lop bo goc lon hon cho bang va action de tong the gan hon voi giao dien SaaS admin.
-- Da doi top bar va sidebar sang tone do nhat nhat hon de gan voi dinh huong mau thuong hieu nhung van giu nen giao dien nhe.
-- Da lam diu mau nut bam va o tim kiem theo huong rose nhat de giam cam giac nang cua CTA.
-- Da giam do dam cua trang thai active trong sidebar, uu tien nen mau rat nhat va chu slate dam vua phai thay vi den/trang gay.
-- Da doi icon cua item active sang nen sang hon va icon slate dam de tranh bi mo khi dang chon.
-- Da gom bot thao tac bang thanh edit ben ngoai va menu thao tac gon hon de tiet kiem chieu ngang cot.
-- Da bo sung thanh trang thai/pagination UI o day bang de san cho viec no rong du lieu sau nay.
-- Da tach vung cuon rieng cho sidebar va content de khi re chuot vao khu nao thi khu do tu cuon doc lap.
-- Da an thanh cuon o sidebar va content, nhung van giu co che cuon doc lap theo tung vung.
+- Đã nhóm lại điều hướng admin theo: Tổng quan, Kinh doanh, Catalog, Vận hành, Khách hàng, Hệ thống.
+- Đã đổi sidebar sang bề mặt sáng, bo góc lớn hơn và dùng accent indigo để giảm cảm giác nặng của màu đỏ.
+- Đã nâng cấp thanh công cụ phía trên (top bar) để thanh tìm kiếm thay đổi theo tab và làm nổi bật thao tác quan trọng.
+- Đã làm mới thẻ KPI tổng quan theo hướng thẻ trắng, gradient nhẹ, huy hiệu icon và xu hướng (trend chip).
+- Đã chuẩn hóa thêm nội dung hiển thị cho shell admin và một phần tiêu đề dashboard để giảm lỗi font ở vùng nhìn thấy ngay.
+- Đã tăng độ tương phản (contrast) cho bảng dữ liệu bằng nền header màu slate nhẹ và đường tách border rõ hơn.
+- Đã bắt đầu đồng bộ nút kêu gọi hành động (CTA) chính sang tông màu indigo để gần gũi hơn với trạng thái kích hoạt thanh bên và ngôn ngữ hành động chính.
+- Đã bổ sung thêm một lớp bo góc lớn hơn cho bảng và nút hành động để tổng thể gần gũi hơn với giao diện quản trị dạng SaaS.
+- Đã đổi top bar va sidebar sang tông đỏ rất nhạt để gần với định hướng màu thương hiệu nhưng vẫn giữ nền giao diện nhẹ nhàng.
+- Đã làm dịu màu nút bấm và ô tìm kiếm theo hướng rose nhạt để giảm cảm giác nặng nề của CTA.
+- Đã giảm độ đậm của trạng thái kích hoạt trong thanh bên, ưu tiên nền màu rất nhạt và chữ slate đậm vừa phải thay vị đen/trắng quá tương phản.
+- Đã đổi biểu tượng của mục đang hoạt động sang nền sáng hơn và icon màu slate đậm để tránh bị mờ khi đang chọn.
+- Đã gom bớt thao tác bảng thành nút chỉnh sửa bên ngoài và menu thao tác gọn hơn để tiết kiệm chiều ngang cột.
+- Đã bổ sung thanh trạng thái/giao diện phân trang ở đáy bảng để sẵn sàng cho việc mở rộng dữ liệu sau này.
+- Đã tách vùng cuộn riêng cho thanh bên và nội dung chính để khi rê chuột vào khu vực nào thì khu vực đó tự cuộn độc lập.
+- Đã ẩn thanh cuộn ở thanh bên và nội dung chính, nhưng vẫn giữ cơ chế cuộn độc lập theo từng vùng.
 
-## Buoc tiep theo de hoan thien
+## Bước tiếp theo để hoàn thiện
 
-- Rà tiep cac chuoi tieng Viet con loi encoding ben trong cac popup, form va bang chi tiet.
-- Chuan hoa action table theo icon/dropdown de giam mat do nut.
-- Tach bo component KPI, alert va section header thanh file rieng khi dashboard on dinh hinh thuc.
-- Hoan thien breadcrumb dong cho top bar va can lai cum search, thong bao, avatar o moi breakpoint.
-- Tiep tuc doi nho cac nut CTA chinh con lai sang tone indigo thay vi den/do neu no con xuat hien trong form popup.
-- Tiep tuc don sach cac chuoi tieng Viet con loi encoding trong cac label thao tac va footer bang.
-- Theo doi them trai nghiem scroll tren laptop/man hinh thap de can chinh them do cao top bar neu can.
+- Rà soát tiếp các chuỗi tiếng Việt còn lỗi mã hóa (encoding) bên trong các popup, biểu mẫu và bảng chi tiết.
+- Chuẩn hóa bảng hành động theo icon/dropdown để giảm mật độ nút.
+- Tách bộ component KPI, alert và tiêu đề phần (section header) thành file riêng khi dashboard ổn định hình thức.
+- Hoàn thiện breadcrumb động cho top bar và căn chỉnh lại cụm tìm kiếm, thông báo, avatar ở mọi điểm phản hồi (breakpoint).
+- Tiếp tục đổi nhỏ các nút CTA chính còn lại sang tông màu indigo thay vì đen/đỏ nếu nó còn xuất hiện trong form popup.
+- Tiếp tục dọn sạch các chuỗi tiếng Việt còn lỗi mã hóa trong các nhãn thao tác và phần chân (footer) bảng.
+- Theo dõi thêm trải nghiệm cuộn (scroll) trên máy tính xách tay/màn hình thấp để căn chỉnh thêm độ cao của top bar nếu cần.

@@ -163,6 +163,35 @@ class ProductVariant(Base):
     )
 
 
+class PaymentMethod(Base):
+    __tablename__ = "payment_methods"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    maintenance_message: Mapped[str | None] = mapped_column(String(500))
+    maintenance_starts_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    maintenance_ends_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class StoreInfo(Base):
+    __tablename__ = "store_info"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    hotline: Mapped[str] = mapped_column(String(50), nullable=False)
+    email: Mapped[str] = mapped_column(String(100), nullable=False)
+    address: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    lat: Mapped[float | None] = mapped_column()
+    lng: Mapped[float | None] = mapped_column()
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
+
+
 class Order(Base):
     __tablename__ = "orders"
 
@@ -185,6 +214,7 @@ class Order(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(120))
     recipient_name: Mapped[str] = mapped_column(String(255), nullable=False)
     recipient_phone: Mapped[str] = mapped_column(String(30), nullable=False)
+    recipient_email: Mapped[str | None] = mapped_column(String(255))
     shipping_address: Mapped[str] = mapped_column(Text, nullable=False)
     assigned_staff_name: Mapped[str | None] = mapped_column(String(255))
     internal_note: Mapped[str | None] = mapped_column(Text)
@@ -409,12 +439,16 @@ class PaymentTransaction(Base):
     status: Mapped[str] = mapped_column(String(30), default="PENDING", nullable=False)
     transaction_ref: Mapped[str | None] = mapped_column(String(120))
     checkout_url: Mapped[str | None] = mapped_column(Text)
+    attempt_number: Mapped[int] = mapped_column(default=1, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    failed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     raw_response: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
-        CheckConstraint("provider IN ('VNPAY', 'MOMO', 'CREDIT_CARD', 'COD')"),
+        CheckConstraint("provider IN ('VNPAY', 'MOMO', 'ZALOPAY', 'SEPAY', 'CREDIT_CARD', 'COD')"),
         CheckConstraint("amount >= 0"),
-        CheckConstraint("status IN ('PENDING', 'PAID', 'FAILED', 'REFUNDED')"),
+        CheckConstraint("status IN ('PENDING', 'PAID', 'FAILED', 'EXPIRED', 'REFUNDED')"),
     )

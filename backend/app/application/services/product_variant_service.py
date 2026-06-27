@@ -1,5 +1,7 @@
 ﻿from uuid import UUID, uuid4
 
+import json
+
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -136,6 +138,38 @@ def resolve_variant_values(variant: ProductVariantPayload, *, is_revision: bool)
     }
 
 
+def _normalize_integrity_value(value: object) -> object:
+    if isinstance(value, str) and value.strip().startswith(("{", "[")):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            pass
+    if isinstance(value, dict):
+        return {str(key): _normalize_integrity_value(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        return [_normalize_integrity_value(item) for item in value]
+    if value is None:
+        return None
+    return str(value).strip()
+
+
+def _variant_identity_changed(current: dict, next_values: dict) -> list[str]:
+    labels = {
+        "sku": "SKU",
+        "color_name": "màu sắc",
+        "storage": "dung lượng",
+        "ram": "RAM",
+        "configuration": "cấu hình",
+        "attributes": "thuộc tính",
+        "specs": "thông số định danh",
+    }
+    changed = []
+    for field, label in labels.items():
+        if _normalize_integrity_value(current.get(field)) != _normalize_integrity_value(next_values.get(field)):
+            changed.append(label)
+    return changed
+
+
 async def validate_unique_variant_skus(
     session: AsyncSession,
     *,
@@ -192,9 +226,11 @@ async def upsert_product_variants(
     validate_variant_options(options, variants_payload)
     validate_default_variant_count(variants_payload)
 
-    db_variants = await product_variant_repo.list_active_variant_ids(session, product_id)
+    variant_snapshots = await product_variant_repo.list_variant_integrity_snapshots(session, product_id)
+    db_variants = list(variant_snapshots.keys())
     payload_ids = {variant.id for variant in variants_payload if variant.id}
     to_delete_ids = [variant_id for variant_id in db_variants if variant_id not in payload_ids]
+    bound_variant_ids = await product_variant_repo.list_bound_variant_ids(session, db_variants)
     default_sku_for_parent = None
 
     for variant in variants_payload:
@@ -205,11 +241,24 @@ async def upsert_product_variants(
             default_sku_for_parent = values["sku"]
 
         if variant.id and variant.id in db_variants:
+            values["stock_quantity"] = int(variant_snapshots[variant.id].get("stock_quantity") or 0)
+            if variant.id in bound_variant_ids:
+                changed_fields = _variant_identity_changed(variant_snapshots[variant.id], values)
+                if changed_fields:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "Biến thể đã có dữ liệu kho/đơn hàng nên không thể đổi "
+                            f"{', '.join(changed_fields)}. Hãy tạo biến thể mới và ngừng bán biến thể cũ."
+                        ),
+                    )
             await product_variant_repo.update_variant(session, variant_id=variant.id, values=values)
         else:
             new_variant_id = variant.id if variant.id and variant.id in db_variants else uuid4()
             if values["sku"].startswith("SKU-") and not variant.sku:
                 values["sku"] = f"SKU-{new_variant_id.hex[:10].upper()}"
+            if not is_revision:
+                values["stock_quantity"] = 0
             values["parent_variant_id"] = variant.id if variant.id and variant.id not in db_variants else None
             await product_variant_repo.insert_variant(
                 session,

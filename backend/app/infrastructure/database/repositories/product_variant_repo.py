@@ -53,6 +53,90 @@ async def list_active_variant_ids(session: AsyncSession, product_id: UUID) -> li
     return list(result.scalars().all())
 
 
+async def list_variant_integrity_snapshots(session: AsyncSession, product_id: UUID) -> dict[UUID, dict]:
+    result = await session.execute(
+        text(
+            """
+            SELECT id, sku, color_name, storage, ram, configuration, specs, attributes, stock_quantity
+            FROM product_variants
+            WHERE product_id = :product_id
+              AND deleted_at IS NULL
+            """
+        ),
+        {"product_id": product_id},
+    )
+    return {row["id"]: dict(row) for row in result.mappings().all()}
+
+
+async def list_bound_variant_ids(session: AsyncSession, variant_ids: list[UUID]) -> set[UUID]:
+    if not variant_ids:
+        return set()
+    optional_tables = {
+        "inventory_document_lines",
+        "inventory_transactions",
+        "inventory_reservations",
+        "inventory_lots",
+        "inventory_lot_movements",
+        "inventory_adjustment_logs",
+        "product_imeis",
+        "product_serial_numbers",
+    }
+    table_result = await session.execute(
+        text(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name IN :table_names
+            """
+        ).bindparams(bindparam("table_names", expanding=True)),
+        {"table_names": sorted(optional_tables)},
+    )
+    existing_tables = set(table_result.scalars().all())
+    optional_checks = []
+    if "inventory_document_lines" in existing_tables:
+        optional_checks.append("EXISTS (SELECT 1 FROM inventory_document_lines idl WHERE idl.variant_id = tv.id)")
+    if "inventory_transactions" in existing_tables:
+        optional_checks.append("EXISTS (SELECT 1 FROM inventory_transactions it WHERE it.variant_id = tv.id)")
+    if "inventory_reservations" in existing_tables:
+        optional_checks.append(
+            "EXISTS (SELECT 1 FROM inventory_reservations ir WHERE ir.variant_id = tv.id AND ir.status IN ('ACTIVE', 'LOCKED'))"
+        )
+    if "inventory_lots" in existing_tables:
+        optional_checks.append("EXISTS (SELECT 1 FROM inventory_lots ilot WHERE ilot.variant_id = tv.id)")
+    if "inventory_lot_movements" in existing_tables:
+        optional_checks.append("EXISTS (SELECT 1 FROM inventory_lot_movements ilm WHERE ilm.variant_id = tv.id)")
+    if "inventory_adjustment_logs" in existing_tables:
+        optional_checks.append("EXISTS (SELECT 1 FROM inventory_adjustment_logs ial WHERE ial.variant_id = tv.id)")
+    if "product_imeis" in existing_tables:
+        optional_checks.append("EXISTS (SELECT 1 FROM product_imeis pi WHERE pi.variant_id = tv.id)")
+    if "product_serial_numbers" in existing_tables:
+        optional_checks.append("EXISTS (SELECT 1 FROM product_serial_numbers psn WHERE psn.variant_id = tv.id)")
+    optional_sql = "\n               OR ".join(optional_checks)
+    if optional_sql:
+        optional_sql = "\n               OR " + optional_sql
+    result = await session.execute(
+        text(
+            f"""
+            WITH target_variants AS (
+                SELECT unnest(CAST(:variant_ids AS uuid[])) AS id
+            )
+            SELECT tv.id
+            FROM target_variants tv
+            WHERE EXISTS (
+                    SELECT 1 FROM inventory_levels il
+                    WHERE il.variant_id = tv.id
+                      AND (il.on_hand_quantity <> 0 OR il.reserved_quantity <> 0)
+                )
+               OR EXISTS (SELECT 1 FROM order_items oi WHERE oi.variant_id = tv.id)
+               {optional_sql}
+            """
+        ),
+        {"variant_ids": variant_ids},
+    )
+    return set(result.scalars().all())
+
+
 async def update_variant(session: AsyncSession, *, variant_id: UUID, values: dict) -> None:
     await session.execute(
         text(
@@ -122,7 +206,20 @@ async def soft_delete_variants(session: AsyncSession, variant_ids: list[UUID]) -
 
 async def update_product_sku(session: AsyncSession, *, product_id: UUID, sku: str) -> None:
     await session.execute(
-        text("UPDATE products SET sku = :sku WHERE id = :product_id"),
+        text(
+            """
+            UPDATE products
+            SET sku = :sku
+            WHERE id = :product_id
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM products other
+                  WHERE other.id <> :product_id
+                    AND other.sku = :sku
+                    AND other.deleted_at IS NULL
+              )
+            """
+        ),
         {"sku": sku, "product_id": product_id},
     )
 
@@ -203,6 +300,13 @@ async def update_product_sku_with_timestamp(session: AsyncSession, *, product_id
             SET sku = :sku,
                 updated_at = NOW()
             WHERE id = :product_id
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM products other
+                  WHERE other.id <> :product_id
+                    AND other.sku = :sku
+                    AND other.deleted_at IS NULL
+              )
             """
         ),
         {"sku": sku, "product_id": product_id},

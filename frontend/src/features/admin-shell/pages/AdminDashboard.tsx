@@ -107,6 +107,16 @@ export default function AdminDashboard() {
             loyaltyHistory={admin.customerLoyaltyHistory}
             notes={admin.customerNotes}
             auditLogs={admin.customerAuditLogs}
+            profileDraft={admin.customerProfileDraft}
+            pointDelta={admin.customerPointDelta}
+            pointReason={admin.customerPointReason}
+            canAdjustPoints={admin.canAdjustCustomerPoints}
+            canUpdateProfile={admin.canUpdateCustomerProfile}
+            onProfileDraftChange={admin.setCustomerProfileDraft}
+            onSaveProfile={() => void admin.saveCustomerProfile()}
+            onPointDeltaChange={admin.setCustomerPointDelta}
+            onPointReasonChange={admin.setCustomerPointReason}
+            onAdjustPoints={() => void admin.adjustCustomerPoints()}
             currency={adminConfig.currency}
             onSectionChange={(section) => {
               if (section === 'summary') admin.setCustomerActiveSection('summary');

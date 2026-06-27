@@ -133,4 +133,40 @@ export const adminInventoryApi = {
     method: 'PATCH',
     body: JSON.stringify(data),
   }),
+  adminGetOutbounds: (search = '', status = '', dateFrom = '', dateTo = '') => {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (status) params.set('status', status);
+    if (dateFrom) params.set('dateFrom', dateFrom);
+    if (dateTo) params.set('dateTo', dateTo);
+    const query = params.toString();
+    return request<any[]>(`/admin/inventory/outbounds${query ? `?${query}` : ''}`);
+  },
+  adminGetOutboundDetail: (documentNo: string) => request<any>(`/admin/inventory/outbounds/${encodeURIComponent(documentNo)}`),
+  adminResolveOutboundIdentifierPair: (params: {
+    productId: string;
+    variantId?: string | null;
+    locationId: string;
+    identifierType: 'IMEI' | 'SERIAL';
+    identifierValue: string;
+  }) => {
+    const query = new URLSearchParams();
+    query.set('productId', params.productId);
+    if (params.variantId) query.set('variantId', params.variantId);
+    query.set('locationId', params.locationId);
+    query.set('identifierType', params.identifierType);
+    query.set('identifierValue', params.identifierValue);
+    return request<any>(`/admin/inventory/outbound-identifier-pair?${query.toString()}`);
+  },
+  adminUpdateOutbound: (documentNo: string, lines: any[]) => request<any>(`/admin/inventory/outbounds/${encodeURIComponent(documentNo)}`, {
+    method: 'PUT',
+    body: JSON.stringify(lines),
+  }),
+  adminUpdateOutboundStatus: (documentNo: string, status: string) => request<any>(`/admin/inventory/outbounds/${encodeURIComponent(documentNo)}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  }),
+  adminAutoSuggestOutbound: (documentNo: string) => request<any>(`/admin/inventory/outbounds/${encodeURIComponent(documentNo)}/auto-suggest`, {
+    method: 'POST',
+  }),
 };

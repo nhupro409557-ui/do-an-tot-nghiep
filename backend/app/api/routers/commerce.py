@@ -3,14 +3,20 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.services import order_service
+from app.application.services import order_service, payment_method_service, store_info_service
 from app.infrastructure.database.repositories import order_repo, voucher_repo
 
 from app.application.commerce.schemas import (
     AdminUpdateOrderRequest,
+    CarrierQuoteRequest,
+    CarrierShipmentCancelRequest,
+    CarrierShipmentCreateRequest,
+    CarrierShipmentEventRequest,
+    CarrierShipmentResponse,
     ClaimVoucherRequest,
     CreateOrderRequest,
     CreateOrderResponse,
+    PaymentStatusResponse,
     RevenueReportResponse,
     ShippingQuoteRequest,
     ShippingQuoteResponse,
@@ -22,6 +28,7 @@ from app.application.commerce.schemas import (
 from app.application.commerce.use_cases import (
     CompleteOrderUseCase,
     CreateOrderUseCase,
+    PaymentUseCase,
     ReportUseCase,
     ShippingQuoteUseCase,
     VoucherService,
@@ -33,12 +40,25 @@ router = APIRouter(tags=["Commerce"])
 
 
 @router.post("/orders/shipping-quote", response_model=ShippingQuoteResponse)
-async def quote_shipping(payload: ShippingQuoteRequest) -> ShippingQuoteResponse:
-    return ShippingQuoteUseCase().execute(
+async def quote_shipping(
+    payload: ShippingQuoteRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ShippingQuoteResponse:
+    return await ShippingQuoteUseCase().execute(
+        session,
         shipping_address=payload.shipping_address,
         subtotal_amount=payload.subtotal_amount,
         item_count=payload.item_count,
+        provider=payload.provider,
+        lat=payload.lat,
+        lng=payload.lng,
     )
+@router.get("/shipping-config")
+async def get_shipping_config() -> dict:
+    from app.config import settings
+    return {
+        "free_shipping_threshold": settings.sandbox_shipping_free_threshold
+    }
 
 
 @router.get("/orders")
@@ -49,6 +69,11 @@ async def list_orders(user_id: UUID | None = None, session: AsyncSession = Depen
 @router.get("/orders/{order_id}")
 async def get_order_detail(order_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
     return await order_service.get_order_detail(session, order_id)
+
+
+@router.get("/payment-methods")
+async def list_payment_methods(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    return await payment_method_service.list_public_payment_methods(session)
 
 
 @router.get("/vouchers")
@@ -70,8 +95,11 @@ async def validate_voucher(
         abandoned_cart_recovery=payload.abandoned_cart_recovery,
         device_id=payload.device_id,
         ip_address=payload.ip_address or (request.client.host if request.client else None),
+        payment_method=payload.payment_method,
+        channel=payload.channel,
         product_ids=set(payload.product_ids),
         category_ids=set(payload.category_ids),
+        brand_ids=set(payload.brand_ids),
     )
 
 
@@ -145,38 +173,128 @@ async def admin_update_order(
     await CompleteOrderUseCase(session=session).execute_admin_update(order_id=order_id, request=payload)
 
 
+@router.post("/orders/{order_id}/carrier/quote", response_model=CarrierShipmentResponse)
+async def quote_order_carrier(
+    order_id: UUID,
+    payload: CarrierQuoteRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CarrierShipmentResponse:
+    return await CompleteOrderUseCase(session=session).quote_carrier_shipment(order_id=order_id, provider=payload.provider)
+
+
+@router.post("/orders/{order_id}/carrier/shipment", response_model=CarrierShipmentResponse)
+async def create_order_carrier_shipment(
+    order_id: UUID,
+    payload: CarrierShipmentCreateRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CarrierShipmentResponse:
+    return await CompleteOrderUseCase(session=session).create_carrier_shipment(order_id=order_id, provider=payload.provider)
+
+
+@router.post("/orders/{order_id}/carrier/cancel", response_model=CarrierShipmentResponse)
+async def cancel_order_carrier_shipment(
+    order_id: UUID,
+    payload: CarrierShipmentCancelRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CarrierShipmentResponse:
+    return await CompleteOrderUseCase(session=session).cancel_carrier_shipment(order_id=order_id, reason=payload.reason)
+
+
+@router.post("/orders/{order_id}/carrier/events", response_model=CarrierShipmentResponse)
+async def update_order_carrier_event(
+    order_id: UUID,
+    payload: CarrierShipmentEventRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CarrierShipmentResponse:
+    return await CompleteOrderUseCase(session=session).update_carrier_event(
+        order_id=order_id,
+        event_code=payload.event_code,
+        note=payload.note,
+    )
+
+
 @router.post("/orders/maintenance/expire-pending")
 async def expire_pending_orders(session: AsyncSession = Depends(get_session)) -> dict:
     expired = await CompleteOrderUseCase(session=session).expire_pending_orders()
-    return {"expired": expired}
+    expired_payments = await order_service.expire_pending_payments(session)
+    return {"expiredOrders": expired, "expiredPayments": expired_payments}
 
 
 @router.post("/payments/momo/ipn")
 async def momo_ipn(payload: dict, session: AsyncSession = Depends(get_session)) -> dict:
-    order_code = str(payload.get("orderId") or "")
-    result_code = int(payload.get("resultCode") or -1)
-    if not order_code:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing orderId.")
-    order_id = await order_repo.get_order_id_by_code(session, order_code)
-    if order_id is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
-    if result_code == 0:
-        await CompleteOrderUseCase(session=session).execute(
-            order_id=order_id,
-            status_value="PAID",
-            internal_note="MoMo sandbox IPN marked payment successful.",
-            changed_by="momo-ipn",
-        )
+    return await PaymentUseCase(session=session).process_momo_ipn(payload)
+
+
+@router.post("/payments/sepay/ipn")
+async def sepay_ipn(
+    request: Request,
+    x_secret_key: str | None = Header(default=None, alias="X-Secret-Key"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    import logging
+    logger = logging.getLogger("uvicorn.error")
+    logger.info("SEPAY IPN headers: %s", dict(request.headers))
+    logger.info("SEPAY IPN query credentials: X-Secret-Key=%s, Authorization=%s", x_secret_key, authorization)
+
+    payload: dict = {}
+    content_type = request.headers.get("content-type", "").lower()
+    raw_body = (await request.body()).decode("utf-8", errors="replace").strip()
+    if "application/json" in content_type:
+        body = await request.json()
+        payload = body if isinstance(body, dict) else {"raw": body}
+    elif "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        form = await request.form()
+        payload = dict(form)
+        if raw_body:
+            payload.setdefault("body", raw_body)
     else:
-        await CompleteOrderUseCase(session=session).execute(
-            order_id=order_id,
-            status_value="PAYMENT_FAILED",
-            internal_note=f"MoMo sandbox payment failed with resultCode={result_code}.",
-            changed_by="momo-ipn",
-        )
-    return {"ok": True}
+        payload = {"body": raw_body} if raw_body else {}
+
+    secret_key = x_secret_key
+    if not secret_key and authorization:
+        auth_lower = authorization.lower()
+        if auth_lower.startswith("bearer ") or auth_lower.startswith("apikey "):
+            secret_key = authorization[7:].strip()
+        else:
+            secret_key = authorization.strip()
+    return await PaymentUseCase(session=session).process_sepay_ipn(payload, secret_key=secret_key)
+
+
+@router.post("/payments/zalopay/callback")
+async def zalopay_callback(payload: dict, session: AsyncSession = Depends(get_session)) -> dict:
+    return await PaymentUseCase(session=session).process_zalopay_callback(payload)
+
+
+@router.get("/payments/{payment_id}", response_model=PaymentStatusResponse)
+async def get_payment_status(
+    payment_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> PaymentStatusResponse:
+    return await PaymentUseCase(session=session).get_status(payment_id)
+
+
+@router.post("/payments/{payment_id}/retry", response_model=PaymentStatusResponse)
+async def retry_payment(
+    payment_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> PaymentStatusResponse:
+    return await PaymentUseCase(session=session).retry(payment_id)
+
+
+@router.post("/payments/{payment_id}/cancel", response_model=PaymentStatusResponse)
+async def cancel_payment(
+    payment_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> PaymentStatusResponse:
+    return await PaymentUseCase(session=session).cancel(payment_id)
 
 
 @router.get("/reports/revenue", response_model=RevenueReportResponse)
 async def revenue_report(session: AsyncSession = Depends(get_session)) -> RevenueReportResponse:
     return await ReportUseCase(session=session).revenue()
+
+
+@router.get("/store/info")
+async def get_store_info(session: AsyncSession = Depends(get_session)) -> dict:
+    return await store_info_service.get_store_info(session)

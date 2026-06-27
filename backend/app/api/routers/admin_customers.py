@@ -72,6 +72,16 @@ async def update_admin_customer_tags(
     return await customer_service.update_admin_customer_tags(session, user_id, payload, current_user_id)
 
 
+@router.patch("/customers/{user_id}/profile", dependencies=[Depends(require_permission("customer:update"))])
+async def update_admin_customer_profile(
+    user_id: UUID,
+    payload: CustomerProfilePayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await customer_service.update_admin_customer_profile(session, user_id, payload, current_user_id)
+
+
 @router.put("/customers/tags/bulk", dependencies=[Depends(require_permission("customer:update"))])
 async def bulk_update_admin_customer_tags(
     payload: CustomerBulkTagsPayload,

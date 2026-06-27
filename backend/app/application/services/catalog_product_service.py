@@ -77,6 +77,8 @@ async def get_product(product_id: str, session: AsyncSession) -> dict:
             flash_sale = build_flash_sale_meta(acc_meta, current_price)
             effective_price = float(flash_sale["salePrice"]) if flash_sale else current_price
             bundle_price = effective_price * (1.0 - (discount_value / 100.0)) if discount_type == "PERCENT" else max(0.0, effective_price - discount_value)
+            stock_quantity = int(acc_meta.get("stockQuantity") or 0)
+            is_sellable = acc_meta.get("status") == "ACTIVE" and stock_quantity > 0
             resolved_offers.append(
                 {
                     "productId": prod_id,
@@ -90,6 +92,9 @@ async def get_product(product_id: str, session: AsyncSession) -> dict:
                     "salePrice": effective_price,
                     "flashSale": flash_sale,
                     "price": round(bundle_price),
+                    "stockQuantity": stock_quantity,
+                    "stockState": "IN_STOCK" if is_sellable else "OUT_OF_STOCK",
+                    "isSellable": is_sellable,
                 }
             )
         sales_config["accessoryOffers"] = resolved_offers

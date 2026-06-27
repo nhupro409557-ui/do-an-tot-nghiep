@@ -2,12 +2,30 @@ from .category import CategoryPayload, CategorySlugCheckPayload, CategoryReorder
 from .brand import BrandPayload, BrandCodeCheckPayload, BrandImportItem, BrandImportPayload, BrandStatusPayload, BrandBulkStatusPayload
 from .supplier import SupplierPayload, SupplierCodeCheckPayload, SupplierStatusPayload, SupplierBulkStatusPayload
 from .product import ProductBulkActionPayload, ProductImportPayload, ProductVariantPayload, ProductAccessoryOfferPayload, ProductAttachedServicePayload, AttachedServicePayload, ProductPayload
-from .inventory import InventoryAdjustmentPayload, InventoryAdjustmentRequestPayload, InventoryAdjustmentRequestStatusPayload, InventoryIdentifierEditDecisionPayload, InventoryIdentifierEditRequestPayload, InventoryLocationPayload, InventoryLocationStatusPayload, InventoryReceiptImeiPayload, InventoryReceiptPayload, InventoryReceiptQualityPayload, InventoryReceiptReversePayload, InventoryReceiptStatusPayload, InventorySettingsPayload, InventoryStockCountPayload, InventoryStockCountStatusPayload, VariantInventoryPayload
+from .inventory import (
+    InventoryAdjustmentPayload,
+    InventoryAdjustmentRequestPayload,
+    InventoryAdjustmentRequestStatusPayload,
+    InventoryIdentifierEditDecisionPayload,
+    InventoryIdentifierEditRequestPayload,
+    InventoryLocationPayload,
+    InventoryLocationStatusPayload,
+    InventoryReceiptImeiPayload,
+    InventoryReceiptPayload,
+    InventoryReceiptQualityPayload,
+    InventoryReceiptReversePayload,
+    InventoryReceiptStatusPayload,
+    InventorySettingsPayload,
+    InventoryStockCountPayload,
+    InventoryStockCountStatusPayload,
+    VariantInventoryPayload,
+    InventoryPutawaySuggestion,
+)
 from .voucher import VoucherPayload
 from .content import ContentCommentPayload, ContentPayload, AdminVideoCommentReplyPayload, AdminVideoCommentVisibilityPayload
 from .review import ReviewStatusPayload
 from .user import UserRolePayload, RolePermissionsPayload, StaffCreatePayload, UserPermissionsPayload
-from .customer import CustomerTagsPayload, CustomerBulkTagsPayload, CustomerNotePayload, CustomerLoyaltyAdjustmentPayload, CustomerVoucherIssuePayload, CustomerBulkStatusPayload
+from .customer import CustomerTagsPayload, CustomerBulkTagsPayload, CustomerNotePayload, CustomerProfilePayload, CustomerLoyaltyAdjustmentPayload, CustomerVoucherIssuePayload, CustomerBulkStatusPayload
 from .flash_sale import FlashSalePayload
 
 __all__ = [
@@ -52,6 +70,7 @@ __all__ = [
     "InventoryStockCountPayload",
     "InventoryStockCountStatusPayload",
     "VariantInventoryPayload",
+    "InventoryPutawaySuggestion",
     "VoucherPayload",
     "ContentCommentPayload",
     "ContentPayload",
@@ -65,6 +84,7 @@ __all__ = [
     "CustomerTagsPayload",
     "CustomerBulkTagsPayload",
     "CustomerNotePayload",
+    "CustomerProfilePayload",
     "CustomerLoyaltyAdjustmentPayload",
     "CustomerVoucherIssuePayload",
     "CustomerBulkStatusPayload",

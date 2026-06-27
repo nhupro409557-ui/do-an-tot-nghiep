@@ -254,23 +254,53 @@ async def suggest_admin_products(
                 p.name,
                 p.image_url AS "imageUrl",
                 p.status,
+                GREATEST(
+                    COALESCE(variant_stock.total_stock, 0),
+                    COALESCE(p.stock_quantity, 0)
+                ) AS "stockQuantity",
+                (
+                    p.status IN ('ACTIVE', 'APPROVED')
+                    AND p.deleted_at IS NULL
+                    AND GREATEST(COALESCE(variant_stock.total_stock, 0), COALESCE(p.stock_quantity, 0)) > 0
+                ) AS "isSellable",
                 p.category_id::text AS "categoryId",
                 p.brand_id::text AS "brandId",
                 c.name AS "categoryName",
                 b.name AS "brandName"
             FROM products p
+            LEFT JOIN (
+                SELECT product_id, COALESCE(SUM(stock_quantity), 0) AS total_stock
+                FROM product_variants
+                WHERE is_active = TRUE
+                  AND deleted_at IS NULL
+                  AND LOWER(COALESCE(status, 'active')) NOT IN ('deleted', 'archived', 'inactive', 'discontinued')
+                GROUP BY product_id
+            ) variant_stock ON variant_stock.product_id = p.id
             LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN categories sc ON sc.id = p.subcategory_id
             LEFT JOIN brands b ON b.id = p.brand_id
-            WHERE (:exclude_id IS NULL OR p.id <> :exclude_id)
-              AND (:category_id IS NULL OR p.category_id = :category_id OR p.subcategory_id = :category_id)
-              AND (:brand_id IS NULL OR p.brand_id = :brand_id)
+            WHERE (CAST(:exclude_id AS UUID) IS NULL OR p.id <> CAST(:exclude_id AS UUID))
+              AND p.deleted_at IS NULL
+              AND (
+                CAST(:category_id AS UUID) IS NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM categories selected
+                    JOIN categories product_category ON product_category.id = COALESCE(p.subcategory_id, p.category_id)
+                    WHERE selected.id = CAST(:category_id AS UUID)
+                      AND product_category.path <@ selected.path
+                )
+                OR p.category_id = CAST(:category_id AS UUID)
+                OR p.subcategory_id = CAST(:category_id AS UUID)
+              )
+              AND (CAST(:brand_id AS UUID) IS NULL OR p.brand_id = CAST(:brand_id AS UUID))
               AND (
                 :search = ''
                 OR LOWER(p.name) LIKE LOWER(:pattern)
                 OR LOWER(p.sku) LIKE LOWER(:pattern)
                 OR LOWER(p.brand) LIKE LOWER(:pattern)
               )
-            ORDER BY p.status = 'ACTIVE' DESC, p.name
+            ORDER BY p.status IN ('ACTIVE', 'APPROVED') DESC, p.name
             LIMIT :limit
             """
         ),
@@ -539,13 +569,89 @@ async def list_product_accessory_rows(session: AsyncSession, product_ids: list[U
     result = await session.execute(
         text(
             """
-            SELECT pa.product_id::text AS product_id, p.id::text AS accessory_id, p.sku, p.name, p.image_url AS image_url
+            SELECT
+                pa.product_id::text AS product_id,
+                p.id::text AS accessory_id,
+                p.sku,
+                p.name,
+                p.image_url AS image_url,
+                p.image_url AS "imageUrl",
+                COALESCE(NULLIF(p.price, 0), vp.min_price, 0) AS price,
+                COALESCE(NULLIF(p.sale_price, 0), vp.min_sale_price) AS "discountPrice",
+                COALESCE(NULLIF(p.sale_price, 0), vp.min_sale_price) AS "salePrice",
+                GREATEST(COALESCE(vs.variant_stock, 0), COALESCE(p.stock_quantity, 0)) AS stock_quantity,
+                GREATEST(COALESCE(vs.variant_stock, 0), COALESCE(p.stock_quantity, 0)) AS "stockQuantity",
+                p.status
             FROM product_accessories pa
             JOIN products p ON p.id = pa.accessory_product_id
+            LEFT JOIN (
+                SELECT product_id, SUM(stock_quantity) AS variant_stock
+                FROM product_variants
+                WHERE is_active = TRUE
+                  AND deleted_at IS NULL
+                  AND status NOT IN ('deleted', 'archived', 'inactive', 'discontinued')
+                GROUP BY product_id
+            ) vs ON vs.product_id = p.id
+            LEFT JOIN (
+                SELECT product_id,
+                       MIN(NULLIF(price, 0)) AS min_price,
+                       MIN(COALESCE(NULLIF(sale_price, 0), NULLIF(price, 0))) AS min_sale_price
+                FROM product_variants
+                WHERE is_active = TRUE
+                  AND deleted_at IS NULL
+                  AND LOWER(COALESCE(status, 'active')) NOT IN ('deleted', 'archived', 'inactive', 'discontinued')
+                GROUP BY product_id
+            ) vp ON vp.product_id = p.id
             WHERE pa.product_id IN :ids
             """
         ).bindparams(bindparam("ids", expanding=True)),
         {"ids": product_ids},
+    )
+    return [dict(row._mapping) for row in result]
+
+
+async def list_accessory_product_meta_rows(session: AsyncSession, accessory_ids: list[UUID]) -> list[dict]:
+    if not accessory_ids:
+        return []
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                p.id::text AS accessory_id,
+                p.sku,
+                p.name,
+                p.image_url AS image_url,
+                p.image_url AS "imageUrl",
+                COALESCE(NULLIF(p.price, 0), vp.min_price, 0) AS price,
+                COALESCE(NULLIF(p.sale_price, 0), vp.min_sale_price) AS "discountPrice",
+                COALESCE(NULLIF(p.sale_price, 0), vp.min_sale_price) AS "salePrice",
+                GREATEST(COALESCE(vs.variant_stock, 0), COALESCE(p.stock_quantity, 0)) AS stock_quantity,
+                GREATEST(COALESCE(vs.variant_stock, 0), COALESCE(p.stock_quantity, 0)) AS "stockQuantity",
+                p.status
+            FROM products p
+            LEFT JOIN (
+                SELECT product_id, SUM(stock_quantity) AS variant_stock
+                FROM product_variants
+                WHERE is_active = TRUE
+                  AND deleted_at IS NULL
+                  AND LOWER(COALESCE(status, 'active')) NOT IN ('deleted', 'archived', 'inactive', 'discontinued')
+                GROUP BY product_id
+            ) vs ON vs.product_id = p.id
+            LEFT JOIN (
+                SELECT product_id,
+                       MIN(NULLIF(price, 0)) AS min_price,
+                       MIN(COALESCE(NULLIF(sale_price, 0), NULLIF(price, 0))) AS min_sale_price
+                FROM product_variants
+                WHERE is_active = TRUE
+                  AND deleted_at IS NULL
+                  AND LOWER(COALESCE(status, 'active')) NOT IN ('deleted', 'archived', 'inactive', 'discontinued')
+                GROUP BY product_id
+            ) vp ON vp.product_id = p.id
+            WHERE p.id IN :ids
+              AND p.deleted_at IS NULL
+            """
+        ).bindparams(bindparam("ids", expanding=True)),
+        {"ids": accessory_ids},
     )
     return [dict(row._mapping) for row in result]
 
@@ -556,7 +662,8 @@ async def list_product_attached_service_rows(session: AsyncSession, product_ids:
             """
             SELECT pas.product_id::text AS product_id, s.id::text AS service_id, s.code, s.name,
                    s.service_type, s.attribute_group, s.duration_months, s.price_mode,
-                   s.fixed_price, s.percent_value, s.base_amount
+                   s.fixed_price, s.percent_value, s.base_amount, s.metadata,
+                   pas.override_price
             FROM product_attached_services pas
             JOIN attached_services s ON s.id = pas.service_id
             WHERE pas.product_id IN :ids

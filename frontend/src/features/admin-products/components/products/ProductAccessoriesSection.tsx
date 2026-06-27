@@ -47,6 +47,19 @@ function formatServiceGroup(value: string) {
   return serviceGroupLabel[value] || value;
 }
 
+function calculateAccessoryPriceForm(offer: any): number {
+  const basePrice = Number(offer.salePrice || offer.normalDiscountPrice || offer.originalPrice || 0);
+  const discountType = offer.discountType;
+  const discountValue = Number(offer.discountValue || 0);
+  if (discountType === 'PERCENT') {
+    return Math.max(0, Math.round(basePrice * (1 - discountValue / 100)));
+  }
+  if (discountType === 'FIXED') {
+    return Math.max(0, Math.round(basePrice - discountValue));
+  }
+  return basePrice;
+}
+
 export default function ProductAccessoriesSection(props: ProductAccessoriesSectionProps) {
   const {
     productForm,
@@ -184,6 +197,12 @@ export default function ProductAccessoriesSection(props: ProductAccessoriesSecti
                       <div className="text-xs text-slate-500">
                         {item.productSku || compactId(item.productId)}
                       </div>
+                      {/* Hiển thị giá gốc và giá mua kèm sau khi giảm */}
+                      {Number(item.originalPrice || 0) > 0 && (
+                        <div className="mt-1 text-xs text-slate-600">
+                          Giá gốc: <span className="line-through text-slate-400">{currency.format(item.originalPrice)}</span> | Bán kèm: <span className="font-bold text-red-600">{currency.format(calculateAccessoryPriceForm(item))}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                   {!readOnly && (

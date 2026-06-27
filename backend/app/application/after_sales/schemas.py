@@ -1,0 +1,33 @@
+from uuid import UUID
+
+from pydantic import BaseModel, Field
+
+
+class AfterSalesItemInput(BaseModel):
+    order_item_id: UUID
+    quantity: int = Field(default=1, ge=1)
+    imei: str | None = Field(default=None, max_length=80)
+    serial_number: str | None = Field(default=None, max_length=120)
+
+
+class CreateAfterSalesRequest(BaseModel):
+    order_id: UUID
+    reason: str = Field(min_length=10, max_length=2000)
+    items: list[AfterSalesItemInput] = Field(min_length=1, max_length=20)
+
+
+class UpdateAfterSalesStatusRequest(BaseModel):
+    status: str
+    resolution_type: str | None = None
+    note: str | None = Field(default=None, max_length=4000)
+    customer_fault: bool = False
+    replacement_imei: str | None = Field(default=None, max_length=80)
+    shipping_deduction: float = Field(default=0, ge=0)
+
+
+class ImeiDispositionRequest(BaseModel):
+    status: str
+    reason: str = Field(min_length=3, max_length=2000)
+    document_reference: str | None = Field(default=None, max_length=160)
+    partner_name: str | None = Field(default=None, max_length=255)
+    recovery_value: float | None = Field(default=None, ge=0)

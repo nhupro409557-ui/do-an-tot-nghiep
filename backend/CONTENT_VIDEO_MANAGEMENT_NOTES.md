@@ -1,11 +1,4 @@
-﻿# Content / Video Management Notes
-
-# Update 2026-06-03 iPhone 17 Pro video content
-
-- C?p nh?t n?i dung cho video `iPhone 17 Pro - S?c m?nh Pro trong thi?t k? m?i`.
-- Gi? nguy?n `video_url` hi?n c? ?? ng??i d?ng c? th? ch?nh/s?a file video sau.
-- B? sung `description`, `content_body`, `cta_label`, `cta_url`, thumbnail t?m t? ?nh s?n ph?m v? li?n k?t s?n ph?m SKU `IP17P`.
-- Th?m script d? ph?ng `backend/scripts/update_iphone_17_pro_video_content.py` ?? ch?y l?i khi c?n.
+# Content / Video Management Notes
 
 # Update 2026-06-03 admin video Vietnamese encoding fix
 
@@ -28,142 +21,142 @@
 - Nội dung đã liên kết với sản phẩm `HN-X9D`, gắn category/subcategory của sản phẩm và dùng ảnh đại diện sản phẩm làm thumbnail tạm.
 - Tiêu đề nháp: `HONOR X9d 5G - Pin trâu, màn hình sáng, bền bỉ mỗi ngày`.
 
-## Muc tieu nang cap
-- Bien bang `videos` thanh kho noi dung dung chung cho `VIDEO`, `BANNER`, `MARKETING_PAGE`.
-- Bo sung quan tri admin cho tao/sua/xoa noi dung, upload media, gan san pham/danh muc, bat/tat hien thi, sap xep thu tu, hen lich dang.
-- Chuyen lien ket san pham/danh muc sang bang quan he thay vi JSONB.
-- Chuyen comment sang bang rieng de ho tro moderation va mo rong reply thread.
-- Doi xoa cung thanh soft delete + co audit actor.
+## Mục tiêu nâng cấp
+- Biến bảng `videos` thành kho nội dung dùng chung cho `VIDEO`, `BANNER`, `MARKETING_PAGE`.
+- Bổ sung quản trị admin cho tạo/sửa/xóa nội dung, upload media, gán sản phẩm/danh mục, bật/tắt hiển thị, sắp xếp thứ tự, hẹn lịch đăng.
+- Chuyển liên kết sản phẩm/danh mục sang bảng quan hệ thay vì JSONB.
+- Chuyển bình luận (comment) sang bảng riêng để hỗ trợ kiểm duyệt (moderation) và mở rộng luồng phản hồi (reply thread).
+- Đổi xóa cứng thành xóa mềm (soft delete) + có ghi nhận tác nhân thực hiện (audit actor).
 
-## Du lieu moi
-- `content_type`: phan biet video, banner, landing/marketing page.
-- `status`: state machine noi dung `DRAFT -> SCHEDULED -> PUBLISHED -> ARCHIVED`.
-- `content_body`: noi dung dai cho trang marketing.
-- `banner_image_url`, `cta_label`, `cta_url`: dung cho banner/CTA.
-- `sort_order`, `scheduled_at`, `published_at`: ho tro sap xep va hen lich dang.
-- `deleted_at`: phuc vu soft delete.
-- `created_by`, `updated_by`: truy vet ai tao/cap nhat noi dung.
-- `version`: optimistic locking tranh ghi de khi 2 admin sua cung luc.
+## Dữ liệu mới
+- `content_type`: phân biệt video, banner, landing/marketing page.
+- `status`: máy trạng thái (state machine) nội dung `DRAFT -> SCHEDULED -> PUBLISHED -> ARCHIVED`.
+- `content_body`: nội dung dài cho trang marketing.
+- `banner_image_url`, `cta_label`, `cta_url`: dùng cho banner/CTA.
+- `sort_order`, `scheduled_at`, `published_at`: hỗ trợ sắp xếp và hẹn lịch đăng.
+- `deleted_at`: phục vụ xóa mềm (soft delete).
+- `created_by`, `updated_by`: truy vết ai tạo/cập nhật nội dung.
+- `version`: khóa lạc quan (optimistic locking) tránh ghi đè khi 2 admin sửa cùng lúc.
 
-## Quy uoc domain
-- Ve mat domain, module nay da la `Content Hub`.
-- Ten bang vat ly van la `videos` de tai su dung schema cu va giam rui ro migration lon.
-- Trong tai lieu luan van can note ro:
+## Quy ước domain
+- Về mặt domain, mô-đun này đã là `Content Hub`.
+- Tên bảng vật lý vẫn là `videos` để tái sử dụng schema cũ và giảm rủi ro migration lớn.
+- Trong tài liệu luận văn cần ghi chú rõ:
   - logical domain: `content entries`
   - physical table legacy: `videos`
 
-## Chuan hoa mo hinh du lieu
+## Chuẩn hóa mô hình dữ liệu
 - `content_product_relations`
   - `content_id -> videos.id`
   - `product_id -> products.id`
-  - dung `ON DELETE CASCADE` de tranh ID "chet"
+  - Dùng `ON DELETE CASCADE` để tránh ID "chết"
 - `content_category_relations`
   - `content_id -> videos.id`
   - `category_id -> categories.id`
 - `content_comments`
-  - luu comment theo dong
-  - ho tro `parent_id` cho reply thread
-  - co `is_hidden`, `deleted_at`, `created_by`, `updated_by`
+  - Lưu comment theo dòng
+  - Hỗ trợ `parent_id` cho reply thread
+  - Có `is_hidden`, `deleted_at`, `created_by`, `updated_by`
 
 ## API admin
-- `GET /admin/content`: tra ve danh sach day du metadata + danh sach san pham/danh muc lien ket.
-- `POST /admin/content`: tao noi dung moi.
-- `PATCH /admin/content/{id}`: cap nhat noi dung.
-- `DELETE /admin/content/{id}`: soft delete noi dung (`deleted_at = NOW()`).
-- Moi thao tac tao/sua/xoa deu ghi `security_audit_logs`.
-- Update phai gui `version`; neu sai version thi backend tra conflict de admin reload.
+- `GET /admin/content`: trả về danh sách đầy đủ metadata + danh sách sản phẩm/danh mục liên kết.
+- `POST /admin/content`: tạo nội dung mới.
+- `PATCH /admin/content/{id}`: cập nhật nội dung.
+- `DELETE /admin/content/{id}`: xóa mềm nội dung (`deleted_at = NOW()`).
+- Mỗi thao tác tạo/sửa/xóa đều ghi `security_audit_logs`.
+- Cập nhật phải gửi `version`; nếu sai version thì backend trả về lỗi xung đột (conflict) để admin tải lại.
 
-## Giao dien admin
-- Tab `Video & noi dung` da chuyen tu danh sach don gian sang form popup + bang thao tac.
-- Admin co the:
-  - upload video / thumbnail / banner
-  - nhap san pham, danh muc lien ket
-  - quan ly comments, likes, views
-  - hen lich dang va chon thu tu hien thi
-- Thumbnail cua video la tuy chon:
-  - co the co anh dai dien de hien thi truoc khi play
-  - co the khong co, he thong van cho phep video duoc xuat ban
+## Giao diện admin
+- Tab `Video & nội dung` đã chuyển từ danh sách đơn giản sang form popup + bảng thao tác.
+- Admin có thể:
+  - Tải lên (upload) video / ảnh thu nhỏ (thumbnail) / ảnh banner
+  - Nhập sản phẩm, danh mục liên kết
+  - Quản lý bình luận (comments), lượt thích (likes), lượt xem (views)
+  - Hẹn lịch đăng và chọn thứ tự hiển thị
+- Ảnh thu nhỏ (thumbnail) của video là tùy chọn:
+  - Có thể có ảnh đại diện để hiển thị trước khi phát video
+  - Có thể không có, hệ thống vẫn cho phép video được xuất bản
 
-## Bao mat upload
-- Folder `content` chi nhan:
+## Bảo mật tải lên (upload)
+- Thư mục `content` chỉ nhận:
   - `image/jpeg`
   - `image/png`
   - `image/webp`
   - `video/mp4`
   - `video/webm`
-- Gioi han kich thuoc:
-  - anh noi dung: toi da 5MB
-  - video noi dung: toi da 500MB
-- Neu dung direct-to-cloud:
-  - Backend phai tao presigned payload co `content-length-range`
-  - ep `Content-Type`
-  - key phai nam trong prefix `content/`
-  - muc tieu la de cloud tu choi file sai ngay tai lop storage
-- Validation nghiep vu:
-  - `videoUrl` chi chap nhan `.mp4` hoac `.webm`
-  - `scheduledAt` phai lon hon thoi diem hien tai it nhat 5 phut
-  - `publishedAt` khong duoc som hon `scheduledAt`
+- Giới hạn kích thước:
+  - Ảnh nội dung: tối đa 5MB
+  - Video nội dung: tối đa 500MB
+- Nếu dùng direct-to-cloud:
+  - Backend phải tạo presigned payload có `content-length-range`
+  - Ép `Content-Type`
+  - Key phải nằm trong tiền tố `content/`
+  - Mục tiêu là để dịch vụ đám mây từ chối file sai ngay tại lớp lưu trữ (storage)
+- Xác thực (validation) nghiệp vụ:
+  - `videoUrl` chỉ chấp nhận đuôi `.mp4` hoặc `.webm`
+  - `scheduledAt` phải lớn hơn thời điểm hiện tại ít nhất 5 phút
+  - `publishedAt` không được sớm hơn `scheduledAt`
 
-## Orphaned files
-- Neu direct-to-cloud upload thanh cong nhung transaction DB rollback, file media co the tro thanh rac luu tru.
-- Huong xu ly de dua vao luan van:
-  - gan tag tam thoi `pending`
-  - chi doi sang `confirmed` sau khi DB commit thanh cong
-  - bucket lifecycle rule hoac cron job se xoa file `pending` qua han
+## Tệp mồ côi (Orphaned files)
+- Nếu tải trực tiếp lên đám mây (direct-to-cloud upload) thành công nhưng giao dịch (transaction) DB bị rollback, file media có thể trở thành rác lưu trữ.
+- Hướng xử lý để đưa vào luận văn:
+  - Gán nhãn (tag) tạm thời `pending`
+  - Chỉ đổi sang `confirmed` sau khi DB commit thành công
+  - Quy tắc vòng đời của bucket (lifecycle rule) hoặc cron job sẽ xóa file `pending` quá hạn
 
-## Giao dich ACID
-- Cac thao tac `create/update/delete content` phai nam trong cung mot transaction.
-- Mot lan ghi bao gom:
-  - bang `videos`
-  - bang `content_product_relations`
-  - bang `content_category_relations`
-  - bang `content_comments`
-  - bang `security_audit_logs`
-- Neu mot buoc loi thi rollback toan bo de tranh du lieu mo coi.
+## Giao dịch ACID
+- Các thao tác `create/update/delete content` phải nằm trong cùng một transaction.
+- Một lần ghi bao gồm:
+  - Bảng `videos`
+  - Bảng `content_product_relations`
+  - Bảng `content_category_relations`
+  - Bảng `content_comments`
+  - Bảng `security_audit_logs`
+- Nếu một bước lỗi thì rollback toàn bộ để tránh dữ liệu mồ côi.
 
-## Storefront performance
-- `GET /videos` da co:
-  - pagination `page`, `limit`
-  - Redis cache TTL 300s
-  - cache invalidation khi admin tao/sua/xoa content
-- Chi tra ve video:
+## Hiệu năng Storefront
+- `GET /videos` đã có:
+  - Phân trang `page`, `limit`
+  - Bộ nhớ đệm Redis (cache) với thời gian sống (TTL) 300 giây
+  - Vô hiệu hóa cache (invalidation) khi admin tạo/sửa/xóa nội dung
+- Chỉ trả về video:
   - `is_active = TRUE`
   - `deleted_at IS NULL`
-  - `scheduled_at <= NOW()` hoac khong co lich
+  - `scheduled_at <= NOW()` hoặc không có lịch
 
-## Indexing
-- Feed storefront can:
-  - composite index tren `is_active, deleted_at, published_at, sort_order, created_at`
-- Tim kiem admin can:
-  - GIN full-text index tren `title + description + content_body`
+## Đánh chỉ mục (Indexing)
+- Feed storefront cần:
+  - Composite index trên `is_active`, `deleted_at`, `published_at`, `sort_order`, `created_at`
+- Tìm kiếm admin cần:
+  - GIN full-text index trên `title + description + content_body`
 
-## Cache invalidation
-- Khong flush all Redis key.
-- Moi trang cache storefront duoc ghi vao set theo doi `storefront:content:videos:keys`.
-- Khi admin tao/sua/xoa content:
-  - chi xoa cac key trong set nay
-  - sau do xoa chinh set theo doi
-- Cach nay giam nguy co cache stampede so voi xoa cache toan he thong.
-- Neu can tiep tuc nang cap:
-  - co the doi sang event-driven invalidation de khong lam cham response admin
-  - co the gan tag rieng cho home/list/detail
+## Vô hiệu hóa bộ nhớ đệm (Cache invalidation)
+- Không xóa sạch tất cả (flush all) các khóa Redis.
+- Mỗi trang cache storefront được ghi vào tập hợp theo dõi `storefront:content:videos:keys`.
+- Khi admin tạo/sửa/xóa nội dung:
+  - Chỉ xóa các key trong set này
+  - Sau đó xóa chính set theo dõi
+- Cách này giảm nguy cơ nghẽn cache (cache stampede) so với việc xóa cache toàn hệ thống.
+- Nếu cần tiếp tục nâng cấp:
+  - Có thể đổi sang cơ chế xóa dựa trên sự kiện (event-driven invalidation) để không làm chậm phản hồi của admin
+  - Có thể gán nhãn (tag) riêng cho trang chủ (home)/danh sách (list)/chi tiết (detail)
 
-## Truy van list
-- Danh sach admin nen uu tien preview (`contentBodyPreview`) thay vi body day du neu bo sung API detail rieng.
-- Ban hien tai van giu `contentBody` trong payload edit de khong vo UX popup sua co san.
+## Truy vấn danh sách
+- Danh sách admin nên ưu tiên hiển thị bản xem trước (`contentBodyPreview`) thay vì toàn bộ phần thân nếu bổ sung API chi tiết riêng.
+- Bản hiện tại vẫn giữ `contentBody` trong payload chỉnh sửa để không làm hỏng trải nghiệm người dùng (UX) popup sửa có sẵn.
 
-## Ghi chu tiep theo
-- 2026-05-28: Video da duoc tach thanh module admin rieng qua `/admin/videos`.
-  - Van dung bang vat ly `videos`, nhung video admin chi thao tac `content_type = 'VIDEO'`.
-  - Them `video_source` (`UPLOAD`, `YOUTUBE`) va `video_category` (`PRODUCT`, `NEWS`, `TIPS`, `SERVICE`, `REVIEW`, `OTHER`).
-  - Admin khong nhap tay `like_count`/`view_count`; like doc tu bang `video_likes`, view tang qua endpoint storefront.
-  - Xoa video qua `/admin/videos/{id}` la hard delete; comment/like/relations xoa cascade.
-  - Comment video gioi han 2 cap: comment goc va reply; reply vao reply van gan ve comment goc va luu `reply_to_user_name`.
-  - Comment co tu nhay cam duoc tu dong `is_hidden = TRUE` va luu `moderation_reason`.
-  - Admin co the doc comment, tra loi comment, va an/hien comment trong man hinh quan ly video.
-- Neu can banner carousel/slot theo vi tri, bo sung `placement_code` va `audience_rules`.
-- Neu can tracking view/like thuc te, tao endpoint storefront rieng thay vi nhap tay so lieu trong admin.
-- Neu traffic video lon hon nua, chuyen pagination sang cursor-based va tach feed recommendation rieng.
+## Ghi chú tiếp theo
+- 2026-05-28: Video đã được tách thành mô-đun admin riêng qua `/admin/videos`.
+  - Vẫn dùng bảng vật lý `videos`, nhưng video admin chỉ thao tác trên `content_type = 'VIDEO'`.
+  - Thêm `video_source` (`UPLOAD`, `YOUTUBE`) và `video_category` (`PRODUCT`, `NEWS`, `TIPS`, `SERVICE`, `REVIEW`, `OTHER`).
+  - Admin không nhập tay lượt thích (`like_count`) / lượt xem (`view_count`); lượt thích được đọc từ bảng `video_likes`, lượt xem tăng qua endpoint storefront.
+  - Xóa video qua `/admin/videos/{id}` là xóa cứng (hard delete); bình luận/lượt thích/mối quan hệ sẽ được xóa liên đới (cascade).
+  - Bình luận video giới hạn 2 cấp: bình luận gốc và phản hồi; phản hồi vào phản hồi vẫn gán về bình luận gốc và lưu `reply_to_user_name`.
+  - Bình luận có từ nhạy cảm được tự động ẩn `is_hidden = TRUE` và lưu `moderation_reason`.
+  - Admin có thể đọc bình luận, trả lời bình luận, và ẩn/hiện bình luận trong màn hình quản lý video.
+- Nếu cần banner xoay vòng (carousel)/vị trí (slot) theo vị trí, bổ sung `placement_code` và `audience_rules`.
+- Nếu cần theo dõi (tracking) lượt xem/thích thực tế, tạo endpoint storefront riêng thay vì nhập tay số liệu trong admin.
+- Nếu lưu lượng (traffic) video lớn hơn nữa, chuyển phân trang sang dạng con trỏ (cursor-based) và tách feed gợi ý (recommendation) riêng.
 
 ## Update 2026-06-02 storefront video like modal
 - Trang `/video` gom trạng thái tim về `VideoPage` để thẻ video và modal Reels dùng chung `likedIds`.
@@ -172,10 +165,12 @@
 - Reels không reset `activeIdx`/trạng thái phát chỉ vì `playlist` đổi sau khi cập nhật lượt tim; effect reset chỉ chạy khi mở modal hoặc đổi `initialIndex`.
 - Reels lưu lựa chọn bật/tắt tiếng trong `localStorage` bằng key `video_reels_muted`; sau khi người dùng bật tiếng, lần mở modal tiếp theo giữ nguyên bật tiếng thay vì tự mute lại.
 - Khi vào bằng URL `?watch=...` rồi bấm đóng modal, trang ghi nhớ video vừa đóng để tránh effect đọc query cũ mở modal lại, khắc phục tình trạng phải bấm nút X hai lần.
+
 ## Update 2026-06-03 admin video delete
 - Nút xóa video trong tab quản trị nội dung gọi qua `deleteContentVideo` của `useAdminContentLogic` để dùng đúng API client và tải lại danh sách sau khi xóa.
 - `DELETE /admin/videos/{id}` chuyển từ xóa cứng sang xóa mềm: đặt `deleted_at`, tắt `is_active`, chuyển `status` sang `ARCHIVED`, tăng `version` và ghi `updated_by`.
 - Việc xóa mềm giúp tránh lỗi khóa ngoại với bình luận, lượt thích, lượt xem hoặc quan hệ sản phẩm/danh mục, đồng thời vẫn làm mất video khỏi danh sách admin/storefront vì các truy vấn đang lọc `deleted_at IS NULL`.
+
 # Update 2026-06-03 homepage banner management
 
 - Thêm luồng quản lý banner trang chủ dùng lại Content Hub hiện có (`videos.content_type = 'BANNER'`) để tránh tạo kho dữ liệu banner trùng lặp.
@@ -195,7 +190,5 @@
 
 - **Frontend**: Chuyển đổi Module Content & Banners sang kiến trúc hướng tính năng (**Feature-First Architecture**).
   - Di chuyển toàn bộ giao diện quản trị (`AdminContentTab.tsx`, `AdminBannersTab.tsx`), custom hooks (`useAdminContentLogic.ts`, `useAdminBannersLogic.ts`) và API client (`adminContentApi.ts`) vào thư mục mới `src/features/admin-content/`.
-  - Cập nhật import liên quan tại `apiDb.ts`, `useAdminLogic.ts`, và `AdminDashboardTabContent.tsx`.
 - **Backend**: Tách logic nghiệp vụ và truy vấn database ra khỏi file router `admin_content.py` sang Service Layer mới (`app/application/services/content_service.py`).
   - File router `admin_content.py` chỉ làm nhiệm vụ tiếp nhận request và chuyển tiếp xử lý sang `content_service.py` giúp giữ code sạch sẽ và tách biệt nghiệp vụ.
-

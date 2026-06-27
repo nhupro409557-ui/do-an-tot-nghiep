@@ -9,12 +9,9 @@ type AdminBrandsTabProps = Record<string, any>;
 
 export default function AdminBrandsTab(props: AdminBrandsTabProps) {
   const {
-    activeBrandImportJob,
     brandCodeStatus,
     brandCloseSignal,
     brandForm,
-    brandImportJobs,
-    brandImportMode,
     brandPage,
     brandStatusFilter,
     brandViewOnly,
@@ -25,7 +22,6 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
     editBrand,
     editingBrandId,
     filteredBrands,
-    handleBrandImportFile,
     handleBrandSubmit,
     hideBrand,
     query,
@@ -34,7 +30,6 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
     selectedBrandIds,
     setBrandCodeStatus,
     setBrandForm,
-    setBrandImportMode,
     setBrandPage,
     setBrandStatusFilter,
     setQuery,
@@ -100,46 +95,6 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
             <SubmitButtons editing={Boolean(editingBrandId)} onCancel={resetBrandForm} />
           )}
         </form>
-      </CollapsibleSection>}
-      {canCreateBrand && <CollapsibleSection title="Import thương hiệu hàng loạt" description="Upload CSV có cột: Tên, Mã, Logo URL, Thứ tự. Dữ liệu có dấu phẩy nên đặt trong dấu ngoặc kép." defaultOpen={false}>
-        <div className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4">
-          <Select label="Chế độ import" value={brandImportMode} onChange={setBrandImportMode} options={[['skip', 'Thêm mới, bỏ qua trùng'], ['upsert', 'Thêm mới, cập nhật theo mã']]} />
-          <FileInput label="File CSV" accept=".csv,text/csv" onFiles={handleBrandImportFile} />
-          {activeBrandImportJob && (
-            <div className="rounded-md bg-white p-3 text-sm text-slate-700">
-              <div className="mb-2 flex justify-between">
-                <span>Job {activeBrandImportJob.id}</span>
-                <span>{activeBrandImportJob.status} - {activeBrandImportJob.progress || 0}%</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full bg-red-600" style={{ width: `${activeBrandImportJob.progress || 0}%` }} />
-              </div>
-              <div className="mt-2 text-xs text-slate-500">
-                Đã xử lý {activeBrandImportJob.processedRows || 0}/{activeBrandImportJob.totalRows || 0} dòng,
-                thêm {activeBrandImportJob.importedRows || 0}, cập nhật {activeBrandImportJob.updatedRows || 0}, bỏ qua {activeBrandImportJob.skippedRows || 0}
-              </div>
-              {activeBrandImportJob.errorMessage && <div className="mt-2 text-xs font-semibold text-red-600">{activeBrandImportJob.errorMessage}</div>}
-            </div>
-          )}
-          <div className="rounded-md bg-white p-3 text-xs text-slate-600">
-            {brandImportJobs.slice(0, 3).map((job: any) => (
-              <div key={job.id} className="border-b border-slate-100 py-2 last:border-0">
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span>{job.sourceFilename || 'Import thủ công'} - {job.mode} - {job.status}</span>
-                  <span>Thêm {job.importedRows}, cập nhật {job.updatedRows}, bỏ qua {job.skippedRows}</span>
-                </div>
-                {Array.isArray(job.report) && job.report.length > 0 && (
-                  <details className="mt-1">
-                    <summary className="cursor-pointer font-semibold text-slate-500">Xem dòng bị bỏ qua</summary>
-                    <div className="mt-1 space-y-1">
-                      {job.report.slice(0, 5).map((item: any, index: number) => <div key={`${job.id}-${index}`}>Dòng {item.row}: {item.reason}</div>)}
-                    </div>
-                  </details>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
       </CollapsibleSection>}
       {canUpdateBrand && selectedBrandIds.length > 0 && <div className="mb-3 flex gap-2"><button type="button" onClick={() => bulkUpdateBrandStatus(false)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Ẩn đã chọn</button><button type="button" onClick={() => bulkUpdateBrandStatus(true)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Khôi phục đã chọn</button></div>}
       <AdminTable

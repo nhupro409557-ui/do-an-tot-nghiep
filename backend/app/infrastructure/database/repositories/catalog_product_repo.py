@@ -33,9 +33,9 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
                 p.capacities,
                 p.promotions,
                 p.badge,
-                p.rating,
-                COALESCE(p.review_count, 0) AS "reviewCount",
-                COALESCE(p.favorite_count, 0) AS "favoriteCount",
+                COALESCE(review_stats.rating, 0) AS rating,
+                COALESCE(review_stats.review_count, 0) AS "reviewCount",
+                COALESCE(favorite_counts.favorite_count, 0) AS "favoriteCount",
                 COALESCE(os.sold_count, 0) AS "soldCount",
                 p.is_featured AS "isFeatured",
                 p.is_flash_sale AS "isFlashSale",
@@ -150,8 +150,9 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
             p.description, p.specifications, p.price, p.sale_price AS "discountPrice",
             p.stock_quantity AS "stock", p.status, p.image_url AS "imageUrl",
             p.video_url AS "videoUrl", p.images, p.colors, p.capacities, p.promotions,
-            p.badge, p.rating, COALESCE(p.review_count, 0) AS "reviewCount",
-            COALESCE(p.favorite_count, 0) AS "favoriteCount",
+            p.badge, COALESCE(review_stats.rating, 0) AS rating,
+            COALESCE(review_stats.review_count, 0) AS "reviewCount",
+            COALESCE(favorite_counts.favorite_count, 0) AS "favoriteCount",
             COALESCE(os.sold_count, 0) AS "soldCount",
             p.is_featured AS "isFeatured", p.is_flash_sale AS "isFlashSale",
             fs.id::text AS "flashSaleId", fs.discount_type AS "flashSaleDiscountType",
@@ -205,8 +206,21 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
             WHERE o.status = 'COMPLETED'
             GROUP BY oi.product_id
         ) os ON os.product_id = p.id
+        LEFT JOIN (
+            SELECT product_id, ROUND(AVG(rating), 2)::numeric(3, 2) AS rating, COUNT(*) AS review_count
+            FROM product_reviews
+            WHERE status = 'PUBLISHED'
+            GROUP BY product_id
+        ) review_stats ON review_stats.product_id = p.id
+        LEFT JOIN (
+            SELECT product_id, COUNT(*) AS favorite_count
+            FROM user_favorites
+            WHERE is_active = TRUE
+            GROUP BY product_id
+        ) favorite_counts ON favorite_counts.product_id = p.id
         WHERE {where_sql}
-        GROUP BY p.id, c.id, sc.id, os.sold_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at
+        GROUP BY p.id, c.id, sc.id, os.sold_count, review_stats.rating, review_stats.review_count,
+            favorite_counts.favorite_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at
     """
     result = await session.execute(text(sql), params)
     return result.all()
@@ -222,8 +236,19 @@ async def list_active_accessories(session: AsyncSession, accessory_ids: list[UUI
                 p.id::text,
                 p.sku,
                 p.name,
-                p.price,
-                p.sale_price AS "salePrice",
+                COALESCE(NULLIF(p.price, 0), vp.min_price, 0) AS price,
+                COALESCE(NULLIF(p.sale_price, 0), vp.min_sale_price) AS "salePrice",
+                GREATEST(
+                    COALESCE(vs.variant_stock, 0),
+                    COALESCE(inv.inventory_stock, 0),
+                    COALESCE(p.stock_quantity, 0)
+                ) AS "stockQuantity",
+                CASE WHEN GREATEST(
+                    COALESCE(vs.variant_stock, 0),
+                    COALESCE(inv.inventory_stock, 0),
+                    COALESCE(p.stock_quantity, 0)
+                ) > 0 THEN 'IN_STOCK' ELSE 'OUT_OF_STOCK' END AS "stockState",
+                p.status,
                 p.image_url AS "imageUrl",
                 fs.id::text AS "flashSaleId",
                 fs.discount_type AS "flashSaleDiscountType",
@@ -231,6 +256,45 @@ async def list_active_accessories(session: AsyncSession, accessory_ids: list[UUI
                 fs.starts_at AS "flashSaleStartsAt",
                 fs.ends_at AS "flashSaleEndsAt"
             FROM products p
+            LEFT JOIN (
+                SELECT product_id, SUM(stock_quantity) AS variant_stock
+                FROM product_variants
+                WHERE is_active = TRUE
+                  AND deleted_at IS NULL
+                  AND UPPER(COALESCE(status, 'ACTIVE')) NOT IN ('DELETED', 'ARCHIVED', 'INACTIVE', 'DISCONTINUED')
+                GROUP BY product_id
+            ) vs ON vs.product_id = p.id
+            LEFT JOIN (
+                SELECT product_id,
+                       MIN(NULLIF(price, 0)) AS min_price,
+                       MIN(COALESCE(NULLIF(sale_price, 0), NULLIF(price, 0))) AS min_sale_price
+                FROM product_variants
+                WHERE is_active = TRUE
+                  AND deleted_at IS NULL
+                  AND UPPER(COALESCE(status, 'ACTIVE')) NOT IN ('DELETED', 'ARCHIVED', 'INACTIVE', 'DISCONTINUED')
+                GROUP BY product_id
+            ) vp ON vp.product_id = p.id
+            LEFT JOIN (
+                SELECT product_id, SUM(stock) AS inventory_stock
+                FROM (
+                    SELECT product_id, SUM(on_hand_quantity) AS stock
+                    FROM inventory_levels
+                    WHERE product_id IS NOT NULL
+                    GROUP BY product_id
+
+                    UNION ALL
+
+                    SELECT pv.product_id, SUM(il.on_hand_quantity) AS stock
+                    FROM inventory_levels il
+                    JOIN product_variants pv ON pv.id = il.variant_id
+                    WHERE il.variant_id IS NOT NULL
+                      AND pv.is_active = TRUE
+                      AND pv.deleted_at IS NULL
+                      AND UPPER(COALESCE(pv.status, 'ACTIVE')) NOT IN ('DELETED', 'ARCHIVED', 'INACTIVE', 'DISCONTINUED')
+                    GROUP BY pv.product_id
+                ) stocks
+                GROUP BY product_id
+            ) inv ON inv.product_id = p.id
             LEFT JOIN LATERAL (
                 SELECT id, discount_type, discount_value, starts_at, ends_at
                 FROM flash_sales
@@ -463,7 +527,8 @@ async def list_favorites(session: AsyncSession, user_id: UUID):
                 p.description, p.specifications, p.price, p.sale_price AS "discountPrice",
                 p.stock_quantity AS "stock", p.status, p.image_url AS "imageUrl",
                 p.video_url AS "videoUrl", p.images, p.colors, p.capacities, p.promotions,
-                p.badge, p.rating, COALESCE(p.review_count, 0) AS "reviewCount",
+                p.badge, COALESCE(review_stats.rating, 0) AS rating,
+                COALESCE(review_stats.review_count, 0) AS "reviewCount",
                 0 AS "soldCount", p.is_featured AS "isFeatured", p.is_flash_sale AS "isFlashSale",
                 uf.created_at AS "favoritedAt", uf.updated_at AS "favoriteUpdatedAt",
                 '[]'::jsonb AS variants
@@ -471,6 +536,12 @@ async def list_favorites(session: AsyncSession, user_id: UUID):
             JOIN user_favorites uf ON uf.product_id = p.id
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN categories sc ON sc.id = p.subcategory_id
+            LEFT JOIN (
+                SELECT product_id, ROUND(AVG(rating), 2)::numeric(3, 2) AS rating, COUNT(*) AS review_count
+                FROM product_reviews
+                WHERE status = 'PUBLISHED'
+                GROUP BY product_id
+            ) review_stats ON review_stats.product_id = p.id
             WHERE uf.user_id = :user_id AND uf.is_active = TRUE AND p.status = 'ACTIVE'
             ORDER BY uf.created_at DESC
             """

@@ -21,6 +21,10 @@ export default function AdminCustomersTab(props: AdminCustomersTabProps) {
     setSelectedCustomerIds,
     updateUserAccess,
   } = props;
+  const confirmBulkSuspend = () => {
+    if (!window.confirm(`Xác nhận khóa ${selectedCustomerIds.length} khách hàng đã chọn?`)) return;
+    void bulkSuspendCustomers();
+  };
 
   return (
     <AdminPanel
@@ -29,7 +33,7 @@ export default function AdminCustomersTab(props: AdminCustomersTabProps) {
     >
       {(canManageCustomerAccess || canManageCustomerProfile) && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <button type="button" disabled={!selectedCustomerIds.length || !canManageCustomerAccess} onClick={() => void bulkSuspendCustomers()} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 disabled:cursor-not-allowed disabled:opacity-50">Khóa hàng loạt</button>
+          <button type="button" disabled={!selectedCustomerIds.length || !canManageCustomerAccess} onClick={confirmBulkSuspend} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 disabled:cursor-not-allowed disabled:opacity-50">Khóa hàng loạt</button>
           <button type="button" disabled={!selectedCustomerIds.length || !canManageCustomerProfile} onClick={() => void bulkApplyCustomerTags()} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-800 disabled:cursor-not-allowed disabled:opacity-50">Gán tag hàng loạt</button>
           <span className="text-xs font-semibold text-slate-500">Đã chọn: {selectedCustomerIds.length} / Tổng: {customerTotal}</span>
         </div>

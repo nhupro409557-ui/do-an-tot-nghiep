@@ -690,14 +690,15 @@ function splitImeis(value: string) {
     .filter(Boolean);
 }
 
-function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClose: () => void; onSubmit: (referenceCode: string, lines: { lineId: string; imeis: string[]; serialNumbers: string[]; acceptShortage?: boolean; shortageReason?: string | null }[], shortageReason: string) => Promise<any> }) {
+function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClose: () => void; onSubmit: (referenceCode: string, lines: { lineId: string; imeis: string[]; secondaryImeis?: string[]; serialNumbers: string[]; acceptShortage?: boolean; shortageReason?: string | null }[], shortageReason: string) => Promise<any> }) {
   const trackedLines = useMemo(() => (receipt?.lines || []).filter((line: any) => line.tracksImei || line.tracksSerialNumber), [receipt]);
   const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [secondaryImeiInputs, setSecondaryImeiInputs] = useState<Record<string, string>>({});
   const [serialInputs, setSerialInputs] = useState<Record<string, string>>({});
   const [confirmedShortages, setConfirmedShortages] = useState<Record<string, boolean>>({});
   const [shortageReasons, setShortageReasons] = useState<Record<string, string>>({});
   const [scanInputs, setScanInputs] = useState<Record<string, string>>({});
-  const [scanTargets, setScanTargets] = useState<Record<string, 'imei' | 'serial'>>({});
+  const [scanTargets, setScanTargets] = useState<Record<string, 'imei' | 'imei2' | 'serial'>>({});
   const [scanMessage, setScanMessage] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -706,6 +707,7 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
     const next: Record<string, string> = {};
     for (const line of trackedLines) next[line.id] = '';
     setInputs(next);
+    setSecondaryImeiInputs(next);
     setSerialInputs(next);
     setScanInputs(next);
     setScanTargets(Object.fromEntries(trackedLines.map((line: any) => [line.id, line.tracksImei ? 'imei' : 'serial'])));
@@ -718,6 +720,7 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
 
   const lineStats = trackedLines.map((line: any) => {
     const imeis = splitImeis(inputs[line.id] || '');
+    const secondaryImeis = splitImeis(secondaryImeiInputs[line.id] || '');
     const serialNumbers = splitImeis(serialInputs[line.id] || '');
     const planned = Number(line.plannedQuantity || line.quantity || 0);
     const counts = [];
@@ -725,17 +728,18 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
     if (line.tracksSerialNumber) counts.push(serialNumbers.length);
     const received = counts.length ? Math.min(...counts) : planned;
     const missing = Math.max(planned - received, 0);
-    return { line, planned, received, missing, imeis, serialNumbers, percent: planned > 0 ? Math.min(100, Math.round((received / planned) * 100)) : 0 };
+    return { line, planned, received, missing, imeis, secondaryImeis, serialNumbers, percent: planned > 0 ? Math.min(100, Math.round((received / planned) * 100)) : 0 };
   });
-  const hasOverage = lineStats.some((item) => item.imeis.length > item.planned || item.serialNumbers.length > item.planned);
+  const hasOverage = lineStats.some((item) => item.imeis.length > item.planned || item.secondaryImeis.length > item.planned || item.serialNumbers.length > item.planned);
+  const hasMismatchedSecondaryImeis = lineStats.some((item) => item.secondaryImeis.length > 0 && item.secondaryImeis.length !== item.imeis.length);
   const duplicateImeis = lineStats
-    .flatMap((item) => item.imeis)
+    .flatMap((item) => [...item.imeis, ...item.secondaryImeis])
     .filter((value, index, values) => values.indexOf(value) !== index);
   const duplicateSerials = lineStats
     .flatMap((item) => item.serialNumbers.map((value: string) => `${item.line.productId}:${value}`))
     .filter((value, index, values) => values.indexOf(value) !== index);
 
-  async function handleFile(lineId: string, file: File | null, target: 'imei' | 'serial') {
+  async function handleFile(lineId: string, file: File | null, target: 'imei' | 'imei2' | 'serial') {
     if (!file) return;
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: 'array' });
@@ -743,6 +747,7 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
     const rows = XLSX.utils.sheet_to_json<any[]>(firstSheet, { header: 1, raw: false });
     const values = rows.flat().map((cell) => String(cell || '').trim()).filter(Boolean).join('\n');
     if (target === 'serial') setSerialInputs((current) => ({ ...current, [lineId]: values }));
+    else if (target === 'imei2') setSecondaryImeiInputs((current) => ({ ...current, [lineId]: values }));
     else setInputs((current) => ({ ...current, [lineId]: values }));
   }
 
@@ -751,7 +756,7 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
     const target = scanTargets[lineId] || (line.tracksImei ? 'imei' : 'serial');
     const rawValue = String(scanInputs[lineId] || '').trim();
     if (!rawValue) return;
-    if (target === 'imei' && !line.tracksImei) {
+    if ((target === 'imei' || target === 'imei2') && !line.tracksImei) {
       setScanMessage((current) => ({ ...current, [lineId]: 'Dòng này không quản lý IMEI.' }));
       return;
     }
@@ -762,7 +767,9 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
     const normalizedValue = target === 'serial' ? rawValue.toUpperCase() : rawValue;
     const currentValues = target === 'serial'
       ? splitImeis(serialInputs[lineId] || '')
-      : splitImeis(inputs[lineId] || '');
+      : target === 'imei2'
+        ? splitImeis(secondaryImeiInputs[lineId] || '')
+        : splitImeis(inputs[lineId] || '');
     if (currentValues.includes(normalizedValue)) {
       setScanInputs((current) => ({ ...current, [lineId]: '' }));
       setScanMessage((current) => ({ ...current, [lineId]: `Mã ${normalizedValue} đã có trong danh sách.` }));
@@ -776,6 +783,8 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
     const nextValue = [...currentValues, normalizedValue].join('\n');
     if (target === 'serial') {
       setSerialInputs((current) => ({ ...current, [lineId]: nextValue }));
+    } else if (target === 'imei2') {
+      setSecondaryImeiInputs((current) => ({ ...current, [lineId]: nextValue }));
     } else {
       setInputs((current) => ({ ...current, [lineId]: nextValue }));
     }
@@ -787,6 +796,10 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
     setSubmitError('');
     if (hasOverage) {
       window.alert('Có dòng nhập vượt quá số lượng dự kiến. Vui lòng kiểm tra lại danh sách IMEI/serial number.');
+      return;
+    }
+    if (hasMismatchedSecondaryImeis) {
+      window.alert('Nếu nhập IMEI2 thì số dòng IMEI2 phải bằng số dòng IMEI1 để ghép đúng từng máy.');
       return;
     }
     if (duplicateImeis.length > 0 || duplicateSerials.length > 0) {
@@ -810,6 +823,7 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
         lineStats.map((item) => ({
           lineId: item.line.id,
           imeis: item.imeis,
+          secondaryImeis: item.secondaryImeis,
           serialNumbers: item.serialNumbers,
           acceptShortage: item.missing > 0 && Boolean(confirmedShortages[item.line.id]),
           shortageReason: item.missing > 0 && confirmedShortages[item.line.id] ? shortageReasons[item.line.id].trim() : null,
@@ -872,6 +886,13 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
                         </button>
                         <button
                           type="button"
+                          onClick={() => setScanTargets((current) => ({ ...current, [line.id]: 'imei2' }))}
+                          className={`rounded-md px-3 py-1.5 text-xs font-bold ${scanTargets[line.id] === 'imei2' ? 'bg-indigo-600 text-white' : 'text-indigo-700 hover:bg-indigo-50'}`}
+                        >
+                          IMEI2
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => setScanTargets((current) => ({ ...current, [line.id]: 'serial' }))}
                           className={`rounded-md px-3 py-1.5 text-xs font-bold ${scanTargets[line.id] === 'serial' ? 'bg-indigo-600 text-white' : 'text-indigo-700 hover:bg-indigo-50'}`}
                         >
@@ -906,10 +927,15 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
                 {line.tracksImei && (
                   <div className="mt-3">
                     <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
-                      <FileSpreadsheet className="h-4 w-4" /> Import IMEI
+                      <FileSpreadsheet className="h-4 w-4" /> Import IMEI1
                       <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFile(line.id, event.target.files?.[0] || null, 'imei')} />
                     </label>
-                    <textarea className="mt-2 min-h-28 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500" placeholder="Dán danh sách IMEI, dòng đầu tiên là IMEI chính" value={inputs[line.id] || ''} onChange={(event) => setInputs((current) => ({ ...current, [line.id]: event.target.value }))} />
+                    <textarea className="mt-2 min-h-28 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500" placeholder="Dán danh sách IMEI1, mỗi máy một dòng" value={inputs[line.id] || ''} onChange={(event) => setInputs((current) => ({ ...current, [line.id]: event.target.value }))} />
+                    <label className="mt-3 inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
+                      <FileSpreadsheet className="h-4 w-4" /> Import IMEI2 tùy chọn
+                      <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFile(line.id, event.target.files?.[0] || null, 'imei2')} />
+                    </label>
+                    <textarea className="mt-2 min-h-24 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500" placeholder="Dán danh sách IMEI2 nếu có, cùng thứ tự với IMEI1" value={secondaryImeiInputs[line.id] || ''} onChange={(event) => setSecondaryImeiInputs((current) => ({ ...current, [line.id]: event.target.value }))} />
                   </div>
                 )}
                 {line.tracksSerialNumber && (

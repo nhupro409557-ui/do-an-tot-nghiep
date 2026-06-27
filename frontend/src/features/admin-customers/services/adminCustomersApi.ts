@@ -20,6 +20,10 @@ export const adminCustomersApi = {
     method: 'PUT',
     body: JSON.stringify({ tags }),
   }),
+  adminUpdateCustomerProfile: (id: string, data: { fullName: string; phone?: string; tier: string; walletStatus: string }) => request<any>(`/admin/customers/${encodeURIComponent(id)}/profile`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
   adminBulkUpdateCustomerTags: (userIds: string[], tags: string[]) => request<any>('/admin/customers/tags/bulk', {
     method: 'PUT',
     body: JSON.stringify({ userIds, tags }),

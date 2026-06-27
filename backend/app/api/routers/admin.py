@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter
+from fastapi import APIRouter
 
 from app.api.routers.admin_audit import router as admin_audit_router
 from app.api.routers.admin_brands import router as admin_brands_router
@@ -15,6 +15,9 @@ from app.api.routers.admin_reviews import router as admin_reviews_router
 from app.api.routers.admin_suppliers import router as admin_suppliers_router
 from app.api.routers.admin_uploads import router as admin_uploads_router
 from app.api.routers.admin_vouchers import router as admin_vouchers_router
+from app.api.routers.admin_after_sales import router as admin_after_sales_router
+from app.api.routers.admin_payment_methods import router as admin_payment_methods_router
+from app.api.routers.admin_store_info import router as admin_store_info_router
 
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -33,3 +36,6 @@ router.include_router(admin_product_approvals_router)
 router.include_router(admin_reviews_router)
 router.include_router(admin_suppliers_router)
 router.include_router(admin_vouchers_router)
+router.include_router(admin_after_sales_router)
+router.include_router(admin_payment_methods_router)
+router.include_router(admin_store_info_router)

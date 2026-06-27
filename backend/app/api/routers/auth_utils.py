@@ -462,3 +462,70 @@ async def get_active_user(session: AsyncSession, user_id: UUID) -> User:
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is not active.")
     return user
+
+
+async def sync_and_link_offline_orders(session: AsyncSession, user: User) -> None:
+    from sqlalchemy import text
+    from app.infrastructure.database.models import LoyaltyTransaction
+    
+    email = user.email.lower()
+    # 1. Tìm đơn hàng offline gần nhất của email này để lấy họ tên và số điện thoại bổ sung cho profile
+    order_info_res = await session.execute(
+        text("""
+            SELECT recipient_name, recipient_phone 
+            FROM orders 
+            WHERE user_id IS NULL AND recipient_email = :email 
+            ORDER BY created_at DESC 
+            LIMIT 1
+        """),
+        {"email": email}
+    )
+    order_info = order_info_res.mappings().first()
+    if order_info:
+        if order_info["recipient_name"] and not user.full_name:
+            user.full_name = order_info["recipient_name"]
+            profile = dict(user.profile_json or {})
+            profile.update({"displayName": order_info["recipient_name"]})
+            user.profile_json = profile
+        if order_info["recipient_phone"] and not user.phone:
+            user.phone = order_info["recipient_phone"]
+
+    # 2. Tự động liên kết các đơn hàng cũ bằng email
+    await session.execute(
+        text("UPDATE orders SET user_id = :user_id WHERE user_id IS NULL AND recipient_email = :email"),
+        {"user_id": user.id, "email": email}
+    )
+
+    # 3. Cộng dồn điểm Loyalty thưởng từ các đơn hàng offline cũ
+    points_res = await session.execute(
+        text("SELECT COALESCE(SUM(loyalty_points_earned), 0) FROM orders WHERE user_id = :user_id"),
+        {"user_id": user.id}
+    )
+    total_points = int(points_res.scalar() or 0)
+    if total_points > 0:
+        user.loyalty_points_balance = total_points
+        
+        # Calculate tier
+        tier = "MEMBER"
+        if total_points >= 15000:
+            tier = "DIAMOND"
+        elif total_points >= 8000:
+            tier = "GOLD"
+        elif total_points >= 3000:
+            tier = "SILVER"
+        user.loyalty_tier = tier
+        
+        # Thêm LoyaltyTransaction
+        session.add(
+            LoyaltyTransaction(
+                id=uuid4(),
+                user_id=user.id,
+                type="EARN",
+                points=total_points,
+                balance_before=0,
+                balance_after=total_points,
+                reason="Đồng bộ điểm tích lũy tích được từ các đơn hàng mua tại quầy.",
+                metadata_json={"linked_email": email},
+            )
+        )
+    await session.flush()

@@ -1,104 +1,70 @@
-﻿# Order Management Notes
+# Order Management Notes
 
-## Update 2026-06-18 - Xác nhận xuất từ nhiều kệ
+## Cập nhật 2026-06-27 - Đồng bộ giá mua kèm và dịch vụ trong POS admin
 
-- Một dòng đơn hàng có thể phân bổ số lượng xuất từ nhiều kệ khác nhau.
-- Nhân viên thêm/xóa dòng kệ trong màn chi tiết đơn trước khi chuyển sang `SHIPPED`.
-- Tổng số lượng của các kệ phải bằng số lượng dòng đơn; cùng một dòng không được chọn trùng kệ.
-- Nếu không nhập phân bổ thủ công, hệ thống tiếp tục tự chọn theo FIFO.
+- POS admin tính giá sản phẩm mua kèm theo cùng hướng với storefront: ưu tiên `offer.price` nếu API đã trả giá ưu đãi đã tính sẵn; nếu thiếu thì fallback về giá gốc và công thức giảm theo `discountType/discountValue`.
+- API admin products đã hydrate thêm `price`, `salePrice/discountPrice`, `originalPrice` và `normalDiscountPrice` cho sản phẩm mua kèm, tránh badge `[Mua kèm]` hiển thị `0 đ` khi dữ liệu offer cũ không lưu sẵn giá đã tính.
+- Giá dịch vụ đi kèm trong POS admin nay ưu tiên `overridePrice`, sau đó mới tính theo `priceMode` gồm `FIXED`, `PERCENT` và `TIERED_AMOUNT`.
+- Cách tính `TIERED_AMOUNT` dùng `metadata.priceTiers` và hỗ trợ tier cuối không có `max`, tránh trường hợp dịch vụ có bảng giá hợp lệ nhưng hiển thị `0 đ`.
+- Dòng dịch vụ trong giỏ POS được định danh theo cả sản phẩm cha và dịch vụ để cùng một dịch vụ gắn với hai sản phẩm khác nhau không bị gộp nhầm số lượng.
 
-## Update 2026-06-18 - Xuất hàng theo lô nội bộ
+## Cập nhật 2026-06-27 - Khắc phục danh sách sản phẩm và khách hàng trong POS
 
-- Khi đơn chuyển sang `SHIPPED`, tồn kho được trừ đồng thời ở cấp tổng, cấp kệ và cấp lô nội bộ.
-- Trong kệ nhân viên xác nhận, backend tự lấy lô có `received_at` cũ nhất trước; nhân viên không cần thấy hoặc chọn mã lô.
-- Mỗi lần tiêu thụ lô ghi `inventory_lot_movements` loại `SALE`, liên kết với `order_id` và `order_code`.
-- Nếu tồn theo kệ còn nhưng tổng số lượng lô trong kệ không đủ, transaction giao hàng bị rollback để tránh sai lệch dữ liệu.
+- Sửa `AdminPosModal.tsx` để danh sách sản phẩm POS gọi `GET /admin/products` với `page=1`, nhờ đó frontend nhận đúng payload dạng `{ items: [...] }`; trước đó endpoint trả mảng trực tiếp khi không truyền `page` nhưng modal chỉ đọc `data.items`, làm danh sách luôn rỗng.
+- Sửa tham số tìm khách hàng từ `q` sang `search` để khớp endpoint `GET /admin/customers`.
+- Chuẩn hóa đọc response dạng mảng hoặc `{ items }` bằng helper `listFromResponse`, giúp modal bền hơn nếu endpoint thay đổi chế độ phân trang.
+- Chuẩn hóa điểm khách hàng từ `points`, `loyaltyPointsBalance` hoặc `loyalty_points_balance`; danh sách khách hàng tải sẵn nay hiển thị ngay dưới ô tìm kiếm thay vì chỉ hiện sau khi nhập từ khóa.
+- Chuẩn hóa nhãn và giá biến thể sản phẩm POS từ `configuration`, `colorName`, `storage`, `ram`, `salePrice`, `discountPrice` để tránh hiện `undefined` và dùng đúng giá bán.
 
-## Scope of the 2026-05 upgrade
-- Added richer admin operations for order handling instead of status-only updates.
-- Added order detail data for admin review, printing, staff assignment, shipping tracking, and cancellation handling.
-- Added guardrails against invalid backward status transitions such as `COMPLETED -> PENDING`.
-- Added stock restoration when an order moves into `CANCELLED`.
-- Added manual refund marking for online payments when an order is cancelled or refunded.
-- Added Gmail-based email notifications when order status changes.
-- Added `PAYMENT_FAILED` to distinguish payment failure from deliberate cancellation.
-- Added idempotency support for checkout order creation.
-- Added `order_history_logs` so order state changes are auditable.
-- Added pending-order expiration logic to auto-release reserved inventory for stale orders.
-- Added an in-app maintenance loop so pending-order expiration can run automatically without a manual trigger.
-- Added `RETURNING / RETURNED` states for reverse-logistics handling.
-- Added stub integration adapters for shipment registration and refund execution so later real providers can plug in without rewriting order business rules.
-- Added sandbox shipping-fee calculation and quote endpoint for checkout.
-- Added MoMo dev sandbox payment initialization with backend-generated payUrl and IPN callback handling.
+## Cập nhật 2026-06-27 - Hiển thị sản phẩm trong quản lý đơn hàng
 
-## Files touched
-- `backend/app/application/commerce/schemas.py`
-- `backend/app/application/commerce/use_cases.py`
-- `backend/app/api/v1/routers/commerce.py`
-- `backend/app/infrastructure/database/models.py`
-- `backend/migrations/032_order_management_upgrade.sql`
-- `backend/migrations/033_order_resilience_and_history.sql`
-- `backend/migrations/034_order_reverse_logistics.sql`
-- `backend/app/application/commerce/integrations.py`
-- `backend/app/main.py`
-- `backend/app/config.py`
-- `legacy apiDb.ts`
-- `frontend/src/features/storefront-commerce/pages/CheckoutPage.tsx`
-- `frontend/src/features/admin-shell/pages/AdminDashboard.tsx`
+- Kiểm tra backend endpoint `GET /api/orders` và `GET /api/orders/{order_id}`: dữ liệu đơn hàng đã có trường `items`, lấy từ bảng `order_items`.
+- Cập nhật `frontend/src/features/admin-orders/components/AdminOrdersTab.tsx` để bảng quản lý đơn hàng có thêm cột `Sản phẩm`, hiển thị tối đa 2 dòng sản phẩm đầu tiên kèm số lượng và dòng `+n sản phẩm khác` nếu đơn có nhiều sản phẩm.
+- Bảng `Sản phẩm trong đơn` trong modal chi tiết dùng helper chuẩn hóa dữ liệu, hỗ trợ cả key camelCase (`productName`, `totalPrice`) và snake_case (`product_name`, `total_price`) để tránh mất hiển thị khi nguồn dữ liệu thay đổi kiểu field.
+- Khi một đơn không có dòng sản phẩm, giao diện hiển thị trạng thái rõ ràng `Chưa có dòng sản phẩm` thay vì để bảng trống.
 
-## Design notes
-- Current status flow is intentionally strict: pending -> processing -> shipped -> completed, with cancellation only before completion.
-- Checkout now accepts an optional `idempotency_key` field or `Idempotency-Key` header so double-click / retry scenarios return the same order instead of creating duplicates.
-- `PAYMENT_FAILED` is used for stale or failed online payment scenarios so reporting can distinguish them from human-initiated cancellation.
-- Customer notifications currently use the project's existing Gmail SMTP configuration (`smtp.gmail.com` with app password style credentials in `.env`).
-- Refund processing is still internal-only for now. The system marks payment transactions as refunded in local data, but does not call a real payment gateway yet.
-- Shipping integration is also internal-only in this patch. `shipping_provider` and `tracking_code` are stored so the UI and future integrations have a stable data shape.
-- Shipping handoff now goes through a gateway abstraction. The default implementation is still a stub, but the order workflow no longer depends on manual inline tracking-code logic.
-- Shipping fee in checkout is now computed by a sandbox pricing service based on destination keywords and item count, then persisted in the order total.
-- Restock logic maps order items back to inventory logs using `reference_code = order_code` and the original `ORDER_CREATED` reservation entries.
-- Invoice and delivery-note printing are browser-rendered documents from the admin UI, which keeps the feature usable now without introducing a PDF service.
-- Order status email sending is best-effort: if Gmail SMTP is not configured or delivery fails, the order update still succeeds.
-- Pending-order cleanup now has both a manual maintenance endpoint and an automatic background loop started from FastAPI lifespan.
-- Inventory deduction still happens at order creation, but the code now makes the mitigation explicit: stale `PENDING` orders can be moved to `PAYMENT_FAILED`, which also restores stock and voucher usage.
-- Inventory race conditions are handled with database transactions plus pessimistic locking (`SELECT ... FOR UPDATE`) around stock reads and writes.
-- Reverse logistics is now modeled with `RETURNING -> RETURNED -> REFUNDED` so failed deliveries or customer returns can be represented without overloading `CANCELLED`.
-- Refund execution also goes through a gateway abstraction. The current implementation is a safe stub that records provider references in `payment_transactions.raw_response`.
-- MoMo sandbox integration follows the official `POST /v2/gateway/api/create` flow and is configured through env vars (`momo_partner_code`, `momo_access_key`, `momo_secret_key`, `momo_redirect_url`, `momo_ipn_path`).
-- If MoMo sandbox credentials are missing, the code falls back to a deterministic sandbox URL so the checkout demo flow still remains usable.
+## Cập nhật 2026-06-27 - Luồng tạo đơn hàng tại quầy (POS)
 
-## Next recommended steps
-- Add real shipping provider webhooks and label creation.
-- Add refund gateway adapters for MoMo, VNPay, and card payments.
-- Add richer templates and delivery logging for Gmail notifications.
-- Replace the in-process maintenance loop with a dedicated scheduler / worker in production if horizontal scaling is introduced.
-- Add return-reason codes and warehouse intake inspection outcomes for `RETURNED` orders.
-- Replace sandbox shipping pricing with a live carrier quote adapter if exact fee calculation is required.
+### Backend
 
-## Refactor Structure Notes (June 2026)
+- Thêm `is_offline: bool` và `internal_note: str` vào `CreateOrderRequest` trong `backend/app/application/commerce/schemas.py`.
+- Trong `CreateOrderUseCase` tại `backend/app/application/commerce/use_cases.py`, nếu `request.is_offline` là `True`:
+  - Đơn hàng được tạo trực tiếp với `status = 'COMPLETED'` và `payment_status = 'PAID'`.
+  - Gọi `CompleteOrderUseCase._ship_order_items(order)` để trừ tồn kho theo FIFO ngay lập tức.
+  - Gọi `commerce_repo.close_active_order_reservations(self._session, order.id, 'CONSUMED')` để đóng reservation tạm thời.
+  - Tự động cộng điểm loyalty cho tài khoản khách hàng được chọn.
+  - Bỏ qua các bước thanh toán qua cổng online như MoMo, ZaloPay, SePay, kể cả khi nhân viên chọn phương thức thanh toán online để phân loại giao dịch tại quầy.
 
-### 1. Backend Service Layer Pattern
-- Logic truy vấn SQL và database mapping của `list_orders` và `get_order_detail` đã được tách hoàn toàn ra khỏi Router Layer (`commerce.py`) và chuyển sang Service Layer chuyên biệt: [order_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/order_service.py).
-- Router [commerce.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/api/v1/routers/commerce.py) hiện tại chỉ còn khai báo endpoints, nhận payload, Dependency Injection và chuyển tiếp xử lý sang `order_service.py` hoặc các Use Cases khác của Commerce.
+### Frontend
 
-### 2. Frontend Feature-First Architecture
-- Module Quản lý Đơn hàng đã được chuyển dịch hoàn chỉnh về thư mục tính năng độc lập tại: [src/features/admin-orders/](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/)
-  - **Services**: [adminOrdersApi.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/services/adminOrdersApi.ts) chứa các hàm gọi API đơn hàng (được bóc tách từ `apiDb.ts` để giữ tính tương thích ngược thông qua spread operator).
-  - **Hooks**: [useAdminOrdersLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/hooks/useAdminOrdersLogic.ts) xử lý logic nghiệp vụ và state của UI.
-  - **Components**: [AdminOrdersTab.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-orders/components/AdminOrdersTab.tsx) chứa UI hiển thị danh sách và chi tiết đơn hàng.
-- Các file điều phối chung như [apiDb.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/legacy apiDb.ts), [useAdminLogic.ts](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/hooks/useAdminLogic.ts), và [AdminDashboardTabContent.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-shell/components/AdminDashboardTabContent.tsx) đã được cập nhật đường dẫn import mới.
+- Thêm `AdminPosModal.tsx` cho luồng POS mini:
+  - Tìm kiếm và chọn sản phẩm, chọn variant phù hợp, kiểm tra tồn kho.
+  - Tìm kiếm và gán khách hàng đã đăng ký hoặc để trống cho khách vãng lai.
+  - Áp dụng voucher shop và trừ điểm loyalty trực tiếp.
+  - Chọn phương thức thanh toán, tính tiền thừa trả khách.
+- Tích hợp nút `Tạo đơn tại quầy` vào `AdminOrdersTab.tsx`.
+- Sau khi tạo đơn thành công, hệ thống mở bản in hóa đơn nhiệt K80 qua iframe ẩn và gọi `window.print()`.
 
+### Liên kết đơn hàng offline theo email
 
+- POS lưu email khách vãng lai vào `recipient_email` trong bảng `orders`.
+- Khi khách đăng ký tài khoản online hoặc đăng nhập Google lần đầu, helper `sync_and_link_offline_orders` trong `backend/app/api/routers/auth_utils.py`:
+  - Lấy họ tên và số điện thoại từ đơn offline gần nhất khớp email để điền vào tài khoản mới.
+  - Cập nhật `user_id` của các đơn offline cũ khớp email về user mới.
+  - Tổng hợp điểm loyalty từ các đơn offline cũ và tạo giao dịch đồng bộ điểm tương ứng.
 
-## Update 2026-06-05 Order Service Repository Split
+## Cập nhật 2026-06-27 - Bổ sung Bộ lọc Sản phẩm tại POS
 
-- Tách truy vấn danh sách đơn hàng và chi tiết đơn hàng khỏi `app/application/services/order_service.py` sang `app/infrastructure/database/repositories/order_repo.py`.
-- `order_service.py` hiện chỉ còn gọi repository và xử lý lỗi không tìm thấy đơn hàng.
-- Kết quả kiểm tra: compile backend thành công; import `app.main`, commerce router, order service và order repository thành công.
+- **Tích hợp UI**: Bổ sung 2 dropdown bộ lọc bên cạnh thanh tìm kiếm sản phẩm tại giao diện POS Modal (`AdminPosModal.tsx`):
+  - **Danh mục (Category)**: Tự động tải danh sách danh mục từ API `/admin/categories`.
+  - **Thương hiệu (Brand)**: Tự động tải danh sách thương hiệu từ API `/admin/brands`.
+- **Tích hợp API & Logic lọc**:
+  - Giao diện POS tự động truyền thêm tham số `categoryId` và `brandId` vào query string của API `/admin/products` khi nhân viên thực hiện thao tác chọn bộ lọc.
+  - Các bộ lọc và thanh tìm kiếm từ khóa hoạt động đồng bộ và giữ nguyên trạng thái của nhau khi thay đổi.
 
+## Cập nhật 2026-06-27 - Hỗ trợ Mua kèm Phụ kiện & Dịch vụ tại POS
 
-## Update 2026-06-05 Commerce Router SQL Cleanup
-
-- Tách hai truy vấn DB còn lại trong `app/api/v1/routers/commerce.py` sang repository.
-- Danh sách voucher public chuyển sang `voucher_repo.list_public_vouchers`; tra cứu đơn hàng theo `order_code` cho MoMo IPN chuyển sang `order_repo.get_order_id_by_code`.
-- `commerce.py` hiện không còn SQL trực tiếp; router chỉ điều phối request, repository/service/use case xử lý dữ liệu.
-- Kết quả kiểm tra: compile backend thành công; import `app.main`, commerce router, order repository và voucher repository thành công.
+- **Giao diện Badge Thêm nhanh**: Bên dưới thẻ sản phẩm, các phụ kiện gợi ý mua kèm (`accessoryOffers`) và các dịch vụ đi kèm (`attachedServices`) được render thành các badge bấm nhanh nhỏ nhắn, thẩm mỹ:
+  - **Badge màu đỏ**: Dành cho Phụ kiện mua kèm, tự động áp dụng giá combo ưu đãi đã giảm (được lưu trong `offer.price`).
+  - **Badge màu xanh**: Dành cho Dịch vụ đi kèm (được lưu trong `service.fixedPrice` hoặc `service.percentValue`).
+- **Thao tác một chạm**: Nhân viên chỉ cần nhấp vào các badge này, phụ kiện/dịch vụ sẽ tự động được thêm vào giỏ hàng bên phải dưới dạng các dòng đơn hàng chuẩn hóa `[Mua kèm] <Tên>` hoặc `[Dịch vụ] <Tên>` với đúng giá tiền ưu đãi tương ứng.

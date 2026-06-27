@@ -105,12 +105,8 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
   const {
     addCategoryFilter,
     addSpecField,
-    categoryAuditLogs,
     categoryForm,
-    categoryMetrics = {},
-    categoryMigrationJobs,
     identifierPolicyMigrations,
-    categoryPanelBusy,
     categoryParentMigrationHint,
     categoryCloseSignal,
     categoryStatusFilter,
@@ -123,7 +119,6 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
     confirmDelete,
     derivedCategoryFilters,
     editCategory,
-    editingCategory,
     editingCategoryId,
     filteredCategoryTree,
     filteredRootCategories,
@@ -136,7 +131,6 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
     cancelIdentifierPolicyMigration,
     query,
     reactivateCategory,
-    refreshCategoryWorkspace,
     reorderCategory,
     resetCategoryForm,
     rootCategories,
@@ -152,6 +146,19 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
   const canCreateCategory = usePermission('category:create');
   const canUpdateCategory = usePermission('category:update');
   const canDeleteCategory = usePermission('category:delete');
+  const parentCategory = rootCategories.find((item: any) => item.id === categoryForm.parentId);
+  const parentInventoryPolicy = parentCategory?.inventoryPolicy || {};
+  const localInventoryPolicy = categoryForm.inventoryPolicy || {};
+  const parentTracksImei = Boolean(parentInventoryPolicy.trackImei);
+  const parentTracksSerialNumber = Boolean(parentInventoryPolicy.trackSerialNumber || parentTracksImei);
+  const localTracksImei = Boolean(localInventoryPolicy.trackImei);
+  const localTracksSerialNumber = Boolean(localInventoryPolicy.trackSerialNumber || localTracksImei);
+  const serialPolicyInherited = Boolean(categoryForm.parentId && localInventoryPolicy.inheritSerialPolicy);
+  const imeiPolicyInherited = Boolean(categoryForm.parentId && localInventoryPolicy.inheritImeiPolicy);
+  const effectiveTracksSerialNumber = serialPolicyInherited ? parentTracksSerialNumber : localTracksSerialNumber;
+  const effectiveTracksImei = (imeiPolicyInherited ? parentTracksImei : localTracksImei) && effectiveTracksSerialNumber;
+  const serialPolicySource = serialPolicyInherited ? `Kế thừa từ ${parentCategory?.name || 'danh mục cha'}` : 'Tự cấu hình tại danh mục này';
+  const imeiPolicySource = imeiPolicyInherited ? `Kế thừa từ ${parentCategory?.name || 'danh mục cha'}` : 'Tự cấu hình tại danh mục này';
   return (
     <AdminPanel 
       title="Quản lý danh mục và form thông số" 
@@ -194,11 +201,19 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
           )}
           <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-5">
             <div className="mb-3 text-sm font-bold text-slate-700">Tồn kho và bảo hành mặc định</div>
+            <div className="mb-3 grid gap-2 md:grid-cols-2">
+              <div className={`rounded-md border px-3 py-2 text-xs font-semibold ${effectiveTracksSerialNumber ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+                Serial hiệu lực: {effectiveTracksSerialNumber ? 'Có quản lý serial' : 'Không quản lý serial'} · {serialPolicySource}
+              </div>
+              <div className={`rounded-md border px-3 py-2 text-xs font-semibold ${effectiveTracksImei ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+                IMEI hiệu lực: {effectiveTracksImei ? 'Có quản lý IMEI' : 'Không quản lý IMEI'} · {imeiPolicySource}
+              </div>
+            </div>
             <div className="grid gap-3 md:grid-cols-5">
               <Checkbox label="Theo IMEI của cha" checked={Boolean(categoryForm.inventoryPolicy.inheritImeiPolicy)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, inheritImeiPolicy: checked } })} />
-              <Checkbox label="Quản lý IMEI" checked={Boolean(categoryForm.inventoryPolicy.trackImei)} disabled={Boolean(categoryForm.inventoryPolicy.inheritImeiPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, trackImei: checked } })} />
+              <Checkbox label="Quản lý IMEI" checked={effectiveTracksImei} disabled={Boolean(imeiPolicyInherited || !effectiveTracksSerialNumber)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, trackImei: checked } })} />
               <Checkbox label="Theo serial của cha" checked={Boolean(categoryForm.inventoryPolicy.inheritSerialPolicy)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, inheritSerialPolicy: checked } })} />
-              <Checkbox label="Quản lý serial number" checked={Boolean(categoryForm.inventoryPolicy.trackSerialNumber)} disabled={Boolean(categoryForm.inventoryPolicy.inheritSerialPolicy && categoryForm.parentId)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, trackSerialNumber: checked } })} />
+              <Checkbox label="Quản lý serial number" checked={effectiveTracksSerialNumber} disabled={serialPolicyInherited} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, trackSerialNumber: checked, trackImei: checked ? categoryForm.inventoryPolicy.trackImei : false } })} />
               <Checkbox label="Theo kích thước của cha" checked={Boolean(categoryForm.inventoryPolicy.inheritStorageDimensions)} onChange={(checked) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, inheritStorageDimensions: checked } })} />
               <Input label="Dài đóng gói (cm)" type="number" value={Number(categoryForm.inventoryPolicy.packageLengthCm || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, packageLengthCm: Math.max(0, Number(value)) } })} />
               <Input label="Rộng đóng gói (cm)" type="number" value={Number(categoryForm.inventoryPolicy.packageWidthCm || 0)} onChange={(value) => setCategoryForm({ ...categoryForm, inventoryPolicy: { ...categoryForm.inventoryPolicy, packageWidthCm: Math.max(0, Number(value)) } })} />
@@ -280,89 +295,6 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
           )}
         </form>
       </CollapsibleSection>}
-      <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">Quản lý form thông số theo danh mục cha</h3>
-            <p className="text-xs font-medium text-slate-500">Chỉ danh mục cha có form thông số; danh mục con kế thừa khi tạo sản phẩm.</p>
-          </div>
-          <AdminBadge tone="blue">{filteredRootCategories.length}/{rootCategories.length} danh mục cha</AdminBadge>
-        </div>
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {filteredRootCategories.map((category) => (
-            <button key={category.id} type="button" onClick={() => editCategory(category)} className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-red-200 hover:bg-red-50">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-bold text-slate-900">{category.name}</div>
-                <div className="mt-1 text-xs font-medium text-slate-500">{category.slug || category.id}</div>
-              </div>
-              <span className="ml-3 rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{category.specFields?.length || 0} trường</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="mb-5 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">Tình trạng vận hành danh mục</h3>
-              <p className="text-xs font-medium text-slate-500">Theo dõi cache, job di trú và các cảnh báo tự phục hồi của cây danh mục.</p>
-            </div>
-            <button type="button" onClick={() => refreshCategoryWorkspace()} className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-bold text-slate-700">
-              <RefreshCw className={`h-4 w-4 ${categoryPanelBusy ? 'animate-spin' : ''}`} />
-              Làm mới
-            </button>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Tỉ lệ cache hit" value={`${Math.round(Number(categoryMetrics.cacheHitRatio ?? 0) * 100)}%`} tone="emerald" />
-            <MetricCard label="P99 đọc danh mục" value={`${Number(categoryMetrics.latencyP99Ms ?? 0)} ms`} tone="sky" />
-            <MetricCard label="Job đang chạy" value={String(categoryMetrics.migrationRunningJobs ?? 0)} tone="amber" />
-            <MetricCard label="Job stale đã cứu" value={String(categoryMetrics.migrationWatchdogRecoveredJobs ?? 0)} tone="slate" />
-          </div>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="mb-3">
-            <h3 className="text-sm font-bold text-slate-900">Nhật ký danh mục đang chọn</h3>
-            <p className="text-xs font-medium text-slate-500">{editingCategory ? `Đang xem: ${editingCategory.name}` : 'Chọn một danh mục để xem lịch sử thay đổi và job nền.'}</p>
-          </div>
-          {editingCategory ? (
-            <div className="space-y-4">
-              <div>
-                <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Migration jobs</div>
-                <div className="space-y-2">
-                  {categoryMigrationJobs.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">Chưa có job di trú nào cho danh mục này.</div>}
-                  {categoryMigrationJobs.slice(0, 4).map((job) => (
-                    <div key={job.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-mono text-xs text-slate-500">{compactId(job.id)}</span>
-                        <AdminBadge tone={job.status === 'COMPLETED' ? 'green' : job.status === 'FAILED' ? 'red' : 'amber'}>{job.status}</AdminBadge>
-                      </div>
-                      <div className="mt-1 text-xs text-slate-600">Đã xử lý {job.processedProducts || 0}/{job.totalProducts || 0} sản phẩm</div>
-                      {job.errorMessage && <div className="mt-1 text-xs font-medium text-red-600">{job.errorMessage}</div>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Audit gần nhất</div>
-                <div className="space-y-2">
-                  {categoryAuditLogs.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">Chưa có lịch sử thay đổi gần đây.</div>}
-                  {categoryAuditLogs.slice(0, 5).map((log) => (
-                    <div key={log.id} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold text-slate-800">{String(log.actionType || '').replaceAll('_', ' ')}</div>
-                        <div className="text-xs text-slate-500">{new Date(log.createdAt).toLocaleString('vi-VN')}</div>
-                      </div>
-                      <div className="mt-1 text-xs text-slate-500">Actor: {compactId(log.actorId)}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-6 text-sm text-slate-500">Danh sách lịch sử và job nền sẽ hiện ở đây khi bạn mở một danh mục để chỉnh sửa.</div>
-          )}
-        </div>
-      </div>
       <AdminTable headers={['Sắp xếp', 'Ảnh', 'Tên', 'Slug', 'Loại', 'Danh mục cha', 'Thông số / lọc', 'Trạng thái', 'Thao tác']}>
         {filteredCategoryTree.flatMap((category) => [category, ...(category.children || [])]).map((category) => (
           <CategoryTableRow

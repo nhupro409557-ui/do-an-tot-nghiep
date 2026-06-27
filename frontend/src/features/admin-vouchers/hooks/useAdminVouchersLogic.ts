@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from 'react';
-import { splitIds } from '../../admin-shell/components/AdminDashboardConfig';
 import { notifyAdmin } from '../../admin-shell/utils/adminNotice';
 import { adminVouchersApi } from '../services/adminVouchersApi';
 
@@ -16,13 +15,22 @@ const initialVoucherForm = {
   perIpLimit: 0,
   campaignType: 'CONVERSION',
   audienceType: 'PUBLIC',
+  displayTitle: '',
+  displayDescription: '',
+  publicTerms: '',
+  applicableChannels: ['WEB'] as string[],
+  applicablePaymentMethods: [] as string[],
   eligibleTiers: [] as string[],
   eligibleUserRegisteredAfter: '',
   assignedUserId: '',
-  includeProductIds: '',
-  excludeProductIds: '',
-  includeCategoryIds: '',
-  excludeCategoryIds: '',
+  assignedUserIds: [] as string[],
+  scopeType: 'ALL',
+  includeProductIds: [] as string[],
+  excludeProductIds: [] as string[],
+  includeCategoryIds: [] as string[],
+  excludeCategoryIds: [] as string[],
+  includeBrandIds: [] as string[],
+  excludeBrandIds: [] as string[],
   firstOrderOnly: false,
   hiddenCode: false,
   abandonedCartOnly: false,
@@ -34,6 +42,19 @@ const initialVoucherForm = {
   internalNote: '',
   status: 'ACTIVE',
 };
+
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item));
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.map((item) => String(item)) : [];
+    } catch {
+      return value ? [value] : [];
+    }
+  }
+  return [];
+}
 
 type UseAdminVouchersLogicParams = {
   reloadCurrentTab: () => Promise<void>;
@@ -59,10 +80,9 @@ export function useAdminVouchersLogic({ reloadCurrentTab }: UseAdminVouchersLogi
       totalBudgetCap: voucherForm.totalBudgetCap || null,
       eligibleUserRegisteredAfter: voucherForm.eligibleUserRegisteredAfter || null,
       assignedUserId: voucherForm.assignedUserId || null,
-      includeProductIds: splitIds(voucherForm.includeProductIds),
-      excludeProductIds: splitIds(voucherForm.excludeProductIds),
-      includeCategoryIds: splitIds(voucherForm.includeCategoryIds),
-      excludeCategoryIds: splitIds(voucherForm.excludeCategoryIds),
+      includeProductIds: voucherForm.scopeType === 'INCLUDE_SELECTED' ? voucherForm.includeProductIds : [],
+      includeCategoryIds: voucherForm.scopeType === 'INCLUDE_SELECTED' ? voucherForm.includeCategoryIds : [],
+      includeBrandIds: voucherForm.scopeType === 'INCLUDE_SELECTED' ? voucherForm.includeBrandIds : [],
       startsAt: voucherForm.startsAt || null,
       endsAt: voucherForm.endsAt || null,
       hiddenCode: voucherForm.hiddenCode || voucherForm.audienceType === 'HIDDEN',
@@ -94,13 +114,26 @@ export function useAdminVouchersLogic({ reloadCurrentTab }: UseAdminVouchersLogi
       perIpLimit: Number(voucher.perIpLimit || 0),
       campaignType: voucher.campaignType || 'CONVERSION',
       audienceType: voucher.audienceType || 'PUBLIC',
-      eligibleTiers: Array.isArray(voucher.eligibleTiers) ? voucher.eligibleTiers : [],
+      displayTitle: voucher.displayTitle || '',
+      displayDescription: voucher.displayDescription || '',
+      publicTerms: voucher.publicTerms || '',
+      applicableChannels: asStringArray(voucher.applicableChannels).length ? asStringArray(voucher.applicableChannels) : ['WEB'],
+      applicablePaymentMethods: asStringArray(voucher.applicablePaymentMethods),
+      eligibleTiers: asStringArray(voucher.eligibleTiers),
       eligibleUserRegisteredAfter: voucher.eligibleUserRegisteredAfter ? String(voucher.eligibleUserRegisteredAfter).slice(0, 16) : '',
       assignedUserId: voucher.assignedUserId || '',
-      includeProductIds: Array.isArray(voucher.includeProductIds) ? voucher.includeProductIds.join(', ') : '',
-      excludeProductIds: Array.isArray(voucher.excludeProductIds) ? voucher.excludeProductIds.join(', ') : '',
-      includeCategoryIds: Array.isArray(voucher.includeCategoryIds) ? voucher.includeCategoryIds.join(', ') : '',
-      excludeCategoryIds: Array.isArray(voucher.excludeCategoryIds) ? voucher.excludeCategoryIds.join(', ') : '',
+      assignedUserIds: asStringArray(voucher.assignedUserIds).length ? asStringArray(voucher.assignedUserIds) : (voucher.assignedUserId ? [voucher.assignedUserId] : []),
+      scopeType: asStringArray(voucher.includeProductIds).length
+        || asStringArray(voucher.includeCategoryIds).length
+        || asStringArray(voucher.includeBrandIds).length
+        ? 'INCLUDE_SELECTED'
+        : 'ALL',
+      includeProductIds: asStringArray(voucher.includeProductIds),
+      excludeProductIds: asStringArray(voucher.excludeProductIds),
+      includeCategoryIds: asStringArray(voucher.includeCategoryIds),
+      excludeCategoryIds: asStringArray(voucher.excludeCategoryIds),
+      includeBrandIds: asStringArray(voucher.includeBrandIds),
+      excludeBrandIds: asStringArray(voucher.excludeBrandIds),
       firstOrderOnly: Boolean(voucher.firstOrderOnly),
       hiddenCode: Boolean(voucher.hiddenCode),
       abandonedCartOnly: Boolean(voucher.abandonedCartOnly),

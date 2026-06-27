@@ -7,9 +7,32 @@ export const adminOrdersApi = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
+  quoteCarrierShipment: (id: string, data: any) => request<any>(`/orders/${encodeURIComponent(id)}/carrier/quote`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  createCarrierShipment: (id: string, data: any) => request<any>(`/orders/${encodeURIComponent(id)}/carrier/shipment`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  cancelCarrierShipment: (id: string, data: any) => request<any>(`/orders/${encodeURIComponent(id)}/carrier/cancel`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  updateCarrierEvent: (id: string, data: any) => request<any>(`/orders/${encodeURIComponent(id)}/carrier/events`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
   createOrder: (data: any) => request<any>('/orders', {
     method: 'POST',
     body: JSON.stringify(data),
+  }),
+  getPaymentStatus: (id: string) => request<any>(`/payments/${encodeURIComponent(id)}`),
+  retryPayment: (id: string) => request<any>(`/payments/${encodeURIComponent(id)}/retry`, {
+    method: 'POST',
+  }),
+  cancelPayment: (id: string) => request<any>(`/payments/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
   }),
   updateOrderStatus: (id: string, status: string) => request(`/orders/${id}/status`, {
     method: 'PATCH',

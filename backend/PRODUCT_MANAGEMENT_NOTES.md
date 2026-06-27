@@ -1,5 +1,140 @@
 # Product Management Notes
 
+## Cập nhật 2026-06-27 - Sửa giá sản phẩm mua kèm trong đơn hàng
+
+- API chi tiết sản phẩm storefront và API danh sách sản phẩm admin nay fallback giá sản phẩm mua kèm từ biến thể active thấp nhất khi giá sản phẩm cha đang bằng `0`, tránh phụ kiện cấu hình theo sản phẩm đa biến thể bị đưa vào giỏ/POS với giá `0đ`.
+- `/admin/products` trả thêm `price` đã tính theo `discountType/discountValue` cho từng `salesConfig.accessoryOffers`, thay vì giữ nguyên giá cũ trong JSON cấu hình nếu trường này thiếu hoặc bằng 0.
+- Trang chi tiết sản phẩm không còn dùng trực tiếp `acc.price` khi hiển thị/thêm phụ kiện mua kèm vào giỏ; frontend tự tính lại từ `salePrice/normalDiscountPrice/originalPrice` và mức giảm để payload checkout không gửi `unit_price = 0`.
+
+## Cập nhật 2026-06-27 - Trả đủ dữ liệu giá dịch vụ đi kèm cho POS admin
+
+- `GET /admin/products` nay trả thêm `overridePrice` và luôn chuẩn hóa `metadata` cho từng `attachedServices`, để POS admin có đủ dữ liệu tính giá giống trang khách hàng.
+- Sản phẩm mua kèm trong `salesConfig.accessoryOffers` cũng được hydrate thêm `price`, `salePrice/discountPrice`, `originalPrice`, `normalDiscountPrice`, `imageUrl` và `stockQuantity`, để POS admin tính được giá mua kèm khi offer JSON không có sẵn giá.
+- Repository sản phẩm đọc thêm `product_attached_services.override_price`; frontend POS dùng trường này trước khi fallback sang `fixedPrice`, `percentValue/baseAmount` hoặc `metadata.priceTiers`.
+- Thay đổi này tránh lỗi dịch vụ đi kèm có cấu hình giá theo tier hoặc giá override nhưng hiển thị `0 đ` khi tạo đơn tại quầy.
+
+## Update 2026-06-27 - Ràng buộc IMEI phải có serial
+
+- Product sales config được chuẩn hóa khi lưu: nếu sản phẩm bật `imeiPolicy.trackImei` ở chế độ `MANUAL`, backend tự lưu `serialPolicy` về `MANUAL` và `trackSerialNumber = true`.
+- Form sản phẩm admin khóa checkbox IMEI khi serial hiệu lực chưa bật; admin phải bật serial trước rồi mới bật IMEI.
+- Nếu admin tắt serial thủ công, form tự tắt IMEI để tránh trạng thái sản phẩm có IMEI nhưng không có serial.
+- Verification: backend `py_compile` pass cho `product_helper_service.py`; frontend `npm run build` pass.
+
+## Update 2026-06-24 - Hiển thị danh sách sản phẩm mua kèm trong form admin
+
+- Form admin phần `Sản phẩm mua kèm giảm giá` không còn bắt buộc admin phải chọn danh mục/thương hiệu hoặc nhập từ khóa trước mới hiện danh sách; danh sách gợi ý được mở sẵn để tránh hiểu nhầm là không có dữ liệu.
+- Frontend phần chọn mua kèm nay gọi endpoint `GET /admin/products/suggestions` theo bộ lọc hiện tại và gộp với danh sách sản phẩm đã tải cục bộ, thay vì chỉ phụ thuộc vào 20 sản phẩm đang hiển thị ở bảng quản lý sản phẩm.
+- API suggestions trả thêm `stockQuantity` và `isSellable`, tính từ tổng tồn biến thể active hoặc tồn sản phẩm cha, để UI lọc và hiển thị đúng sản phẩm còn bán được.
+- Sửa lỗi hydrate các sản phẩm mua kèm đã chọn: backend đã tính `stock_quantity/status` trong truy vấn nhưng chưa đưa vào lookup, làm form admin luôn nhận `stockQuantity = 0` và báo nhầm `Hết hàng - đang khóa bán kèm`.
+- Bổ sung fallback resolve metadata mua kèm trực tiếp từ các `productId` trong `salesConfig.accessoryOffers`, phòng trường hợp dữ liệu cũ có offer trong JSON nhưng thiếu dòng tương ứng trong bảng `product_accessories`.
+- Bộ lọc danh mục của endpoint gợi ý mua kèm nay dùng nhánh `categories.path`, nên chọn danh mục cha như `Phụ kiện công nghệ` sẽ lấy cả sản phẩm thuộc các danh mục con/cháu thay vì chỉ so khớp trực tiếp `category_id/subcategory_id`.
+- Sửa lỗi `500` ở `/admin/products/suggestions` sau khi thêm lọc theo nhánh danh mục bằng cách ép kiểu rõ ràng các tham số UUID (`excludeId`, `categoryId`, `brandId`) trong SQL cho PostgreSQL/asyncpg.
+- Frontend fallback khi API gợi ý lỗi cũng lọc theo toàn bộ cây danh mục con/cháu thay vì chỉ lấy danh mục con trực tiếp; đồng thời đọc tồn qua `availableStock/stockQuantity/stock`.
+- Luồng lưu biến thể không còn bắt buộc ghi SKU sản phẩm cha bằng SKU biến thể mặc định nếu SKU đó đã thuộc sản phẩm active khác, tránh lỗi unique `idx_unique_active_product_sku` khi chỉ sửa cấu hình mua kèm.
+- Verification: `npm run lint` trong `frontend` pass; `python -m py_compile backend/app/infrastructure/database/repositories/product_repo.py` pass.
+
+## Update 2026-06-24 - Khắc phục lỗi tiếng Việt hiển thị tĩnh trên trang chi tiết sản phẩm
+
+- Phát hiện và sửa đổi toàn bộ các chuỗi văn bản tiếng Việt bị lỗi mã hóa (Mojibake) dạng double/triple UTF-8 encode trong file [ProductDetail.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/products/components/ProductDetail.tsx) (như các nhãn: `Đặc điểm nổi bật`, `Ưu đãi mua kèm`, `Dịch vụ đi kèm`, `Bảo hành`, `Đổi trả`, `Giao nhanh`, v.v.).
+- Khôi phục chính xác 100% tiếng Việt có dấu chuẩn Unicode UTF-8 để hiển thị đúng giao diện người dùng.
+
+## Update 2026-06-24 - Hiển thị đúng bảo hành và đổi trả trên chi tiết sản phẩm
+
+- Trang chi tiết sản phẩm nay lấy thẻ cam kết `Đổi trả ... ngày` và `Bảo hành ... tháng` từ `salesConfig.warrantyPolicy` thay vì hard-code `Đổi trả 7 ngày` và `Bảo hành 12 tháng`.
+- Nếu sản phẩm có cấu hình bảo hành 6 tháng, 18 tháng hoặc 1 đổi 1/đổi trả 30 ngày, storefront sẽ hiển thị đúng theo dữ liệu sản phẩm.
+- Với sản phẩm chưa có chính sách cụ thể, UI fallback sang nhãn chung `Đổi trả theo chính sách` và `Bảo hành theo hãng` để tránh đưa sai mốc thời gian.
+
+## Update 2026-06-24 - Sửa trạng thái tồn kho sản phẩm mua kèm trên trang chi tiết
+
+- API chi tiết sản phẩm nay tính `stockQuantity` của sản phẩm mua kèm từ cả tồn biến thể active, tồn thực tế trong `inventory_levels` và tồn sản phẩm cha, tránh trường hợp phụ kiện còn hàng nhưng bị trả về hết hàng.
+- Điều kiện lọc biến thể mua kèm được chuẩn hóa trạng thái không phân biệt hoa/thường để không bỏ sót biến thể `ACTIVE`.
+- Trang chi tiết sản phẩm không còn mặc định xem payload mua kèm thiếu `stockQuantity` là hết hàng; khi backend trả `isSellable=false` hoặc tồn bằng 0 thì vẫn khóa đúng theo yêu cầu.
+
+## Update 2026-06-24 - Ưu tiên sản phẩm bán kèm đang bán được
+
+- Thêm script `backend/scripts/assign_accessory_offers_for_devices.py` để gán tự động sản phẩm bán kèm cho nhóm Điện thoại, Laptop và Tablet.
+- Script chỉ chọn phụ kiện đang `ACTIVE` và còn tồn khả dụng, tối đa 4 sản phẩm bán kèm cho mỗi sản phẩm chính; đã chạy local và cập nhật 60 sản phẩm, tạo 240 quan hệ `product_accessories`.
+- Quy tắc giảm giá bán kèm: phụ kiện dưới 2.000.000đ giảm 10%; từ 2.000.000đ đến dưới 5.000.000đ giảm 300.000đ; từ 5.000.000đ trở lên giảm 400.000đ.
+- Bộ chọn được cân bằng để mỗi sản phẩm có cả phụ kiện giá nhỏ và phụ kiện giá trị cao thay vì chỉ toàn phụ kiện rẻ.
+- Danh sách chọn `Sản phẩm mua kèm giảm giá` trong form sản phẩm admin nay loại các sản phẩm không bán được: không `ACTIVE`, đã xóa/ẩn/ngừng hoặc không còn tồn ở sản phẩm/biến thể.
+- Kết quả chọn bán kèm được sắp xếp theo mức liên quan với sản phẩm đang chỉnh sửa: cùng danh mục/danh mục con, cùng thương hiệu, khớp tìm kiếm và tồn kho khả dụng cao hơn sẽ lên trước.
+- UI danh sách chọn bán kèm hiển thị nhanh tồn khả dụng dạng `Còn X` để admin tránh cấu hình sản phẩm không thể bán kèm thực tế.
+- API chi tiết sản phẩm tính tồn sản phẩm bán kèm bằng tổng tồn biến thể active trước, fallback về tồn sản phẩm cha; storefront nhận `isSellable` và `stockQuantity` đã chuẩn hóa.
+- Trang chi tiết sản phẩm khóa checkbox mua kèm khi sản phẩm bán kèm hết hàng và hiển thị `Hết hàng - tạm khóa mua kèm`; form admin cũng khóa các ô cấu hình của dòng bán kèm đã hết hàng.
+
+## Update 2026-06-24 - Bỏ thống kê ảo khỏi storefront chi tiết sản phẩm
+
+- API catalog đọc `rating` và `reviewCount` từ bảng `product_reviews` có trạng thái `PUBLISHED`, không dùng các cột seed sẵn `products.rating` và `products.review_count` cho storefront.
+- `soldCount` tiếp tục tính từ `order_items` của đơn `COMPLETED`; khi không có dữ liệu thật, trang chi tiết không hiển thị dòng `Đã bán 0`.
+- Trang chi tiết sản phẩm chỉ hiển thị số đánh giá và số đã bán khi giá trị lớn hơn 0, tránh tạo cảm giác có dữ liệu thống kê giả.
+- Baseline `init_database.sql` và các script seed bổ sung không còn ghi rating ảo cho sản phẩm mới; sản phẩm chưa có đánh giá thật giữ `rating = NULL`, `review_count = 0`.
+- Thêm script `backend/scripts/reconcile_product_engagement_stats.py` để đối soát lại `products.rating`, `products.review_count` và `products.favorite_count` từ `product_reviews`/`user_favorites`; đã chạy local và cập nhật 107 sản phẩm.
+
+## Update 2026-06-24 - Khóa trường định danh biến thể đã có ràng buộc
+
+- Luồng lưu sản phẩm admin nay kiểm tra ràng buộc dữ liệu trước khi cập nhật biến thể hiện có.
+- Nếu biến thể đã có tồn kho, chứng từ kho, giao dịch kho, đơn hàng, reservation, IMEI hoặc serial, backend trả `409` khi payload cố đổi SKU, màu sắc, dung lượng, RAM, cấu hình, thuộc tính hoặc thông số định danh của biến thể.
+- Các trường không phá lịch sử như giá, ảnh, trạng thái bán và biến thể mặc định vẫn được phép cập nhật qua form sản phẩm.
+- Biến thể hiện có không còn nhận `stockQuantity` từ payload catalog; tồn kho thực tế tiếp tục do module kho/nhập kho/xuất kho quản lý.
+- Biến thể mới tạo từ form sản phẩm bắt đầu với tồn kho `0`, sau đó phải nhập kho bằng chứng từ để có lịch sử truy vết.
+
+## Update 2026-06-24 - Kiểm tra lại ảnh và chuẩn hóa thông số kỹ thuật
+
+- Kiểm tra lại ảnh sản phẩm bằng contact sheet từ `frontend/public/images/products/*/auto/cover.*`, đồng thời đối soát DB để bảo đảm 103 sản phẩm active/draft đều có `image_url`, gallery và file ảnh local tồn tại.
+- Cập nhật thêm ảnh override đúng hơn cho Garmin Forerunner 965 và Anker Prime 100W GaN trong `backend/scripts/fix_product_image_overrides.py`.
+- Tạo script `backend/scripts/normalize_product_specifications.py` để chuẩn hóa các thông số cũ dùng nhãn tiếng Việt như `Màn hình`, `Chip xử lý`, `Độ phân giải`, `Công suất tối đa` sang các key chuẩn theo `categories.spec_fields` như `screen_size`, `processor`, `resolution`, `power`.
+- Chạy chuẩn hóa cho 56 sản phẩm, sau đó bổ sung thêm override thông số cho 11 phụ kiện có bộ field chung nhưng thiếu nhiều giá trị theo key chuẩn.
+- Verification: audit DB local cho kết quả `missing_media = 0`, `bad_local_files = 0`, `weak_by_category_fields = 0`; độ phủ thấp nhất còn lại là 6 field và 31% số field của danh mục; `py_compile` pass cho các script ảnh/thông số.
+
+## Update 2026-06-23 - Bổ sung ảnh cho sản phẩm và biến thể còn thiếu
+
+- Tạo script `backend/scripts/fill_missing_product_images.py` để tìm ảnh sản phẩm trên web, tải ảnh về `frontend/public/images/products/<slug>/auto`, rồi cập nhật `products.image_url`, `products.images` và ảnh cho các biến thể đang hoạt động.
+- Tạo script `backend/scripts/fix_product_image_overrides.py` để vá thủ công các sản phẩm bị kết quả tìm kiếm tự động chọn nhầm ảnh, gồm Mophie 3-in-1 MagSafe, Apple Watch Series 9, Xiaomi Smart Band 8, Xiaomi AW300, Huawei MatePad 12 X và Samsung Galaxy Tab S11.
+- Sửa dữ liệu media cũ có `images` lưu sai dạng chuỗi `"[]"`, các sản phẩm thiếu `image_url`, và các URL local trỏ tới file không tồn tại trong thư mục public.
+- Đồng bộ fallback ảnh từ sản phẩm cha xuống các biến thể active còn trống ảnh/gallery để trang chi tiết sản phẩm không bị mất ảnh khi chọn biến thể.
+- Verification: kiểm tra DB local cho 103 sản phẩm active/draft cho kết quả `missing_product_media = 0`, `bad_local_files = 0`, `variant_incomplete = 0`; `py_compile` pass cho hai script mới.
+
+## Update 2026-06-23 - Seed thêm các Phụ kiện công nghệ sạc Laptop chất lượng cao
+
+- Viết và thực thi thành công script [seed_laptop_accessories.py](file:///c:/Users/Huynh%2520Nhu/Downloads/Project/backend/scripts/seed_laptop_accessories.py) để bổ sung các sản phẩm phụ kiện sạc cao cấp chuyên dụng cho các dòng Laptop của các hãng:
+  - **Cáp sạc siêu công suất**: Cáp sạc Ugreen USB-C to USB-C 240W 2m (chuẩn PD 3.1 sạc nhanh cho MacBook/Dell/HP/ThinkPad), Cáp sạc nhanh Anker 765 USB-C to USB-C 140W Nylon 1.8m.
+  - **Cáp sạc MagSafe chuyên dụng**: Cáp sạc Apple USB-C sang MagSafe 3 2m (chuyên dụng cho Apple MacBook Pro và MacBook Air).
+  - **Củ sạc laptop công suất cao**: Củ sạc nhanh Anker Prime 100W GaN 3 cổng sạc đồng thời nhiều thiết bị.
+- Cấu hình đầy đủ thông số kỹ thuật (specifications), đa biến thể màu sắc, tối ưu hóa SEO.
+- Khởi tạo số lượng tồn kho đầy đủ trong bảng `inventory_levels` tại kho mặc định `MAIN`.
+- Tự động gán các dịch vụ bảo hành phụ kiện đi kèm phù hợp (`VIP-1D1-ACCESSORY-12M`, `S24-ACCESSORY-12M`) vào bảng quan hệ `product_attached_services` và cập nhật trường JSONB `sales_config.attachedServices` trong bảng `products`.
+
+## Update 2026-06-23 - Seed thêm 9 sản phẩm Camera an ninh, Máy ảnh và Phụ kiện mới
+
+- Viết và thực thi thành công script [seed_more_cameras_accessories.py](file:///c:/Users/Huynh%2520Nhu/Downloads/Project/backend/scripts/seed_more_cameras_accessories.py) để bổ sung 9 sản phẩm chất lượng cao thuộc các nhóm:
+  - **Camera an ninh**: Camera IP Wifi Ezviz C6N 1080p, Camera IP Wifi Ngoài Trời Imou Bullet 2C, Camera an ninh ngoài trời xoay 360 Xiaomi AW300.
+  - **Máy ảnh**: Sony Alpha A6400 (Kèm Lens 16-50mm), Canon EOS 1500D (Kèm Lens 18-55mm), Fujifilm X-T30 II (Body).
+  - **Phụ kiện công nghệ**: Sạc dự phòng Anker PowerCore Slim 10,000mAh PD 20W, Hub chuyển đổi đa năng Ugreen 6-in-1 USB-C sang HDMI 4K, Củ sạc nhanh Baseus GaN6 Pro 45W.
+- Cấu hình đầy đủ thông số kỹ thuật (specifications), đa biến thể màu sắc, tối ưu hóa SEO.
+- Khởi tạo số lượng tồn kho đầy đủ trong bảng `inventory_levels` tại kho mặc định `MAIN`.
+- Tự động gán các dịch vụ bảo hành phụ kiện đi kèm phù hợp (`VIP-1D1-ACCESSORY-12M`, `S24-ACCESSORY-12M`) vào bảng quan hệ `product_attached_services` và cập nhật trường JSONB `sales_config.attachedServices` trong bảng `products`.
+
+## Update 2026-06-23 - Seed thêm 15 sản phẩm công nghệ đa dạng mới
+
+- Viết và thực thi thành công script [seed_15_more_products.py](file:///c:/Users/Huynh%2520Nhu/Downloads/Project/backend/scripts/seed_15_more_products.py) để bổ sung 15 sản phẩm công nghệ đa dạng thuộc các danh mục Đồng hồ thông minh, Máy tính bảng, Điện thoại và Camera từ các hãng Apple, Samsung, Xiaomi, Garmin, GoPro, DJI, Ezviz, realme, vivo.
+- Cấu hình đầy đủ các biến thể màu sắc (variants) tương ứng, thiết lập thông số kỹ thuật (specifications) chi tiết và tối ưu SEO.
+- Khởi tạo số lượng tồn kho đầy đủ cho từng biến thể trong bảng `inventory_levels` tại kho mặc định `MAIN`.
+- Gán tự động các dịch vụ bảo hành đi kèm phù hợp theo danh mục sản phẩm (sản phẩm di động dùng dịch vụ bảo hành di động, camera/đồ đeo dùng dịch vụ bảo hành phụ kiện/đồ đeo tương ứng) vào cả bảng quan hệ `product_attached_services` và trường JSONB `sales_config.attachedServices` trong bảng `products`.
+
+## Update 2026-06-23 - Seed thêm 15 sản phẩm Phụ kiện công nghệ mới
+
+- Viết và thực thi thành công script [seed_15_accessories.py](file:///c:/Users/Huynh%2520Nhu/Downloads/Project/backend/scripts/seed_15_accessories.py) để bổ sung 15 sản phẩm phụ kiện công nghệ chất lượng cao (cáp sạc Type-C/Lightning, sạc nhanh GaN, sạc không dây MagSafe, tai nghe True Wireless, tai nghe chụp tai, tai nghe gaming, sạc dự phòng, bàn phím và chuột gaming) từ các hãng Apple, Anker, Ugreen, Belkin, Mophie, Sony, JBL, Razer, Marshall.
+- Cấu hình đầy đủ các biến thể màu sắc (variants) tương ứng, thiết lập thông số kỹ thuật (specifications), cấu hình tối ưu SEO.
+- Khởi tạo số lượng tồn kho đầy đủ cho từng biến thể trong bảng `inventory_levels` tại kho mặc định `MAIN`.
+- Gán sẵn các dịch vụ bảo hành đi kèm phù hợp (`VIP-1D1-ACCESSORY-12M`, `S24-ACCESSORY-12M`) vào cả bảng quan hệ `product_attached_services` và trường JSONB `sales_config.attachedServices` trong bảng `products`.
+
+## Update 2026-06-23 - Gán tự động dịch vụ đi kèm cho toàn bộ sản phẩm
+
+- Viết và chạy script `backend/scripts/seed_product_services.py` để tự động gán các dịch vụ đi kèm (attached services) phù hợp cho toàn bộ 64 sản phẩm đang kinh doanh.
+- Phân loại sản phẩm theo danh mục (`Điện thoại`, `Máy tính bảng`, `Máy tính xách tay`, `Phụ kiện công nghệ`, `Đồng hồ thông minh`, `Camera`, `Máy ảnh`) để gán các dịch vụ bảo hành mở rộng, bảo hành 1 đổi 1 VIP, dán cường lực, sao lưu dữ liệu, cài đặt tối ưu hệ thống, nâng cấp phần cứng và vệ sinh máy.
+- Quy tắc gán đảm bảo tính duy nhất theo nhóm thuộc tính (`attribute_group` / unique service group) để không xảy ra xung đột khi khách hàng lựa chọn dịch vụ ở giỏ hàng và checkout.
+- Đồng bộ hóa các bản ghi trong bảng quan hệ `product_attached_services` đồng thời cập nhật trường JSONB `sales_config.attachedServices` trong bảng `products`.
+
 ## Update 2026-06-20 - Chống trùng lịch và ưu tiên Flash Sale biến thể
 
 - API chặn tạo hoặc cập nhật hai Flash Sale `ACTIVE` chồng thời gian cho cùng một target: cùng toàn sản phẩm hoặc cùng một biến thể.
@@ -313,7 +448,7 @@
 
 ## Update 2026-06-05 backend product variant refactor
 
-- Đã hoàn thành tách và cấu trúc lại module quản lý biến thể sản phẩm (`admin_product_variants.py`) theo mô hình Controller - Service - Repository:
+- Đã hoàn thành tách và cấu trúc lại mô-đun quản lý biến thể sản phẩm (`admin_product_variants.py`) theo mô hình Controller - Service - Repository:
   - **Router tinh gọn**: [admin_product_variants.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/api/v1/routers/admin_product_variants.py) hiện tại chỉ còn endpoint xóa biến thể sản phẩm và chuyển tiếp lời gọi sang lớp Service.
   - **Lớp Service (Logic nghiệp vụ)**: Chuyển toàn bộ logic xử lý nghiệp vụ liên quan sang [product_variant_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/product_variant_service.py), bao gồm:
     - Hàm thêm mới và cập nhật biến thể sản phẩm (`upsert_product_variants`).
@@ -375,39 +510,10 @@
 - Sửa thứ tự đóng popup sản phẩm: `closeSignal` dùng layout effect và `handleProductSubmit` chờ một frame trước khi reset form, tránh modal còn mở nhưng nội dung đã nhảy sang form thêm mới.
 - Sửa lưu/mở lại ROM biến thể trong bản chỉnh sửa: frontend chuẩn hóa key biến thể từ label tiếng Việt như `Bộ nhớ trong` về key `storage`, backend validate option/attribute bằng Unicode normalized và fallback map `Bộ nhớ trong`/`ROM` vào cột `product_variants.storage`. Đã test tạo revision tạm với ROM `999GB`, DB lưu đúng `storage = 999GB`, rồi xóa revision test.
 
-## Update 2026-06-03 iPhone 17 Pro Max uses iPhone 17 Pro images
-
-- Theo y?u c?u, d?ng `iPhone 17 Pro Max` d?ng chung b? ?nh t? `iPhone 17 Pro` t?i `frontend/public/images/products/iphone-17-pro`.
-- Th?m script `backend/scripts/update_iphone_17_pro_max_images_from_pro.py` ?? c?p nh?t `products.image_url`, `products.images`, `product_variants.image_url`, `product_variants.images` cho d?ng `iPhone 17 Pro Max`.
-- ?? ch?y script tr?n DB local cho SKU ch?nh `IP17PM` v? b?n l?u tr? `REV-D3490FAAC5`.
-- C?c m?u ???c g?n t??ng ?ng: B?c d?ng `silver`, Cam V? Tr? d?ng `cosmic-orange`, Xanh S?u d?ng `deep-blue`; c?c bi?n th? Pro Max thi?u m?u ???c chuy?n v? Cam V? Tr? ?? kh?ng c?n d?ng ?nh placeholder.
-
 ## Update 2026-06-03 storefront shared product video
 
 - Trang chi tiết sản phẩm nay ưu tiên hiển thị video dùng chung ở đầu gallery nếu sản phẩm có `videoUrl`, giống cách CellphoneS đặt thumbnail "Video" làm media đầu tiên.
 - Khi gallery mở bằng video, ảnh dùng cho giỏ hàng vẫn fallback sang ảnh sản phẩm hoặc ảnh biến thể đầu tiên để không lưu URL video làm ảnh sản phẩm trong cart.
-
-## Update 2026-06-03 iPhone 17 Pro image gallery
-
-- ?? copy ?nh ng??i d?ng cung c?p t? th? m?c `iphone 17 pro` v?o `frontend/public/images/products/iphone-17-pro`.
-- ?nh ???c chia theo m?u:
-  - `silver`: B?c, g?m ?nh ??i di?n v? 7 ?nh gallery.
-  - `cosmic-orange`: Cam V? Tr?, g?m ?nh ??i di?n v? 7 ?nh gallery.
-  - `deep-blue`: Xanh S?u, g?m ?nh ??i di?n v? 4 ?nh gallery.
-  - `common`: 7 ?nh d?ng chung cho trang chi ti?t s?n ph?m.
-- Th?m script `backend/scripts/update_iphone_17_pro_images.py` ?? c?p nh?t ?nh s?n ph?m v? ?nh bi?n th? cho d?ng `iPhone 17 Pro`.
-- ?? ch?y script tr?n DB local cho SKU ch?nh `IP17P` v? hai b?n l?u tr? `REV-*`; kh?ng c?p nh?t `iPhone 17` th??ng ho?c `iPhone 17 Pro Max`.
-
-## Update 2026-06-03 iPhone 17 image gallery
-
-- ?? copy ?nh ng??i d?ng cung c?p t? th? m?c `iphone 17` v?o `frontend/public/images/products/iphone-17`.
-- ?nh ???c chia theo m?u:
-  - `black`: ?en, g?m ?nh ??i di?n v? 2 ?nh gallery.
-  - `white`: Tr?ng, g?m ?nh ??i di?n.
-  - `mist-blue`: Xanh S??ng M?, g?m ?nh ??i di?n v? 1 ?nh gallery.
-  - `common`: 9 ?nh d?ng chung cho trang chi ti?t s?n ph?m.
-- Th?m script `backend/scripts/update_iphone_17_images.py` ?? c?p nh?t `products.image_url`, `products.images`, `product_variants.image_url`, `product_variants.images`.
-- ?? ch?y script tr?n DB local cho hai b?n `iPhone 17` ?ang t?n t?i: SKU ch?nh `IP17` v? b?n nh?p ch?nh s?a `IP17-BK-256GB`; kh?ng c?p nh?t c?c d?ng `iPhone 17 Pro` ho?c `iPhone 17 Pro Max`.
 
 ## Update 2026-06-03 Revert image card UI
 
@@ -421,21 +527,21 @@
 
 ## Update 2026-05-22
 
-- Giu lai cac thong tin chinh cua san pham nhu cu.
-- Hinh anh dai dien chung la anh duy nhat o cap san pham.
-- Bo phan gallery hinh anh chung trong form admin de tranh trung voi hinh anh theo bien the.
-- Video san pham la video dung chung cho toan bo san pham, luu o cap `products.video_url`.
-- Form admin bo sung preview cho:
-  - anh dai dien chung
-  - video dung chung
-  - hinh anh bien the theo mau sac
-- Bien the uu tien truc mau sac truoc, sau do moi den thong so ky thuat va gia.
-- Mua kem giam gia:
-  - admin chon san pham mua kem tu danh sach san pham
-  - cau hinh giam theo `FIXED` hoac `PERCENT`
-  - cau hinh so luong toi da duoc giam gia theo tung san pham mua kem
-  - cau hinh duoc luu trong `products.sales_config.accessoryOffers`
-  - bang `product_accessories` tiep tuc giu vai tro quan he de tra cuu nhanh
+- Giữ lại các thông tin chính của sản phẩm như cũ.
+- Hình ảnh đại diện chung là ảnh duy nhất ở cấp sản phẩm.
+- Bỏ phần gallery hình ảnh chung trong form admin để tránh trùng với hình ảnh theo biến thể.
+- Video sản phẩm là video dùng chung cho toàn bộ sản phẩm, lưu ở cấp `products.video_url`.
+- Form admin bổ sung preview cho:
+  - ảnh đại diện chung
+  - video dùng chung
+  - hình ảnh biến thể theo màu sắc
+- Biến thể ưu tiên trục màu sắc trước, sau đó mới đến thông số kỹ thuật và giá.
+- Mua kèm giảm giá:
+  - admin chọn sản phẩm mua kèm từ danh sách sản phẩm
+  - cấu hình giảm theo `FIXED` hoặc `PERCENT`
+  - cấu hình số lượng tối đa được giảm giá theo từng sản phẩm mua kèm
+  - cấu hình được lưu trong `products.sales_config.accessoryOffers`
+  - bảng `product_accessories` tiếp tục giữ vai trò quan hệ để tra cứu nhanh
 - Cau truc `sales_config.accessoryOffers`:
 
 ```json
@@ -449,79 +555,79 @@
 ]
 ```
 
-- Quy tac tinh gia o checkout can ap dung:
-  - chi giam cho so luong nam trong `maxQuantity`
-  - so luong vuot muc giam gia se tinh theo gia goc
-  - san pham mua kem chi duoc giam khi cung hoa don voi san pham chinh
+- Quy tắc tính giá ở checkout cần áp dụng:
+  - chỉ giảm cho số lượng nằm trong `maxQuantity`
+  - số lượng vượt mức giảm giá sẽ tính theo giá gốc
+  - sản phẩm mua kèm chỉ được giảm khi cùng hóa đơn với sản phẩm chính
 
-## Ghi chu pham vi
+## Ghi chú phạm vi
 
-- Ban cap nhat nay hoan thien phan quan tri san pham va API luu cau hinh.
-- Neu can ap dung gia mua kem tren gio hang/checkout, tiep tuc doc file nay truoc khi sua logic don hang.
+- Bản cập nhật này hoàn thiện phần quản trị sản phẩm và API lưu cấu hình.
+- Nếu cần áp dụng giá mua kèm trên giỏ hàng/checkout, tiếp tục đọc file này trước khi sửa logic đơn hàng.
 
 ## Update 2026-05-23
 
-- Bo phan SEO khoi form quan tri san pham; product SEO metadata cu van duoc doc neu ton tai nhung admin khong nhap moi o man hinh nay.
-- San pham ban kem tiep tuc luu trong `products.sales_config.accessoryOffers`, nhung UI chon bang bo loc danh muc, thuong hieu va tim kiem san pham.
-- UI cho phep chon tat ca san pham trong ket qua loc hien tai; moi san pham mua kem co gia/uu dai do admin set rieng bang `discountType`, `discountValue`, `maxQuantity`.
-- Bien the duoc sap xep va nhap theo mau sac la truc chinh. Cac cau hinh khac nhau cua cung mau van nam trong danh sach bien the nhung UI uu tien nhom theo mau de admin de nhap hon.
-- SKU bien the co the do admin nhap; neu de trong thi frontend/backend tu tao theo viet tat ten san pham + viet tat mau + so thu tu, vi du `IPM-DT-01`.
-- Dich vu di kem da co nen du lieu qua `attached_services` va `product_attached_services`:
-  - `PRODUCT_SERVICE`: bao hanh/mo rong bao hanh gan voi san pham/IMEI, tinh gia theo tien co dinh, phan tram, hoac dinh muc.
-  - `SUPPORT_SERVICE`: lap dat, ve sinh, ho tro... do admin set gia co dinh hoac cau hinh rieng.
-- Khi lam tiep gio hang/checkout, can xu ly rule moi: trong cung mot `attribute_group` cua dich vu san pham, nguoi mua chi duoc chon mot lua chon.
-- Admin da co man `Dich vu` de tao/sua/an danh sach dich vu di kem.
-- Form san pham da co khu `Dich vu di kem`, cho chon nhieu dich vu tu danh sach da tao va dat `overridePrice` rieng theo san pham neu can.
-- Product form co them `sales_config.warrantyPolicy` de san pham co the:
-  - lay mac dinh bao hanh/1 doi 1 tu danh muc
-  - hoac admin override thang bao hanh va so ngay 1 doi 1 rieng theo san pham
-- Khi chon danh muc cha/con, neu san pham dang bat "theo danh muc" thi UI tu nap `warrantyPolicy` tu danh muc uu tien cao nhat.
-- Khi chon dich vu di kem trong product form, UI chan viec chon hai dich vu cung `serviceType + attributeGroup`; backend cung bo qua dich vu trung nhom khi dong bo bang `product_attached_services`.
-- Da them `AGENTS.md` vao goc project de ghi nho cach dung CodeGraph va cac file notes can doc truoc khi sua module nay.
+- Bỏ phần SEO khỏi form quản trị sản phẩm; product SEO metadata cũ vẫn được đọc nếu tồn tại nhưng admin không nhập mới ở màn hình này.
+- Sản phẩm bán kèm tiếp tục lưu trong `products.sales_config.accessoryOffers`, nhưng UI chọn bằng bộ lọc danh mục, thương hiệu và tìm kiếm sản phẩm.
+- UI cho phép chọn tất cả sản phẩm trong kết quả lọc hiện tại; mỗi sản phẩm mua kèm có giá/ưu đãi do admin set riêng bằng `discountType`, `discountValue`, `maxQuantity`.
+- Biến thể được sắp xếp và nhập theo màu sắc là trục chính. Các cấu hình khác nhau của cùng màu vẫn nằm trong danh sách biến thể nhưng UI ưu tiên nhóm theo màu để admin dễ nhập hơn.
+- SKU biến thể có thể do admin nhập; nếu để trống thì frontend/backend tự tạo theo viết tắt tên sản phẩm + viết tắt màu + số thứ tự, ví dụ `IPM-DT-01`.
+- Dịch vụ đi kèm đã có nền dữ liệu qua `attached_services` và `product_attached_services`:
+  - `PRODUCT_SERVICE`: bảo hành/mở rộng bảo hành gắn với sản phẩm/IMEI, tính giá theo tiền cố định, phần trăm, hoặc định mức.
+  - `SUPPORT_SERVICE`: lắp đặt, vệ sinh, hỗ trợ... do admin set giá cố định hoặc cấu hình riêng.
+- Khi làm tiếp giỏ hàng/checkout, cần xử lý rule mới: trong cùng một `attribute_group` của dịch vụ sản phẩm, người mua chỉ được chọn một lựa chọn.
+- Admin đã có màn `Dịch vụ` để tạo/sửa/ẩn danh sách dịch vụ đi kèm.
+- Form sản phẩm đã có khu `Dịch vụ đi kèm`, cho chọn nhiều dịch vụ từ danh sách đã tạo và đặt `overridePrice` riêng theo sản phẩm nếu cần.
+- Product form có thêm `sales_config.warrantyPolicy` để sản phẩm có thể:
+  - lấy mặc định bảo hành/1 đổi 1 từ danh mục
+  - hoặc admin override thẳng bảo hành và số ngày 1 đổi 1 riêng theo sản phẩm
+- Khi chọn danh mục cha/con, nếu sản phẩm đang bật "theo danh mục" thì UI tự nạp `warrantyPolicy` từ danh mục ưu tiên cao nhất.
+- Khi chọn dịch vụ đi kèm trong product form, UI chặn việc chọn hai dịch vụ cùng `serviceType + attributeGroup`; backend cũng bỏ qua dịch vụ trùng nhóm khi đồng bộ bằng `product_attached_services`.
+- Đã thêm `AGENTS.md` vào gốc project để ghi nhớ cách dùng CodeGraph và các file notes cần đọc trước khi sửa module này.
 
-## Update 2026-05-23 bo sung
+## Update 2026-05-23 bổ sung
 
-- Form san pham da bo o nhap tay `Combo/bundle: SKU/ID`; luong ban kem chuyen sang chon san pham tu danh sach loc.
-- Khu san pham mua kem hien danh sach chon ngay sau khi admin loc theo danh muc, thuong hieu hoac tim theo ten/SKU; co nut chon tat ca ket qua dang loc.
-- Khu dich vu di kem trong form san pham khong cho nhap tay. Admin loc/chon tu danh sach `attached_services` da tao theo loai dich vu, nhom dich vu va tu khoa.
-- Khi chon dich vu di kem, UI hien loai dich vu, nhom, thoi han bao hanh va gia de admin phan biet cac goi 3/6/9/12/18/24/36 thang.
-- Danh sach san pham mua kem trong form admin hien tu du lieu san pham da load san, khong phu thuoc API suggest nen loc danh muc/thuong hieu se co ket qua ngay neu du lieu tren bang dang co san pham phu hop.
-- Popup them/sua san pham, danh muc, thuong hieu, voucher va noi dung co `forceOpenKey` theo id dang sua de khi chuyen sang item khac popup tu mo lai, tranh phai reload trang.
-- Popup them/sua cung goi ham reset form khi dong, de admin co the dong roi bam sua lai dung cung item ma khong can reload trang.
+- Form sản phẩm đã bỏ ô nhập tay `Combo/bundle: SKU/ID`; luồng bán kèm chuyển sang chọn sản phẩm từ danh sách lọc.
+- Khu sản phẩm mua kèm hiện danh sách chọn ngay sau khi admin lọc theo danh mục, thương hiệu hoặc tìm theo tên/SKU; có nút chọn tất cả kết quả đang lọc.
+- Khu dịch vụ đi kèm trong form sản phẩm không cho nhập tay. Admin lọc/chọn từ danh sách `attached_services` đã tạo theo loại dịch vụ, nhóm dịch vụ và từ khóa.
+- Khi chọn dịch vụ đi kèm, UI hiện loại dịch vụ, nhóm, thời hạn bảo hành và giá để admin phân biệt các gói 3/6/9/12/18/24/36 tháng.
+- Danh sách sản phẩm mua kèm trong form admin hiện từ dữ liệu sản phẩm đã load sẵn, không phụ thuộc API suggest nên lọc danh mục/thương hiệu sẽ có kết quả ngay nếu dữ liệu trên bảng đang có sản phẩm phù hợp.
+- Popup thêm/sửa sản phẩm, danh mục, thương hiệu, voucher và nội dung có `forceOpenKey` theo id đang sửa để khi chuyển sang item khác popup tự mở lại, tránh phải reload trang.
+- Popup thêm/sửa cũng gọi hàm reset form khi đóng, để admin có thể đóng rồi bấm sửa lại đúng cùng item mà không cần reload trang.
 
-## Update 2026-05-23 chinh sach dich vu moi
+## Update 2026-05-23 chính sách dịch vụ mới
 
-- Danh sach dich vu bao hanh mo rong da cap nhat theo chinh sach ElectroMart Viet Nam:
-  - 1 doi 1 VIP
-  - Roi vo - roi nuoc
+- Danh sách dịch vụ bảo hành mở rộng đã cập nhật theo chính sách ElectroMart Việt Nam:
+  - 1 đổi 1 VIP
+  - Rơi vỡ - rơi nước
   - S24+
-- Cac goi bao hanh nay khong con tinh theo phan tram co dinh; da chuyen sang `TIERED_AMOUNT` va luu bieu phi trong `attached_services.metadata.priceTiers`.
-- Product form va bang dich vu hien thi goi `TIERED_AMOUNT` la "Theo bieu phi" de admin khong hieu nham la gia 0 dong.
-- UI them/sua dich vu bo sung nhom `ACCIDENTAL_DAMAGE` cho goi roi vo - roi nuoc.
+- Các gói bảo hành này không còn tính theo phần trăm cố định; đã chuyển sang `TIERED_AMOUNT` và lưu biểu phí trong `attached_services.metadata.priceTiers`.
+- Product form và bảng dịch vụ hiển thị gói `TIERED_AMOUNT` là "Theo biểu phí" để admin không hiểu nhầm là gia 0 đồng.
+- UI thêm/sửa dịch vụ bổ sung nhóm `ACCIDENTAL_DAMAGE` cho gói rơi vỡ - rơi nước.
 
-## Update 2026-05-23 khoa gia dich vu theo chinh sach
+## Update 2026-05-23 khóa giá dịch vụ theo chính sách
 
-- Product form da bo o `overridePrice` trong khu dich vu di kem; san pham chi gan ma goi dich vu, khong nhap gia rieng theo san pham.
-- Backend bo qua gia override khi dong bo `product_attached_services` va luon luu `override_price = NULL`.
-- Gia cac goi bao hanh/dich vu san pham lay theo chinh sach trong `attached_services`, dac biet cac goi `PRODUCT_SERVICE` dung `TIERED_AMOUNT` va `metadata.priceTiers`.
+- Product form đã bỏ ô `overridePrice` trong khu dịch vụ đi kèm; sản phẩm chỉ gán mã gói dịch vụ, không nhập giá riêng theo sản phẩm.
+- Backend bỏ qua giá override khi đồng bộ `product_attached_services` và luôn lưu `override_price = NULL`.
+- Giá các gói bảo hành/dịch vụ sản phẩm lấy theo chính sách trong `attached_services`, đặc biệt các gói `PRODUCT_SERVICE` dùng `TIERED_AMOUNT` và `metadata.priceTiers`.
 
 ## Update 2026-05-30 product view analytics
 
-- Luot xem san pham khong con duoc cong ngay khi mo trang chi tiet.
-- Frontend dung `useViewTracker` gui heartbeat khi tab dang active, kem `activeSeconds`, `scrollDepth`, `sessionId` va `deviceId`.
-- Backend endpoint `POST /api/v1/catalog/products/{product_id}/view` chi ghi `product_view_events` khi du 30 giay active hoac scroll toi thieu 50%.
-- Khi Redis kha dung, backend tich luy state theo key `product_view:state:{product_id}:{identity}` va khoa trung 24 gio bang `product_view:valid:{product_id}:{identity}`.
-- Neu Redis khong kha dung trong moi truong local, backend fallback sang rule DB: chi ghi khi heartbeat da dat nguong va van dedupe trong 24 gio theo device/session/IP/user-agent.
-- Bang `product_view_events` co them `device_id`, `duration_seconds`, `scroll_depth`; rankings lay `viewCount` tu valid event thay vi du lieu admin/gia lap.
+- Lượt xem sản phẩm không còn được cộng ngay khi mở trang chi tiết.
+- Frontend dùng `useViewTracker` gửi heartbeat khi tab đang active, kèm `activeSeconds`, `scrollDepth`, `sessionId` và `deviceId`.
+- Backend endpoint `POST /api/v1/catalog/products/{product_id}/view` chỉ ghi `product_view_events` khi đủ 30 giây active hoặc scroll tối thiểu 50%.
+- Khi Redis khả dụng, backend tích lũy state theo key `product_view:state:{product_id}:{identity}` và khóa trùng 24 giờ bằng `product_view:valid:{product_id}:{identity}`.
+- Nếu Redis không khả dụng trong môi trường local, backend fallback sang rule DB: chỉ ghi khi heartbeat đã đạt ngưỡng và vẫn dedupe trong 24 giờ theo device/session/IP/user-agent.
+- Bảng `product_view_events` có thêm `device_id`, `duration_seconds`, `scroll_depth`; rankings lấy `viewCount` từ valid event thay vì dữ liệu admin/giả lập.
 
 ## Update 2026-05-30 admin upload refactor
 
-- Admin upload routes duoc tach khoi `backend/app/api/v1/routers/admin.py` sang `backend/app/api/v1/routers/admin_uploads.py`.
-- Endpoint upload local tiep tuc giu URL cu `/api/v1/admin/uploads/local/{folder}/{filename}` nhung nay yeu cau quyen `product:create`, dong bo voi buoc tao presigned upload.
+- Admin upload routes được tách khỏi `backend/app/api/v1/routers/admin.py` sang `backend/app/api/v1/routers/admin_uploads.py`.
+- Endpoint upload local tiếp tục giữ URL cũ `/api/v1/admin/uploads/local/{folder}/{filename}` nhưng nay yêu cầu quyền `product:create`, đồng bộ với bước tạo presigned upload.
 
 ## Update 2026-05-30 frontend refactor
 
-- Da tach phan logic va state quan ly san pham ra khoi `useAdminLogic.ts` sang hook rieng biet `useAdminProductsLogic.ts` de lam sach va modul hoa frontend code.
+- Đã tách phần logic và state quản lý sản phẩm ra khỏi `useAdminLogic.ts` sang hook riêng biệt `useAdminProductsLogic.ts` để làm sạch và mô-đun hóa frontend code.
 
 ## Update 2026-05-30 flat variant completion
 
@@ -535,13 +641,13 @@
 
 ## Update 2026-05-30 flat variants & default variant refactor
 
-- Thong nhat module quan ly san pham va bien the:
-  - Moi san pham co it nhat mot bien thể.
-  - San pham don gian khong co lua chon duoc tu dong tao mot default variant trong DB.
-  - SKU cua bien the dang active la duy nhat trong toan he thong, nhung SKU cua bien the da bi xoa mem co the duoc tai su dung.
-  - Bat buoc moi san pham chi co dung mot bien the mac dinh (`is_default = true`) tai moi thoi diem.
-  - Ho tro xoa mem bien the (`deleted_at IS NULL`). Ngang chan xoa bien the cuoi cung cua san pham (`CANNOT_DELETE_LAST_VARIANT`). Tu dong gan bien the hoat dong tiep theo lam mac dinh neu bien the mac dinh bi xoa.
-  - Bo loc `deleted_at IS NULL` duoc ap dung dong bo o storefront catalog (`catalog.py`), quan ly ton kho (`admin_inventory.py`), va quan ly san pham (`admin_products.py`).
+- Thống nhất mô-đun quản lý sản phẩm và biến thể:
+  - Mỗi sản phẩm có ít nhất một biến thể.
+  - Sản phẩm đơn giản không có lựa chọn được tự động tạo một default variant trong DB.
+  - SKU của biến thể đang active là duy nhất trong toàn hệ thống, nhưng SKU của biến thể đã bị xóa mềm có thể được tái sử dụng.
+  - Bắt buộc mỗi sản phẩm chỉ có đúng một biến thể mặc định (`is_default = true`) tại mỗi thời điểm.
+  - Hỗ trợ xóa mềm biến thể (`deleted_at IS NULL`). Ngăn chặn xóa biến thể cuối cùng của sản phẩm (`CANNOT_DELETE_LAST_VARIANT`). Tự động gán biến thể hoạt động tiếp theo làm mặc định nếu biến thể mặc định bị xóa.
+  - Bộ lọc `deleted_at IS NULL` được áp dụng đồng bộ ở storefront catalog (`catalog.py`), quản lý tồn kho (`admin_inventory.py`), và quản lý sản phẩm (`admin_products.py`).
 
 ## Update 2026-05-31 admin product pagination
 
@@ -709,9 +815,8 @@
   - Không fallback rating về `4.8`.
   - Không fallback đã bán về `128`.
   - Khi chưa có dữ liệu, rating hiển thị "Chưa có đánh giá", số đánh giá và đã bán hiển thị `0`.
-- Frontend không còn thay ảnh sản phẩm theo bảng ảnh demo trong `apiDb.ts`; ảnh sản phẩm lấy từ dữ liệu backend/database và chỉ được chuẩn hóa URL.
+- Frontend không còn thay ảnh sản phẩm theo bảng ảnh demo cũ; ảnh sản phẩm lấy từ dữ liệu backend/database và chỉ được chuẩn hóa URL.
 - API chi tiết sản phẩm tính `rating`, `reviewCount`, `favoriteCount` trực tiếp từ `product_reviews` và `user_favorites`; `soldCount` tiếp tục tính từ `order_items` của đơn `COMPLETED`.
-
 ## Update 2026-06-03 storefront product detail variant configuration
 
 - Trang chi tiết sản phẩm đổi khu chọn "Phiên bản" thành "Cấu hình" để người mua biết rõ biến thể đang chọn theo thông số nào.
@@ -842,7 +947,6 @@
 - Khi sửa sản phẩm, frontend map lại đúng `stockQuantity` và `salePrice` của biến thể để tránh mất tồn kho hoặc giá bán sau khi lưu.
 - Backend chỉ đồng bộ giá/tồn kho cha từ biến thể khi sản phẩm thật sự còn biến thể; sản phẩm đơn giản giữ nguyên giá và tồn kho chung.
 - Sửa thêm lỗi lọc `status=all` trong danh sách admin và lỗi nhân bản sản phẩm do PostgreSQL không suy luận được kiểu của hậu tố SKU.
-- Tách frontend API sản phẩm: thêm `frontend/src/services/productApi.ts` cho các endpoint admin product, chuyển `useAdminProductsLogic.ts`, `AdminProductsTab.tsx` và phần load product trong `useAdminLogic.ts` sang service này. Các endpoint admin product đã chuyển được gỡ khỏi `apiDb`; các endpoint tồn kho liên quan sản phẩm vẫn giữ tạm để tách sang `inventoryApi` sau.
 - Sau khi tách thêm hook product/variant, `useAdminProductVariants.ts` trả thêm `colorOptionName` để `useAdminProductsLogic.ts` map lại màu biến thể khi mở form chỉnh sửa. Sửa import thiếu `youtubeEmbedUrl` và `ImageWithFallback` ở `ProductDetail.tsx` sau khi tách helper media.
 
 ## Update 2026-06-05 Frontend feature-first refactor for Products & Brands
@@ -850,16 +954,12 @@
 - Hoàn thành di chuyển toàn bộ module **Thương hiệu (Brands)** và **Sản phẩm (Products)** ở Frontend sang cấu trúc hướng tính năng (**Feature-First Architecture**):
   - **Module Thương hiệu (Brands)**: Di chuyển sang `src/features/admin-brands/` gồm API (`services/adminBrandsApi.ts`), logic hooks (`hooks/useAdminBrandsLogic.ts`) và giao diện (`components/AdminBrandsTab.tsx`).
   - **Module Sản phẩm (Products)**: Di chuyển sang `src/features/admin-products/` gồm API (`services/adminProductsApi.ts`), logic hooks (`hooks/useAdminProductsLogic.ts`, `useAdminProductOffers.ts`, `useAdminProductVariants.ts`) và các UI Components (`components/AdminProductsTab.tsx`, `components/products/ProductAccessoriesSection.tsx`, `ProductFormSection.tsx`, `ProductTableSection.tsx`, `ProductVariantsSection.tsx`).
-  - **Cập nhật import chung**: Cập nhật liên kết import trong các file điều phối trung tâm như `apiDb.ts`, `useAdminLogic.ts` và `AdminDashboardTabContent.tsx`.
-  - **Dọn dẹp**: Xóa sạch toàn bộ các file và thư mục cũ tại các thư mục dùng chung `components/admin/tabs/`, `components/admin/hooks/` và `services/api/`.
   - **Xác minh**: Chạy thành công lệnh kiểm tra kiểu `npx tsc --noEmit` trên toàn bộ frontend mà không phát sinh bất kỳ lỗi compile nào.
 
 ## Update 2026-06-05 Refactor Attached Services to Service Layer & Feature-First
 
 - Backend: Tách logic nghiệp vụ và truy vấn SQL của Dịch vụ đi kèm (Attached Services) ra khỏi `admin_products.py` sang một Service Layer chuyên biệt tại `app/application/services/attached_service.py` để giữ router sạch sẽ, dễ bảo trì. Các route `/attached-services` chỉ làm nhiệm vụ điều hướng và gọi hàm từ service.
 - Frontend: Đóng gói toàn bộ module Dịch vụ vào thư mục tính năng chuyên biệt `src/features/admin-services/` theo kiến trúc hướng tính năng (Feature-First Architecture).
-  - Tách API Attached Services từ `apiDb.ts` sang `adminServicesApi.ts` trong thư mục feature mới, đồng thời spread gộp lại vào `apiDb.ts` để giữ tương thích ngược.
-  - Di chuyển UI tab `AdminServicesTab.tsx` và custom hook `useAdminServicesLogic.ts` vào feature folder, cập nhật các import điều phối liên quan (`apiDb.ts`, `useAdminLogic.ts`, `AdminDashboardTabContent.tsx`).
 - Kết quả kiểm tra:
   - Frontend: compile thành công bằng `npx tsc --noEmit`.
   - Backend: compile thành công bằng `py_compile`, import `app.main` hoạt động bình thường, không xảy ra import vòng lặp.
@@ -868,8 +968,6 @@
 
 - Backend: Tách logic nghiệp vụ, tính toán giá sale và truy vấn SQL của Flash Sales ra khỏi `admin_flash_sales.py` sang một Service Layer chuyên biệt tại `app/application/services/flash_sale_service.py`. Class pydantic `FlashSalePayload` được di chuyển sang `admin_schemas.py` để thống nhất cấu trúc schema.
 - Frontend: Đóng gói toàn bộ module Flash Sales vào thư mục tính năng chuyên biệt `src/features/admin-flash-sales/` theo kiến trúc hướng tính năng (Feature-First Architecture).
-  - Tách các API của Flash Sales từ `adminContentApi.ts` sang `adminFlashSalesApi.ts` trong thư mục feature mới, đồng thời spread gộp lại vào `apiDb.ts` để giữ tương thích ngược.
-  - Di chuyển UI tab `AdminFlashSalesTab.tsx` và custom hook `useAdminFlashSalesLogic.ts` vào feature folder, cập nhật các import điều phối liên quan (`apiDb.ts`, `useAdminLogic.ts`, `AdminDashboardTabContent.tsx`, `adminContentApi.ts`).
 - Kết quả kiểm tra:
   - Frontend: compile thành công bằng `npx tsc --noEmit`.
   - Backend: compile thành công bằng `py_compile`, import `app.main` hoạt động bình thường, không xảy ra import vòng lặp.
@@ -878,8 +976,6 @@
 
 - Backend: Tách logic nghiệp vụ, kiểm duyệt và truy vấn SQL của Đánh giá (Reviews) ra khỏi `admin_reviews.py` sang một Service Layer chuyên biệt tại `app/application/services/review_service.py`.
 - Frontend: Đóng gói toàn bộ module Đánh giá vào thư mục tính năng chuyên biệt `src/features/admin-reviews/` theo kiến trúc hướng tính năng (Feature-First Architecture).
-  - Tách các API của Đánh giá từ `adminContentApi.ts` sang `adminReviewsApi.ts` trong thư mục feature mới, đồng thời spread gộp lại vào `apiDb.ts` để giữ tương thích ngược.
-  - Di chuyển UI tab `AdminReviewsTab.tsx` và custom hook `useAdminReviewsLogic.ts` vào feature folder, cập nhật các import điều phối liên quan (`apiDb.ts`, `useAdminLogic.ts`, `AdminDashboardTabContent.tsx`, `adminContentApi.ts`).
 - Kết quả kiểm tra:
   - Frontend: compile thành công bằng `npx tsc --noEmit`.
   - Backend: compile thành công bằng `py_compile`, import `app.main` hoạt động bình thường, không xảy ra import vòng lặp.
@@ -981,11 +1077,6 @@
   - Giá trị trường `mainUrl` trả về cho Product Card nay ưu tiên lấy ảnh đại diện chung của sản phẩm (`product.imageUrl`) nếu nó là ảnh hợp lệ (không phải placeholder).
   - Chỉ khi sản phẩm không có ảnh đại diện hợp lệ thì mới fallback về ảnh đầu tiên trong bộ sưu tập gallery (`image_entries[0]["url"]`).
   - Giúp hiển thị đúng ảnh đại diện đồng bộ của sản phẩm ở trang ngoài danh sách ảnh, tránh việc lấy ngẫu nhiên ảnh chi tiết hoặc ảnh góc cạnh từ gallery.
-
-## Update 2026-06-08 admin archived product save guard (superseded)
-
-- Ghi chú lịch sử: trước đó frontend từng chặn đổi trực tiếp `ARCHIVED` sang `ACTIVE`.
-- Rule này đã được thay thế trong cùng ngày: sản phẩm `ARCHIVED` được phép bật lại qua endpoint reactivate chuẩn, có kiểm tra blocker danh mục/thương hiệu và validate giá/biến thể.
 
 ## Update 2026-06-08 archived product hard delete fix
 

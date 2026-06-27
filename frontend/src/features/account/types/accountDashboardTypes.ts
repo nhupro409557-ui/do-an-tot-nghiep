@@ -1,6 +1,6 @@
 import type { AddressData } from '../../shipping/components/VietnamAddressSelector';
 
-export type AccountTab = 'overview' | 'orders' | 'membership' | 'addresses' | 'settings' | 'favorites';
+export type AccountTab = 'overview' | 'orders' | 'returns' | 'warranties' | 'vouchers' | 'transactions' | 'notifications' | 'membership' | 'addresses' | 'settings' | 'favorites';
 
 export type AccountAddress = {
   id: string;

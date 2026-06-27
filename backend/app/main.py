@@ -17,10 +17,13 @@ from app.api.routers.auth_email import router as auth_email_router
 from app.api.routers.catalog import router as catalog_router
 from app.api.routers.commerce import router as commerce_router
 from app.api.routers.content import router as content_router
+from app.api.routers.after_sales import router as after_sales_router
 from app.api.routers.loyalty import router as loyalty_router
 from app.api.routers.storefront import router as storefront_router
 from app.api.routers.users import router as users_router
 from app.application.commerce.use_cases import CompleteOrderUseCase
+from app.application.after_sales import service as after_sales_service
+from app.application.services import order_service
 from app.config import settings
 from app.infrastructure.database.repositories import audit_repo
 from app.infrastructure.database.session import AsyncSessionFactory
@@ -95,6 +98,8 @@ async def run_order_maintenance_loop() -> None:
                     online_timeout_minutes=settings.order_pending_online_timeout_minutes,
                     cod_timeout_hours=settings.order_pending_cod_timeout_hours,
                 )
+                await order_service.expire_pending_payments(session)
+                await after_sales_service.run_maintenance(session)
         except Exception as e:
             logger.error(f"Error in order maintenance loop: {str(e)}", exc_info=True)
         await asyncio.sleep(max(60, int(settings.order_maintenance_interval_seconds)))
@@ -182,4 +187,5 @@ app.include_router(loyalty_router, prefix="/api")
 app.include_router(commerce_router, prefix="/api")
 app.include_router(catalog_router, prefix="/api")
 app.include_router(content_router, prefix="/api")
+app.include_router(after_sales_router, prefix="/api")
 app.include_router(storefront_router, prefix="/api")

@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 import io
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -124,6 +124,11 @@ async def list_admin_products(
                     "sku": item["sku"],
                     "name": item["name"],
                     "imageUrl": item["image_url"],
+                    "price": item.get("price"),
+                    "discountPrice": item.get("discountPrice"),
+                    "salePrice": item.get("salePrice"),
+                    "stock_quantity": item.get("stock_quantity"),
+                    "status": item.get("status"),
                 }
             )
         for item in rows:

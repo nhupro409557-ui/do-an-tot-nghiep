@@ -93,6 +93,10 @@ export function useAdminProductOffers({
           discountType: 'PERCENT',
           discountValue: 25,
           maxQuantity: 1,
+          originalPrice: Number(item.price || 0),
+          salePrice: Number(item.discountPrice || item.price || 0),
+          normalDiscountPrice: Number(item.discountPrice || item.price || 0),
+          price: Math.round(Number(item.discountPrice || item.price || 0) * 0.75), // mặc định giảm 25%
         },
       ],
     }));

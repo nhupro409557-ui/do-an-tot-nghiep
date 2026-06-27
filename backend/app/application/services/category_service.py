@@ -82,6 +82,19 @@ def identifier_policy_changes(old_policy: dict | None, new_policy: dict | None) 
     return changes
 
 
+def normalize_identifier_inventory_policy(policy: dict | None) -> dict:
+    normalized = dict(policy or {})
+    track_imei = bool(normalized.get("trackImei"))
+    track_serial_number = bool(normalized.get("trackSerialNumber"))
+    if track_imei:
+        track_serial_number = True
+    if not track_serial_number:
+        track_imei = False
+    normalized["trackImei"] = track_imei
+    normalized["trackSerialNumber"] = track_serial_number
+    return normalized
+
+
 def identifier_preview_summary(identifier_type: str, lines: list[dict]) -> dict:
     relevant = [line for line in lines if int(line["requiredIdentifierCount"]) > 0]
     return {
@@ -310,6 +323,7 @@ async def create_category(
     await ensure_spec_inheritance_safe(session, None, payload.parentId, payload.specFields)
     ensure_not_data_url(payload.iconUrl, "iconUrl")
     ensure_not_data_url(payload.bannerUrl, "bannerUrl")
+    inventory_policy = normalize_identifier_inventory_policy(payload.inventoryPolicy)
     await category_repo.insert_category(
         session,
         category_id=category_id,
@@ -322,7 +336,7 @@ async def create_category(
         banner_url=payload.bannerUrl,
         spec_fields=payload.specFields,
         filter_config=filter_config,
-        inventory_policy=payload.inventoryPolicy,
+        inventory_policy=inventory_policy,
         warranty_policy=payload.warrantyPolicy,
         sort_order=payload.order,
         status=category_status,
@@ -428,6 +442,7 @@ async def update_category(
     is_active = category_is_active(category_status, payload.isActive)
     spec_fields = payload.specFields
     filter_config = category_filter_config(spec_fields, payload.filterConfig)
+    inventory_policy = normalize_identifier_inventory_policy(payload.inventoryPolicy)
     existing = await category_repo.get_category_for_update(session, category_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Category not found.")
@@ -439,7 +454,7 @@ async def update_category(
     await ensure_category_depth(session, category_id, payload.parentId)
     await ensure_spec_inheritance_safe(session, category_id, payload.parentId, spec_fields)
     policy_previews: list[dict] = []
-    for identifier_type in identifier_policy_changes(existing.get("inventoryPolicy"), payload.inventoryPolicy):
+    for identifier_type in identifier_policy_changes(existing.get("inventoryPolicy"), inventory_policy):
         lines = await category_repo.preview_identifier_policy_change(
             session,
             category_id=category_id,
@@ -469,7 +484,7 @@ async def update_category(
                 "code": "IDENTIFIER_POLICY_MIGRATION_REQUIRED",
                 "message": "Tồn kho hiện tại chưa đủ mã định danh. Hãy tạo tác vụ bổ sung trước khi bật chính sách.",
                 "categoryId": str(category_id),
-                "targetInventoryPolicy": payload.inventoryPolicy,
+                "targetInventoryPolicy": inventory_policy,
                 "previews": policy_previews,
             },
         )
@@ -504,7 +519,7 @@ async def update_category(
         banner_url=payload.bannerUrl,
         spec_fields=spec_fields,
         filter_config=filter_config,
-        inventory_policy=payload.inventoryPolicy,
+        inventory_policy=inventory_policy,
         warranty_policy=payload.warrantyPolicy,
         sort_order=payload.order,
         status=category_status,
@@ -557,7 +572,7 @@ async def update_category(
             "isActive": is_active,
             "specFields": spec_fields,
             "filterConfig": filter_config,
-            "inventoryPolicy": payload.inventoryPolicy,
+            "inventoryPolicy": inventory_policy,
             "specTypeChanges": changed_spec_types,
         },
         actor_id=actor_id,
@@ -601,10 +616,11 @@ async def create_identifier_policy_migration(
     )
     if active:
         raise HTTPException(status_code=409, detail="Danh mục đã có tác vụ bổ sung mã đang xử lý.")
+    target_inventory_policy = normalize_identifier_inventory_policy(payload.targetInventoryPolicy)
     target_enabled = (
-        bool(payload.targetInventoryPolicy.get("trackImei"))
+        bool(target_inventory_policy.get("trackImei"))
         if payload.identifierType == "IMEI"
-        else bool(payload.targetInventoryPolicy.get("trackSerialNumber"))
+        else bool(target_inventory_policy.get("trackSerialNumber"))
     )
     if not target_enabled:
         raise HTTPException(status_code=422, detail="Chính sách đích phải bật loại mã định danh đã chọn.")
@@ -622,7 +638,7 @@ async def create_identifier_policy_migration(
         migration_id=migration_id,
         category_id=category_id,
         identifier_type=payload.identifierType,
-        target_inventory_policy=payload.targetInventoryPolicy,
+        target_inventory_policy=target_inventory_policy,
         lines=summary["lines"],
         actor_id=actor_id,
     )

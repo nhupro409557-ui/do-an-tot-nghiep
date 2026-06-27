@@ -26,6 +26,8 @@ const FlashSalePage = lazy(() => import('./features/products/pages/FlashSalePage
 const BrandLandingPage = lazy(() => import('./features/products/pages/BrandLandingPage'));
 const CartPage = lazy(() => import('./features/storefront-commerce/pages/CartPage'));
 const CheckoutPage = lazy(() => import('./features/storefront-commerce/pages/CheckoutPage'));
+const PaymentPage = lazy(() => import('./features/storefront-commerce/pages/PaymentPage'));
+const OrderDetailPage = lazy(() => import('./features/storefront-commerce/pages/OrderDetailPage'));
 const VideoPage = lazy(() => import('./features/media/pages/VideoPage'));
 const ImagesPage = lazy(() => import('./features/media/pages/ImagesPage'));
 const RankingsPage = lazy(() => import('./features/products/pages/RankingsPage'));
@@ -108,6 +110,8 @@ function AppShell() {
               <Route path="/change-password" element={<ChangePasswordPage />} />
               <Route path="/loyalty" element={<LoyaltyRewardsPage />} />
               <Route path="/checkout" element={<CheckoutPage />} />
+              <Route path="/payment/:paymentId" element={<PaymentPage />} />
+              <Route path="/orders/:orderId" element={<OrderDetailPage />} />
             </Route>
 
             <Route element={<ProtectedRoute adminOnly />}>

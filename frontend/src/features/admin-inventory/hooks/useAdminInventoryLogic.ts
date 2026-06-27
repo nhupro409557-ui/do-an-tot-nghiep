@@ -580,7 +580,7 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     setImeiReceipt(receipt);
   }
 
-  async function submitReceiptImeis(referenceCode: string, lines: { lineId: string; imeis: string[]; serialNumbers?: string[]; acceptShortage?: boolean; shortageReason?: string | null }[], shortageReason: string) {
+  async function submitReceiptImeis(referenceCode: string, lines: { lineId: string; imeis: string[]; secondaryImeis?: string[]; serialNumbers?: string[]; acceptShortage?: boolean; shortageReason?: string | null }[], shortageReason: string) {
     const result = await adminInventoryApi.adminSubmitReceiptImeis(referenceCode, { lines, shortageReason: shortageReason || null });
     setImeiReceipt(null);
     await loadInventoryReceipts();

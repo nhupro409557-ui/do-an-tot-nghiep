@@ -110,7 +110,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
           }}
           className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500"
         >
-          <option value="">T?nh/Th?nh ph?</option>
+          <option value="">Tỉnh/Thành phố</option>
           {provinces.map(province => {
             const id = String(province.matinhBNV ?? province.matinhTMS);
             return <option key={id} value={id}>{province.tentinhmoi}</option>;
@@ -128,7 +128,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
             className="w-full px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500 text-left flex items-center justify-between gap-3"
           >
             <span className={value.wardName ? 'text-gray-900' : 'text-gray-500'}>
-              {value.wardName || 'Ph?ng/X?'}
+              {value.wardName || 'Phường/Xã'}
             </span>
             <span className="text-gray-400 text-xs">▼</span>
           </button>
@@ -140,7 +140,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
                   autoFocus
                   value={wardSearch}
                   onChange={(event) => setWardSearch(event.target.value)}
-                  placeholder="T?m nhanh ph?ng/x?"
+                  placeholder="Tìm nhanh phường/xã"
                   className="w-full px-3 py-2 border border-gray-200 rounded-md outline-none focus:border-[#d70018] text-sm"
                 />
               </div>
@@ -161,7 +161,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
                     </button>
                   ))
                 ) : (
-                  <div className="px-4 py-3 text-sm text-gray-500">Kh?ng t?m th?y ph?ng/x? ph? h?p.</div>
+                  <div className="px-4 py-3 text-sm text-gray-500">Không tìm thấy phường/xã phù hợp.</div>
                 )}
               </div>
             </div>
@@ -174,7 +174,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
         required
         value={value.street}
         onChange={(event) => update('street', event.target.value)}
-        placeholder="S? nh?, t?n ??ng (v? d?: 123 L? L?i)"
+        placeholder="Số nhà, tên đường (ví dụ: 123 Lê Lợi)"
         className="w-full px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500"
       />
     </div>

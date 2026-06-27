@@ -2,25 +2,30 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from email.message import EmailMessage
+import json
+import secrets
 import smtplib
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.commerce.integrations import RefundGateway, ShippingGateway
-from app.application.commerce.integrations import MoMoSandboxGateway, SandboxShippingPricingService
+from app.application.commerce.integrations import RefundGateway, ShippingGateway, normalize_mock_carrier
+from app.application.commerce.integrations import MoMoSandboxGateway, SandboxShippingPricingService, SePayPaymentGateway, ZaloPaySandboxGateway
 from app.application.commerce.schemas import (
     AdminUpdateOrderRequest,
+    CarrierShipmentResponse,
     CreateOrderRequest,
     CreateOrderResponse,
+    PaymentStatusResponse,
     RevenueReportResponse,
     ShippingQuoteResponse,
     UserVoucherResponse,
     VoucherValidationResponse,
 )
 from app.config import settings
-from app.infrastructure.database.repositories import commerce_repo
+from app.infrastructure.database.repositories import commerce_repo, order_repo
 
 
 ORDER_STATUS_TRANSITIONS: dict[str, set[str]] = {
@@ -32,7 +37,7 @@ ORDER_STATUS_TRANSITIONS: dict[str, set[str]] = {
     "COMPLETED": {"RETURNING"},
     "CANCELLED": set(),
     "REFUNDED": set(),
-    "PAYMENT_FAILED": set(),
+    "PAYMENT_FAILED": {"PAID"},
     "RETURNING": {"RETURNED", "REFUNDED"},
     "RETURNED": {"REFUNDED"},
 }
@@ -50,6 +55,12 @@ ORDER_STATUS_EMAIL_LABELS: dict[str, str] = {
     "RETURNING": "Dang hoan hang",
     "RETURNED": "Da nhan hang hoan",
 }
+
+
+def generate_order_code() -> str:
+    return f"EMV{secrets.randbelow(10_000_000_000):010d}"
+
+
 from app.domain.users.entities import LoyaltyTransactionType
 from app.infrastructure.database.models import (
     LoyaltyTransaction,
@@ -83,8 +94,11 @@ class VoucherValidationContext:
     abandoned_cart_recovery: bool = False
     device_id: str | None = None
     ip_address: str | None = None
+    payment_method: str | None = None
+    channel: str | None = None
     product_ids: set[str] = field(default_factory=set)
     category_ids: set[str] = field(default_factory=set)
+    brand_ids: set[str] = field(default_factory=set)
     claimed_voucher: UserVoucher | None = None
 
 
@@ -169,6 +183,31 @@ class MinOrderRule(VoucherRule):
         )
 
 
+class ChannelPaymentRule(VoucherRule):
+    async def check(self, service: "VoucherService", context: VoucherValidationContext) -> VoucherValidationResponse | None:
+        voucher = context.voucher
+        channels = voucher.applicable_channels if isinstance(voucher.applicable_channels, list) else []
+        payment_methods = voucher.applicable_payment_methods if isinstance(voucher.applicable_payment_methods, list) else []
+        allowed_channels = {str(channel).upper() for channel in channels if channel}
+        allowed_payment_methods = {str(method).upper() for method in payment_methods if method}
+
+        if allowed_channels and context.channel and context.channel.upper() not in allowed_channels:
+            return service._invalid(
+                voucher.code,
+                "VOUCHER_ERR_CHANNEL",
+                "Voucher is not available on this channel.",
+                {"allowed_channels": sorted(allowed_channels), "current_channel": context.channel},
+            )
+        if allowed_payment_methods and context.payment_method and context.payment_method.upper() not in allowed_payment_methods:
+            return service._invalid(
+                voucher.code,
+                "VOUCHER_ERR_PAYMENT_METHOD",
+                "Voucher is not available for this payment method.",
+                {"allowed_payment_methods": sorted(allowed_payment_methods), "current_payment_method": context.payment_method},
+            )
+        return None
+
+
 class UsageLimitRule(VoucherRule):
     async def check(self, service: "VoucherService", context: VoucherValidationContext) -> VoucherValidationResponse | None:
         voucher = context.voucher
@@ -208,6 +247,23 @@ class AudienceRule(VoucherRule):
                 "VOUCHER_ERR_ASSIGNED_USER",
                 "Voucher is reserved for another customer.",
             )
+        if voucher.audience_type == "SPECIFIC_USER" and not voucher.assigned_user_id:
+            if not context.user_id:
+                return service._invalid(
+                    voucher.code,
+                    "VOUCHER_ERR_ASSIGNED_USER_SIGN_IN",
+                    "Please sign in to use this assigned voucher.",
+                )
+            if not await commerce_repo.has_user_voucher_assignment(
+                service._session,
+                user_id=context.user_id,
+                voucher_id=voucher.id,
+            ):
+                return service._invalid(
+                    voucher.code,
+                    "VOUCHER_ERR_ASSIGNED_USER",
+                    "Voucher is reserved for another customer.",
+                )
         if voucher.eligible_user_registered_after and context.user_id:
             registered_at = await commerce_repo.get_user_created_at(service._session, context.user_id)
             if registered_at and registered_at < voucher.eligible_user_registered_after:
@@ -298,6 +354,8 @@ class TargetingRule(VoucherRule):
         exclude_products = set(voucher.exclude_product_ids if isinstance(voucher.exclude_product_ids, list) else [])
         include_categories = set(voucher.include_category_ids if isinstance(voucher.include_category_ids, list) else [])
         exclude_categories = set(voucher.exclude_category_ids if isinstance(voucher.exclude_category_ids, list) else [])
+        include_brands = set(voucher.include_brand_ids if isinstance(voucher.include_brand_ids, list) else [])
+        exclude_brands = set(voucher.exclude_brand_ids if isinstance(voucher.exclude_brand_ids, list) else [])
         if include_products and not context.product_ids.intersection(include_products):
             return service._invalid(
                 voucher.code,
@@ -330,6 +388,22 @@ class TargetingRule(VoucherRule):
                     "Voucher excludes one or more categories in this order.",
                     {"blocked_category_ids": blocked},
                 )
+        if include_brands and not context.brand_ids.intersection(include_brands):
+            return service._invalid(
+                voucher.code,
+                "VOUCHER_ERR_BRAND_SCOPE",
+                "Voucher does not apply to brands in this order.",
+                {"required_brand_ids": sorted(include_brands)},
+            )
+        if exclude_brands:
+            blocked = sorted(context.brand_ids.intersection(exclude_brands))
+            if blocked:
+                return service._invalid(
+                    voucher.code,
+                    "VOUCHER_ERR_BRAND_EXCLUDED",
+                    "Voucher excludes one or more brands in this order.",
+                    {"blocked_brand_ids": blocked},
+                )
         return None
 
 
@@ -339,6 +413,7 @@ class VoucherService:
         VoucherActiveWindowRule(),
         VoucherWalletRule(),
         MinOrderRule(),
+        ChannelPaymentRule(),
         UsageLimitRule(),
         BudgetRule(),
         AudienceRule(),
@@ -361,8 +436,11 @@ class VoucherService:
         abandoned_cart_recovery: bool = False,
         device_id: str | None = None,
         ip_address: str | None = None,
+        payment_method: str | None = None,
+        channel: str | None = None,
         product_ids: set[str] | None = None,
         category_ids: set[str] | None = None,
+        brand_ids: set[str] | None = None,
     ) -> VoucherValidationResponse:
         voucher = await self._get_active_voucher(code)
         if voucher is None:
@@ -378,8 +456,11 @@ class VoucherService:
             abandoned_cart_recovery=abandoned_cart_recovery,
             device_id=device_id,
             ip_address=ip_address,
+            payment_method=payment_method,
+            channel=channel,
             product_ids=product_ids or set(),
             category_ids=category_ids or set(),
+            brand_ids=brand_ids or set(),
         )
         for rule in self._rules:
             failure = await rule.check(self, context)
@@ -569,12 +650,16 @@ class CreateOrderUseCase:
         self._session = session
         self._shipping_pricing = SandboxShippingPricingService()
         self._momo_gateway = MoMoSandboxGateway()
+        self._sepay_gateway = SePayPaymentGateway()
+        self._zalopay_gateway = ZaloPaySandboxGateway()
 
     async def execute(self, request: CreateOrderRequest) -> CreateOrderResponse:
         if request.idempotency_key:
             existing = await commerce_repo.get_order_by_idempotency_key(self._session, request.idempotency_key)
             if existing is not None:
-                return CreateOrderResponse(
+                latest_payment = await commerce_repo.get_latest_payment_transaction(self._session, existing.id)
+                checkout_url = latest_payment.checkout_url if latest_payment else None
+                response = CreateOrderResponse(
                     order_id=existing.id,
                     order_code=existing.order_code,
                     payment_method=existing.payment_method,
@@ -582,17 +667,46 @@ class CreateOrderUseCase:
                     shipping_fee=Decimal(existing.shipping_fee or 0),
                     total_amount=Decimal(existing.total_amount or 0),
                     loyalty_points_earned=int(existing.loyalty_points_earned or 0),
-                    checkout_url=await self._existing_checkout_url(existing.id),
+                    checkout_url=checkout_url,
+                    payment_transaction_id=latest_payment.id if latest_payment else None,
+                    payment_expires_at=latest_payment.expires_at.isoformat() if latest_payment and latest_payment.expires_at else None,
                 )
+                await self._session.rollback()
+                return response
+            await self._session.rollback()
+
+        # Validate payment method status
+        from app.infrastructure.database.repositories import payment_method_repo
+        from app.application.services.payment_method_service import check_availability
+        
+        pm = await payment_method_repo.get_payment_method_by_code(self._session, request.payment_method)
+        if not pm:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Phương thức thanh toán '{request.payment_method}' không hợp lệ."
+            )
+        is_avail, error_msg = check_availability(pm)
+        if not is_avail:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_msg or "Phương thức thanh toán này hiện không khả dụng."
+            )
 
         subtotal = sum(item.unit_price * item.quantity for item in request.items)
-        shipping_quote = self._shipping_pricing.quote(
+        shipping_quote = await self._shipping_pricing.quote(
+            self._session,
             shipping_address=request.shipping.shipping_address,
             subtotal_amount=subtotal,
             item_count=sum(item.quantity for item in request.items),
+            provider="MOCK_GHN",
+            lat=request.shipping.lat,
+            lng=request.shipping.lng,
         )
+
+
         voucher_discount = Decimal("0")
         wallet_claim_id: UUID | None = None
+        await self._session.rollback()
 
         async with self._session.begin():
             user = None
@@ -607,16 +721,19 @@ class CreateOrderUseCase:
 
             product_ids = {str(item.product_id) for item in request.items if item.product_id}
             category_ids = {str(item.category_id) for item in request.items if item.category_id}
-            if product_ids and not category_ids:
+            brand_ids: set[str] = set()
+            if product_ids:
                 product_result = await commerce_repo.list_product_categories(
                     self._session,
                     [UUID(item) for item in product_ids],
                 )
-                category_ids = {
-                    str(row.subcategory_id or row.category_id)
-                    for row in product_result
-                    if row.subcategory_id or row.category_id
-                }
+                if not category_ids:
+                    category_ids = {
+                        str(row.subcategory_id or row.category_id)
+                        for row in product_result
+                        if row.subcategory_id or row.category_id
+                    }
+                brand_ids = {str(row.brand_id) for row in product_result if row.brand_id}
 
             voucher = None
             voucher_service = VoucherService(session=self._session)
@@ -631,8 +748,11 @@ class CreateOrderUseCase:
                     user_tier=user.loyalty_tier if user else None,
                     device_id=request.voucher_device_id,
                     ip_address=request.voucher_ip_address,
+                    payment_method=request.payment_method,
+                    channel="WEB",
                     product_ids=product_ids,
                     category_ids=category_ids,
+                    brand_ids=brand_ids,
                 )
                 if not validation.valid:
                     raise HTTPException(
@@ -649,7 +769,14 @@ class CreateOrderUseCase:
             total = max(Decimal("0"), subtotal - voucher_discount - points_discount + shipping_quote.fee)
             earned_points = int(total // Decimal("10000"))
             order_id = uuid4()
-            order_code = f"EC{uuid4().hex[:10].upper()}"
+            order_code = ""
+            for _ in range(5):
+                candidate = generate_order_code()
+                if await order_repo.get_order_id_by_code(self._session, candidate) is None:
+                    order_code = candidate
+                    break
+            if not order_code:
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Không thể tạo mã đơn hàng.")
 
             reservation_lines: dict[tuple[str, UUID], dict] = {}
             for item in request.items:
@@ -704,14 +831,13 @@ class CreateOrderUseCase:
                     user_id=request.user_id,
                 )
                 wallet_claim_id = claimed_voucher.id if claimed_voucher else None
-
             order = Order(
                 id=order_id,
                 user_id=request.user_id,
                 order_code=order_code,
-                status="PENDING",
+                status="COMPLETED" if request.is_offline else "PENDING",
                 payment_method=request.payment_method,
-                payment_status="UNPAID" if request.payment_method == "COD" else "PENDING",
+                payment_status="PAID" if request.is_offline else ("UNPAID" if request.payment_method == "COD" else "PENDING"),
                 subtotal_amount=subtotal,
                 discount_amount=voucher_discount + points_discount,
                 shipping_fee=shipping_quote.fee,
@@ -725,7 +851,10 @@ class CreateOrderUseCase:
                 idempotency_key=request.idempotency_key,
                 recipient_name=request.shipping.recipient_name,
                 recipient_phone=request.shipping.recipient_phone,
+                recipient_email=request.shipping.recipient_email,
                 shipping_address=request.shipping.shipping_address,
+                internal_note=f"[POS] {request.internal_note or ''}".strip() if request.is_offline else None,
+                completed_at=datetime.now(timezone.utc) if request.is_offline else None,
             )
             commerce_repo.save_model(self._session, order)
             await self._session.flush()
@@ -745,8 +874,8 @@ class CreateOrderUseCase:
                     order_id=order.id,
                     old_status=None,
                     new_status=order.status,
-                    changed_by="system-checkout",
-                    note="Order created from checkout.",
+                    changed_by="admin-pos" if request.is_offline else "system-checkout",
+                    note="Order created from POS." if request.is_offline else "Order created from checkout.",
                     metadata_json={"payment_method": order.payment_method},
                 ),
             )
@@ -766,29 +895,100 @@ class CreateOrderUseCase:
                     ),
                 )
 
-            checkout_url = None
-            if request.payment_method != "COD":
-                payment_init = None
-                if request.payment_method == "MOMO":
-                    payment_init = await self._momo_gateway.create_payment(
-                        order_code=order.order_code,
-                        amount=total,
-                        order_info=f"Thanh toan don hang {order.order_code}",
-                        extra_data={"orderCode": order.order_code, "userId": str(request.user_id) if request.user_id else ""},
+            if request.is_offline:
+                # Trừ kho thực tế bằng FIFO
+                complete_use_case = CompleteOrderUseCase(session=self._session)
+                await complete_use_case._ship_order_items(order)
+                
+                # Đóng các reservations vừa tạo dưới dạng CONSUMED
+                await commerce_repo.close_active_order_reservations(
+                    self._session,
+                    order_id=order.id,
+                    status="CONSUMED",
+                )
+
+                # Cộng điểm tích lũy ngay lập tức cho đơn offline
+                if user and earned_points > 0:
+                    balance_before = user.loyalty_points_balance
+                    user.loyalty_points_balance += earned_points
+                    user.loyalty_tier = calculate_tier(user.loyalty_points_balance)
+                    commerce_repo.save_model(
+                        self._session,
+                        LoyaltyTransaction(
+                            id=uuid4(),
+                            user_id=user.id,
+                            order_id=order.id,
+                            type=LoyaltyTransactionType.EARN,
+                            points=earned_points,
+                            balance_before=balance_before,
+                            balance_after=user.loyalty_points_balance,
+                            reason="Tích điểm khi mua hàng trực tiếp tại quầy.",
+                            metadata_json={"order_code": order.order_code},
+                        ),
                     )
-                    checkout_url = payment_init.checkout_url
+                    commerce_repo.save_model(self._session, user)
+
+            checkout_url = None
+            payment_transaction_id = None
+            payment_expires_at = None
+            if not request.is_offline and request.payment_method != "COD":
+                if request.payment_method not in {"MOMO", "ZALOPAY", "SEPAY"}:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Hiện hệ thống chỉ hỗ trợ COD, MoMo Sandbox và ZaloPay Sandbox.",
+                    )
+                payment_transaction_id = uuid4()
+                timeout_minutes_by_provider = {
+                    "MOMO": settings.momo_payment_timeout_minutes,
+                    "ZALOPAY": settings.zalopay_payment_timeout_minutes,
+                    "SEPAY": settings.sepay_payment_timeout_minutes,
+                }
+                timeout_minutes = timeout_minutes_by_provider[request.payment_method]
+                payment_expires_at = datetime.now(timezone.utc) + timedelta(minutes=timeout_minutes)
+                if request.payment_method == "MOMO":
+                    provider_order_id = f"{order.order_code}-1"
+                    payment_init = await self._momo_gateway.create_payment(
+                        order_code=provider_order_id,
+                        amount=total,
+                        order_info=f"Thanh toán đơn hàng {order.order_code}",
+                        extra_data={"orderCode": order.order_code, "userId": str(request.user_id) if request.user_id else ""},
+                        request_id=str(payment_transaction_id),
+                    )
+                elif request.payment_method == "ZALOPAY":
+                    vietnam_date = datetime.now(timezone(timedelta(hours=7))).strftime("%y%m%d")
+                    provider_order_id = f"{vietnam_date}_{order.order_code[-10:]}01"
+                    payment_init = await self._zalopay_gateway.create_payment(
+                        app_trans_id=provider_order_id,
+                        amount=total,
+                        app_user=str(request.user_id or "electromart-sandbox"),
+                        description=f"ElectroMart Sandbox - Thanh toán đơn hàng {order.order_code}",
+                        callback_url=settings.zalopay_callback_url,
+                        redirect_url=f"{settings.frontend_url.rstrip('/')}/payment/{payment_transaction_id}",
+                    )
                 else:
-                    checkout_url = f"https://sandbox-payment.local/{request.payment_method.lower()}/{order.order_code}"
+                    provider_order_id = f"{order.order_code}-1"
+                    payment_init = self._sepay_gateway.create_checkout(
+                        order_invoice_number=provider_order_id,
+                        order_amount=total,
+                        order_description=f"Thanh toán đơn hàng {order.order_code}",
+                        success_url=f"{settings.frontend_url.rstrip('/')}/orders/{order.id}?payment=success",
+                        error_url=f"{settings.frontend_url.rstrip('/')}/payment/{payment_transaction_id}?payment=error",
+                        cancel_url=f"{settings.frontend_url.rstrip('/')}/payment/{payment_transaction_id}?payment=cancel",
+                        customer_id=str(request.user_id) if request.user_id else None,
+                    )
+                checkout_url = payment_init.checkout_url
                 commerce_repo.save_model(
                     self._session,
                     PaymentTransaction(
-                        id=uuid4(),
+                        id=payment_transaction_id,
                         order_id=order.id,
                         provider=request.payment_method,
                         amount=total,
                         status="PENDING",
-                        transaction_ref=order.order_code,
+                        transaction_ref=provider_order_id,
                         checkout_url=checkout_url,
+                        attempt_number=1,
+                        expires_at=payment_expires_at,
                         raw_response=(payment_init.raw_response if payment_init else {"mode": "sandbox"}),
                     ),
                 )
@@ -821,10 +1021,580 @@ class CreateOrderUseCase:
             total_amount=total,
             loyalty_points_earned=earned_points,
             checkout_url=checkout_url,
+            payment_transaction_id=payment_transaction_id,
+            payment_expires_at=payment_expires_at.isoformat() if payment_expires_at else None,
         )
 
     async def _existing_checkout_url(self, order_id: UUID) -> str | None:
         return await commerce_repo.get_checkout_url(self._session, order_id)
+
+
+class PaymentUseCase:
+    def __init__(self, *, session: AsyncSession) -> None:
+        self._session = session
+        self._momo_gateway = MoMoSandboxGateway()
+        self._sepay_gateway = SePayPaymentGateway()
+        self._zalopay_gateway = ZaloPaySandboxGateway()
+
+    async def _mark_order_payment_failed_if_pending(self, order_id: UUID, *, internal_note: str, changed_by: str) -> None:
+        order = await self._session.get(Order, order_id)
+        if order is None or order.status != "PENDING":
+            await self._session.rollback()
+            return
+        await self._session.rollback()
+        await CompleteOrderUseCase(session=self._session).execute(
+            order_id=order_id,
+            status_value="PAYMENT_FAILED",
+            internal_note=internal_note,
+            changed_by=changed_by,
+        )
+
+    async def get_status(self, payment_id: UUID) -> PaymentStatusResponse:
+        payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
+        if payment is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch thanh toán.")
+        order = await self._session.get(Order, payment.order_id)
+        if order is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
+
+        # Truy vấn trực tiếp trạng thái từ MoMo nếu giao dịch đang chờ (PENDING)
+        if payment.status == "PENDING" and payment.provider == "MOMO":
+            try:
+                momo_result = await self._momo_gateway.query_payment(
+                    order_code=payment.transaction_ref,
+                    request_id=str(payment.id),
+                )
+                # resultCode = 0 nghĩa là thanh toán thành công
+                if momo_result.get("resultCode") == 0:
+                    payment.status = "PAID"
+                    payment.paid_at = datetime.now(timezone.utc)
+                    payment.raw_response = {**(payment.raw_response or {}), "query_api": momo_result}
+                    commerce_repo.save_model(self._session, payment)
+                    await self._session.commit()
+                    # Cập nhật đơn hàng thành PAID
+                    await CompleteOrderUseCase(session=self._session).execute(
+                        order_id=payment.order_id,
+                        status_value="PAID",
+                        internal_note="Xác nhận thanh toán tự động qua truy vấn API MoMo.",
+                        changed_by="momo-query-api",
+                    )
+                    # Tải lại order và payment sau khi commit
+                    payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
+                    order = await self._session.get(Order, payment.order_id)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger("uvicorn.error")
+                logger.error("Lỗi khi đối soát tự động MoMo: %s", e)
+
+        now = datetime.now(timezone.utc)
+        if payment.status == "PENDING" and payment.expires_at and payment.expires_at <= now:
+            payment.status = "EXPIRED"
+            payment.failed_at = now
+            payment.raw_response = {
+                **(payment.raw_response or {}),
+                "failure_message": "Phiên thanh toán đã hết hạn.",
+            }
+            commerce_repo.save_model(self._session, payment)
+            await self._session.commit()
+            if order.status == "PENDING":
+                await self._mark_order_payment_failed_if_pending(
+                    order_id=payment.order_id,
+                    internal_note="Phiên thanh toán đã hết hạn.",
+                    changed_by="payment-expirer",
+                )
+                order = await self._session.get(Order, payment.order_id)
+        raw_response = payment.raw_response or {}
+        return PaymentStatusResponse(
+            id=payment.id,
+            order_id=payment.order_id,
+            order_code=order.order_code,
+            order_status=order.status,
+            provider=payment.provider,
+            amount=Decimal(payment.amount),
+            status=payment.status,
+            attempt_number=payment.attempt_number,
+            checkout_url=payment.checkout_url,
+            checkout_method=raw_response.get("checkout_method"),
+            checkout_fields=raw_response.get("checkout_fields") if isinstance(raw_response.get("checkout_fields"), dict) else {},
+            expires_at=payment.expires_at.isoformat() if payment.expires_at else None,
+            paid_at=payment.paid_at.isoformat() if payment.paid_at else None,
+            failure_message=raw_response.get("failure_message"),
+        )
+
+    async def cancel(self, payment_id: UUID) -> PaymentStatusResponse:
+        payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
+        if payment is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch thanh toán.")
+        order = await self._session.get(Order, payment.order_id)
+        if order is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
+        if payment.status in {"PAID", "REFUNDED"}:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Giao dịch đã hoàn tất, không thể hủy.")
+        now = datetime.now(timezone.utc)
+        if payment.status == "PENDING":
+            payment.status = "FAILED"
+            payment.failed_at = now
+            payment.raw_response = {
+                **(payment.raw_response or {}),
+                "failure_message": "Khách hàng đã hủy phiên thanh toán.",
+            }
+            commerce_repo.save_model(self._session, payment)
+            await self._session.commit()
+            if order.status == "PENDING":
+                await self._mark_order_payment_failed_if_pending(
+                    order_id=payment.order_id,
+                    internal_note="Khách hàng đã hủy phiên thanh toán.",
+                    changed_by="customer-payment-cancel",
+                )
+        return await self.get_status(payment.id)
+
+    async def retry(self, payment_id: UUID) -> PaymentStatusResponse:
+        previous = await commerce_repo.get_payment_transaction(self._session, payment_id)
+        if previous is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch thanh toán.")
+        order = await commerce_repo.get_order_for_update(self._session, previous.order_id)
+        if order is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
+        if order.payment_status == "PAID":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Đơn hàng đã được thanh toán.")
+        if order.status != "PENDING":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Đơn hàng không còn chờ thanh toán.")
+        latest = await commerce_repo.get_latest_payment_transaction(self._session, order.id)
+        now = datetime.now(timezone.utc)
+        if latest and latest.status == "PENDING" and (not latest.expires_at or latest.expires_at > now):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phiên thanh toán hiện tại vẫn còn hiệu lực.")
+        next_attempt = (latest.attempt_number if latest else 0) + 1
+        payment_id_new = uuid4()
+        if previous.provider == "MOMO":
+            provider_order_id = f"{order.order_code}-{next_attempt}"
+            payment_init = await self._momo_gateway.create_payment(
+                order_code=provider_order_id,
+                amount=Decimal(order.total_amount),
+                order_info=f"Thanh toán lại đơn hàng {order.order_code}",
+                extra_data={"orderCode": order.order_code, "attempt": next_attempt},
+                request_id=str(payment_id_new),
+            )
+            timeout_minutes = settings.momo_payment_timeout_minutes
+        elif previous.provider == "ZALOPAY":
+            vietnam_date = datetime.now(timezone(timedelta(hours=7))).strftime("%y%m%d")
+            provider_order_id = f"{vietnam_date}_{order.order_code[-10:]}{next_attempt:02d}"
+            payment_init = await self._zalopay_gateway.create_payment(
+                app_trans_id=provider_order_id,
+                amount=Decimal(order.total_amount),
+                app_user=str(order.user_id or "electromart-sandbox"),
+                description=f"ElectroMart Sandbox - Thanh toán lại đơn hàng {order.order_code}",
+                callback_url=settings.zalopay_callback_url,
+                redirect_url=f"{settings.frontend_url.rstrip('/')}/payment/{payment_id_new}",
+            )
+            timeout_minutes = settings.zalopay_payment_timeout_minutes
+        elif previous.provider == "SEPAY":
+            provider_order_id = f"{order.order_code}-{next_attempt}"
+            payment_init = self._sepay_gateway.create_checkout(
+                order_invoice_number=provider_order_id,
+                order_amount=Decimal(order.total_amount),
+                order_description=f"Thanh toán lại đơn hàng {order.order_code}",
+                success_url=f"{settings.frontend_url.rstrip('/')}/orders/{order.id}?payment=success",
+                error_url=f"{settings.frontend_url.rstrip('/')}/payment/{payment_id_new}?payment=error",
+                cancel_url=f"{settings.frontend_url.rstrip('/')}/payment/{payment_id_new}?payment=cancel",
+                customer_id=str(order.user_id) if order.user_id else None,
+            )
+            timeout_minutes = settings.sepay_payment_timeout_minutes
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cổng thanh toán không hỗ trợ thử lại.")
+        expires_at = now + timedelta(minutes=timeout_minutes)
+        payment = PaymentTransaction(
+            id=payment_id_new,
+            order_id=order.id,
+            provider=previous.provider,
+            amount=order.total_amount,
+            status="PENDING",
+            transaction_ref=provider_order_id,
+            checkout_url=payment_init.checkout_url,
+            attempt_number=next_attempt,
+            expires_at=expires_at,
+            raw_response=payment_init.raw_response or {},
+        )
+        commerce_repo.save_model(self._session, payment)
+        await self._session.commit()
+        return await self.get_status(payment.id)
+
+    async def process_sepay_ipn(self, payload: dict, *, secret_key: str | None) -> dict:
+        import re
+        
+        # 1. Trích xuất mã đơn hàng bằng Regex từ các trường payload (hỗ trợ cả EMV và EC)
+        order_code = ""
+        for field_name in ["code", "transactionContent", "transaction_content", "content", "description", "body", "order_invoice_number", "invoice_number", "order_id", "orderCode"]:
+            field_val = payload.get(field_name)
+            if field_val and isinstance(field_val, str):
+                match = re.search(r"EMV[0-9]{6,12}|EC[0-9A-Z]{10}", field_val.upper())
+                if match:
+                    order_code = match.group(0)
+                    break
+        
+        # 2. Lấy invoice_number (SePay Checkout Link) nếu có
+        invoice_number = str(
+            payload.get("order_invoice_number")
+            or payload.get("invoice_number")
+            or payload.get("order_id")
+            or payload.get("orderCode")
+            or ""
+        )
+        
+        # Nếu không trích xuất được cả order_code lẫn invoice_number, ném lỗi
+        if not order_code and not invoice_number:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Thiếu mã đơn SePay hoặc nội dung chuyển tiền không chứa mã đơn hàng.")
+
+        signature_valid = self._sepay_gateway.verify_ipn_secret(secret_key)
+        
+        # Tạo event_key duy nhất dựa trên ID giao dịch để tránh xử lý trùng lặp
+        transaction_id = str(
+            payload.get("id")
+            or payload.get("transaction_id")
+            or payload.get("sepay_transaction_id")
+            or payload.get("reference_id")
+            or ""
+        )
+        event_key = ":".join(
+            [
+                invoice_number or order_code,
+                transaction_id,
+                str(payload.get("event_type") or payload.get("order_status") or payload.get("status") or ""),
+            ]
+        )
+        
+        # Thử tìm PaymentTransaction bằng invoice_number trước (SePay Checkout Link)
+        payment = None
+        if invoice_number:
+            payment = await commerce_repo.get_payment_transaction_by_reference_for_update(
+                self._session,
+                provider="SEPAY",
+                transaction_ref=invoice_number,
+            )
+
+        # Nếu không tìm thấy, thử tìm qua mã đơn hàng trích xuất bằng Regex (Chuyển khoản Ngân hàng Trực tiếp)
+        if payment is None and order_code:
+            from app.infrastructure.database.repositories import order_repo
+            order_id = await order_repo.get_order_id_by_code(self._session, order_code)
+            if order_id:
+                # Lấy giao dịch thanh toán gần nhất của đơn hàng
+                payment = await commerce_repo.get_latest_payment_transaction(self._session, order_id)
+                
+                # Nếu chưa tồn tại giao dịch thanh toán (khách chuyển khoản trực tiếp bằng ngân hàng)
+                if payment is None:
+                    order = await self._session.get(Order, order_id)
+                    if order:
+                        from datetime import timedelta
+                        payment = PaymentTransaction(
+                            id=uuid4(),
+                            order_id=order.id,
+                            provider="SEPAY",
+                            amount=order.total_amount,
+                            status="PENDING",
+                            transaction_ref=order_code,
+                            attempt_number=1,
+                            expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+                            raw_response={"note": "Tự động tạo từ Webhook chuyển khoản trực tiếp SePay"},
+                        )
+                        commerce_repo.save_model(self._session, payment)
+                        await self._session.flush()
+
+        event_id = uuid4()
+        inserted = await commerce_repo.create_webhook_event(
+            self._session,
+            event_id=event_id,
+            provider="SEPAY",
+            event_key=event_key,
+            order_id=payment.order_id if payment else None,
+            payment_transaction_id=payment.id if payment else None,
+            signature_valid=signature_valid,
+            payload=payload,
+        )
+        if not inserted:
+            await self._session.rollback()
+            return {"success": True, "duplicate": True}
+        if not signature_valid:
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="FAILED",
+                error_message="Secret key IPN SePay không hợp lệ.",
+            )
+            await self._session.commit()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Secret key IPN không hợp lệ.")
+        if payment is None:
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="FAILED",
+                error_message="Không tìm thấy giao dịch SePay.",
+            )
+            await self._session.commit()
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch SePay.")
+
+        # Lấy số tiền thực nhận (hỗ trợ các trường của chuyển khoản ngân hàng SePay như transferAmount, amountIn)
+        paid_amount = Decimal(
+            str(
+                payload.get("transferAmount")
+                or payload.get("amountIn")
+                or payload.get("order_amount")
+                or payload.get("amount")
+                or payload.get("transaction_amount")
+                or payload.get("total_amount")
+                or 0
+            )
+        )
+        if paid_amount != Decimal(payment.amount):
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="FAILED",
+                error_message="Số tiền IPN SePay không khớp giao dịch.",
+            )
+            await self._session.commit()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Số tiền thanh toán không khớp.")
+        if payment.status in {"PAID", "REFUNDED"}:
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="IGNORED",
+            )
+            await self._session.commit()
+            return {"success": True, "duplicate": True}
+
+        event_type = str(payload.get("event_type") or payload.get("order_status") or payload.get("status") or "").upper()
+        transfer_type = str(payload.get("transferType") or "").lower()
+        amount_in = Decimal(str(payload.get("amountIn") or 0))
+        if not event_type and (transfer_type == "in" or amount_in > 0):
+            event_type = "PAID"
+
+        now = datetime.now(timezone.utc)
+        payment.raw_response = {**(payment.raw_response or {}), "ipn": payload}
+        if event_type in {"ORDER_PAID", "PAID", "SUCCESS", "SUCCEEDED"}:
+            payment.status = "PAID"
+            payment.paid_at = now
+            commerce_repo.save_model(self._session, payment)
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="PROCESSED",
+            )
+            await self._session.commit()
+            await CompleteOrderUseCase(session=self._session).execute(
+                order_id=payment.order_id,
+                status_value="PAID",
+                internal_note="SePay IPN xác nhận thanh toán thành công.",
+                changed_by="sepay-ipn",
+            )
+        else:
+            payment.status = "FAILED"
+            payment.failed_at = now
+            payment.raw_response = {
+                **payment.raw_response,
+                "failure_message": str(payload.get("message") or f"SePay event={event_type}"),
+            }
+            commerce_repo.save_model(self._session, payment)
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="PROCESSED",
+            )
+            await self._session.commit()
+            await self._mark_order_payment_failed_if_pending(
+                order_id=payment.order_id,
+                internal_note="SePay IPN báo thanh toán không thành công.",
+                changed_by="sepay-ipn",
+            )
+        return {"success": True, "duplicate": False}
+
+    async def process_momo_ipn(self, payload: dict) -> dict:
+        provider_order_id = str(payload.get("orderId") or "")
+        if not provider_order_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Thiếu orderId.")
+        signature_valid = self._momo_gateway.verify_ipn_signature(payload)
+        event_key = ":".join(
+            [
+                str(payload.get("partnerCode") or ""),
+                provider_order_id,
+                str(payload.get("requestId") or ""),
+                str(payload.get("transId") or ""),
+                str(payload.get("resultCode") or ""),
+            ]
+        )
+        payment = await commerce_repo.get_payment_transaction_by_reference_for_update(
+            self._session,
+            provider="MOMO",
+            transaction_ref=provider_order_id,
+        )
+        order_id = payment.order_id if payment else None
+        event_id = uuid4()
+        inserted = await commerce_repo.create_webhook_event(
+            self._session,
+            event_id=event_id,
+            provider="MOMO",
+            event_key=event_key,
+            order_id=order_id,
+            payment_transaction_id=payment.id if payment else None,
+            signature_valid=signature_valid,
+            payload=payload,
+        )
+        if not inserted:
+            await self._session.rollback()
+            return {"ok": True, "duplicate": True}
+        if not signature_valid:
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="FAILED",
+                error_message="Chữ ký IPN MoMo không hợp lệ.",
+            )
+            await self._session.commit()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Chữ ký IPN không hợp lệ.")
+        if order_id is None or payment is None:
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="FAILED",
+                error_message="Không tìm thấy đơn hàng hoặc giao dịch.",
+            )
+            await self._session.commit()
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch.")
+        if Decimal(str(payload.get("amount") or 0)) != Decimal(payment.amount):
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="FAILED",
+                error_message="Số tiền IPN không khớp giao dịch.",
+            )
+            await self._session.commit()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Số tiền thanh toán không khớp.")
+        if payment.status in {"PAID", "REFUNDED"}:
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="IGNORED",
+            )
+            await self._session.commit()
+            return {"ok": True, "duplicate": True}
+
+        result_code = int(payload.get("resultCode") or -1)
+        now = datetime.now(timezone.utc)
+        payment.raw_response = {**(payment.raw_response or {}), "ipn": payload}
+        if result_code == 0:
+            payment.status = "PAID"
+            payment.paid_at = now
+            commerce_repo.save_model(self._session, payment)
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="PROCESSED",
+            )
+            await self._session.commit()
+            await CompleteOrderUseCase(session=self._session).execute(
+                order_id=order_id,
+                status_value="PAID",
+                internal_note="MoMo Sandbox IPN xác nhận thanh toán thành công.",
+                changed_by="momo-sandbox-ipn",
+            )
+        else:
+            payment.status = "FAILED"
+            payment.failed_at = now
+            payment.raw_response = {
+                **payment.raw_response,
+                "failure_message": str(payload.get("message") or f"MoMo resultCode={result_code}"),
+            }
+            commerce_repo.save_model(self._session, payment)
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="PROCESSED",
+            )
+            await self._session.commit()
+            await self._mark_order_payment_failed_if_pending(
+                order_id=order_id,
+                internal_note="MoMo Sandbox IPN báo thanh toán không thành công.",
+                changed_by="momo-sandbox-ipn",
+            )
+        return {"ok": True, "duplicate": False}
+
+    async def process_zalopay_callback(self, payload: dict) -> dict:
+        callback_data = str(payload.get("data") or "")
+        callback_mac = str(payload.get("mac") or "")
+        if not self._zalopay_gateway.verify_callback(callback_data, callback_mac):
+            return {"return_code": -1, "return_message": "mac not equal"}
+        try:
+            data = json.loads(callback_data)
+        except ValueError:
+            return {"return_code": 0, "return_message": "callback data invalid"}
+        app_trans_id = str(data.get("app_trans_id") or "")
+        payment = await commerce_repo.get_payment_transaction_by_reference_for_update(
+            self._session,
+            provider="ZALOPAY",
+            transaction_ref=app_trans_id,
+        )
+        event_id = uuid4()
+        event_key = f"{app_trans_id}:{data.get('zp_trans_id', '')}"
+        inserted = await commerce_repo.create_webhook_event(
+            self._session,
+            event_id=event_id,
+            provider="ZALOPAY",
+            event_key=event_key,
+            order_id=payment.order_id if payment else None,
+            payment_transaction_id=payment.id if payment else None,
+            signature_valid=True,
+            payload=payload,
+        )
+        if not inserted:
+            await self._session.rollback()
+            return {"return_code": 2, "return_message": "duplicate"}
+        if payment is None:
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="FAILED",
+                error_message="Không tìm thấy giao dịch ZaloPay.",
+            )
+            await self._session.commit()
+            return {"return_code": 0, "return_message": "payment not found"}
+        if Decimal(str(data.get("amount") or 0)) != Decimal(payment.amount):
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="FAILED",
+                error_message="Số tiền callback không khớp giao dịch.",
+            )
+            await self._session.commit()
+            return {"return_code": -1, "return_message": "amount not equal"}
+        if payment.status in {"PAID", "REFUNDED"}:
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="IGNORED",
+            )
+            await self._session.commit()
+            return {"return_code": 2, "return_message": "duplicate"}
+
+        payment.status = "PAID"
+        payment.paid_at = datetime.now(timezone.utc)
+        payment.transaction_ref = app_trans_id
+        payment.raw_response = {
+            **(payment.raw_response or {}),
+            "callback": data,
+            "zp_trans_id": data.get("zp_trans_id"),
+        }
+        commerce_repo.save_model(self._session, payment)
+        await commerce_repo.finish_webhook_event(
+            self._session,
+            event_id=event_id,
+            processing_status="PROCESSED",
+        )
+        await self._session.commit()
+        await CompleteOrderUseCase(session=self._session).execute(
+            order_id=payment.order_id,
+            status_value="PAID",
+            internal_note="ZaloPay Sandbox callback xác nhận thanh toán thành công.",
+            changed_by="zalopay-sandbox-callback",
+        )
+        return {"return_code": 1, "return_message": "success"}
 
 
 class CompleteOrderUseCase:
@@ -882,8 +1652,34 @@ class CompleteOrderUseCase:
                 order.status = status_value
                 if status_value in {"PAID", "COMPLETED"}:
                     order.payment_status = "PAID"
+                if status_value in {"PROCESSING", "PAID"}:
+                    from app.application.services.inventory_service import create_outbound_document_from_order
+                    await create_outbound_document_from_order(self._session, order.id)
                 if status_value == "SHIPPED":
-                    await self._ship_order_items(order, issue_allocations=issue_allocations or [])
+                    # Check if there is an outbound document linked to this order
+                    outbound_res = await self._session.execute(
+                        text("SELECT id, status, document_no FROM inventory_documents WHERE order_id = :order_id AND document_type = 'OUTBOUND'"),
+                        {"order_id": order.id}
+                    )
+                    outbound_row = outbound_res.mappings().first()
+                    if outbound_row:
+                        if outbound_row["status"] == "COMPLETED":
+                            # Physical inventory is already posted, skip shipping items logic.
+                            # But we MUST close active reservations as CONSUMED!
+                            await commerce_repo.close_active_order_reservations(
+                                self._session,
+                                order_id=order.id,
+                                status="CONSUMED",
+                            )
+                        else:
+                            raise HTTPException(
+                                status_code=status.HTTP_400_BAD_REQUEST,
+                                detail=f"Đơn hàng đang có phiếu xuất kho chưa hoàn tất ({outbound_row['document_no']}). Vui lòng hoàn tất phiếu xuất kho để giao hàng."
+                            )
+                    else:
+                        # Fallback to default FIFO shipping
+                        await self._ship_order_items(order, issue_allocations=issue_allocations or [])
+
                     shipment = await self._shipping_gateway.register_shipment(
                         provider=order.shipping_provider,
                         order_code=order.order_code,
@@ -901,6 +1697,19 @@ class CompleteOrderUseCase:
                     order.cancelled_at = now
                     order.cancellation_reason = (cancellation_reason or order.cancellation_reason or "").strip() or None
                     await self._release_or_restock_unshipped_order(order, reservation_status="CANCELLED")
+                    
+                    # Cancel linked outbound document if it exists and is not completed
+                    await self._session.execute(
+                        text(
+                            """
+                            UPDATE inventory_documents
+                            SET status = 'CANCELLED', updated_at = NOW(), updated_by = :actor_id
+                            WHERE order_id = :order_id AND document_type = 'OUTBOUND' AND status != 'COMPLETED'
+                            """
+                        ),
+                        {"order_id": order.id, "actor_id": order.assigned_staff_name or order.user_id},
+                    )
+                    
                     refund_payment = refund_payment or order.payment_method != "COD"
                 if status_value == "REFUNDED":
                     order.refunded_at = now
@@ -968,6 +1777,55 @@ class CompleteOrderUseCase:
                 )
                 user = await commerce_repo.get_user(self._session, order.user_id) if order.user_id else None
                 self._send_order_status_email(order=order, user=user)
+                shipment_events = {
+                    "CONFIRMED": [("CONFIRMED", "Đơn hàng đã được xác nhận")],
+                    "PAID": [("CONFIRMED", "Đơn hàng đã được xác nhận")],
+                    "PROCESSING": [("PACKED", "Đơn hàng đang được đóng gói")],
+                    "SHIPPED": [
+                        ("HANDED_TO_CARRIER", "Đơn hàng đã bàn giao cho đơn vị vận chuyển"),
+                        ("IN_TRANSIT", "Đơn hàng đang được giao"),
+                    ],
+                    "COMPLETED": [("DELIVERED", "Đơn hàng đã được giao")],
+                }
+                for event_code, title in shipment_events.get(order.status, []):
+                    await self._session.execute(
+                        text(
+                            """
+                            INSERT INTO shipment_events
+                                (id, order_id, event_code, title, shipping_provider, tracking_code, source)
+                            SELECT :id, :order_id, CAST(:event_code AS VARCHAR), CAST(:title AS VARCHAR), CAST(:provider AS VARCHAR), CAST(:tracking_code AS VARCHAR), 'INTERNAL'
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM shipment_events
+                                WHERE order_id=:order_id AND event_code=CAST(:event_code AS VARCHAR)
+                            )
+                            """
+                        ),
+                        {
+                            "id": uuid4(), "order_id": order.id, "event_code": event_code,
+                            "title": title, "provider": order.shipping_provider,
+                            "tracking_code": order.tracking_code,
+                        },
+                    )
+                if order.user_id:
+                    await self._session.execute(
+                        text(
+                            """
+                            INSERT INTO notifications
+                                (id, user_id, type, title, message, entity_type, entity_id,
+                                 action_url, idempotency_key, available_at)
+                            VALUES
+                                (:id, :user_id, 'order', 'Cập nhật đơn hàng', :message,
+                                 'ORDER', :order_id, :action_url, :key, NOW() + INTERVAL '2 minutes')
+                            ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+                            """
+                        ),
+                        {
+                            "id": uuid4(), "user_id": order.user_id, "order_id": order.id,
+                            "message": f"Đơn hàng {order.order_code} đã chuyển sang trạng thái {order.status}.",
+                            "action_url": f"/orders/{order.id}",
+                            "key": f"order:{order.id}:{order.status}",
+                        },
+                    )
 
     async def execute_admin_update(self, *, order_id: UUID, request: AdminUpdateOrderRequest) -> None:
         await self.execute(
@@ -981,6 +1839,200 @@ class CompleteOrderUseCase:
             refund_payment=request.refund_payment,
             changed_by=request.changed_by,
             issue_allocations=request.issue_allocations,
+        )
+
+    async def quote_carrier_shipment(self, *, order_id: UUID, provider: str | None = None) -> CarrierShipmentResponse:
+        order = await commerce_repo.get_order_for_update(self._session, order_id)
+        if order is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
+        item_count = await self._order_item_count(order.id)
+        quote = await SandboxShippingPricingService().quote(
+            self._session,
+            shipping_address=order.shipping_address,
+            subtotal_amount=Decimal(order.subtotal_amount or 0),
+            item_count=item_count,
+            provider=provider or order.shipping_provider,
+        )
+        return CarrierShipmentResponse(
+            order_id=order.id,
+            order_code=order.order_code,
+            provider=quote.provider,
+            tracking_code=order.tracking_code,
+            carrier_status="QUOTED",
+            shipping_fee=quote.fee,
+            estimated_days=quote.estimated_days,
+            message=quote.note,
+        )
+
+    async def create_carrier_shipment(self, *, order_id: UUID, provider: str | None = None) -> CarrierShipmentResponse:
+        async with self._session.begin():
+            order = await commerce_repo.get_order_for_update(self._session, order_id)
+            if order is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
+            if order.status in {"CANCELLED", "REFUNDED", "RETURNED"}:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Không thể tạo vận đơn cho đơn đã đóng.")
+
+            shipment = await self._shipping_gateway.register_shipment(
+                provider=provider or order.shipping_provider,
+                order_code=order.order_code,
+                recipient_name=order.recipient_name,
+                recipient_phone=order.recipient_phone,
+                shipping_address=order.shipping_address,
+            )
+            order.shipping_provider = shipment.provider or normalize_mock_carrier(provider)
+            order.tracking_code = order.tracking_code or shipment.tracking_code
+            commerce_repo.save_model(self._session, order)
+            await self._insert_shipment_event(
+                order=order,
+                event_code="CREATED",
+                title="Đã tạo vận đơn thử nghiệm",
+                description="Vận đơn được tạo bằng mock carrier, không phát sinh giao hàng thật.",
+                source="MOCK_CARRIER",
+            )
+            await self._insert_order_history(
+                order=order,
+                old_status=order.status,
+                new_status=order.status,
+                changed_by="mock-carrier",
+                note=f"Tạo vận đơn thử nghiệm {order.tracking_code}.",
+            )
+
+        return await self.quote_carrier_shipment(order_id=order_id, provider=provider)
+
+    async def cancel_carrier_shipment(self, *, order_id: UUID, reason: str | None = None) -> CarrierShipmentResponse:
+        async with self._session.begin():
+            order = await commerce_repo.get_order_for_update(self._session, order_id)
+            if order is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
+            if not order.tracking_code:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đơn hàng chưa có mã vận đơn để huỷ.")
+            await self._insert_shipment_event(
+                order=order,
+                event_code="CANCELLED",
+                title="Đã huỷ vận đơn thử nghiệm",
+                description=(reason or "Admin huỷ vận đơn trên môi trường mô phỏng.").strip(),
+                source="MOCK_CARRIER",
+            )
+            await self._insert_order_history(
+                order=order,
+                old_status=order.status,
+                new_status=order.status,
+                changed_by="mock-carrier",
+                note=(reason or "Huỷ vận đơn thử nghiệm.").strip(),
+            )
+        response = await self.quote_carrier_shipment(order_id=order_id, provider=None)
+        response.carrier_status = "CANCELLED"
+        response.message = "Đã huỷ vận đơn thử nghiệm; trạng thái đơn hàng không bị đổi tự động."
+        return response
+
+    async def update_carrier_event(
+        self,
+        *,
+        order_id: UUID,
+        event_code: str,
+        note: str | None = None,
+    ) -> CarrierShipmentResponse:
+        titles = {
+            "CREATED": "Đã tạo vận đơn thử nghiệm",
+            "HANDED_TO_CARRIER": "Đơn hàng đã bàn giao cho đơn vị vận chuyển",
+            "IN_TRANSIT": "Đơn hàng đang được giao",
+            "DELIVERED": "Đơn hàng đã được giao",
+            "DELIVERY_FAILED": "Giao hàng không thành công",
+            "CANCELLED": "Đã huỷ vận đơn thử nghiệm",
+        }
+        if event_code not in titles:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Trạng thái vận chuyển không hợp lệ.")
+        async with self._session.begin():
+            order = await commerce_repo.get_order_for_update(self._session, order_id)
+            if order is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
+            if not order.tracking_code:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đơn hàng chưa có mã vận đơn.")
+            await self._insert_shipment_event(
+                order=order,
+                event_code=event_code,
+                title=titles[event_code],
+                description=note,
+                source="MOCK_CARRIER",
+            )
+            await self._insert_order_history(
+                order=order,
+                old_status=order.status,
+                new_status=order.status,
+                changed_by="mock-carrier",
+                note=note or titles[event_code],
+            )
+        response = await self.quote_carrier_shipment(order_id=order_id, provider=None)
+        response.carrier_status = event_code
+        response.message = titles[event_code]
+        return response
+
+    async def _order_item_count(self, order_id: UUID) -> int:
+        result = await self._session.execute(
+            text("SELECT COALESCE(SUM(quantity), 0)::int FROM order_items WHERE order_id = :order_id"),
+            {"order_id": order_id},
+        )
+        return max(1, int(result.scalar() or 1))
+
+    async def _insert_shipment_event(
+        self,
+        *,
+        order: Order,
+        event_code: str,
+        title: str,
+        description: str | None = None,
+        source: str = "MOCK_CARRIER",
+    ) -> None:
+        await self._session.execute(
+            text(
+                """
+                INSERT INTO shipment_events
+                    (id, order_id, event_code, title, description, shipping_provider, tracking_code, source)
+                SELECT :id, :order_id, CAST(:event_code AS VARCHAR), CAST(:title AS VARCHAR), CAST(:description AS VARCHAR), CAST(:provider AS VARCHAR), CAST(:tracking_code AS VARCHAR), CAST(:source AS VARCHAR)
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM shipment_events
+                    WHERE order_id = :order_id
+                      AND event_code = CAST(:event_code AS VARCHAR)
+                      AND COALESCE(tracking_code, '') = COALESCE(CAST(:tracking_code AS VARCHAR), '')
+                      AND source = CAST(:source AS VARCHAR)
+                )
+                """
+            ),
+            {
+                "id": uuid4(),
+                "order_id": order.id,
+                "event_code": event_code,
+                "title": title,
+                "description": description,
+                "provider": order.shipping_provider,
+                "tracking_code": order.tracking_code,
+                "source": source,
+            },
+        )
+
+    def _insert_order_history(
+        self,
+        *,
+        order: Order,
+        old_status: str,
+        new_status: str,
+        changed_by: str,
+        note: str | None = None,
+    ) -> None:
+        commerce_repo.save_model(
+            self._session,
+            OrderHistoryLog(
+                id=uuid4(),
+                order_id=order.id,
+                old_status=old_status,
+                new_status=new_status,
+                changed_by=changed_by,
+                note=note,
+                metadata_json={
+                    "shipping_provider": order.shipping_provider,
+                    "tracking_code": order.tracking_code,
+                },
+            ),
         )
 
     async def expire_pending_orders(self, *, online_timeout_minutes: int = 15, cod_timeout_hours: int = 24) -> int:
@@ -1133,6 +2185,31 @@ class CompleteOrderUseCase:
                         )
                     except ValueError as exc:
                         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+                    await self._session.execute(
+                        text(
+                            """
+                            UPDATE product_imeis
+                            SET status = 'SOLD', sold_at = NOW(), sold_order_id = :order_id, updated_at = NOW()
+                            WHERE id IN (
+                                SELECT id FROM product_imeis
+                                WHERE product_id = :product_id
+                                  AND (variant_id IS NOT DISTINCT FROM :variant_id)
+                                  AND location_id = :location_id
+                                  AND status = 'IN_STOCK'
+                                ORDER BY received_at ASC
+                                LIMIT :quantity
+                                FOR UPDATE
+                            )
+                            """
+                        ),
+                        {
+                            "order_id": order.id,
+                            "product_id": inventory_row["product_id"],
+                            "variant_id": variant_id,
+                            "location_id": allocation["locationId"],
+                            "quantity": int(allocation["quantity"]),
+                        },
+                    )
                     await commerce_repo.insert_inventory_adjustment(
                         self._session,
                         product_id=inventory_row["product_id"],
@@ -1189,6 +2266,30 @@ class CompleteOrderUseCase:
                     )
                 except ValueError as exc:
                     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+                await self._session.execute(
+                    text(
+                        """
+                        UPDATE product_imeis
+                        SET status = 'SOLD', sold_at = NOW(), sold_order_id = :order_id, updated_at = NOW()
+                        WHERE id IN (
+                            SELECT id FROM product_imeis
+                            WHERE product_id = :product_id
+                              AND variant_id IS NULL
+                              AND location_id = :location_id
+                              AND status = 'IN_STOCK'
+                            ORDER BY received_at ASC
+                            LIMIT :quantity
+                            FOR UPDATE
+                        )
+                        """
+                    ),
+                    {
+                        "order_id": order.id,
+                        "product_id": item["product_id"],
+                        "location_id": allocation["locationId"],
+                        "quantity": int(allocation["quantity"]),
+                    },
+                )
                 await commerce_repo.insert_inventory_adjustment(
                     self._session,
                     product_id=item["product_id"],
@@ -1255,6 +2356,17 @@ class CompleteOrderUseCase:
                 reason="ORDER_CANCELLED_RESTOCK",
                 note=f"Restock after cancelling order for {item['product_name']}.",
             )
+        # Giải phóng các IMEI liên quan đến đơn hàng này về trạng thái sẵn sàng
+        await self._session.execute(
+            text(
+                """
+                UPDATE product_imeis
+                SET status = 'IN_STOCK', sold_at = NULL, sold_order_id = NULL, updated_at = NOW()
+                WHERE sold_order_id = :order_id AND status = 'SOLD'
+                """
+            ),
+            {"order_id": order.id},
+        )
 
     def _send_order_status_email(self, *, order: Order, user: User | None) -> None:
         if not user or not user.email or not settings.smtp_username or not settings.smtp_password:
@@ -1327,16 +2439,33 @@ class ShippingQuoteUseCase:
     def __init__(self) -> None:
         self._shipping_pricing = SandboxShippingPricingService()
 
-    def execute(self, *, shipping_address: str, subtotal_amount: Decimal, item_count: int) -> ShippingQuoteResponse:
-        quote = self._shipping_pricing.quote(
+    async def execute(
+        self,
+        session: AsyncSession,
+        *,
+        shipping_address: str,
+        subtotal_amount: Decimal,
+        item_count: int,
+        provider: str | None = None,
+        lat: float | None = None,
+        lng: float | None = None,
+    ) -> ShippingQuoteResponse:
+        quote = await self._shipping_pricing.quote(
+            session,
             shipping_address=shipping_address,
             subtotal_amount=subtotal_amount,
             item_count=item_count,
+            provider=provider,
+            lat=lat,
+            lng=lng,
         )
+
         return ShippingQuoteResponse(
             shipping_fee=quote.fee,
             zone=quote.zone,
             estimated_days=quote.estimated_days,
             free_shipping_applied=quote.free_shipping_applied,
+            provider=quote.provider,
+            service_name=quote.service_name,
             note=quote.note,
         )

@@ -59,6 +59,7 @@ export const adminProductsApi = {
   adminSuggestProducts: (search: string, excludeId?: string, filters?: { categoryId?: string; brandId?: string }) => {
     const query = new URLSearchParams();
     if (search) query.set('search', search);
+    query.set('limit', '50');
     if (excludeId) query.set('excludeId', excludeId);
     if (filters?.categoryId) query.set('categoryId', filters.categoryId);
     if (filters?.brandId) query.set('brandId', filters.brandId);

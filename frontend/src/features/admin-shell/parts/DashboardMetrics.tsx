@@ -229,6 +229,12 @@ export function VoucherConditions({ voucher }: { voucher: any }) {
     Array.isArray(voucher.excludeCategoryIds) && voucher.excludeCategoryIds.length
       ? `DM loại trừ: ${voucher.excludeCategoryIds.length}`
       : '',
+    Array.isArray(voucher.includeBrandIds) && voucher.includeBrandIds.length
+      ? `TH áp dụng: ${voucher.includeBrandIds.length}`
+      : '',
+    Array.isArray(voucher.excludeBrandIds) && voucher.excludeBrandIds.length
+      ? `TH loại trừ: ${voucher.excludeBrandIds.length}`
+      : '',
     voucher.assignedUserId ? `User: ${String(voucher.assignedUserId).slice(0, 8)}` : '',
     voucher.startsAt || voucher.endsAt
       ? `${

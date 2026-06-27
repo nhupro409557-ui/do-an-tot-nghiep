@@ -1,9 +1,14 @@
-import { ClipboardList, Diamond, Heart, Home, MapPin, Settings } from 'lucide-react';
+import { BadgePercent, Bell, ClipboardList, CreditCard, Diamond, Heart, Home, MapPin, RotateCcw, Settings, ShieldCheck } from 'lucide-react';
 import type { AccountTab } from '../types/accountDashboardTypes';
 
 export const accountNavItems = [
   { id: 'overview', label: 'Tổng quan', icon: Home },
   { id: 'orders', label: 'Lịch sử mua hàng', icon: ClipboardList },
+  { id: 'returns', label: 'Đổi trả', icon: RotateCcw },
+  { id: 'warranties', label: 'Bảo hành', icon: ShieldCheck },
+  { id: 'vouchers', label: 'Ví voucher', icon: BadgePercent },
+  { id: 'transactions', label: 'Thanh toán & hoàn tiền', icon: CreditCard },
+  { id: 'notifications', label: 'Thông báo', icon: Bell },
   { id: 'favorites', label: 'Sản phẩm yêu thích', icon: Heart },
   { id: 'membership', label: 'Hạng thành viên', icon: Diamond },
   { id: 'addresses', label: 'Địa chỉ', icon: MapPin },

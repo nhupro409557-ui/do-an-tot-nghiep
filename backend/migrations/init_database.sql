@@ -73,9 +73,9 @@ CREATE TABLE IF NOT EXISTS orders (
             )
         ),
     payment_method VARCHAR(30) NOT NULL
-        CHECK (payment_method IN ('VNPAY', 'MOMO', 'CREDIT_CARD', 'COD')),
+        CHECK (payment_method IN ('VNPAY', 'MOMO', 'ZALOPAY', 'SEPAY', 'CREDIT_CARD', 'COD')),
     payment_status VARCHAR(30) NOT NULL DEFAULT 'UNPAID'
-        CHECK (payment_status IN ('UNPAID', 'PAID', 'FAILED', 'REFUNDED')),
+        CHECK (payment_status IN ('UNPAID', 'PENDING', 'PAID', 'FAILED', 'REFUNDED')),
     subtotal_amount NUMERIC(14, 2) NOT NULL CHECK (subtotal_amount >= 0),
     discount_amount NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (discount_amount >= 0),
     shipping_fee NUMERIC(14, 2) NOT NULL DEFAULT 0 CHECK (shipping_fee >= 0),
@@ -193,11 +193,15 @@ CREATE TABLE IF NOT EXISTS product_reviews (
 CREATE TABLE IF NOT EXISTS payment_transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    provider VARCHAR(30) NOT NULL CHECK (provider IN ('VNPAY', 'MOMO', 'CREDIT_CARD', 'COD')),
+    provider VARCHAR(30) NOT NULL CHECK (provider IN ('VNPAY', 'MOMO', 'ZALOPAY', 'SEPAY', 'CREDIT_CARD', 'COD')),
     amount NUMERIC(14, 2) NOT NULL CHECK (amount >= 0),
-    status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PAID', 'FAILED', 'REFUNDED')),
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PAID', 'FAILED', 'EXPIRED', 'REFUNDED')),
     transaction_ref VARCHAR(120),
     checkout_url TEXT,
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    expires_at TIMESTAMPTZ,
+    paid_at TIMESTAMPTZ,
+    failed_at TIMESTAMPTZ,
     raw_response JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -209,6 +213,24 @@ CREATE INDEX IF NOT EXISTS idx_product_reviews_product_id ON product_reviews(pro
 CREATE INDEX IF NOT EXISTS idx_product_reviews_status ON product_reviews(status);
 CREATE INDEX IF NOT EXISTS idx_product_reviews_user_product ON product_reviews(user_id, product_id);
 CREATE INDEX IF NOT EXISTS idx_payment_transactions_order_id ON payment_transactions(order_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_transactions_order_attempt ON payment_transactions(order_id, attempt_number);
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_pending_expiry ON payment_transactions(status, expires_at);
+
+CREATE TABLE IF NOT EXISTS payment_webhook_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider VARCHAR(30) NOT NULL,
+    event_key VARCHAR(255) NOT NULL,
+    order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    payment_transaction_id UUID REFERENCES payment_transactions(id) ON DELETE SET NULL,
+    signature_valid BOOLEAN NOT NULL DEFAULT FALSE,
+    processing_status VARCHAR(30) NOT NULL DEFAULT 'RECEIVED'
+        CHECK (processing_status IN ('RECEIVED', 'PROCESSED', 'IGNORED', 'FAILED')),
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error_message TEXT,
+    processed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_payment_webhook_events_provider_key UNIQUE (provider, event_key)
+);
 
 INSERT INTO vouchers (code, discount_type, discount_value, min_order_value, max_discount, usage_limit)
 VALUES
@@ -524,8 +546,8 @@ SELECT
     product_seed.capacities,
     product_seed.is_featured,
     product_seed.is_flash_sale,
-    product_seed.rating,
-    product_seed.review_count,
+    NULL,
+    0,
     product_seed.badge,
     'ACTIVE'
 FROM product_seed
@@ -549,8 +571,8 @@ ON CONFLICT (sku) DO UPDATE SET
     capacities = EXCLUDED.capacities,
     is_featured = EXCLUDED.is_featured,
     is_flash_sale = EXCLUDED.is_flash_sale,
-    rating = EXCLUDED.rating,
-    review_count = EXCLUDED.review_count,
+    rating = NULL,
+    review_count = 0,
     badge = EXCLUDED.badge,
     status = 'ACTIVE',
     updated_at = NOW();
@@ -2457,6 +2479,30 @@ DELETE FROM role_permissions
 WHERE role_id = (SELECT id FROM roles WHERE code = 'STAFF_ADMIN');
 
 
+-- ==========================================
+-- Migration: 024_voucher_brand_targeting.sql
+-- ==========================================
+
+ALTER TABLE vouchers
+    ADD COLUMN IF NOT EXISTS include_brand_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS exclude_brand_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+
+-- ==========================================
+-- Migration: 025_voucher_display_channel_payment.sql
+-- ==========================================
+
+ALTER TABLE vouchers
+    ADD COLUMN IF NOT EXISTS display_title VARCHAR(120),
+    ADD COLUMN IF NOT EXISTS display_description VARCHAR(500),
+    ADD COLUMN IF NOT EXISTS public_terms TEXT,
+    ADD COLUMN IF NOT EXISTS applicable_channels JSONB NOT NULL DEFAULT '["WEB"]'::jsonb,
+    ADD COLUMN IF NOT EXISTS applicable_payment_methods JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+CREATE INDEX IF NOT EXISTS idx_vouchers_applicable_channels ON vouchers USING GIN (applicable_channels);
+CREATE INDEX IF NOT EXISTS idx_vouchers_applicable_payment_methods ON vouchers USING GIN (applicable_payment_methods);
+
+
 -- ============================================================================
 -- Consolidated legacy migration: 036_inventory_settings_and_receipt_metadata.sql
 -- ============================================================================
@@ -3301,7 +3347,21 @@ DROP CONSTRAINT IF EXISTS inventory_documents_status_check;
 
 ALTER TABLE inventory_documents
 ADD CONSTRAINT inventory_documents_status_check
-CHECK (status IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'RECEIVING', 'COMPLETED', 'CANCELLED', 'REJECTED', 'POSTED'));
+CHECK (status IN (
+        'DRAFT',
+        'PROCESSING_IMEI',
+        'PENDING_SHORTAGE_APPROVAL',
+        'APPROVED',
+        'COMPLETED',
+        'CANCELLED',
+        'REVERSED',
+        'REJECTED',
+        'POSTED',
+        'PENDING_APPROVAL',
+        'RECEIVING',
+        'PICKING',
+        'PICKED'
+    ));
 
 ALTER TABLE inventory_document_lines
 DROP CONSTRAINT IF EXISTS inventory_document_lines_item_check;
@@ -3332,17 +3392,20 @@ DROP CONSTRAINT IF EXISTS inventory_documents_status_check;
 ALTER TABLE inventory_documents
 ADD CONSTRAINT inventory_documents_status_check
 CHECK (status IN (
-    'DRAFT',
-    'PROCESSING_IMEI',
-    'PENDING_SHORTAGE_APPROVAL',
-    'APPROVED',
-    'COMPLETED',
-    'CANCELLED',
-    'REJECTED',
-    'POSTED',
-    'PENDING_APPROVAL',
-    'RECEIVING'
-));
+        'DRAFT',
+        'PROCESSING_IMEI',
+        'PENDING_SHORTAGE_APPROVAL',
+        'APPROVED',
+        'COMPLETED',
+        'CANCELLED',
+        'REVERSED',
+        'REJECTED',
+        'POSTED',
+        'PENDING_APPROVAL',
+        'RECEIVING',
+        'PICKING',
+        'PICKED'
+    ));
 
 ALTER TABLE inventory_document_lines
 ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
@@ -3513,7 +3576,9 @@ ALTER TABLE inventory_documents
         'REJECTED',
         'POSTED',
         'PENDING_APPROVAL',
-        'RECEIVING'
+        'RECEIVING',
+        'PICKING',
+        'PICKED'
     ));
 
 ALTER TABLE product_imeis
@@ -3719,6 +3784,43 @@ CREATE INDEX IF NOT EXISTS idx_product_imeis_pending_inbound_source
 CREATE INDEX IF NOT EXISTS idx_product_serial_numbers_pending_inbound_source
     ON product_serial_numbers(source_reference, status)
     WHERE status = 'PENDING_INBOUND';
+
+
+-- ============================================================================
+-- Incremental migration: 035_product_identifier_pairs.sql
+-- ============================================================================
+-- Link IMEI and serial number values that belong to the same physical unit.
+
+CREATE TABLE IF NOT EXISTS product_identifier_pairs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    variant_id UUID REFERENCES product_variants(id) ON DELETE CASCADE,
+    imei1 VARCHAR(80) NOT NULL REFERENCES product_imeis(imei) ON DELETE CASCADE,
+    imei2 VARCHAR(80) REFERENCES product_imeis(imei) ON DELETE SET NULL,
+    serial_number VARCHAR(120) NOT NULL,
+    source_reference VARCHAR(120),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (product_id, imei1),
+    UNIQUE (product_id, serial_number),
+    FOREIGN KEY (product_id, serial_number)
+        REFERENCES product_serial_numbers(product_id, serial_number)
+        ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_product_identifier_pairs_product_imei2_unique
+    ON product_identifier_pairs(product_id, imei2)
+    WHERE imei2 IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_product_identifier_pairs_lookup_imei1
+    ON product_identifier_pairs(product_id, variant_id, imei1);
+
+CREATE INDEX IF NOT EXISTS idx_product_identifier_pairs_lookup_imei2
+    ON product_identifier_pairs(product_id, variant_id, imei2)
+    WHERE imei2 IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_product_identifier_pairs_lookup_serial
+    ON product_identifier_pairs(product_id, variant_id, serial_number);
 
 
 -- ============================================================================

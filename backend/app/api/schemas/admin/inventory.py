@@ -19,6 +19,7 @@ class InventoryAdjustmentPayload(BaseModel):
     locationCode: str | None = Field(default=None, max_length=60)
     locationName: str | None = Field(default=None, max_length=160)
     imeis: list[str] = Field(default_factory=list, max_length=500)
+    secondaryImeis: list[str] = Field(default_factory=list, max_length=500)
     serialNumbers: list[str] = Field(default_factory=list, max_length=500)
 
 class InventoryReceiptLinePayload(BaseModel):
@@ -32,6 +33,7 @@ class InventoryReceiptLinePayload(BaseModel):
     storageLocationCode: str | None = Field(default=None, max_length=60)
     storageLocationName: str | None = Field(default=None, max_length=160)
     imeis: list[str] = Field(default_factory=list, max_length=500)
+    secondaryImeis: list[str] = Field(default_factory=list, max_length=500)
     serialNumbers: list[str] = Field(default_factory=list, max_length=500)
 
 class InventoryReceiptAttachmentPayload(BaseModel):
@@ -91,6 +93,7 @@ class InventoryReceiptQualityPayload(BaseModel):
 class InventoryReceiptImeiLinePayload(BaseModel):
     lineId: UUID
     imeis: list[str] = Field(default_factory=list, max_length=500)
+    secondaryImeis: list[str] = Field(default_factory=list, max_length=500)
     serialNumbers: list[str] = Field(default_factory=list, max_length=500)
     acceptShortage: bool = False
     shortageReason: str | None = Field(default=None, max_length=500)
@@ -152,6 +155,30 @@ class InventoryAdjustmentRequestStatusPayload(BaseModel):
     status: str = Field(pattern="^(APPROVED|CANCELLED)$")
     note: str | None = Field(default=None, max_length=500)
 
+class InventoryStockCountStatusPayload(BaseModel):
+    status: str = Field(pattern="^(APPROVED|CANCELLED)$")
+    note: str | None = Field(default=None, max_length=500)
+
+class InventoryAdjustmentRequestLinePayload(BaseModel):
+    productId: UUID
+    variantId: UUID | None = None
+    currentQuantity: int = Field(ge=0)
+    newQuantity: int = Field(ge=0)
+    reason: str = Field(min_length=5, max_length=500)
+    note: str | None = Field(default=None, max_length=500)
+
+class InventoryAdjustmentRequestPayload(BaseModel):
+    referenceCode: str = Field(min_length=1, max_length=120)
+    reason: str = Field(default="DIEU_CHINH_THU_CONG", max_length=120)
+    note: str | None = Field(default=None, max_length=500)
+    locationCode: str | None = Field(default=None, max_length=60)
+    locationName: str | None = Field(default=None, max_length=160)
+    lines: list[InventoryAdjustmentRequestLinePayload] = Field(min_length=1, max_length=100)
+
+class InventoryAdjustmentRequestStatusPayload(BaseModel):
+    status: str = Field(pattern="^(APPROVED|CANCELLED)$")
+    note: str | None = Field(default=None, max_length=500)
+
 class InventorySettingsPayload(BaseModel):
     minimumStock: int = Field(default=0, ge=0)
     blockSaleWhenOutOfStock: bool = True
@@ -163,3 +190,13 @@ class VariantInventoryPayload(BaseModel):
     transactionType: str = Field(default="ADJUSTMENT", pattern="^(RECEIPT|ADJUSTMENT|SALE|RETURN|REVERSAL)$")
     reason: str = Field(default="MANUAL_SET", max_length=80)
     note: str | None = Field(default=None, max_length=500)
+
+class InventoryPutawaySuggestion(BaseModel):
+    warehouseLocationId: UUID
+    locationCode: str
+    locationName: str
+    availableVolumeCm3: float | None = None
+    fillRatio: float | None = None
+    fillRatioAfterImport: float | None = None
+    matchReason: str
+    priority: int  # 1: High, 2: Medium, 3: Low

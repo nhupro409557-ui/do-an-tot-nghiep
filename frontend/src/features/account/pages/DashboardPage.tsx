@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import { signOut } from '../../../services/authDb';
 import { AccountDashboardContent } from '../components/AccountDashboardContent';
@@ -19,6 +19,7 @@ import { useAccountSessions } from '../hooks/useAccountSessions';
 export default function DashboardPage() {
   const { user, userData, loading } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<AccountTab>('overview');
   const [isDashboardMenuOpen, setIsDashboardMenuOpen] = useState(false);
   const addresses = useMemo<AccountAddress[]>(() => userData?.addresses || [], [userData]);
@@ -75,6 +76,20 @@ export default function DashboardPage() {
   const points = userData?.points || 0;
   const nextTierInfo = getNextTierInfo(points);
 
+  // Auto switch tab and action based on URL query params
+  useEffect(() => {
+    if (loading || !user) return;
+    const tabParam = searchParams.get('tab') as AccountTab | null;
+    const actionParam = searchParams.get('action');
+    
+    if (tabParam && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+    if (tabParam === 'addresses' && actionParam === 'new') {
+      openNewAddressForm();
+    }
+  }, [searchParams, loading, user]);
+
   if (loading || !user) return <div className="text-center py-20">Đang tải...</div>;
 
   const handleOpenFavoriteProduct = (product: any) => {
@@ -84,6 +99,14 @@ export default function DashboardPage() {
   const handleChangeTab = (tab: AccountTab) => {
     setActiveTab(tab);
     setIsDashboardMenuOpen(false);
+  };
+
+  const handleSubmitAddress = (event: React.FormEvent) => {
+    handleAddAddress(event);
+    const redirectParam = searchParams.get('redirect');
+    if (redirectParam) {
+      navigate(redirectParam);
+    }
   };
 
   return (
@@ -145,7 +168,7 @@ export default function DashboardPage() {
           onOpenLoyalty={() => navigate('/loyalty')}
           onOpenNewAddressForm={openNewAddressForm}
           onOpenEditAddressForm={openEditAddressForm}
-          onSubmitAddress={handleAddAddress}
+          onSubmitAddress={handleSubmitAddress}
           onUpdateAddressDraft={setAddressDraft}
           onSetAddressFormOpen={setIsAddressFormOpen}
           onSetEditingAddressId={setEditingAddressId}

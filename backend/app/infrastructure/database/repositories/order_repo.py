@@ -92,6 +92,15 @@ async def get_order_detail(session: AsyncSession, order_id: UUID) -> dict | None
                 o.refunded_at AS "refundedAt",
                 o.completed_at AS "completedAt",
                 o.created_at AS "createdAt",
+                (
+                    SELECT jsonb_build_object(
+                        'documentNo', d.document_no,
+                        'status', d.status
+                    )
+                    FROM inventory_documents d
+                    WHERE d.order_id = o.id AND d.document_type = 'OUTBOUND'
+                    LIMIT 1
+                ) AS "outboundDocument",
                 COALESCE(
                     jsonb_agg(
                         DISTINCT jsonb_build_object(
@@ -113,7 +122,13 @@ async def get_order_detail(session: AsyncSession, order_id: UUID) -> dict | None
                             'amount', pt.amount,
                             'status', pt.status,
                             'transactionRef', pt.transaction_ref,
-                            'checkoutUrl', pt.checkout_url
+                            'checkoutUrl', pt.checkout_url,
+                            'attemptNumber', pt.attempt_number,
+                            'expiresAt', pt.expires_at,
+                            'paidAt', pt.paid_at,
+                            'failedAt', pt.failed_at,
+                            'sandboxMode', pt.raw_response ->> 'mode',
+                            'refundMode', pt.raw_response ->> 'refund_mode'
                         )
                     ) FILTER (WHERE pt.id IS NOT NULL),
                     '[]'::jsonb

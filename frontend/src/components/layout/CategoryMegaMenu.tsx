@@ -258,8 +258,8 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
         <div className={`${compact ? 'absolute left-[274px] top-0 h-[min(640px,calc(100vh-96px))] w-[min(1000px,calc(100vw-322px))]' : 'h-[560px] max-h-[calc(100vh-236px)] min-h-[360px] flex-1 md:h-[min(640px,calc(100vh-96px))] md:max-h-none'} overflow-hidden rounded-xl border border-slate-100 bg-white shadow-xl`}>
           <div className="grid h-full grid-cols-1 gap-5 overflow-y-auto p-4 sm:p-5 lg:grid-cols-[1fr_260px]">
             <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2 xl:grid-cols-4">
-              {panelGroups.map((group) => (
-                <section key={group.title} className="min-w-0">
+              {panelGroups.map((group, groupIndex) => (
+                <section key={`${group.title}-${groupIndex}`} className="min-w-0">
                   <h3 className="mb-2 text-[15px] font-bold text-slate-950">{group.title}</h3>
                   <div className="space-y-2">
                     {group.items.slice(0, 12).map((item, index) => (

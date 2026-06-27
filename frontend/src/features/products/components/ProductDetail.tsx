@@ -96,7 +96,17 @@ function FeatureHighlights({ product }: { product: any }) {
   );
 }
 
-function BundleOffers({ offers, price }: { offers?: any[]; price: number }) {
+function BundleOffers({ 
+  offers, 
+  price,
+  selectedAccessories,
+  onChange
+}: { 
+  offers?: any[]; 
+  price: number;
+  selectedAccessories: any[];
+  onChange: (offer: any, checked: boolean) => void;
+}) {
   if (!offers || offers.length === 0) return null;
 
   return (
@@ -109,29 +119,56 @@ function BundleOffers({ offers, price }: { offers?: any[]; price: number }) {
       </div>
       <div className="space-y-2.5">
         {offers.map((offer) => {
+          const offerPrice = accessoryOfferPrice(offer);
+          const basePrice = accessoryBasePrice(offer);
           const detail = offer.discountType === 'PERCENT'
             ? `Giảm ${offer.discountValue}% khi mua cùng sản phẩm`
             : `Giảm ${formatPrice(offer.discountValue)} khi mua cùng sản phẩm`;
+          const hasStockQuantity = offer.stockQuantity !== undefined && offer.stockQuantity !== null;
+          const stockQuantity = Number(offer.stockQuantity || 0);
+          const isSellable = offer.isSellable !== false && (!hasStockQuantity || stockQuantity > 0);
+          const isChecked = selectedAccessories.some(acc => acc.productId === offer.productId);
           return (
-            <label key={offer.productId} className="flex cursor-pointer items-center gap-3 rounded-xl border border-gray-100 p-3 transition-all hover:border-red-100 hover:bg-red-50/30">
-              <input type="checkbox" className="h-4 w-4 accent-primary" />
+            <label
+              key={offer.productId}
+              className={`flex items-center gap-3 rounded-xl border p-3 transition-all ${isSellable ? 'cursor-pointer border-gray-100 hover:border-red-100 hover:bg-red-50/30' : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-70'}`}
+            >
+              <input 
+                type="checkbox" 
+                disabled={!isSellable} 
+                checked={isChecked}
+                onChange={(e) => onChange(offer, e.target.checked)}
+                className="h-4 w-4 accent-primary disabled:cursor-not-allowed" 
+              />
               {offer.imageUrl && (
-                <img src={offer.imageUrl} alt={offer.productName} className="h-10 w-10 object-contain rounded-lg border border-gray-100 bg-white" />
+                <img src={offer.imageUrl} alt={offer.productName} className="h-10 w-10 rounded-lg border border-gray-100 bg-white object-contain" />
               )}
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-bold text-gray-800">{offer.productName}</div>
+                <div className="flex items-center gap-2">
+                  <div className="truncate text-sm font-bold text-gray-800">{offer.productName}</div>
+                  {offer.flashSale && (
+                    <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-800 shrink-0">
+                      ⚡ Flash Sale
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-gray-500">{detail}</div>
+                <div className={`text-[11px] font-bold ${isSellable ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {isSellable
+                    ? (hasStockQuantity ? `Còn ${stockQuantity.toLocaleString('vi-VN')}` : 'Còn hàng')
+                    : 'Hết hàng - tạm khóa mua kèm'}
+                </div>
                 <div className="text-[11px] text-gray-400 line-through">
-                  Giá gốc: {formatPrice(offer.salePrice)}
+                  Giá gốc: {formatPrice(basePrice)}
                 </div>
               </div>
-              <div className="text-sm font-bold text-primary">{formatPrice(offer.price)}</div>
+              <div className={`text-sm font-bold ${isSellable ? 'text-primary' : 'text-gray-400'}`}>{formatPrice(offerPrice)}</div>
             </label>
           );
         })}
       </div>
-      <div className="mt-3 rounded-xl bg-gray-50/50 px-3 py-2.5 text-xs leading-relaxed text-gray-500 border border-gray-100">
-        Có thể chọn thêm khi mua, tổng tiền sẽ được tính tại giỏ hàng. Giá sản phẩm hiện tại: <span className="font-bold text-gray-800">{formatPrice(price)}</span>
+      <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/50 px-3 py-2.5 text-xs leading-relaxed text-gray-500">
+        Chỉ sản phẩm mua kèm còn hàng mới được chọn. Sản phẩm hết hàng sẽ bị khóa và tổng tiền được tính tại giỏ hàng. Giá sản phẩm hiện tại: <span className="font-bold text-gray-800">{formatPrice(price)}</span>
       </div>
     </section>
   );
@@ -149,6 +186,24 @@ function tieredServicePrice(service: any, productPrice: number) {
   });
   const tierPrice = Number(matchedTier?.price);
   return Number.isFinite(tierPrice) && tierPrice > 0 ? tierPrice : null;
+}
+
+function getAttachedServicePriceNumeric(service: any, productPrice: number): number {
+  const overridePrice = Number(service.overridePrice);
+  if (Number.isFinite(overridePrice) && overridePrice > 0) return overridePrice;
+
+  const priceMode = String(service.priceMode || '').toUpperCase();
+  if (priceMode === 'FIXED') return Number(service.fixedPrice || 0);
+  if (priceMode === 'PERCENT') {
+    const percentValue = Number(service.percentValue || 0);
+    const baseAmount = Number(service.baseAmount || productPrice || 0);
+    return Math.round((baseAmount * percentValue) / 100);
+  }
+  if (priceMode === 'TIERED_AMOUNT') {
+    const tierPrice = tieredServicePrice(service, productPrice);
+    return tierPrice || 0;
+  }
+  return 0;
 }
 
 function attachedServicePrice(service: any, productPrice: number) {
@@ -177,7 +232,69 @@ function attachedServiceMeta(service: any) {
   return parts.join(' · ');
 }
 
-function AttachedServices({ services, price }: { services?: any[]; price: number }) {
+function positiveNumber(value: any) {
+  const numericValue = Number(value || 0);
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : 0;
+}
+
+function accessoryBasePrice(offer: any): number {
+  return positiveNumber(offer?.salePrice)
+    || positiveNumber(offer?.normalDiscountPrice)
+    || positiveNumber(offer?.originalPrice)
+    || positiveNumber(offer?.price);
+}
+
+function accessoryOfferPrice(offer: any): number {
+  const configuredPrice = positiveNumber(offer?.price);
+  if (configuredPrice > 0) return Math.round(configuredPrice);
+
+  const basePrice = accessoryBasePrice(offer);
+  const discountType = String(offer?.discountType || '').toUpperCase();
+  const discountValue = Number(offer?.discountValue || 0);
+
+  if (discountType === 'PERCENT') {
+    return Math.max(0, Math.round(basePrice * (1 - discountValue / 100)));
+  }
+  if (['FIXED', 'AMOUNT', 'FIXED_AMOUNT'].includes(discountType)) {
+    return Math.max(0, Math.round(basePrice - discountValue));
+  }
+  return Math.round(basePrice);
+}
+
+function productPolicyHighlights(product: any) {
+  const warrantyPolicy = product.salesConfig?.warrantyPolicy || {};
+  const warrantyMonths = positiveNumber(warrantyPolicy.warrantyMonths);
+  const returnDays = positiveNumber(warrantyPolicy.oneForOneDays);
+  const hasWarranty = warrantyPolicy.hasWarranty !== false && warrantyMonths > 0;
+  const allowOneForOne = warrantyPolicy.allowOneForOne !== false && returnDays > 0;
+
+  return [
+    [ShieldCheck, 'Máy mới 100%', 'Chính hãng, nguyên seal'],
+    [
+      RotateCcw,
+      allowOneForOne ? `Đổi trả ${returnDays} ngày` : 'Đổi trả theo chính sách',
+      allowOneForOne ? 'Áp dụng chính sách 1 đổi 1' : 'Theo điều kiện của cửa hàng',
+    ],
+    [Truck, 'Giao nhanh 2 giờ', 'Nội thành áp dụng'],
+    [
+      PackageCheck,
+      hasWarranty ? `Bảo hành ${warrantyMonths} tháng` : 'Bảo hành theo hãng',
+      hasWarranty ? 'Theo chính sách sản phẩm' : 'Tại trung tâm uỷ quyền',
+    ],
+  ];
+}
+
+function AttachedServices({ 
+  services, 
+  price,
+  selectedServices,
+  onChange
+}: { 
+  services?: any[]; 
+  price: number;
+  selectedServices: any[];
+  onChange: (service: any, checked: boolean) => void;
+}) {
   if (!services || services.length === 0) return null;
 
   return (
@@ -189,16 +306,24 @@ function AttachedServices({ services, price }: { services?: any[]; price: number
         <h2 className="text-base font-bold text-gray-900">Dịch vụ đi kèm</h2>
       </div>
       <div className="space-y-2.5">
-        {services.map((service) => (
-          <label key={service.serviceId || service.code} className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-100 p-3 transition-all hover:border-blue-100 hover:bg-blue-50/30">
-            <input type="checkbox" className="mt-1 h-4 w-4 accent-primary" />
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-bold text-gray-800">{service.name}</div>
-              <div className="mt-0.5 text-xs text-gray-500">{attachedServiceMeta(service)}</div>
-            </div>
-            <div className="shrink-0 text-right text-sm font-bold text-primary">{attachedServicePrice(service, price)}</div>
-          </label>
-        ))}
+        {services.map((service) => {
+          const isChecked = selectedServices.some(s => (s.serviceId || s.code) === (service.serviceId || service.code));
+          return (
+            <label key={service.serviceId || service.code} className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-100 p-3 transition-all hover:border-blue-100 hover:bg-blue-50/30">
+              <input 
+                type="checkbox" 
+                checked={isChecked}
+                onChange={(e) => onChange(service, e.target.checked)}
+                className="mt-1 h-4 w-4 accent-primary" 
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold text-gray-800">{service.name}</div>
+                <div className="mt-0.5 text-xs text-gray-500">{attachedServiceMeta(service)}</div>
+              </div>
+              <div className="shrink-0 text-right text-sm font-bold text-primary">{attachedServicePrice(service, price)}</div>
+            </label>
+          );
+        })}
       </div>
       <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/50 px-3 py-2.5 text-xs leading-relaxed text-gray-500">
         Có thể chọn thêm khi mua, phí dịch vụ sẽ được tính cùng đơn hàng.
@@ -223,6 +348,26 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
   const [liked, setLiked] = useState(false);
   const { user } = useAuth();
   const [addedToCart, setAddedToCart] = useState(false);
+  const [selectedServices, setSelectedServices] = useState<any[]>([]);
+  const [selectedAccessories, setSelectedAccessories] = useState<any[]>([]);
+
+  const handleServiceChange = (service: any, checked: boolean) => {
+    setSelectedServices((prev) => {
+      if (checked) {
+        return [...prev, service];
+      }
+      return prev.filter(s => (s.serviceId || s.code) !== (service.serviceId || service.code));
+    });
+  };
+
+  const handleAccessoryChange = (offer: any, checked: boolean) => {
+    setSelectedAccessories((prev) => {
+      if (checked) {
+        return [...prev, offer];
+      }
+      return prev.filter(acc => acc.productId !== offer.productId);
+    });
+  };
   const [showSpecsModal, setShowSpecsModal] = useState(false);
   const [activeSpecGroup, setActiveSpecGroup] = useState('all');
   const [showMediaViewer, setShowMediaViewer] = useState(false);
@@ -379,6 +524,7 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
 
   const activeFlashSale = activeVariant?.flashSale || product.flashSale || null;
   const isDiscontinued = product.status === 'DISCONTINUED';
+  const policyHighlights = productPolicyHighlights(product);
   const displayPrice = activeVariant?.salePrice || activeVariant?.price || product.salePrice;
   const displayOriginalPrice = activeVariant?.originalPrice || activeVariant?.price || product.originalPrice;
   const discount =
@@ -473,15 +619,44 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
 
   const handleAddToCart = () => {
     if (isDiscontinued) return;
+    const cartImage = selectedImage || product.imageUrl || product.images?.[0] || firstVariantImage(activeVariant) || firstVariantImage(product.variants?.[0]) || '';
+    
+    // Thêm sản phẩm chính kèm dịch vụ đi kèm
     addToCart({
-      productId: product.id,
+      productId: selectedProductId || product.id,
       name: [displayProductName, selectedColor].filter(Boolean).join(' - '),
       price: displayPrice,
-      imageUrl: selectedImage || product.images[0],
+      imageUrl: cartImage,
       quantity,
       originalPrice: displayOriginalPrice,
+      attachedServices: selectedServices.map(s => ({
+        serviceId: s.serviceId || s.id || s.code,
+        code: s.code,
+        name: s.name,
+        price: getAttachedServicePriceNumeric(s, displayPrice)
+      }))
     });
+
+    // Thêm các phụ kiện mua kèm đã chọn
+    selectedAccessories.forEach((acc) => {
+      const offerPrice = accessoryOfferPrice(acc);
+      const basePrice = accessoryBasePrice(acc);
+      addToCart({
+        productId: acc.productId,
+        name: acc.productName,
+        price: offerPrice, // Giá bán kèm ưu đãi
+        imageUrl: acc.imageUrl || product.imageUrl || product.images?.[0] || '',
+        quantity: quantity, // Số lượng tương ứng với sản phẩm chính
+        originalPrice: basePrice, // Giá gốc hoặc giá đang bán trước ưu đãi mua kèm
+        isAccessory: true,
+        parentProductId: selectedProductId || product.id
+      });
+    });
+
     setAddedToCart(true);
+    setSelectedServices([]);
+    setSelectedAccessories([]);
+    
     if (addedToCartTimerRef.current) clearTimeout(addedToCartTimerRef.current);
     addedToCartTimerRef.current = setTimeout(() => {
       setAddedToCart(false);
@@ -495,7 +670,7 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
     window.location.href = '/checkout';
   };
 
-  const fallbackImage = product.images?.[0] || firstVariantImage(product.variants?.[0]) || undefined;
+  const fallbackImage = product.imageUrl || product.images?.[0] || firstVariantImage(product.variants?.[0]) || undefined;
   const rating = Number(product.rating || 0);
   const reviewCount = Number(product.reviewCount || 0);
   const soldCount = Number(product.soldCount || 0);
@@ -539,9 +714,13 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
                   ))}
                   <span>{rating > 0 ? rating.toFixed(1) : 'Chưa có đánh giá'}</span>
                 </span>
-                <span>{reviewCount.toLocaleString('vi-VN')} đánh giá</span>
-                <span className="hidden text-gray-300 sm:inline">|</span>
-                <span>Đã bán {soldCount.toLocaleString('vi-VN')}</span>
+                {reviewCount > 0 && <span>{reviewCount.toLocaleString('vi-VN')} đánh giá</span>}
+                {soldCount > 0 && (
+                  <>
+                    <span className="hidden text-gray-300 sm:inline">|</span>
+                    <span>Đã bán {soldCount.toLocaleString('vi-VN')}</span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -594,12 +773,7 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
             />
 
             <div className="grid grid-cols-2 gap-2.5 w-full">
-              {[
-                [ShieldCheck, 'Máy mới 100%', 'Chính hãng, nguyên seal'],
-                [RotateCcw, 'Đổi trả 7 ngày', 'Theo chính sách cửa hàng'],
-                [Truck, 'Giao nhanh 2 giờ', 'Nội thành áp dụng'],
-                [PackageCheck, 'Bảo hành 12 tháng', 'Tại trung tâm uỷ quyền'],
-              ].map(([Icon, title, desc]: any) => (
+              {policyHighlights.map(([Icon, title, desc]: any) => (
                 <div key={title} className="flex gap-2.5 rounded-xl p-3 bg-gray-50/60 border border-gray-100/50 transition-all hover:bg-gray-100/40">
                   <Icon className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
                   <div>
@@ -609,8 +783,6 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
                 </div>
               ))}
             </div>
-            {!isDiscontinued && <BundleOffers offers={product.salesConfig?.accessoryOffers} price={displayPrice} />}
-            {!isDiscontinued && <AttachedServices services={product.salesConfig?.attachedServices} price={displayPrice} />}
 
             {(features.length > 0 || cleanDescription) && (
               <section className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4">
@@ -643,12 +815,12 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
                       >
                         <p className="whitespace-pre-line text-sm leading-7 text-gray-700">{cleanDescription}</p>
                       </div>
-                      
+
                       {isDescCollapsed && (
                         <div className="absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-white via-white/80 to-transparent pointer-events-none" />
                       )}
                     </div>
-                    
+
                     <div className="mt-4 flex justify-center">
                       <button
                         onClick={() => setIsDescCollapsed(!isDescCollapsed)}
@@ -698,6 +870,23 @@ const ProductDetail = ({ product: externalProduct }: ProductDetailProps) => {
             </div>
 
             <ProductSpecsTable specs={specs} />
+            {!isDiscontinued && (
+              <BundleOffers 
+                offers={product.salesConfig?.accessoryOffers} 
+                price={displayPrice} 
+                selectedAccessories={selectedAccessories}
+                onChange={handleAccessoryChange}
+              />
+            )}
+            {!isDiscontinued && (
+              <AttachedServices 
+                services={product.salesConfig?.attachedServices} 
+                price={displayPrice} 
+                selectedServices={selectedServices}
+                onChange={handleServiceChange}
+              />
+            )}
+
           </main>
         </div>
         <SuggestedProducts currentProductId={product.id} category={product.categorySlug} />
