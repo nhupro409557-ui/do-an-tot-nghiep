@@ -6,8 +6,11 @@ from app.infrastructure.database.session import AsyncSessionFactory
 from app.application.services import inventory_service
 from sqlalchemy import text
 from uuid import UUID
+from app.config import settings
+from app.testing.database_guard import assert_isolated_test_database_url
 
 async def test_putaway_suggestions():
+    assert_isolated_test_database_url(settings.database_url)
     print("--- CHẠY THỬ NGHIỆM GỢI Ý XẾP HÀNG TỰ ĐỘNG ---")
     async with AsyncSessionFactory() as session:
         # 1. Tìm sản phẩm đang hoạt động
@@ -16,11 +19,11 @@ async def test_putaway_suggestions():
                 text("SELECT id, name FROM products LIMIT 1")
             )
         ).mappings().first()
-        
+
         if not row:
             print("❌ Không tìm thấy sản phẩm hoạt động nào.")
             return
-            
+
         product_id = row["id"]
         product_name = row["name"]
         print(f"Sản phẩm thử nghiệm: {product_name} ({product_id})")

@@ -14,51 +14,75 @@ CREATE TABLE IF NOT EXISTS product_identifier_pairs (
         ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_product_identifier_pairs_lookup_imei
-    ON product_identifier_pairs(product_id, variant_id, imei);
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'product_identifier_pairs'
+          AND column_name = 'imei'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_product_identifier_pairs_lookup_imei
+            ON product_identifier_pairs(product_id, variant_id, imei);
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_product_identifier_pairs_lookup_serial
     ON product_identifier_pairs(product_id, variant_id, serial_number);
 
-INSERT INTO product_identifier_pairs (
-    product_id,
-    variant_id,
-    imei,
-    serial_number,
-    source_reference
-)
-SELECT
-    pi.product_id,
-    pi.variant_id,
-    pi.imei,
-    psn.serial_number,
-    COALESCE(pi.source_reference, psn.source_reference)
-FROM product_imeis pi
-JOIN product_serial_numbers psn
-  ON psn.product_id = pi.product_id
- AND psn.variant_id IS NOT DISTINCT FROM pi.variant_id
- AND psn.source_reference IS NOT DISTINCT FROM pi.source_reference
-WHERE pi.source_reference IS NOT NULL
-  AND pi.imei IS NOT NULL
-  AND psn.serial_number IS NOT NULL
-  AND (
-      SELECT COUNT(*)
-      FROM product_imeis pi_count
-      WHERE pi_count.product_id = pi.product_id
-        AND pi_count.variant_id IS NOT DISTINCT FROM pi.variant_id
-        AND pi_count.source_reference IS NOT DISTINCT FROM pi.source_reference
-  ) = (
-      SELECT COUNT(*)
-      FROM product_serial_numbers psn_count
-      WHERE psn_count.product_id = psn.product_id
-        AND psn_count.variant_id IS NOT DISTINCT FROM psn.variant_id
-        AND psn_count.source_reference IS NOT DISTINCT FROM psn.source_reference
-  )
-  AND (
-      SELECT COUNT(*)
-      FROM product_imeis pi_count
-      WHERE pi_count.product_id = pi.product_id
-        AND pi_count.variant_id IS NOT DISTINCT FROM pi.variant_id
-        AND pi_count.source_reference IS NOT DISTINCT FROM pi.source_reference
-  ) = 1
-ON CONFLICT DO NOTHING;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'product_identifier_pairs'
+          AND column_name = 'imei'
+    ) THEN
+        EXECUTE $sql$
+            INSERT INTO product_identifier_pairs (
+                product_id,
+                variant_id,
+                imei,
+                serial_number,
+                source_reference
+            )
+            SELECT
+                pi.product_id,
+                pi.variant_id,
+                pi.imei,
+                psn.serial_number,
+                COALESCE(pi.source_reference, psn.source_reference)
+            FROM product_imeis pi
+            JOIN product_serial_numbers psn
+              ON psn.product_id = pi.product_id
+             AND psn.variant_id IS NOT DISTINCT FROM pi.variant_id
+             AND psn.source_reference IS NOT DISTINCT FROM pi.source_reference
+            WHERE pi.source_reference IS NOT NULL
+              AND pi.imei IS NOT NULL
+              AND psn.serial_number IS NOT NULL
+              AND (
+                  SELECT COUNT(*)
+                  FROM product_imeis pi_count
+                  WHERE pi_count.product_id = pi.product_id
+                    AND pi_count.variant_id IS NOT DISTINCT FROM pi.variant_id
+                    AND pi_count.source_reference IS NOT DISTINCT FROM pi.source_reference
+              ) = (
+                  SELECT COUNT(*)
+                  FROM product_serial_numbers psn_count
+                  WHERE psn_count.product_id = psn.product_id
+                    AND psn_count.variant_id IS NOT DISTINCT FROM psn.variant_id
+                    AND psn_count.source_reference IS NOT DISTINCT FROM psn.source_reference
+              )
+              AND (
+                  SELECT COUNT(*)
+                  FROM product_imeis pi_count
+                  WHERE pi_count.product_id = pi.product_id
+                    AND pi_count.variant_id IS NOT DISTINCT FROM pi.variant_id
+                    AND pi_count.source_reference IS NOT DISTINCT FROM pi.source_reference
+              ) = 1
+            ON CONFLICT DO NOTHING
+        $sql$;
+    END IF;
+END $$;

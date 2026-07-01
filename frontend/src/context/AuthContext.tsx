@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, use, useCallback, useEffect, useMemo, useState } from 'react';
 import { MockUser, onAuthStateChanged, getUserProfile, initializeAuth, updateUserProfile } from '../services/authDb';
 
 interface UserData {
@@ -60,6 +60,8 @@ interface AuthContextType {
   useAnyPermission: (codes: string[]) => boolean;
 }
 
+const EMPTY_PERMISSIONS: string[] = [];
+
 const AuthContext = createContext<AuthContextType>({
   user: null,
   userData: null,
@@ -72,7 +74,7 @@ const AuthContext = createContext<AuthContextType>({
   useAnyPermission: () => false,
 });
 
-export const calculateTier = (points: number): string => {
+const calculateTier = (points: number): string => {
   if (points >= 15000) return 'S-Vip';
   if (points >= 3000) return 'S-Mem';
   return 'S-New';
@@ -121,18 +123,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const permissions = userData?.permissions || [];
+  const permissions = userData?.permissions || EMPTY_PERMISSIONS;
   const isSuperAdmin = userData?.role === 'super_admin';
   const isStaff = userData?.role === 'staff';
   const canAccessAdmin = isSuperAdmin || isStaff || permissions.length > 0;
-  const usePermission = (code: string) => permissions.includes(code);
-  const useAnyPermission = (codes: string[]) => codes.some((code) => permissions.includes(code));
+  const usePermission = useCallback((code: string) => permissions.includes(code), [permissions]);
+  const useAnyPermission = useCallback((codes: string[]) => codes.some((code) => permissions.includes(code)), [permissions]);
+  const contextValue = useMemo(
+    () => ({ user, userData, loading, isSuperAdmin, isStaff, canAccessAdmin, permissions, usePermission, useAnyPermission }),
+    [user, userData, loading, isSuperAdmin, isStaff, canAccessAdmin, permissions, usePermission, useAnyPermission],
+  );
 
   return (
-    <AuthContext.Provider value={{ user, userData, loading, isSuperAdmin, isStaff, canAccessAdmin, permissions, usePermission, useAnyPermission }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => use(AuthContext);

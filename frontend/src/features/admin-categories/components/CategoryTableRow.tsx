@@ -2,6 +2,21 @@ import React from 'react';
 import { Edit2, Eye, EyeOff, GripVertical, RotateCcw, Trash2 } from 'lucide-react';
 import { AdminBadge } from '../../admin-shell/components/AdminDashboardParts';
 
+const categoryStatusLabels: Record<string, string> = {
+  ACTIVE: 'Hoạt động',
+  INACTIVE: 'Tạm ẩn',
+  DRAFT: 'Nháp',
+  PENDING_REVIEW: 'Chờ duyệt',
+  REJECTED: 'Bị từ chối',
+  APPROVED: 'Đã duyệt',
+};
+
+const workflowStatusLabels: Record<string, string> = {
+  PENDING: 'Chờ duyệt',
+  APPROVED: 'Đã duyệt',
+  REJECTED: 'Bị từ chối',
+};
+
 export function CategoryTableRow({
   category,
   level,
@@ -72,11 +87,11 @@ export function CategoryTableRow({
                 : 'slate'
             }
           >
-            {category.status || (category.isActive ? 'ACTIVE' : 'INACTIVE')}
+            {categoryStatusLabels[category.status || ''] || (category.isActive ? 'Hoạt động' : 'Tạm ẩn')}
           </AdminBadge>
           {category.workflowStatus && (
             <span className="text-xs font-semibold text-slate-500">
-              Duyệt: {category.workflowStatus}
+              Duyệt: {workflowStatusLabels[category.workflowStatus] || category.workflowStatus}
             </span>
           )}
           {category.hiddenByParent && (

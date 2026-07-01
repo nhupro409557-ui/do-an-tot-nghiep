@@ -1,4 +1,4 @@
-﻿from uuid import UUID
+from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,7 +76,7 @@ async def bulk_approve_products(
         try:
             await transition_product_status(session, product_id, allowed_from=allowed, next_status="ACTIVE")
             updated += 1
-        except HTTPException:
+        except Exception:
             skipped.append(str(product_id))
     return {"ok": True, "updated": updated, "skipped": skipped}
 
@@ -106,7 +106,7 @@ async def product_bulk_action(
             elif payload.action == "DELETE":
                 await product_approval_repo.deactivate_product_data(product_id, session)
             updated += 1
-        except HTTPException:
+        except Exception:
             skipped.append(str(product_id))
     return {"ok": True, "action": payload.action, "updated": updated, "skipped": skipped}
 

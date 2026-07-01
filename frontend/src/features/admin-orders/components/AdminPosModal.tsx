@@ -43,6 +43,13 @@ function variantPrice(product: any, variant: any): number {
   return moneyValue(variant?.salePrice, variant?.price, productPrice(product));
 }
 
+function splitIdentifiers(value: string): string[] {
+  return value
+    .split(/[\s,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 const normalizePosCart = (currentCart: any[]): any[] => {
   const rules = new Map<string, { discountType: string; discountValue: number; parentProductId: string }>();
   currentCart.forEach(item => {
@@ -78,7 +85,7 @@ const normalizePosCart = (currentCart: any[]): any[] => {
         const cleanName = item.productName
           .replace(' (Mua kèm giảm giá)', '')
           .replace(' (Giảm giá)', '');
-        
+
         const originalPrice = Number(item.originalPrice || (item.cartItemId.endsWith('-discount') ? (item.originalPrice || item.unitPrice / 0.75) : item.unitPrice));
 
         accessoriesGroup[productIdStr] = {
@@ -95,9 +102,9 @@ const normalizePosCart = (currentCart: any[]): any[] => {
       const cleanName = item.productName
         .replace(' (Mua kèm giảm giá)', '')
         .replace(' (Giảm giá)', '');
-      
+
       const originalPrice = Number(item.originalPrice || item.unitPrice);
-      
+
       newCart.push({
         ...item,
         productName: cleanName,
@@ -110,7 +117,7 @@ const normalizePosCart = (currentCart: any[]): any[] => {
   Object.entries(accessoriesGroup).forEach(([productId, data]) => {
     const rule = rules.get(productId)!;
     const parentQty = parentQuantities.get(rule.parentProductId) || 0;
-    
+
     const discountQty = Math.min(data.totalQty, parentQty);
     const normalQty = data.totalQty - discountQty;
 
@@ -124,7 +131,7 @@ const normalizePosCart = (currentCart: any[]): any[] => {
       } else if (['FIXED', 'AMOUNT', 'FIXED_AMOUNT'].includes(rule.discountType)) {
         discountPrice = Math.max(0, Math.round(originalPrice - rule.discountValue));
       }
-      
+
       if (discountPrice <= 0 && originalPrice > 0) {
         discountPrice = Math.round(originalPrice * 0.75);
       }
@@ -158,21 +165,21 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
   const [customers, setCustomers] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [customerSearch, setCustomerSearch] = useState('');
-  
+
   const [products, setProducts] = useState<any[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [productError, setProductError] = useState('');
-  
+
   // Category & Brand states
   const [categories, setCategories] = useState<any[]>([]);
   const [brands, setBrands] = useState<any[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [selectedBrandId, setSelectedBrandId] = useState<string>('');
-  
+
   const [cart, setCart] = useState<any[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'SEPAY' | 'MOMO' | 'ZALOPAY'>('COD');
   const [internalNote, setInternalNote] = useState('');
-  
+
   // Voucher states
   const [voucherCode, setVoucherCode] = useState('');
   const [appliedVoucher, setAppliedVoucher] = useState<any | null>(null);
@@ -186,12 +193,12 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
 
   // Payment cash states
   const [cashReceived, setCashReceived] = useState<string>('');
-  
+
   // Guest states (when selectedCustomer is null)
   const [guestName, setGuestName] = useState('Khách vãng lai');
   const [guestPhone, setGuestPhone] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdOrder, setCreatedOrder] = useState<any | null>(null);
 
@@ -329,6 +336,8 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
         quantity: 1,
         maxStock: stockQty,
         sku: variant?.sku || product.sku || '',
+        imeiInput: '',
+        serialInput: '',
         salesConfig: product.salesConfig, // Lưu salesConfig để tự động giảm giá sản phẩm mua kèm
       });
     }
@@ -404,10 +413,10 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
     }
 
     const price = offer.originalPrice || offer.salePrice || offer.price || 0;
-    
+
     // Tìm hoặc thêm raw item
     let newCart = [...cart];
-    
+
     // Tìm tổng số lượng phụ kiện này đã có
     const discountItem = cart.find(item => item.cartItemId === `${offer.productId}-accessory-discount`);
     const normalItem = cart.find(item => item.cartItemId === `${offer.productId}-accessory-normal`);
@@ -495,6 +504,10 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
     setCart(normalizePosCart(updatedRaw));
   };
 
+  const updateCartIdentifierInput = (index: number, field: 'imeiInput' | 'serialInput', value: string) => {
+    setCart(cart.map((item, idx) => (idx === index ? { ...item, [field]: value } : item)));
+  };
+
   // Calculate Money details
   const subtotal = cart.reduce((acc, item) => acc + (item.unitPrice * item.quantity), 0);
   const totalDiscount = voucherDiscount + loyaltyDiscount;
@@ -547,10 +560,10 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
     if (!selectedCustomer) return;
     const maxPoints = customerPoints(selectedCustomer);
     const cleanPoints = Math.min(Math.max(0, points), maxPoints);
-    
+
     // Tỷ lệ quy đổi: 1 điểm = 1000đ
     const pointsDiscountVal = cleanPoints * 1000;
-    
+
     if (pointsDiscountVal > subtotal - voucherDiscount) {
       // Giới hạn giảm giá điểm thưởng không vượt quá tổng hóa đơn sau voucher
       const allowedDiscount = subtotal - voucherDiscount;
@@ -569,7 +582,7 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
       window.alert('Giỏ hàng trống!');
       return;
     }
-    
+
     setIsSubmitting(true);
     try {
       const payload = {
@@ -580,6 +593,8 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
           product_name: item.productName,
           quantity: item.quantity,
           unit_price: item.unitPrice,
+          imeis: splitIdentifiers(item.imeiInput || ''),
+          serial_numbers: splitIdentifiers(item.serialInput || ''),
         })),
         shipping: {
           recipient_name: selectedCustomer?.fullName || guestName || 'Khách vãng lai',
@@ -692,7 +707,7 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
       <div className="relative flex h-[90vh] w-full max-w-6xl flex-col rounded-3xl bg-white shadow-2xl overflow-hidden border border-slate-100">
-        
+
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 bg-slate-50/50">
           <div className="flex items-center gap-2">
@@ -712,7 +727,7 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
             </div>
             <h4 className="text-xl font-bold text-slate-900">Đơn Hàng Đã Tạo Thành Công!</h4>
             <p className="mt-1 text-sm text-slate-500">Đã cập nhật hoàn thành trạng thái đơn và xuất kho FIFO.</p>
-            
+
             {/* Thermal Receipt Preview Area */}
             <div className="mt-6 border border-dashed border-slate-300 rounded-xl bg-slate-50 p-6 shadow-inner w-full max-w-sm">
               <div ref={printAreaRef} className="bg-white p-4 shadow-sm font-mono text-xs text-black border border-slate-200">
@@ -725,9 +740,9 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
                   <p className="m-0 font-bold">Mã đơn: {createdOrder.orderCode}</p>
                   <p className="m-0">Ngày: {createdOrder.createdAt}</p>
                 </div>
-                
+
                 <div className="divider"></div>
-                
+
                 <div className="mb-2">
                   <p className="m-0">Khách: {createdOrder.recipientName}</p>
                   <p className="m-0">SĐT: {createdOrder.recipientPhone}</p>
@@ -821,10 +836,10 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
         ) : (
           /* ACTIVE POS INTERFACE */
           <div className="flex flex-1 overflow-hidden">
-            
+
             {/* Left Column: Product Selector & Customer search */}
             <div className="flex flex-1 flex-col p-6 overflow-y-auto border-r border-slate-100 gap-5">
-              
+
               {/* Product Finder & Filters */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Tìm kiếm sản phẩm & Bộ lọc</label>
@@ -839,7 +854,7 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
                       className="w-full rounded-2xl border border-slate-200 py-3 pl-11 pr-4 text-sm outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20"
                     />
                   </div>
-                  
+
                   <div>
                     <select
                       value={selectedCategoryId}
@@ -934,7 +949,7 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
                                     </div>
                                   </div>
                                 )}
-                                
+
                                 {product.salesConfig?.attachedServices?.length > 0 && (
                                   <div>
                                     <span className="font-semibold text-slate-500 block mb-0.5">Dịch vụ đi kèm:</span>
@@ -1079,7 +1094,7 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
 
             {/* Right Column: POS Cart Checkout Summary */}
             <div className="flex w-[400px] flex-col bg-slate-50/50 p-6 overflow-y-auto gap-4">
-              
+
               {/* Order Cart list */}
               <div className="flex-1 min-h-[220px]">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Giỏ hàng thanh toán</h4>
@@ -1099,6 +1114,24 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
                           <div className="mt-0.5 font-bold text-red-600 text-xs">
                             {currency.format(item.unitPrice)}
                           </div>
+                          {!String(item.cartItemId || '').startsWith('service-') && (
+                            <div className="mt-2 grid grid-cols-1 gap-1.5">
+                              <textarea
+                                value={item.imeiInput || ''}
+                                onChange={(event) => updateCartIdentifierInput(idx, 'imeiInput', event.target.value)}
+                                placeholder={`IMEI đã quét (${splitIdentifiers(item.imeiInput || '').length}/${item.quantity})`}
+                                rows={1}
+                                className="w-full resize-none rounded-lg border border-slate-200 px-2 py-1 text-[10px] outline-none focus:border-red-400"
+                              />
+                              <textarea
+                                value={item.serialInput || ''}
+                                onChange={(event) => updateCartIdentifierInput(idx, 'serialInput', event.target.value)}
+                                placeholder={`Serial đã quét (${splitIdentifiers(item.serialInput || '').length}/${item.quantity})`}
+                                rows={1}
+                                className="w-full resize-none rounded-lg border border-slate-200 px-2 py-1 text-[10px] outline-none focus:border-red-400"
+                              />
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -1109,7 +1142,7 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
                           <button type="button" onClick={() => updateCartQty(idx, 1)} className="rounded-lg p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer">
                             <Plus className="h-3 w-3" />
                           </button>
-                          
+
                           <button type="button" onClick={() => removeFromCart(idx)} className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-700 transition ml-1 cursor-pointer">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -1122,7 +1155,7 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
 
               {/* Promo & Loyalty Redeem section */}
               <div className="border-t border-slate-200/80 pt-4 space-y-3">
-                
+
                 {/* Apply Voucher */}
                 <div>
                   <div className="flex items-center justify-between gap-2">

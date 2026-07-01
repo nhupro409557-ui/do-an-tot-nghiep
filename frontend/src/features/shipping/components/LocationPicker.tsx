@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useEffectEvent, useMemo, useState, useRef } from 'react';
 import L from 'leaflet';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
@@ -24,7 +24,7 @@ function googleMapsUrl(lat: number, lng: number) {
   return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 }
 
-async function geocodeAddress(address: string) {
+async function geocodeAddress(address: string, signal: AbortSignal) {
   const url = new URL('https://nominatim.openstreetmap.org/search');
   url.searchParams.set('format', 'jsonv2');
   url.searchParams.set('limit', '1');
@@ -32,31 +32,38 @@ async function geocodeAddress(address: string) {
   url.searchParams.set('q', address);
 
   try {
-    const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+    const response = await fetch(url.toString(), {
+      headers: { Accept: 'application/json' },
+      signal,
+    });
     const results = await response.json();
     const first = Array.isArray(results) ? results[0] : null;
     if (!first?.lat || !first?.lon) return null;
     return { lat: Number(first.lat), lng: Number(first.lon) };
   } catch (error) {
-    console.error("Geocoding error", error);
+    if (error instanceof DOMException && error.name === 'AbortError') return null;
+    console.error('Geocoding error', error);
     return null;
   }
 }
 
 export function LocationPicker({ address, mapUrl, lat, lng, onPredict }: LocationPickerProps) {
-  const [isLocating, setIsLocating] = useState(false);
+  const trimmedAddress = address.trim();
+  const [locatingAddress, setLocatingAddress] = useState('');
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
   const isFirstRender = useRef(true);
+  const predictLocation = useEffectEvent(onPredict);
+  const isLocating = Boolean(trimmedAddress) && locatingAddress === trimmedAddress;
 
   // Tạo mapUrl dựa trên tọa độ hiện tại (fallback về query text nếu không có tọa độ)
   const mapsUrl = useMemo(() => {
     if (typeof lat === 'number' && typeof lng === 'number') {
       return googleMapsUrl(lat, lng);
     }
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address.trim())}`;
-  }, [address, lat, lng]);
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(trimmedAddress)}`;
+  }, [lat, lng, trimmedAddress]);
 
   // Khởi tạo map
   useEffect(() => {
@@ -81,7 +88,7 @@ export function LocationPicker({ address, mapUrl, lat, lng, onPredict }: Locatio
       const updatedLat = position.lat;
       const updatedLng = position.lng;
       const newMapUrl = googleMapsUrl(updatedLat, updatedLng);
-      onPredict(newMapUrl, { lat: updatedLat, lng: updatedLng });
+      predictLocation(newMapUrl, { lat: updatedLat, lng: updatedLng });
     });
 
     // Click lên bản đồ để dời marker và cập nhật tọa độ
@@ -89,18 +96,19 @@ export function LocationPicker({ address, mapUrl, lat, lng, onPredict }: Locatio
       const { lat: clickedLat, lng: clickedLng } = e.latlng;
       marker.setLatLng([clickedLat, clickedLng]);
       const newMapUrl = googleMapsUrl(clickedLat, clickedLng);
-      onPredict(newMapUrl, { lat: clickedLat, lng: clickedLng });
+      predictLocation(newMapUrl, { lat: clickedLat, lng: clickedLng });
     });
 
     mapRef.current = map;
     markerRef.current = marker;
 
     // Trigger invalidateSize để fix lỗi hiển thị các mảnh tile của Leaflet
-    setTimeout(() => {
+    const resizeTimer = window.setTimeout(() => {
       map.invalidateSize();
     }, 100);
 
     return () => {
+      window.clearTimeout(resizeTimer);
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -130,7 +138,7 @@ export function LocationPicker({ address, mapUrl, lat, lng, onPredict }: Locatio
 
   // Tự động geocode khi address thay đổi
   useEffect(() => {
-    if (!address.trim()) return;
+    if (!trimmedAddress) return;
 
     // Bỏ qua lần tự động geocode đầu tiên khi mount nếu đã có sẵn tọa độ từ database
     if (isFirstRender.current) {
@@ -140,33 +148,38 @@ export function LocationPicker({ address, mapUrl, lat, lng, onPredict }: Locatio
       }
     }
 
-    setIsLocating(true);
-    const timer = setTimeout(async () => {
+    const controller = new AbortController();
+    let isActive = true;
+    setLocatingAddress(trimmedAddress);
+    const timer = window.setTimeout(async () => {
       try {
-        const nextCoords = await geocodeAddress(address.trim());
-        if (nextCoords) {
+        const nextCoords = await geocodeAddress(trimmedAddress, controller.signal);
+        if (isActive && nextCoords) {
           const nextMapUrl = googleMapsUrl(nextCoords.lat, nextCoords.lng);
-          onPredict(nextMapUrl, nextCoords);
+          predictLocation(nextMapUrl, nextCoords);
         }
       } catch (err) {
         console.error(err);
       } finally {
-        setIsLocating(false);
+        if (isActive) {
+          setLocatingAddress((current) => current === trimmedAddress ? '' : current);
+        }
       }
     }, 1200);
 
     return () => {
-      clearTimeout(timer);
-      setIsLocating(false);
+      isActive = false;
+      controller.abort();
+      window.clearTimeout(timer);
     };
-  }, [address]);
+  }, [lat, lng, trimmedAddress]);
 
   const hasCoords = typeof lat === 'number' && typeof lng === 'number';
 
   return (
     <div className="flex flex-col gap-3 mt-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <label className="text-sm font-bold text-slate-700">Xem trước vị trí trên Google Maps</label>
+        <span className="text-sm font-bold text-slate-700">Xem trước vị trí trên Google Maps</span>
         <div className="flex flex-wrap gap-2">
           <a
             href={mapsUrl}
@@ -180,9 +193,9 @@ export function LocationPicker({ address, mapUrl, lat, lng, onPredict }: Locatio
       </div>
 
       {/* Bản đồ Leaflet tương tác */}
-      <div 
-        ref={mapContainerRef} 
-        className="h-[300px] w-full rounded-lg overflow-hidden border border-slate-200 bg-slate-50 shadow-inner z-10" 
+      <div
+        ref={mapContainerRef}
+        className="h-[300px] w-full rounded-lg overflow-hidden border border-slate-200 bg-slate-50 shadow-inner z-10"
       />
 
       <p className={`text-xs ${hasCoords ? 'text-green-600 font-semibold' : 'text-slate-500'}`}>

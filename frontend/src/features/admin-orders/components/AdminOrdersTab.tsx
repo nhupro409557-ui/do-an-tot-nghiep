@@ -4,6 +4,25 @@ import { AdminBadge, AdminPanel, AdminTable, Checkbox, EmptyState, Input, Metric
 import { adminOrdersApi } from '../services/adminOrdersApi';
 import AdminPosModal from './AdminPosModal';
 
+const paymentStatusLabels: Record<string, string> = {
+  UNPAID: 'Chưa thanh toán',
+  PAID: 'Đã thanh toán',
+  FAILED: 'Thanh toán thất bại',
+  PENDING: 'Đang chờ thanh toán',
+  EXPIRED: 'Đã hết hạn',
+  REFUNDED: 'Đã hoàn tiền',
+  PENDING_PAYMENT: 'Chờ thanh toán',
+};
+
+const carrierStatusLabels: Record<string, string> = {
+  PENDING: 'Chờ lấy hàng',
+  HANDED_TO_CARRIER: 'Đã bàn giao vận chuyển',
+  IN_TRANSIT: 'Đang vận chuyển',
+  DELIVERED: 'Giao hàng thành công',
+  DELIVERY_FAILED: 'Giao hàng thất bại',
+  CANCELLED: 'Đã hủy',
+};
+
 type AdminOrdersTabProps = Record<string, any>;
 
 function orderItemsOf(order: any): any[] {
@@ -183,7 +202,7 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
               <td className="px-4 py-3 font-semibold text-red-600">{currency.format(Number(order.totalAmount || order.total_amount || 0))}</td>
               <td className="px-4 py-3">
                 <div>{order.paymentMethod || order.payment_method || '-'}</div>
-                <div className="mt-1 text-xs text-slate-500">{order.paymentStatus || order.payment_status || '-'}</div>
+                <div className="mt-1 text-xs text-slate-500">{paymentStatusLabels[order.paymentStatus || order.payment_status || ''] || order.paymentStatus || order.payment_status || '-'}</div>
               </td>
               <td className="px-4 py-3">
                 <AdminBadge tone={order.status === 'COMPLETED' ? 'green' : order.status === 'CANCELLED' ? 'red' : 'yellow'}>
@@ -240,7 +259,7 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                 <div className="space-y-5">
                   <div className="grid gap-4 md:grid-cols-4">
                     <MetricCard label="Tổng tiền" value={currency.format(Number(selectedOrder.totalAmount || 0))} tone="amber" />
-                    <MetricCard label="Thanh toán" value={selectedOrder.paymentStatus || '-'} tone="sky" />
+                    <MetricCard label="Thanh toán" value={paymentStatusLabels[selectedOrder.paymentStatus] || selectedOrder.paymentStatus || '-'} tone="sky" />
                     <MetricCard label="Điểm cộng" value={String(selectedOrder.pointsEarned || 0)} tone="emerald" />
                     <MetricCard label="Điểm dùng" value={String(selectedOrder.pointsUsed || 0)} tone="slate" />
                   </div>
@@ -277,8 +296,8 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                         )}
                       </AdminPanel>
 
-                      {/* 
-                        Ẩn khối chọn kệ xuất thực tế trên đơn hàng theo quy trình WMS mới. 
+                      {/*
+                        Ẩn khối chọn kệ xuất thực tế trên đơn hàng theo quy trình WMS mới.
                         Thao tác chọn kệ, quét IMEI/Serial sẽ được xử lý tại Phiếu xuất kho.
                       */}
                       {false && canUpdateOrder && orderDraft.status === 'SHIPPED' && selectedOrder.status !== 'SHIPPED' && (
@@ -342,7 +361,7 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                           </div>
                           {carrierQuote && (
                             <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                              <div className="font-bold text-slate-900">{carrierQuote.provider} · {carrierQuote.carrier_status}</div>
+                              <div className="font-bold text-slate-900">{carrierQuote.provider} · {carrierStatusLabels[carrierQuote.carrier_status] || carrierQuote.carrier_status}</div>
                               <div className="mt-1">Phí dự kiến: {currency.format(Number(carrierQuote.shipping_fee || 0))} · {carrierQuote.estimated_days} ngày</div>
                               {carrierQuote.tracking_code && <div className="mt-1 font-mono text-xs">Tracking: {carrierQuote.tracking_code}</div>}
                               {carrierQuote.message && <div className="mt-1 text-xs text-slate-500">{carrierQuote.message}</div>}
@@ -429,7 +448,7 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                           {(selectedOrder.payments || []).map((payment: any) => (
                             <div key={payment.id} className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
                               <div className="font-bold">{payment.provider} Sandbox · Lần {payment.attemptNumber || 1}</div>
-                              <div>Trạng thái: {payment.status}</div>
+                              <div>Trạng thái: {paymentStatusLabels[payment.status] || payment.status}</div>
                               <div>Mã giao dịch: {payment.transactionRef || '-'}</div>
                               <div>Hết hạn: {payment.expiresAt ? new Date(payment.expiresAt).toLocaleString('vi-VN') : '-'}</div>
                               {payment.refundMode && <div>Chế độ hoàn tiền: {payment.refundMode}</div>}

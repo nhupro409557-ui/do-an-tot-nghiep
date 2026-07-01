@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Eye, Heart, Image as ImageIcon, Layers, Search, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import { publicApi } from '../../../services/publicApi';
@@ -65,6 +65,16 @@ function formatCount(value: unknown) {
   return numericCount(value).toLocaleString('vi-VN');
 }
 
+function resolveCardImage(cards: ProductCard[], viewId: string) {
+  for (const card of cards) {
+    if (card.id === viewId) return { cardId: card.id, imageIndex: 0 };
+    for (let imageIndex = 0; imageIndex < card.images.length; imageIndex += 1) {
+      if (card.images[imageIndex].id === viewId) return { cardId: card.id, imageIndex };
+    }
+  }
+  return null;
+}
+
 function SkeletonTile() {
   return (
     <div className="h-full min-h-0 overflow-hidden rounded-xl border border-gray-200/80 bg-gray-100 animate-pulse lg:rounded-2xl">
@@ -125,7 +135,6 @@ function ImageTile({ item, index, onOpen }: { item: ProductCard; index: number; 
       className={`group relative min-h-0 cursor-pointer overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.08)] transition-all duration-300 hover:-translate-y-0.5 hover:border-red-200 hover:shadow-[0_10px_24px_rgba(220,38,38,0.12)] lg:rounded-2xl lg:shadow-sm lg:duration-500 lg:hover:-translate-y-1 lg:hover:shadow-xl lg:hover:shadow-red-100/40 ${tileSpanClass(index)}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onClick={onOpen}
     >
       <div className="absolute inset-0 bg-gray-100">
         <ImageWithFallback
@@ -137,6 +146,13 @@ function ImageTile({ item, index, onOpen }: { item: ProductCard; index: number; 
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent transition-opacity duration-300 lg:from-black/70" />
       </div>
+
+      <button
+        type="button"
+        aria-label={`Xem ảnh ${item.productName}`}
+        className="absolute inset-0 z-10 cursor-pointer"
+        onClick={onOpen}
+      />
 
       <div className="pointer-events-none absolute left-2 right-2 top-2 z-20 flex items-start justify-between gap-1.5 lg:left-3 lg:right-3 lg:top-3">
         <span className="max-w-[78%] truncate rounded-md border border-red-100 bg-white/95 px-1.5 py-0.5 text-[8px] font-black uppercase text-red-600 shadow-sm transition-all duration-300 group-hover:border-red-500 group-hover:bg-red-600 group-hover:text-white sm:px-2 sm:py-1 sm:text-[9px] lg:rounded-full lg:border-gray-200 lg:bg-white/90 lg:px-2.5 lg:text-[10px] lg:tracking-widest lg:backdrop-blur-md">
@@ -206,15 +222,20 @@ export default function ImagesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(query), 250);
+    const timer = setTimeout(() => {
+      setPage(1);
+      setDebouncedQuery(query);
+    }, 250);
     return () => clearTimeout(timer);
   }, [query]);
 
-  useEffect(() => {
+  const handleCategoryChange = (category: string) => {
     setPage(1);
-  }, [activeCategory, debouncedQuery]);
+    setActiveCategory(category);
+  };
 
   useEffect(() => {
+    let active = true;
     setLoading(true);
     publicApi.listProductImages({
       q: debouncedQuery || undefined,
@@ -223,6 +244,7 @@ export default function ImagesPage() {
       limit: 30,
     })
       .then((data) => {
+        if (!active) return;
         setProductCards(data.items || []);
         setCategories(data.categories || []);
         setTotalImages(Number(data.totalImages || 0));
@@ -231,6 +253,7 @@ export default function ImagesPage() {
         setHasMore(Boolean(data.hasMore));
       })
       .catch(() => {
+        if (!active) return;
         setProductCards([]);
         setCategories([]);
         setTotalImages(0);
@@ -238,7 +261,12 @@ export default function ImagesPage() {
         setTotalPages(1);
         setHasMore(false);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [activeCategory, debouncedQuery, page]);
 
   const activeCard = useMemo(
@@ -265,21 +293,9 @@ export default function ImagesPage() {
     if (loading || viewId === lastViewId.current) return;
 
     let cancelled = false;
-    let targetCardId: string | null = null;
-    let imageIdx = 0;
-
-    for (const card of filteredCards) {
-      if (card.id === viewId) {
-        targetCardId = card.id;
-        break;
-      }
-      const foundIdx = card.images.findIndex((img) => img.id === viewId);
-      if (foundIdx >= 0) {
-        targetCardId = card.id;
-        imageIdx = foundIdx;
-        break;
-      }
-    }
+    const resolvedImage = resolveCardImage(filteredCards, viewId);
+    const targetCardId = resolvedImage?.cardId || null;
+    const imageIdx = resolvedImage?.imageIndex || 0;
 
     if (targetCardId) {
       setResolvedCard(null);
@@ -389,7 +405,7 @@ export default function ImagesPage() {
             <div className="relative inline-block w-full sm:w-64">
               <select
                 value={activeCategory}
-                onChange={(e) => setActiveCategory(e.target.value)}
+                onChange={(e) => handleCategoryChange(e.target.value)}
                 className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-black text-gray-700 shadow-sm transition-all hover:border-red-300 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100 sm:rounded-2xl sm:px-4 sm:font-bold sm:hover:border-gray-300"
               >
                 <option value="all">Tất cả danh mục ({totalProducts})</option>
@@ -426,7 +442,7 @@ export default function ImagesPage() {
                 type="button"
                 onClick={() => {
                   setQuery('');
-                  setActiveCategory('all');
+                  handleCategoryChange('all');
                 }}
                 className="mt-5 rounded-full bg-red-600 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-red-200 transition-colors hover:bg-red-500"
               >

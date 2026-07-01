@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useReducer } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   confirmPasswordResetByCode,
@@ -9,13 +9,33 @@ import {
   sendPasswordResetEmail,
 } from '../../../services/authDb';
 
+type ForgotPasswordState = {
+  email: string;
+  verificationCode: string;
+  pendingReset: PendingPasswordReset | null;
+  error: string;
+  message: string;
+  loading: boolean;
+};
+
+const initialForgotPasswordState: ForgotPasswordState = {
+  email: '',
+  verificationCode: '',
+  pendingReset: null,
+  error: '',
+  message: '',
+  loading: false,
+};
+
+function mergeForgotPasswordState(state: ForgotPasswordState, patch: Partial<ForgotPasswordState>): ForgotPasswordState {
+  return { ...state, ...patch };
+}
+
 export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
-  const [pendingReset, setPendingReset] = useState<PendingPasswordReset | null>(null);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [{ email, verificationCode, pendingReset, error, message, loading }, setFormState] = useReducer(
+    mergeForgotPasswordState,
+    initialForgotPasswordState,
+  );
   const navigate = useNavigate();
 
   const verificationLink = useMemo(() => {
@@ -25,20 +45,16 @@ export default function ForgotPasswordPage() {
 
   const handleSendCode = async (event: React.FormEvent) => {
     event.preventDefault();
-    setError('');
-    setMessage('');
-    setVerificationCode('');
-    setLoading(true);
+    setFormState({ error: '', message: '', verificationCode: '', loading: true });
 
     try {
       const reset = await sendPasswordResetEmail(email.trim());
       const pending = createPendingPasswordReset(reset.email, reset.verificationToken);
-      setPendingReset(pending);
-      setMessage('Đã gửi mã xác nhận 6 số và liên kết đặt lại mật khẩu vào email của bạn.');
+      setFormState({ pendingReset: pending, message: 'Đã gửi mã xác nhận 6 số và liên kết đặt lại mật khẩu vào email của bạn.' });
     } catch (err: any) {
-      setError(getAuthErrorMessage(err.code, err.message || 'Không thể gửi mã xác nhận đặt lại mật khẩu.'));
+      setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể gửi mã xác nhận đặt lại mật khẩu.') });
     } finally {
-      setLoading(false);
+      setFormState({ loading: false });
     }
   };
 
@@ -46,30 +62,26 @@ export default function ForgotPasswordPage() {
     event.preventDefault();
     if (!pendingReset) return;
 
-    setError('');
+    setFormState({ error: '' });
     try {
       const resetToken = await confirmPasswordResetByCode(pendingReset.email, verificationCode);
       navigate(`/reset-password?token=${encodeURIComponent(resetToken)}`);
     } catch (err: any) {
-      setError(getAuthErrorMessage(err.code, err.message || 'Không thể xác nhận mã đặt lại mật khẩu.'));
+      setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể xác nhận mã đặt lại mật khẩu.') });
     }
   };
 
   const handleResendCode = async () => {
     if (!pendingReset) return;
-    setError('');
-    setMessage('');
-    setVerificationCode('');
-    setLoading(true);
+    setFormState({ error: '', message: '', verificationCode: '', loading: true });
     try {
       const reset = await resendPasswordResetEmail(pendingReset.email);
       const pending = createPendingPasswordReset(reset.email, reset.verificationToken);
-      setPendingReset(pending);
-      setMessage('Da gui lai ma xac nhan moi. Ma cu da het hieu luc.');
+      setFormState({ pendingReset: pending, message: 'Đã gửi lại mã xác nhận mới. Mã cũ đã hết hiệu lực.' });
     } catch (err: any) {
-      setError(getAuthErrorMessage(err.code, err.message || 'Khong the gui lai ma xac nhan.'));
+      setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể gửi lại mã xác nhận.') });
     } finally {
-      setLoading(false);
+      setFormState({ loading: false });
     }
   };
 
@@ -87,13 +99,15 @@ export default function ForgotPasswordPage() {
         {!pendingReset ? (
           <form onSubmit={handleSendCode} className="space-y-5">
             <div>
-              <label className="mb-2 block text-sm font-bold text-gray-700">Email</label>
+              <label htmlFor="forgot-password-email" className="mb-2 block text-sm font-bold text-gray-700">Email</label>
               <input
+                id="forgot-password-email"
+                aria-label="Email khôi phục mật khẩu"
                 type="email"
                 required
                 placeholder="Nhập email của bạn"
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={(event) => setFormState({ email: event.target.value })}
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
               />
             </div>
@@ -109,14 +123,16 @@ export default function ForgotPasswordPage() {
         ) : (
           <form onSubmit={handleConfirmCode} className="space-y-5">
             <div>
-              <label className="mb-2 block text-sm font-bold text-gray-700">Mã xác nhận</label>
+              <label htmlFor="forgot-password-code" className="mb-2 block text-sm font-bold text-gray-700">Mã xác nhận</label>
               <input
+                id="forgot-password-code"
+                aria-label="Mã xác nhận khôi phục mật khẩu"
                 required
                 inputMode="numeric"
                 maxLength={6}
                 placeholder="Nhập mã 6 số"
                 value={verificationCode}
-                onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                onChange={(event) => setFormState({ verificationCode: event.target.value.replace(/\D/g, '').slice(0, 6) })}
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-xl font-bold tracking-[0.35em] outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
               />
             </div>
@@ -134,10 +150,10 @@ export default function ForgotPasswordPage() {
             </Link>
 
             <button type="button" onClick={handleResendCode} disabled={loading} className="w-full text-sm font-semibold text-gray-500 hover:text-primary disabled:opacity-60">
-              Gui lai ma xac nhan
+              Gửi lại mã xác nhận
             </button>
 
-            <button type="button" onClick={() => setPendingReset(null)} className="w-full text-sm font-semibold text-gray-500 hover:text-primary">
+            <button type="button" onClick={() => setFormState({ pendingReset: null })} className="w-full text-sm font-semibold text-gray-500 hover:text-primary">
               Gửi lại bằng email khác
             </button>
           </form>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useReducer } from 'react';
 import { MessageCircle, Send, Trash2 } from 'lucide-react';
 import { publicApi } from '../../../services/publicApi';
 import { useAuth } from '../../../context/AuthContext';
@@ -20,6 +20,32 @@ interface QuestionThread extends ProductQuestion {
   replies: ProductQuestion[];
 }
 
+type ProductQuestionsState = {
+  questions: ProductQuestion[];
+  loading: boolean;
+  questionText: string;
+  replyTarget: ProductQuestion | null;
+  submitting: boolean;
+  submitError: string;
+};
+
+type ProductQuestionsAction =
+  | Partial<ProductQuestionsState>
+  | ((state: ProductQuestionsState) => ProductQuestionsState);
+
+const initialProductQuestionsState: ProductQuestionsState = {
+  questions: [],
+  loading: true,
+  questionText: '',
+  replyTarget: null,
+  submitting: false,
+  submitError: '',
+};
+
+function mergeProductQuestionsState(state: ProductQuestionsState, action: ProductQuestionsAction): ProductQuestionsState {
+  return typeof action === 'function' ? action(state) : { ...state, ...action };
+}
+
 function questionContent(question: ProductQuestion) {
   if (question.isRetracted) return 'Nội dung đã được thu hồi.';
   return question.content || question.body || '';
@@ -31,29 +57,30 @@ function questionDate(question: ProductQuestion) {
 }
 
 export function ProductQuestions({ productId }: { productId: string }) {
+  return <ProductQuestionsContent key={productId} productId={productId} />;
+}
+
+function ProductQuestionsContent({ productId }: { productId: string }) {
   const { user } = useAuth();
-  const [questions, setQuestions] = useState<ProductQuestion[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [questionText, setQuestionText] = useState('');
-  const [replyTarget, setReplyTarget] = useState<ProductQuestion | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
+  const [{ questions, loading, questionText, replyTarget, submitting, submitError }, setQuestionState] = useReducer(
+    mergeProductQuestionsState,
+    initialProductQuestionsState,
+  );
 
   useEffect(() => {
     let isActive = true;
-    setLoading(true);
     publicApi.listProductQuestions(productId)
       .then((items) => {
         if (!isActive) return;
-        setQuestions(Array.isArray(items) ? items : []);
+        setQuestionState({ questions: Array.isArray(items) ? items : [] });
       })
       .catch(() => {
         if (!isActive) return;
-        setQuestions([]);
+        setQuestionState({ questions: [] });
       })
       .finally(() => {
         if (!isActive) return;
-        setLoading(false);
+        setQuestionState({ loading: false });
       });
     return () => {
       isActive = false;
@@ -75,7 +102,7 @@ export function ProductQuestions({ productId }: { productId: string }) {
     const content = questionText.trim();
     if (!content) return;
     if (!user) {
-      setSubmitError('Vui lòng đăng nhập để gửi câu hỏi.');
+      setQuestionState({ submitError: 'Vui lòng đăng nhập để gửi câu hỏi.' });
       return;
     }
 
@@ -91,11 +118,14 @@ export function ProductQuestions({ productId }: { productId: string }) {
       isPending: true,
     };
 
-    setQuestions((prev) => [...prev, optimisticQuestion]);
-    setQuestionText('');
-    setReplyTarget(null);
-    setSubmitError('');
-    setSubmitting(true);
+    setQuestionState((state) => ({
+      ...state,
+      questions: [...state.questions, optimisticQuestion],
+      questionText: '',
+      replyTarget: null,
+      submitError: '',
+      submitting: true,
+    }));
 
     try {
       const created = await publicApi.createProductQuestion(productId, {
@@ -103,18 +133,19 @@ export function ProductQuestions({ productId }: { productId: string }) {
         parentId,
         replyToUserName,
       });
-      setQuestions((prev) => prev.map((question) => question.id === tempId ? created : question));
+      setQuestionState((state) => ({ ...state, questions: state.questions.map((question) => question.id === tempId ? created : question) }));
     } catch (error: any) {
-      setSubmitError(error?.message || 'Không thể gửi câu hỏi. Vui lòng thử lại.');
-      setQuestions((prev) =>
-        prev.map((question) =>
+      setQuestionState({ submitError: error?.message || 'Không thể gửi câu hỏi. Vui lòng thử lại.' });
+      setQuestionState((state) => ({
+        ...state,
+        questions: state.questions.map((question) =>
           question.id === tempId
             ? { ...question, isPending: false, isFailed: true }
             : question
-        )
-      );
+        ),
+      }));
     } finally {
-      setSubmitting(false);
+      setQuestionState({ submitting: false });
     }
   }
 
@@ -122,9 +153,9 @@ export function ProductQuestions({ productId }: { productId: string }) {
     if (!window.confirm('Thu hồi nội dung này?')) return;
     try {
       await publicApi.retractProductQuestion(productId, questionId);
-      setQuestions((prev) => prev.map((question) => question.id === questionId ? { ...question, isRetracted: true, content: 'Nội dung đã được thu hồi.' } : question));
+      setQuestionState((state) => ({ ...state, questions: state.questions.map((question) => question.id === questionId ? { ...question, isRetracted: true, content: 'Nội dung đã được thu hồi.' } : question) }));
     } catch (error: any) {
-      setSubmitError(error?.message || 'Không thể thu hồi nội dung.');
+      setQuestionState({ submitError: error?.message || 'Không thể thu hồi nội dung.' });
     }
   }
 
@@ -150,7 +181,7 @@ export function ProductQuestions({ productId }: { productId: string }) {
             </p>
             {!question.isRetracted && (
               <div className="mt-2 flex flex-wrap gap-3 text-xs font-bold">
-                <button type="button" onClick={() => setReplyTarget(question)} className="text-primary hover:text-red-700">
+                <button type="button" onClick={() => setQuestionState({ replyTarget: question })} className="text-primary hover:text-red-700">
                   Trả lời
                 </button>
                 {canRetract && (
@@ -190,12 +221,13 @@ export function ProductQuestions({ productId }: { productId: string }) {
         {replyTarget && (
           <div className="mb-3 flex items-center justify-between rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
             <span>Đang trả lời {replyTarget.userName || 'khách hàng'}</span>
-            <button type="button" onClick={() => setReplyTarget(null)} className="font-bold hover:text-red-900">Hủy</button>
+            <button type="button" onClick={() => setQuestionState({ replyTarget: null })} className="font-bold hover:text-red-900">Hủy</button>
           </div>
         )}
         <textarea
+          aria-label="Nhập câu hỏi về sản phẩm"
           value={questionText}
-          onChange={(event) => setQuestionText(event.target.value)}
+          onChange={(event) => setQuestionState({ questionText: event.target.value })}
           placeholder="Nhập câu hỏi của bạn về sản phẩm này..."
           className="min-h-[96px] w-full rounded-lg border border-gray-300 p-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
           maxLength={1000}

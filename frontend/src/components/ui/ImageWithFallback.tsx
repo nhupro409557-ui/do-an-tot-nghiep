@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 
 interface ImageWithFallbackProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   fallbackSrc?: string;
@@ -11,11 +11,8 @@ export const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
   className,
   ...props
 }) => {
-  const [imgSrc, setImgSrc] = useState<string | undefined>(src || fallbackSrc);
-
-  useEffect(() => {
-    setImgSrc(src || fallbackSrc);
-  }, [src, fallbackSrc]);
+  const [failedSrc, setFailedSrc] = useState<string | undefined>();
+  const imgSrc = src && src !== failedSrc ? src : fallbackSrc;
 
   if (!imgSrc) {
     return (
@@ -30,7 +27,7 @@ export const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
       src={imgSrc}
       alt={alt}
       className={className}
-      onError={() => setImgSrc(fallbackSrc)}
+      onError={() => setFailedSrc(src)}
       {...props}
     />
   );

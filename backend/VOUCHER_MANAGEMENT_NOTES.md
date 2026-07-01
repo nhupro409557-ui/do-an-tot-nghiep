@@ -1,5 +1,24 @@
 # Voucher Management Notes
 
+## Cập nhật 2026-06-29 - Bổ sung test CRUD voucher admin
+
+- Bổ sung test API admin cho voucher: customer bị chặn khi tạo voucher, payload giảm giá âm trả `422`, admin tạo/list/update/deactivate voucher trên database test.
+- Test assert trực tiếp bảng `vouchers` để xác nhận trạng thái sau khi update và deactivate.
+- Verification: `pytest backend/tests/test_10_admin_permissions_and_orders_flow.py backend/tests/test_11_admin_voucher_flash_sale_flow.py -q` pass.
+
+## Cập nhật 2026-06-29 - Chỉ gửi voucher Checkout đã xác nhận
+
+- Checkout lưu riêng mã đang nhập và mã đã validate thành công.
+- Payload tạo đơn chỉ gửi mã đã xác nhận; sửa mã hoặc điều kiện áp dụng sẽ xóa/revalidate trạng thái cũ.
+- Response validate cũ bị bỏ qua bằng mã phiên request.
+- Verification: frontend `npm run lint` và `npm run build` pass.
+
+## Cập nhật 2026-06-29 - Tái kiểm tra voucher POS theo đầy đủ điều kiện
+
+- Voucher đã áp dụng trong POS được kiểm tra lại khi khách hàng, phương thức thanh toán, mã voucher, tổng tiền hoặc danh sách sản phẩm thay đổi.
+- Bỏ qua response validate lỗi thời để tránh trạng thái hợp lệ/không hợp lệ bị ghi đè sai khi thao tác nhanh.
+- Verification: frontend `npm run lint` và `npm run build` pass.
+
 ## Update 2026-06-26 - Thêm bộ lọc sản phẩm trong form voucher admin
 
 - Form quản lý voucher nay có thanh lọc riêng cho danh sách sản phẩm áp dụng/loại trừ, gồm tìm kiếm theo tên/SKU/thương hiệu, lọc danh mục, lọc thương hiệu và lọc trạng thái.

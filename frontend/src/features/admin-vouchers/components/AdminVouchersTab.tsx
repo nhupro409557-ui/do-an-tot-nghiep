@@ -3,6 +3,18 @@ import { AdminBadge, AdminPanel, AdminTable, Checkbox, CollapsibleSection, Input
 import { voucherCampaignOptions, voucherAudienceOptions, voucherTierOptions } from '../../admin-shell/pages/AdminDashboardConfig';
 import { adminVouchersApi } from '../services/adminVouchersApi';
 
+const voucherStatusLabels: Record<string, string> = {
+  ACTIVE: 'Đang chạy',
+  INACTIVE: 'Tạm dừng',
+  EXPIRED: 'Hết hạn',
+};
+
+const voucherStatusTones: Record<string, 'green' | 'slate' | 'red'> = {
+  ACTIVE: 'green',
+  INACTIVE: 'slate',
+  EXPIRED: 'red',
+};
+
 type AdminVouchersTabProps = Record<string, any>;
 
 type PickListItem = {
@@ -371,7 +383,7 @@ export default function AdminVouchersTab(props: AdminVouchersTabProps) {
             <td className="px-4 py-3 font-semibold">{voucher.discountType === 'PERCENT' ? `${voucher.discountAmount}%` : currency.format(Number(voucher.discountAmount || 0))}</td>
             <td className="px-4 py-3"><VoucherConditions voucher={voucher} /></td>
             <td className="px-4 py-3">{voucher.usedCount || 0}/{voucher.usageLimit || '∞'}<div className="text-xs text-slate-500">/user: {voucher.perUserLimit || '∞'}</div>{voucher.totalBudgetCap ? <div className="text-xs text-slate-500">NS: {currency.format(Number(voucher.totalDiscountUsed || 0))}/{currency.format(Number(voucher.totalBudgetCap || 0))}</div> : null}</td>
-            <td className="px-4 py-3"><AdminBadge tone={voucher.status === 'ACTIVE' ? 'green' : 'slate'}>{voucher.status === 'ACTIVE' ? 'Đang chạy' : 'Tạm dừng'}</AdminBadge></td>
+            <td className="px-4 py-3"><AdminBadge tone={voucherStatusTones[voucher.status] || 'slate'}>{voucherStatusLabels[voucher.status] || voucher.status}</AdminBadge></td>
             <td className="px-4 py-3"><RowActions onEdit={canUpdateVoucher ? () => editVoucher(voucher) : undefined} onDelete={canDeleteVoucher ? () => confirmDelete(voucher.code, () => adminVouchersApi.adminDeleteVoucher(voucher.id)) : undefined} /></td>
           </tr>
         ))}

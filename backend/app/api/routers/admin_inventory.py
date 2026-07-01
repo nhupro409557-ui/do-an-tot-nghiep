@@ -114,6 +114,15 @@ async def get_inventory_dashboard(
     return await inventory_service.get_inventory_dashboard(session, search)
 
 
+@router.get("/inventory/reports/aging", dependencies=[Depends(require_permission("inventory:read"))])
+async def get_inventory_aging_report(
+    search: str = Query(default=""),
+    bucket: str = Query(default=""),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await inventory_service.get_inventory_aging_report(session, search, bucket)
+
+
 @router.get("/inventory/ledger", dependencies=[Depends(require_permission("inventory:read"))])
 async def list_inventory_ledger(
     search: str = Query(default=""),
@@ -121,6 +130,7 @@ async def list_inventory_ledger(
     date_from: str = Query(default="", alias="dateFrom"),
     date_to: str = Query(default="", alias="dateTo"),
     transaction_type: str = Query(default="", alias="transactionType"),
+    reason: str = Query(default=""),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100, alias="pageSize"),
     session: AsyncSession = Depends(get_session),
@@ -132,6 +142,7 @@ async def list_inventory_ledger(
         date_from=date_from,
         date_to=date_to,
         transaction_type=transaction_type,
+        reason=reason,
         page=page,
         page_size=page_size,
     )

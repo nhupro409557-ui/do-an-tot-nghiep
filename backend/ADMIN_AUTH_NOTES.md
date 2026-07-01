@@ -16,6 +16,7 @@ This note tracks the current admin authentication design and the rationale behin
 - Access-token fingerprinting is now based on `User-Agent` only instead of `User-Agent + IP prefix` to avoid false logouts on mobile and carrier networks.
 - Admin MFA temp tokens now carry a `jti` and are marked as used after successful verification to reduce replay risk within the remaining token lifetime.
 - Frontend admin visibility must survive a server-backed refresh; tampering with `localStorage` alone is not enough to unlock backend-protected admin actions.
+- Playwright E2E now seeds a temporary staff admin account in the isolated `project_test_*` database and verifies `/admin/login` MFA setup plus admin dashboard navigation to products, customers, and payment-method configuration. The test account and all seeded data are dropped with the temporary database after the run.
 
 ### Known security stance
 
@@ -27,4 +28,4 @@ This note tracks the current admin authentication design and the rationale behin
 
 - Move high-volume auth and admin audit writes to a background queue or dedicated async log sink if write latency grows further.
 - Consider secure cookies in non-local deployments and environment-based cookie settings.
-- Add integration tests for reload-on-admin-page, MFA replay, and refresh-token rotation.
+- Add integration tests for MFA replay and refresh-token rotation.

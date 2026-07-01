@@ -78,7 +78,7 @@ export const publicApi = {
       sendAnalyticsEvent('/catalog/search-events', {
         query: params.q.trim(),
         resultCount: formatted.length,
-        productIds: formatted.map((product: any) => product.id).filter(Boolean).slice(0, 50),
+        productIds: formatted.flatMap((product: any) => product.id ? [product.id] : []).slice(0, 50),
       });
     }
     return formatted;
@@ -114,24 +114,24 @@ export const publicApi = {
 
       const categoriesMap = new Map<string, { label: string; count: number }>();
       const items = products
-        .map((product: any) => {
+        .flatMap((product: any) => {
           const baseUrls = Array.isArray(product.images) && product.images.length > 0
             ? product.images
             : product.imageUrl
               ? [product.imageUrl]
               : [];
           const variantUrls = Array.isArray(product.variants)
-            ? product.variants.map((variant: any) => variant.imageUrl).filter(Boolean)
+            ? product.variants.flatMap((variant: any) => variant.imageUrl ? [variant.imageUrl] : [])
             : [];
           const allUrls = Array.from(new Set([...baseUrls, ...variantUrls]));
-          if (allUrls.length === 0) return null;
+          if (allUrls.length === 0) return [];
 
           const categoryName = String(product.categoryName || product.category || '').trim();
           const normalizedCategory = normalizeImageSearch(categoryName);
-          if (categoryFilter && normalizedCategory !== categoryFilter) return null;
+          if (categoryFilter && normalizedCategory !== categoryFilter) return [];
 
-          const haystack = normalizeImageSearch([product.name, product.brand, categoryName].filter(Boolean).join(' '));
-          if (keyword && !haystack.includes(keyword)) return null;
+          const haystack = normalizeImageSearch([product.name, product.brand, categoryName].flatMap(value => value ? [value] : []).join(' '));
+          if (keyword && !haystack.includes(keyword)) return [];
 
           if (categoryName) {
             const existing = categoriesMap.get(normalizedCategory);
@@ -139,7 +139,7 @@ export const publicApi = {
             else categoriesMap.set(normalizedCategory, { label: categoryName, count: 1 });
           }
 
-          return {
+          return [{
             id: product.id,
             productId: product.id,
             productName: product.name,
@@ -158,9 +158,8 @@ export const publicApi = {
               category: categoryName,
               product,
             })),
-          };
+          }];
         })
-        .filter(Boolean)
         .sort((a: any, b: any) => b.trendScore - a.trendScore);
 
       const totalProducts = items.length;

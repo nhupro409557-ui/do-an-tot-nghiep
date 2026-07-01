@@ -129,11 +129,17 @@ async def list_active_brands(session: AsyncSession) -> list[dict]:
     result = await session.execute(
         text(
             """
-            SELECT id::text, code, slug, name, logo_url AS "logoUrl", logo_alt_text AS "logoAltText",
-                   landing_title AS "landingTitle", sort_order AS "order", is_active AS "isActive"
-            FROM brands
-            WHERE is_active = TRUE
-            ORDER BY sort_order ASC, name ASC
+            SELECT b.id::text, b.code, b.slug, b.name, b.logo_url AS "logoUrl", b.logo_alt_text AS "logoAltText",
+                   b.landing_title AS "landingTitle", b.sort_order AS "order", b.is_active AS "isActive",
+                   COALESCE(
+                       jsonb_agg(DISTINCT bc.category_id::text) FILTER (WHERE bc.category_id IS NOT NULL),
+                       '[]'::jsonb
+                   ) AS "categoryIds"
+            FROM brands b
+            LEFT JOIN brand_categories bc ON bc.brand_id = b.id
+            WHERE b.is_active = TRUE
+            GROUP BY b.id
+            ORDER BY b.sort_order ASC, b.name ASC
             """
         )
     )

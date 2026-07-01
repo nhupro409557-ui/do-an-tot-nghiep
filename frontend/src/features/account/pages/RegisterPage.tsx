@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useReducer } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   confirmRegistrationByCode,
@@ -12,16 +12,39 @@ import { requestGoogleProfile } from '../../../services/googleAuth';
 
 const brandName = 'ElectroMart VietNam';
 
+type RegisterState = {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  verificationCode: string;
+  pendingRegistration: PendingRegistration | null;
+  error: string;
+  message: string;
+  loading: boolean;
+};
+
+const initialRegisterState: RegisterState = {
+  name: '',
+  email: '',
+  password: '',
+  confirmPassword: '',
+  verificationCode: '',
+  pendingRegistration: null,
+  error: '',
+  message: '',
+  loading: false,
+};
+
+function mergeRegisterState(state: RegisterState, patch: Partial<RegisterState>): RegisterState {
+  return { ...state, ...patch };
+}
+
 export default function RegisterPage() {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
-  const [pendingRegistration, setPendingRegistration] = useState<PendingRegistration | null>(null);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [{ name, email, password, confirmPassword, verificationCode, pendingRegistration, error, message, loading }, setFormState] = useReducer(
+    mergeRegisterState,
+    initialRegisterState,
+  );
   const navigate = useNavigate();
 
   const verificationLink = useMemo(() => {
@@ -32,21 +55,21 @@ export default function RegisterPage() {
   const handleRegister = async (event: React.FormEvent) => {
     event.preventDefault();
     if (password !== confirmPassword) {
-      setError('Mật khẩu nhập lại không khớp.');
+      setFormState({ error: 'Mật khẩu nhập lại không khớp.' });
       return;
     }
 
-    setError('');
-    setMessage('');
-    setLoading(true);
+    setFormState({ error: '', message: '', loading: true });
     try {
       const pending = await startRegistration(email, password, name);
-      setPendingRegistration(pending);
-      setMessage('Đã gửi mã xác nhận 6 số và link xác nhận vào email của bạn.');
+      setFormState({
+        pendingRegistration: pending,
+        message: 'Đã gửi mã xác nhận 6 số và link xác nhận vào email của bạn.',
+      });
     } catch (err: any) {
-      setError(getAuthErrorMessage(err.code, err.message || 'Đăng ký thất bại.'));
+      setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Đăng ký thất bại.') });
     } finally {
-      setLoading(false);
+      setFormState({ loading: false });
     }
   };
 
@@ -54,47 +77,44 @@ export default function RegisterPage() {
     event.preventDefault();
     if (!pendingRegistration) return;
 
-    setError('');
-    setLoading(true);
+    setFormState({ error: '', loading: true });
     try {
       await confirmRegistrationByCode(pendingRegistration.email, verificationCode);
-      setMessage('Xác nhận thành công. Tài khoản đã được tạo.');
+      setFormState({ message: 'Xác nhận thành công. Tài khoản đã được tạo.' });
       navigate('/');
     } catch (err: any) {
-      setError(getAuthErrorMessage(err.code, err.message || 'Không thể xác nhận tài khoản.'));
+      setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể xác nhận tài khoản.') });
     } finally {
-      setLoading(false);
+      setFormState({ loading: false });
     }
   };
 
   const handleResendCode = async () => {
     if (!pendingRegistration) return;
-    setError('');
-    setMessage('');
-    setVerificationCode('');
-    setLoading(true);
+    setFormState({ error: '', message: '', verificationCode: '', loading: true });
     try {
       const pending = await resendRegistrationCode(pendingRegistration.email);
-      setPendingRegistration(pending);
-      setMessage('Da gui lai ma xac nhan moi. Ma cu da het hieu luc.');
+      setFormState({
+        pendingRegistration: pending,
+        message: 'Đã gửi lại mã xác nhận mới. Mã cũ đã hết hiệu lực.',
+      });
     } catch (err: any) {
-      setError(getAuthErrorMessage(err.code, err.message || 'Khong the gui lai ma xac nhan.'));
+      setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể gửi lại mã xác nhận.') });
     } finally {
-      setLoading(false);
+      setFormState({ loading: false });
     }
   };
 
   const handleGoogleRegister = async () => {
-    setError('');
-    setLoading(true);
+    setFormState({ error: '', loading: true });
     try {
       const profile = await requestGoogleProfile();
       await signInWithGoogleProfile(profile);
       navigate('/');
     } catch (err: any) {
-      setError(err.message || 'Đăng ký bằng Google thất bại.');
+      setFormState({ error: err.message || 'Đăng ký bằng Google thất bại.' });
     } finally {
-      setLoading(false);
+      setFormState({ loading: false });
     }
   };
 
@@ -111,12 +131,12 @@ export default function RegisterPage() {
               <h3 className="mb-4 rounded bg-gray-50 p-2 text-sm font-bold text-gray-800">Thông tin cá nhân</h3>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-1.5 block text-xs font-bold text-gray-700">Họ và tên</label>
-                  <input required type="text" placeholder="Nhập họ và tên" value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-red-500" />
+                  <label htmlFor="register-name" className="mb-1.5 block text-xs font-bold text-gray-700">Họ và tên</label>
+                  <input id="register-name" aria-label="Họ và tên" required type="text" placeholder="Nhập họ và tên" value={name} onChange={(event) => setFormState({ name: event.target.value })} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-red-500" />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-xs font-bold text-gray-700">Email</label>
-                  <input required type="email" placeholder="Nhập email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-red-500" />
+                  <label htmlFor="register-email" className="mb-1.5 block text-xs font-bold text-gray-700">Email</label>
+                  <input id="register-email" aria-label="Email" required type="email" placeholder="Nhập email" value={email} onChange={(event) => setFormState({ email: event.target.value })} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-red-500" />
                 </div>
               </div>
             </div>
@@ -125,18 +145,18 @@ export default function RegisterPage() {
               <h3 className="mb-4 rounded bg-gray-50 p-2 text-sm font-bold text-gray-800">Tạo mật khẩu</h3>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-1.5 block text-xs font-bold text-gray-700">Mật khẩu</label>
-                  <input required type="password" minLength={6} placeholder="Tối thiểu 6 ký tự" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-red-500" />
+                  <label htmlFor="register-password" className="mb-1.5 block text-xs font-bold text-gray-700">Mật khẩu</label>
+                  <input id="register-password" aria-label="Mật khẩu" required type="password" minLength={6} placeholder="Tối thiểu 6 ký tự" value={password} onChange={(event) => setFormState({ password: event.target.value })} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-red-500" />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-xs font-bold text-gray-700">Nhập lại mật khẩu</label>
-                  <input required type="password" minLength={6} placeholder="Nhập lại mật khẩu" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-red-500" />
+                  <label htmlFor="register-confirm-password" className="mb-1.5 block text-xs font-bold text-gray-700">Nhập lại mật khẩu</label>
+                  <input id="register-confirm-password" aria-label="Nhập lại mật khẩu" required type="password" minLength={6} placeholder="Nhập lại mật khẩu" value={confirmPassword} onChange={(event) => setFormState({ confirmPassword: event.target.value })} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-red-500" />
                 </div>
               </div>
             </div>
 
             <div className="mb-4 flex items-start gap-2 text-xs text-gray-600">
-              <input type="checkbox" required className="mt-0.5" />
+              <input aria-label="Xác nhận thông tin đăng ký chính xác" type="checkbox" required className="mt-0.5" />
               <p>Bằng việc đăng ký, bạn xác nhận thông tin cung cấp là chính xác.</p>
             </div>
 
@@ -151,20 +171,22 @@ export default function RegisterPage() {
           </form>
         ) : (
           <form onSubmit={handleConfirmCode} className="space-y-5">
-            <div className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-gray-700">
+            <div className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-900">
               Mã xác nhận đã gửi tới <strong>{pendingRegistration.email}</strong>. Bạn có thể nhập mã 6 số hoặc bấm link trong email để xác nhận tự động.
               <br /><br />
-              <span className="text-xs italic text-gray-500">*Mã xác nhận và link được tạo, lưu và gửi từ backend.</span>
+              <span className="text-xs italic text-red-700">*Mã xác nhận và link được tạo, lưu và gửi từ backend.</span>
             </div>
             <div>
-              <label className="mb-2 block text-sm font-bold text-gray-700">Mã xác nhận</label>
+              <label htmlFor="register-verification-code" className="mb-2 block text-sm font-bold text-gray-700">Mã xác nhận</label>
               <input
+                id="register-verification-code"
+                aria-label="Mã xác nhận đăng ký"
                 required
                 inputMode="numeric"
                 maxLength={6}
                 placeholder="Nhập mã 6 số"
                 value={verificationCode}
-                onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                onChange={(event) => setFormState({ verificationCode: event.target.value.replace(/\D/g, '').slice(0, 6) })}
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-xl font-bold tracking-[0.35em] outline-none focus:border-red-500"
               />
             </div>
@@ -175,7 +197,7 @@ export default function RegisterPage() {
               Mở link xác nhận trên trình duyệt này
             </Link>
             <button type="button" onClick={handleResendCode} disabled={loading} className="w-full text-sm font-semibold text-gray-500 hover:text-[#d70018] disabled:opacity-60">
-              Gui lai ma xac nhan
+              Gửi lại mã xác nhận
             </button>
           </form>
         )}

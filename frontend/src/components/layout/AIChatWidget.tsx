@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
 import { X, Send, Sparkles, ShoppingCart, Minus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
@@ -31,6 +31,56 @@ const productSpecs: Record<string, any> = {
   },
 };
 
+const quickActions = [
+  { label: '🛡️ Chính sách bảo hành', text: 'Chính sách bảo hành' },
+  { label: '💻 Tư vấn laptop', text: 'Tư vấn laptop cho sinh viên IT' },
+  { label: '📦 Tra đơn hàng', text: 'Đơn hàng của tôi ở đâu?' },
+];
+
+function fallbackResponse(userText: string) {
+  const textLower = userText.toLowerCase();
+
+  if (textLower.includes('bao hanh') || textLower.includes('bảo hành')) {
+    return 'Sản phẩm được bảo hành chính hãng 12 tháng. Email xác nhận đơn hàng và thông báo bảo mật luôn được gửi để bảo đảm quyền lợi của bạn.';
+  }
+
+  if (textLower.includes('giao hang') || textLower.includes('giao hàng')) {
+    return 'Đơn hàng từ 1.000.000đ được hỗ trợ giao hàng. Đơn nội thành có thể xử lý nhanh tùy khu vực.';
+  }
+
+  if (textLower.includes('so sanh') || textLower.includes('so sánh') || textLower.includes('s24')) {
+    const prod1 = productSpecs['iPhone 15 Pro Max'];
+    const prod2 = productSpecs['S24 Ultra'];
+    return (
+      <div className="text-sm">
+        <p className="mb-2">
+          Bảng so sánh nhanh giữa <strong>iPhone 15 Pro Max</strong> và <strong>S24 Ultra</strong>:
+        </p>
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <table className="min-w-full text-left text-xs">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border-b border-r px-2 py-1">Thông số</th>
+                <th className="border-b border-r px-2 py-1 text-red-600">iPhone 15 Pro Max</th>
+                <th className="border-b px-2 py-1 text-red-500">S24 Ultra</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white">
+              <tr><td className="border-b border-r bg-gray-50 px-2 py-1 font-medium">Màn hình</td><td className="border-b border-r px-2 py-1">{prod1.screen}</td><td className="border-b px-2 py-1">{prod2.screen}</td></tr>
+              <tr><td className="border-b border-r bg-gray-50 px-2 py-1 font-medium">Chipset</td><td className="border-b border-r px-2 py-1">{prod1.cpu}</td><td className="border-b px-2 py-1">{prod2.cpu}</td></tr>
+              <tr><td className="border-b border-r bg-gray-50 px-2 py-1 font-medium">RAM</td><td className="border-b border-r px-2 py-1">{prod1.ram}</td><td className="border-b px-2 py-1">{prod2.ram}</td></tr>
+              <tr><td className="border-b border-r bg-gray-50 px-2 py-1 font-medium">Camera</td><td className="border-b border-r px-2 py-1">{prod1.camera}</td><td className="border-b px-2 py-1">{prod2.camera}</td></tr>
+              <tr><td className="border-b border-r bg-gray-50 px-2 py-1 font-medium">Giá</td><td className="border-b border-r px-2 py-1 font-bold text-red-600">{prod1.price}</td><td className="border-b px-2 py-1 font-bold text-red-500">{prod2.price}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  return 'Mình chỉ hỗ trợ tư vấn mua sắm điện thoại, laptop, phụ kiện, đơn hàng và chính sách của cửa hàng.';
+}
+
 export const AIChatWidget = () => {
   const { items } = useCart();
   const { user, userData } = useAuth();
@@ -58,56 +108,6 @@ export const AIChatWidget = () => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, isOpen, isTyping]);
-
-  const quickActions = [
-    { label: '🛡️ Chính sách bảo hành', text: 'Chính sách bảo hành' },
-    { label: '💻 Tư vấn laptop', text: 'Tư vấn laptop cho sinh viên IT' },
-    { label: '📦 Tra đơn hàng', text: 'Đơn hàng của tôi ở đâu?' },
-  ];
-
-  const fallbackResponse = (userText: string) => {
-    const textLower = userText.toLowerCase();
-
-    if (textLower.includes('bao hanh') || textLower.includes('bảo hành')) {
-      return 'San pham duoc bao hanh chinh hang 12 thang. Cac email xac nhan don hang va bao mat luon duoc gui de dam bao quyen loi cua ban.';
-    }
-
-    if (textLower.includes('giao hang') || textLower.includes('giao hàng')) {
-      return 'Don hang tu 1.000.000d duoc ho tro giao hang. Don noi thanh co the xu ly nhanh tuy khu vuc.';
-    }
-
-    if (textLower.includes('so sanh') || textLower.includes('so sánh') || textLower.includes('s24')) {
-      const prod1 = productSpecs['iPhone 15 Pro Max'];
-      const prod2 = productSpecs['S24 Ultra'];
-      return (
-        <div className="text-sm">
-          <p className="mb-2">
-            Bang so sanh nhanh giua <strong>iPhone 15 Pro Max</strong> va <strong>S24 Ultra</strong>:
-          </p>
-          <div className="overflow-x-auto rounded-lg border border-gray-200">
-            <table className="min-w-full text-xs text-left">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="px-2 py-1 border-b border-r">Thong so</th>
-                  <th className="px-2 py-1 border-b border-r text-red-600">iPhone 15 Pro Max</th>
-                  <th className="px-2 py-1 border-b text-red-500">S24 Ultra</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white">
-                <tr><td className="px-2 py-1 border-b border-r font-medium bg-gray-50">Man hinh</td><td className="px-2 py-1 border-b border-r">{prod1.screen}</td><td className="px-2 py-1 border-b">{prod2.screen}</td></tr>
-                <tr><td className="px-2 py-1 border-b border-r font-medium bg-gray-50">Chipset</td><td className="px-2 py-1 border-b border-r">{prod1.cpu}</td><td className="px-2 py-1 border-b">{prod2.cpu}</td></tr>
-                <tr><td className="px-2 py-1 border-b border-r font-medium bg-gray-50">RAM</td><td className="px-2 py-1 border-b border-r">{prod1.ram}</td><td className="px-2 py-1 border-b">{prod2.ram}</td></tr>
-                <tr><td className="px-2 py-1 border-b border-r font-medium bg-gray-50">Camera</td><td className="px-2 py-1 border-b border-r">{prod1.camera}</td><td className="px-2 py-1 border-b">{prod2.camera}</td></tr>
-                <tr><td className="px-2 py-1 border-b border-r font-medium bg-gray-50">Gia</td><td className="px-2 py-1 border-b border-r font-bold text-red-600">{prod1.price}</td><td className="px-2 py-1 border-b font-bold text-red-500">{prod2.price}</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      );
-    }
-
-    return 'Minh chi ho tro tu van mua sam dien thoai, laptop, phu kien, don hang va chinh sach cua cua hang.';
-  };
 
   const dynamicContext = () => ({
     cart_items: items.map((item) => ({
@@ -180,9 +180,10 @@ export const AIChatWidget = () => {
 
   return (
     <div className="fixed bottom-20 right-3 z-[60] md:bottom-24 md:right-5 lg:bottom-6 lg:right-6">
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
+      <LazyMotion features={domAnimation}>
+        <AnimatePresence>
+          {isOpen && (
+            <m.div
             initial={{ opacity: 0, y: 20, scale: 0.92 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.92 }}
@@ -210,10 +211,10 @@ export const AIChatWidget = () => {
                     </div>
                   </div>
                   <div className="flex items-center self-center gap-1">
-                    <button onClick={() => setIsOpen(false)} className="w-8 h-8 rounded-full inline-flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors">
+                    <button type="button" onClick={() => setIsOpen(false)} className="w-8 h-8 rounded-full inline-flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors">
                       <Minus className="w-4 h-4" />
                     </button>
-                    <button onClick={() => setIsOpen(false)} className="w-8 h-8 rounded-full inline-flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors">
+                    <button type="button" onClick={() => setIsOpen(false)} className="w-8 h-8 rounded-full inline-flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -286,9 +287,9 @@ export const AIChatWidget = () => {
                   <div className="relative">
                     <div className="absolute bottom-2 -left-1.5 w-3 h-3 bg-white border-b border-l border-gray-100 rotate-45"></div>
                     <div className="relative bg-white px-4 py-3 rounded-2xl rounded-bl-sm border border-gray-100 shadow-sm flex items-center gap-1.5">
-                      <span className="w-2 h-2 bg-red-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                      <span className="w-2 h-2 bg-red-300 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                      <span className="w-2 h-2 bg-red-200 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                      <span className="typing-dot w-2 h-2 bg-red-400 rounded-full" style={{ animationDelay: '0ms' }}></span>
+                      <span className="typing-dot w-2 h-2 bg-red-300 rounded-full" style={{ animationDelay: '150ms' }}></span>
+                      <span className="typing-dot w-2 h-2 bg-red-200 rounded-full" style={{ animationDelay: '300ms' }}></span>
                     </div>
                   </div>
                 </div>
@@ -300,7 +301,7 @@ export const AIChatWidget = () => {
             {messages.length === 1 && (
               <div className="px-3 py-2.5 bg-gradient-to-r from-slate-50 to-white flex flex-wrap gap-2 border-t border-gray-100 shrink-0">
                 {quickActions.map((action) => (
-                  <button
+                  <button type="button"
                     key={action.text}
                     onClick={() => handleSendMessage(action.text)}
                     className="text-xs font-semibold bg-white border border-red-100 text-red-700 px-3.5 py-2 rounded-full hover:bg-red-50 hover:border-red-200 transition-all shadow-sm"
@@ -314,6 +315,7 @@ export const AIChatWidget = () => {
             {/* Input */}
             <div className="px-3 pt-3 pb-1.5 bg-white border-t border-gray-100 flex items-center gap-2 shrink-0">
               <input
+                aria-label="Nhập tin nhắn cho trợ lý AI"
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
@@ -321,7 +323,7 @@ export const AIChatWidget = () => {
                 placeholder="Hỏi bất cứ điều gì..."
                 className="flex-1 bg-gray-50 rounded-full px-4 py-2.5 outline-none text-sm border border-gray-200 focus:border-red-300 focus:ring-2 focus:ring-red-100 transition-all placeholder:text-gray-500"
               />
-              <button
+              <button type="button"
                 onClick={() => handleSendMessage(inputText)}
                 className="bg-gradient-to-r from-red-600 to-red-500 text-white w-10 h-10 rounded-full shrink-0 inline-flex items-center justify-center hover:from-red-700 hover:to-red-600 transition-all shadow-md shadow-red-200 disabled:opacity-40 disabled:shadow-none"
                 disabled={!inputText.trim()}
@@ -334,12 +336,13 @@ export const AIChatWidget = () => {
             <div className="pb-2.5 pt-1 bg-white text-center shrink-0">
               <span className="text-[10px] text-gray-400">Powered by Echophone AI ✨</span>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </m.div>
+          )}
+        </AnimatePresence>
+      </LazyMotion>
 
       {/* Floating Button */}
-      <button
+      <button type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="absolute bottom-0 right-0 group z-50"
       >

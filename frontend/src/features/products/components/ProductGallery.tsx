@@ -16,7 +16,6 @@ interface ProductGalleryProps {
   mediaItems: ProductMediaItem[];
   selectedMediaIndex: number;
   setSelectedMediaIndex: (index: number) => void;
-  setSelectedImage: (url: string | null) => void;
   discount: number;
   fallbackImage: string;
   openMediaViewer: (index: number) => void;
@@ -27,7 +26,6 @@ export function ProductGallery({
   mediaItems,
   selectedMediaIndex,
   setSelectedMediaIndex,
-  setSelectedImage,
   discount,
   fallbackImage,
   openMediaViewer,
@@ -38,9 +36,7 @@ export function ProductGallery({
   const selectMedia = (index: number) => {
     if (!mediaItems.length) return;
     const boundedIndex = (index + mediaItems.length) % mediaItems.length;
-    const item = mediaItems[boundedIndex];
     setSelectedMediaIndex(boundedIndex);
-    if (item.type !== 'video') setSelectedImage(item.url);
     mainSwiper?.slideTo(boundedIndex);
     thumbsSwiper?.slideTo(Math.max(0, boundedIndex - 2));
   };
@@ -57,6 +53,7 @@ export function ProductGallery({
         {mediaItems.length > 1 && (
           <>
             <button
+              type="button"
               onClick={() => selectMedia(selectedMediaIndex - 1)}
               className="absolute left-3 top-1/2 z-20 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-gray-600 opacity-0 shadow-md backdrop-blur-sm transition-opacity hover:bg-white hover:text-primary lg:flex lg:group-hover/main-media:opacity-100 cursor-pointer"
               aria-label="Ảnh trước"
@@ -64,6 +61,7 @@ export function ProductGallery({
               <ChevronLeft className="h-5 w-5" />
             </button>
             <button
+              type="button"
               onClick={() => selectMedia(selectedMediaIndex + 1)}
               className="absolute right-3 top-1/2 z-20 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-gray-600 opacity-0 shadow-md backdrop-blur-sm transition-opacity hover:bg-white hover:text-primary lg:flex lg:group-hover/main-media:opacity-100 cursor-pointer"
               aria-label="Ảnh sau"
@@ -80,7 +78,6 @@ export function ProductGallery({
             const item = mediaItems[swiper.activeIndex];
             if (!item) return;
             setSelectedMediaIndex(swiper.activeIndex);
-            if (item.type !== 'video') setSelectedImage(item.url);
             thumbsSwiper?.slideTo(Math.max(0, swiper.activeIndex - 2));
           }}
           thumbs={{ swiper: thumbsSwiper && !thumbsSwiper.destroyed ? thumbsSwiper : null }}
@@ -91,7 +88,6 @@ export function ProductGallery({
             <SwiperSlide key={item.key}>
               <div
                 className="relative flex aspect-square cursor-pointer items-center justify-center overflow-hidden bg-white p-4"
-                onClick={() => openMediaViewer(index)}
                 onMouseEnter={() => {
                   const next = mediaItems[index + 1];
                   if (next?.type !== 'video' && next?.url) {
@@ -107,18 +103,21 @@ export function ProductGallery({
                       title={item.label}
                       className="aspect-video w-full max-w-full rounded-xl bg-black"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      sandbox="allow-scripts allow-presentation allow-popups"
                       allowFullScreen
-                      onClick={(event) => event.stopPropagation()}
                     />
                   ) : (
                     <video
+                      aria-label="Video sản phẩm"
                       src={item.url}
                       poster={item.poster}
                       controls
                       preload={index === 0 ? 'metadata' : 'none'}
                       className="w-[90%] h-[90%] max-w-full max-h-full object-contain"
                       onClick={(event) => event.stopPropagation()}
-                    />
+                    >
+                      <track kind="captions" />
+                    </video>
                   )
                 ) : (
                   <ImageWithFallback
@@ -130,6 +129,14 @@ export function ProductGallery({
                     className="w-[90%] h-[90%] max-w-full max-h-full object-contain transition-transform duration-300 hover:scale-105"
                   />
                 )}
+                {item.type !== 'video' && (
+                  <button
+                    type="button"
+                    aria-label={`Xem ảnh ${product.name}`}
+                    className="absolute inset-0 cursor-pointer"
+                    onClick={() => openMediaViewer(index)}
+                  />
+                )}
               </div>
             </SwiperSlide>
           ))}
@@ -139,6 +146,7 @@ export function ProductGallery({
       {mediaItems.length > 1 && (
         <div className="group relative w-full py-1.5 flex justify-center">
           <button
+            type="button"
             onClick={() => selectMedia(selectedMediaIndex - 1)}
             className="absolute left-1 top-1/2 z-10 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-gray-700 shadow-md ring-1 ring-gray-200 hover:text-primary lg:group-hover:flex cursor-pointer"
             aria-label="Ảnh con trước"
@@ -158,6 +166,7 @@ export function ProductGallery({
               {mediaItems.map((item, index) => (
                 <SwiperSlide key={`thumb-${item.key}`} className="!h-[74px] !w-[82px]">
                   <button
+                    type="button"
                     data-media-index={index}
                     onClick={() => selectMedia(index)}
                     className={`relative flex h-full w-full items-center justify-center overflow-hidden rounded-xl border-2 transition-all cursor-pointer ${selectedMediaIndex === index ? 'border-primary bg-white' : 'border-gray-200 bg-white opacity-70 hover:border-gray-400 hover:opacity-100'}`}
@@ -195,6 +204,7 @@ export function ProductGallery({
             </Swiper>
           </div>
           <button
+            type="button"
             onClick={() => selectMedia(selectedMediaIndex + 1)}
             className="absolute right-1 top-1/2 z-10 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-gray-700 shadow-md ring-1 ring-gray-200 hover:text-primary lg:group-hover:flex cursor-pointer"
             aria-label="Ảnh con sau"
@@ -206,4 +216,3 @@ export function ProductGallery({
     </div>
   );
 }
-

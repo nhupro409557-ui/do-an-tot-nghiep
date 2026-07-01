@@ -1,4 +1,4 @@
-﻿import json
+import json
 import asyncio
 import logging
 import contextlib
@@ -98,7 +98,10 @@ async def run_order_maintenance_loop() -> None:
                     online_timeout_minutes=settings.order_pending_online_timeout_minutes,
                     cod_timeout_hours=settings.order_pending_cod_timeout_hours,
                 )
+            async with AsyncSessionFactory() as session:
                 await order_service.expire_pending_payments(session)
+                await session.commit()
+            async with AsyncSessionFactory() as session:
                 await after_sales_service.run_maintenance(session)
         except Exception as e:
             logger.error(f"Error in order maintenance loop: {str(e)}", exc_info=True)

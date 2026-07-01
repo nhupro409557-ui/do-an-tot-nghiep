@@ -15,7 +15,7 @@ export function DeleteAccountSection({ onOpenDeleteAccount }: DeleteAccountSecti
             <p className="text-sm text-gray-500 mt-1">Thao tác này sẽ xóa tài khoản và hồ sơ đang lưu trong bản demo.</p>
           </div>
         </div>
-        <button onClick={onOpenDeleteAccount} className="px-4 py-3 rounded-lg border border-red-600 text-red-600 font-bold hover:bg-red-600 hover:text-white transition-colors">Xóa tài khoản</button>
+        <button type="button" onClick={onOpenDeleteAccount} className="px-4 py-3 rounded-lg border border-red-600 text-red-600 font-bold hover:bg-red-600 hover:text-white transition-colors">Xóa tài khoản</button>
       </div>
     </section>
   );

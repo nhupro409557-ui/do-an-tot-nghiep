@@ -12,6 +12,9 @@
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
   }
+  .typing-dot {
+    animation: typing-dot 900ms cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  }
 }
 
 @keyframes shimmer {
@@ -20,6 +23,17 @@
   }
   100% {
     background-position: 200% 0;
+  }
+}
+
+@keyframes typing-dot {
+  0%, 100% {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateY(-4px);
+    opacity: 1;
   }
 }
 

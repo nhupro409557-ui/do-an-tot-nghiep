@@ -15,12 +15,14 @@ export function useAccountSessions(userId: string | undefined, activeTab: Accoun
   }, [userId, activeTab]);
 
   const revokeSession = async (sessionId: string, isCurrent: boolean) => {
-    await publicApi.revokeAuthSession(sessionId);
     if (isCurrent) {
+      await publicApi.revokeAuthSession(sessionId);
       await signOut();
       navigate('/login');
       return;
     }
+
+    await publicApi.revokeAuthSession(sessionId);
     setAuthSessions(sessions => sessions.filter(session => session.id !== sessionId));
   };
 

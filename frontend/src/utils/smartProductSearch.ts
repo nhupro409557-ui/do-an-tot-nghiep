@@ -128,7 +128,7 @@ export function normalizeSearchText(value: unknown) {
 
 const compact = (value: string) => value.replace(/\s+/g, '');
 
-const uniq = <T,>(items: T[]) => Array.from(new Set(items.filter(Boolean)));
+const uniq = <T,>(items: T[]) => Array.from(new Set(items.flatMap((item) => item ? [item] : [])));
 
 function parseMoneyValue(raw: string, unit?: string) {
   const value = Number(raw.replace(',', '.'));
@@ -192,20 +192,23 @@ function detectBrand(normalizedQuery: string, availableBrands: string[]) {
 }
 
 function detectCategories(normalizedQuery: string, categories: CatalogCategory[]) {
-  return categories
-    .filter((category) => {
-      const aliases = uniq([
-        category.id,
-        category.slug,
-        category.name,
-        ...category.slugs,
-        ...(CATEGORY_ALIASES[category.id] || []),
-        ...(CATEGORY_ALIASES[category.slug] || []),
-      ]).map(normalizeSearchText);
+  const detected: string[] = [];
+  const compactQuery = compact(normalizedQuery);
+  for (const category of categories) {
+    const aliases = uniq([
+      category.id,
+      category.slug,
+      category.name,
+      ...category.slugs,
+      ...(CATEGORY_ALIASES[category.id] || []),
+      ...(CATEGORY_ALIASES[category.slug] || []),
+    ]).map(normalizeSearchText);
 
-      return aliases.some((alias) => normalizedQuery.includes(alias) || compact(normalizedQuery).includes(compact(alias)));
-    })
-    .flatMap((category) => category.slugs);
+    if (aliases.some((alias) => normalizedQuery.includes(alias) || compactQuery.includes(compact(alias)))) {
+      detected.push(...category.slugs);
+    }
+  }
+  return detected;
 }
 
 export function analyzeProductSearch(
@@ -214,7 +217,7 @@ export function analyzeProductSearch(
   categories: CatalogCategory[],
 ): SearchIntent {
   const normalizedQuery = normalizeSearchText(query);
-  const availableBrands = uniq(products.map((product) => product.brand).filter(Boolean));
+  const availableBrands = uniq(products.flatMap((product) => product.brand ? [product.brand] : []));
   const brand = detectBrand(normalizedQuery, availableBrands);
   const useCaseIntent = detectUseCases(normalizedQuery);
   const categoryIds = uniq([...detectCategories(normalizedQuery, categories), ...useCaseIntent.categoryHints]);
@@ -265,7 +268,10 @@ export function intentFromAiParser(
   return {
     normalizedQuery: normalizeSearchText(query),
     searchableTerms: Array.isArray(aiIntent.searchableTerms)
-      ? aiIntent.searchableTerms.map(normalizeSearchText).filter(Boolean)
+      ? aiIntent.searchableTerms.flatMap((term: unknown) => {
+          const normalizedTerm = normalizeSearchText(term);
+          return normalizedTerm ? [normalizedTerm] : [];
+        })
       : fallback.searchableTerms,
     categoryIds: Array.isArray(aiIntent.categoryIds) && aiIntent.categoryIds.length > 0
       ? aiIntent.categoryIds
@@ -322,7 +328,7 @@ export function searchProductsByIntent(
       product.description,
       product.sku,
       JSON.stringify(product.specifications || {}),
-    ].filter(Boolean).join(' '));
+    ].flatMap((value) => value ? [value] : []).join(' '));
 
     const inCategory = activeCategoryIds.length === 0 || activeCategoryIds.includes(productCategory);
     const inBrand = brandFilter === 'all' || productBrand === normalizeSearchText(brandFilter);
@@ -367,9 +373,17 @@ export function formatPriceIntent(price?: PriceIntent) {
 
 export function getSearchIntentBadges(intent: SearchIntent, categories: CatalogCategory[]) {
   const badges: { label: string; value: string }[] = [];
-  const categoryNames = categories
-    .filter((category) => intent.categoryIds.some((id) => category.slugs.includes(id) || category.id === id || category.slug === id))
-    .map((category) => category.name);
+  const categoryNames: string[] = [];
+  const categoryIdSet = new Set(intent.categoryIds);
+  for (const category of categories) {
+    if (
+      categoryIdSet.has(category.id)
+      || categoryIdSet.has(category.slug)
+      || category.slugs.some((slug) => categoryIdSet.has(slug))
+    ) {
+      categoryNames.push(category.name);
+    }
+  }
 
   uniq(categoryNames).forEach((name) => badges.push({ label: 'Danh mục', value: name }));
   if (intent.brand) badges.push({ label: 'Hãng', value: intent.brand });

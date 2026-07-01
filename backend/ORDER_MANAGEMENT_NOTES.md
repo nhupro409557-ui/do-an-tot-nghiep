@@ -1,5 +1,47 @@
 # Order Management Notes
 
+## Cập nhật 2026-06-29 - Bổ sung test đơn hàng sinh phiếu xuất kho
+
+- Bổ sung test admin order lifecycle cho nhánh `PENDING -> PROCESSING`: đơn COD có sản phẩm/variant thật sẽ sinh phiếu xuất kho `OUTBOUND`.
+- Sau khi phiếu xuất được auto-suggest và hoàn tất, hệ thống đồng bộ đơn hàng sang `SHIPPED`.
+- Sửa query kiểm tra tồn variant khi tạo đơn: cast `variant_id` và `product_id` sang UUID để tránh lỗi asyncpg `could not determine data type of parameter`.
+- Verification: `pytest backend/tests/test_12_admin_inventory_outbound_flow.py -q` pass.
+
+## Cập nhật 2026-06-29 - Bổ sung test quyền cho thao tác admin đơn hàng
+
+- Bổ sung test API admin cho `/api/orders/{order_id}/admin`: anonymous và customer bị chặn, admin cập nhật được thông tin xử lý nội bộ của đơn hàng.
+- Endpoint cập nhật đơn hàng admin nay dùng `require_staff_or_admin`; trước đó route admin này chưa có dependency phân quyền rõ ràng.
+- Sau khi dependency đọc quyền dùng chung session, endpoint rollback transaction đọc trước khi gọi `CompleteOrderUseCase`, tránh lỗi `A transaction is already begun on this Session` khi use case mở transaction ghi.
+- Test cũng ghi nhận rule hiện tại không cho chuyển trạng thái `PENDING -> CONFIRMED`; nhánh này được assert là lỗi nghiệp vụ `409`.
+- Verification: `pytest backend/tests/test_10_admin_permissions_and_orders_flow.py backend/tests/test_11_admin_voucher_flash_sale_flow.py -q` pass.
+
+## Cập nhật 2026-06-29 - Chống kết quả kiểm tra voucher POS lỗi thời
+
+- POS kiểm tra lại voucher khi phương thức thanh toán, khách hàng, mã voucher, tổng tiền hoặc danh sách sản phẩm thay đổi.
+- Mỗi lần kiểm tra có mã phiên tăng dần; response cũ bị bỏ qua để không ghi đè kết quả của request mới hơn.
+- Giữ nguyên payload tạo đơn và API validate voucher hiện tại.
+- Verification: frontend `npm run lint` và `npm run build` pass.
+
+## Cập nhật 2026-06-27 - Sửa dữ liệu giá mua kèm và dịch vụ trong POS
+
+- Kiểm thử POS sau refactor phát hiện nhiều badge mua kèm và dịch vụ hiển thị `0 ₫`.
+- Nguyên nhân nằm ở mapping response của `list_admin_products`: repository đã trả dữ liệu nhưng service không đưa các trường giá, tồn kho, override và metadata vào `salesConfig`.
+- Đã khôi phục đầy đủ contract để POS dùng lại công thức giá hiện có; không thay đổi payload tạo đơn.
+
+## Cập nhật 2026-06-27 - Tách tiếp POS và hoàn tất đơn hàng
+
+- Tách giao diện POS đang hoạt động sang `AdminPosWorkspace.tsx`; `AdminPosModal.tsx` giữ state, handler và khung modal.
+- Tách `CompleteOrderUseCase` thành lớp điều phối chính cùng hai mixin `complete_order_carrier.py` và `complete_order_fulfillment.py`.
+- Giữ nguyên MRO, API gọi hiện tại, quy tắc tồn kho, hoàn tiền, vận chuyển và loyalty.
+
+## Cập nhật 2026-06-27 - Tách commerce use cases/repository và sửa lỗi mã hóa repository
+
+- Tách `app/application/commerce/use_cases.py` thành facade tương thích và các module nhỏ trong `app/application/commerce/use_cases/`: `common`, `voucher_service`, `create_order`, `payment`, `complete_order`, `reporting`.
+- Tách `commerce_repo.py` thành facade tương thích và các module nhỏ trong `app/infrastructure/database/repositories/commerce/`: `vouchers`, `reservations`, `inventory_levels`, `payments`, `orders_reports`.
+- Sửa lỗi mã hóa/cú pháp trong `commerce_repo.py` tại thông báo `Không đủ tồn khả dụng ở các kệ để xuất kho.`; trước đó chuỗi bị hỏng và dính vào khai báo `deduct_inventory_levels_from_locations`, làm file không compile được.
+- Tách POS admin thành `AdminPosModalUtils` và `AdminPosSuccessScreen` để giảm kích thước component chính.
+- Verification: `py_compile` pass cho commerce repository, commerce use cases, router commerce và `app/main.py`; frontend `npm run lint` pass.
+
 ## Cập nhật 2026-06-27 - Đồng bộ giá mua kèm và dịch vụ trong POS admin
 
 - POS admin tính giá sản phẩm mua kèm theo cùng hướng với storefront: ưu tiên `offer.price` nếu API đã trả giá ưu đãi đã tính sẵn; nếu thiếu thì fallback về giá gốc và công thức giảm theo `discountType/discountValue`.

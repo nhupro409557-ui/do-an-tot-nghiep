@@ -22,6 +22,12 @@ dependencies = [
     "python-docx>=1.1.0",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
@@ -32,3 +38,15 @@ include = ["app*"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+markers = [
+    "contract: kiểm tra contract OpenAPI và bảo vệ truy cập",
+    "integration: kiểm tra tích hợp với database PostgreSQL cô lập",
+    "workflow: kiểm tra một luồng nghiệp vụ hoàn chỉnh",
+]

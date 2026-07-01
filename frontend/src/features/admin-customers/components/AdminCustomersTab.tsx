@@ -3,6 +3,13 @@ import { AdminPanel, AdminTable, SearchBox } from '../../admin-shell/components/
 
 type AdminCustomersTabProps = Record<string, any>;
 
+const userStatusLabels: Record<string, string> = {
+  ACTIVE: 'Hoạt động',
+  SUSPENDED: 'Đang khóa',
+  INACTIVE: 'Ngưng hoạt động',
+  PENDING: 'Chờ kích hoạt',
+};
+
 export default function AdminCustomersTab(props: AdminCustomersTabProps) {
   const {
     bulkApplyCustomerTags,
@@ -62,10 +69,10 @@ export default function AdminCustomersTab(props: AdminCustomersTabProps) {
             <td className="px-4 py-3">
               {canManageCustomerAccess ? (
                 <select value={item.status || 'ACTIVE'} onChange={(event) => updateUserAccess(item, { status: event.target.value })} className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold outline-none focus:border-red-500">
-                  <option value="ACTIVE">ACTIVE</option>
-                  <option value="SUSPENDED">SUSPENDED</option>
+                  <option value="ACTIVE">Hoạt động</option>
+                  <option value="SUSPENDED">Đang khóa</option>
                 </select>
-              ) : item.status}
+              ) : (userStatusLabels[item.status] || item.status)}
             </td>
             <td className="px-4 py-3">
               <button type="button" onClick={() => openCustomerDetail(item)} className="inline-flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-800 transition hover:bg-sky-100">

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Clock3, Heart, Scale } from "lucide-react";
+import { Clock3, Heart, Scale, Star } from "lucide-react";
 import { ImageWithFallback } from "../../../components/ui/ImageWithFallback";
-import { motion } from "motion/react";
+import { LazyMotion, domAnimation, m } from "motion/react";
 
 const getFlashSaleRemaining = (endsAt?: string) => {
   const distance = endsAt ? Math.max(new Date(endsAt).getTime() - Date.now(), 0) : 0;
@@ -53,13 +53,20 @@ function FlashSaleDiscountLabel({ flashSale }: { flashSale: any }) {
   );
 }
 
+const getUniqueProductImages = (product: any) => {
+  const imageUrls: string[] = [];
+  if (product.imageUrl) imageUrls.push(product.imageUrl);
+  if (Array.isArray(product.variants)) {
+    product.variants.forEach((variant: any) => {
+      if (variant.imageUrl) imageUrls.push(variant.imageUrl);
+    });
+  }
+  return Array.from(new Set(imageUrls));
+};
+
 export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
   const productHref = `/product/${p.id}${p.flashSaleVariantId ? `?variant=${encodeURIComponent(p.flashSaleVariantId)}` : ''}`;
-  const primaryImages = [
-    p.imageUrl,
-    ...(Array.isArray(p.variants) ? p.variants.map((variant: any) => variant.imageUrl).filter(Boolean) : []),
-  ];
-  const images = Array.from(new Set(primaryImages.filter(Boolean)));
+  const images = getUniqueProductImages(p);
   const [hoverImageIdx, setHoverImageIdx] = useState<number | null>(null);
   const [mainImageIdx, setMainImageIdx] = useState<number>(0);
   const displayImage = hoverImageIdx !== null && images[hoverImageIdx] ? images[hoverImageIdx] : images[mainImageIdx];
@@ -69,13 +76,14 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
   const isDiscontinued = p.status === 'DISCONTINUED';
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 50 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-50px" }}
-      transition={{ duration: 0.5, delay: index * 0.1, ease: "easeOut" }}
-      className="group relative flex h-full min-w-0 flex-col rounded-xl border border-slate-100 bg-white p-2.5 shadow-sm transition-all duration-300 hover:border-red-100 hover:shadow-xl sm:p-3 lg:p-4"
-    >
+    <LazyMotion features={domAnimation}>
+      <m.div
+        initial={{ opacity: 0, y: 50 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: "-50px" }}
+        transition={{ duration: 0.35, delay: Math.min(index * 0.04, 0.24), ease: "easeOut" }}
+        className="group relative flex h-full min-w-0 flex-col rounded-xl border border-slate-100 bg-white p-2.5 shadow-sm transition-all duration-300 hover:border-red-100 hover:shadow-xl sm:p-3 lg:p-4"
+      >
       {p.badge && !p.flashSale && (
         <div className="absolute left-2 top-2 z-10 rounded-lg bg-red-500 px-2 py-1 text-[10px] font-bold uppercase text-white shadow-sm">
           {p.badge}
@@ -100,9 +108,10 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
         </Link>
         {images.length > 1 && (
           <div className="absolute bottom-5 left-0 right-0 z-20 flex justify-center gap-1.5 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-            {images.map((_: any, idx: number) => (
+            {images.map((image: any, idx: number) => (
               <button
-                key={idx}
+                type="button"
+                key={String(image)}
                 onMouseEnter={() => setHoverImageIdx(idx)}
                 onMouseLeave={() => setHoverImageIdx(null)}
                 onClick={(e) => {
@@ -155,7 +164,7 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
 
         <div className="mt-1 flex min-w-0 items-start justify-between gap-2 border-t border-gray-100 pt-3 text-[10px] text-gray-500 lg:text-[11px]">
           <div className="flex min-w-0 items-start gap-1">
-            <span className="text-yellow-400">★</span>
+            <Star className="mt-0.5 h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400" />
             <span className="line-clamp-2">{p.rating ? `${p.rating} (${p.reviewCount || 0} đánh giá)` : "Chưa có đánh giá"}</span>
           </div>
           {!isDiscontinued && (
@@ -176,6 +185,7 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
           </Link>
         </div>}
       </div>
-    </motion.div>
+      </m.div>
+    </LazyMotion>
   );
 };

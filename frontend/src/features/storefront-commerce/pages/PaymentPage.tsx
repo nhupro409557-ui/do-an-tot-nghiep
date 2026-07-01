@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { CheckCircle2, Clock3, ExternalLink, RefreshCw, XCircle, Copy, Check } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { adminOrdersApi } from '../../admin-orders/services/adminOrdersApi';
@@ -8,20 +8,44 @@ function remainingSeconds(expiresAt?: string | null) {
   return Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
 }
 
+type PaymentPageState = {
+  payment: any | null;
+  secondsLeft: number;
+  busy: boolean;
+  error: string;
+  copiedField: string | null;
+};
+
+type PaymentPageAction =
+  | Partial<PaymentPageState>
+  | ((state: PaymentPageState) => PaymentPageState);
+
+const initialPaymentPageState: PaymentPageState = {
+  payment: null,
+  secondsLeft: 0,
+  busy: true,
+  error: '',
+  copiedField: null,
+};
+
+function mergePaymentPageState(state: PaymentPageState, action: PaymentPageAction): PaymentPageState {
+  return typeof action === 'function' ? action(state) : { ...state, ...action };
+}
+
 export default function PaymentPage() {
   const { paymentId = '' } = useParams();
   const location = useLocation();
+  const paymentResult = new URLSearchParams(location.search).get('payment');
   const navigate = useNavigate();
-  const [payment, setPayment] = useState<any | null>(null);
-  const [secondsLeft, setSecondsLeft] = useState(0);
-  const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
-  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [{ payment, secondsLeft, busy, error, copiedField }, setPageState] = useReducer(
+    mergePaymentPageState,
+    initialPaymentPageState,
+  );
 
   const handleCopy = (text: string, field: string) => {
     void navigator.clipboard.writeText(text);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
+    setPageState({ copiedField: field });
+    setTimeout(() => setPageState({ copiedField: null }), 2000);
   };
 
   const vietQrUrl = useMemo(() => {
@@ -37,63 +61,60 @@ export default function PaymentPage() {
     [payment],
   );
 
-  async function cancelAndGoToOrder() {
+  const cancelAndGoToOrder = useCallback(async () => {
     if (!paymentId) return;
-    setBusy(true);
+    setPageState({ busy: true });
     try {
       const next = await adminOrdersApi.cancelPayment(paymentId);
-      setPayment(next);
+      setPageState({ payment: next });
       navigate(`/orders/${next.order_id || next.orderId}`);
     } catch (err: any) {
-      setError(err.message || 'Không thể hủy phiên thanh toán.');
-      setBusy(false);
+      setPageState({ error: err.message || 'Không thể hủy phiên thanh toán.', busy: false });
     }
-  }
+  }, [navigate, paymentId]);
 
-  async function loadStatus(silent = false) {
+  const loadStatus = useCallback(async (silent = false) => {
     if (!paymentId) return;
-    if (!silent) setBusy(true);
+    if (!silent) setPageState({ busy: true });
     try {
       const next = await adminOrdersApi.getPaymentStatus(paymentId);
-      setPayment(next);
-      setSecondsLeft(remainingSeconds(next.expires_at || next.expiresAt));
-      setError('');
-    } catch (err: any) {
-      setError(err.message || 'Không thể tải trạng thái thanh toán.');
+      setPageState({
+        payment: next,
+        secondsLeft: remainingSeconds(next.expires_at || next.expiresAt),
+        error: '',
+      });
     } finally {
-      if (!silent) setBusy(false);
+      if (!silent) setPageState({ busy: false });
     }
-  }
-
-  useEffect(() => {
-    void loadStatus();
   }, [paymentId]);
 
   useEffect(() => {
-    const paymentResult = new URLSearchParams(location.search).get('payment');
+    void loadStatus();
+  }, [loadStatus]);
+
+  useEffect(() => {
     if (paymentResult === 'cancel' || paymentResult === 'error') {
       void cancelAndGoToOrder();
     }
-  }, [location.search, paymentId]);
+  }, [cancelAndGoToOrder, paymentResult]);
 
   useEffect(() => {
     if (!payment || terminal) return;
     const poll = window.setInterval(() => void loadStatus(true), 4000);
-    const timer = window.setInterval(() => setSecondsLeft(value => Math.max(0, value - 1)), 1000);
+    const timer = window.setInterval(() => setPageState((state) => ({ ...state, secondsLeft: Math.max(0, state.secondsLeft - 1) })), 1000);
     return () => {
       window.clearInterval(poll);
       window.clearInterval(timer);
     };
-  }, [paymentId, payment?.status, terminal]);
+  }, [loadStatus, payment, terminal]);
 
   async function retry() {
-    setBusy(true);
+    setPageState({ busy: true });
     try {
       const next = await adminOrdersApi.retryPayment(paymentId);
       window.location.replace(`/payment/${next.id}`);
     } catch (err: any) {
-      setError(err.message || 'Không thể tạo phiên thanh toán mới.');
-      setBusy(false);
+      setPageState({ error: err.message || 'Không thể tạo phiên thanh toán mới.', busy: false });
     }
   }
 
@@ -143,15 +164,15 @@ export default function PaymentPage() {
               <div className="text-center font-bold text-slate-800 text-sm">
                 Quét mã VietQR qua App Ngân hàng của bạn để thanh toán
               </div>
-              
+
               <div className="flex flex-col items-center justify-center bg-slate-50 p-4 rounded-lg border border-slate-100">
-                <img 
-                  src={vietQrUrl} 
-                  alt="VietQR Payment Code" 
-                  className="w-60 h-60 object-contain rounded-md shadow-sm border border-slate-200" 
+                <img
+                  src={vietQrUrl}
+                  alt="VietQR Payment Code"
+                  className="w-60 h-60 object-contain rounded-md shadow-sm border border-slate-200"
                 />
-                <a 
-                  href={vietQrUrl} 
+                <a
+                  href={vietQrUrl}
                   download={`VietQR-${payment?.order_code || 'payment'}.png`}
                   target="_blank"
                   rel="noreferrer"

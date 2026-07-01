@@ -23,6 +23,8 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 SHOP_NAME = "ELECTROMART VIỆT NAM"
 SHOP_DESCRIPTION = "Hệ thống bán lẻ điện thoại, laptop và phụ kiện công nghệ"
+SHOP_ADDRESS_FALLBACK = ".............................................................."
+SHOP_PHONE_FALLBACK = "..........................................................."
 RECEIPT_REASON_LABELS = {
     "NK_MUA": "Nhập mua từ nhà cung cấp",
     "NK_TRA_NCC": "Nhà cung cấp trả lại hàng",
@@ -105,6 +107,22 @@ def _actor(value: Any, label: Any = None) -> str:
         text = str(value)
         return text[:8]
     return "-"
+
+
+def _store_text(store_info: dict | None, key: str, fallback: str) -> str:
+    if not store_info:
+        return fallback
+    value = str(store_info.get(key) or "").strip()
+    return value or fallback
+
+
+def _shop_header(store_info: dict | None = None) -> tuple[str, str, str, str]:
+    return (
+        _store_text(store_info, "name", SHOP_NAME),
+        _store_text(store_info, "description", SHOP_DESCRIPTION),
+        _store_text(store_info, "address", SHOP_ADDRESS_FALLBACK),
+        _store_text(store_info, "hotline", SHOP_PHONE_FALLBACK),
+    )
 
 
 def _safe_filename(value: str, extension: str) -> str:
@@ -226,10 +244,11 @@ def _receipt_totals(summaries: list[dict]) -> tuple[int, int, Decimal]:
     return planned, received, total
 
 
-def render_inventory_receipt_pdf(receipt: dict) -> tuple[bytes, str]:
+def render_inventory_receipt_pdf(receipt: dict, store_info: dict | None = None) -> tuple[bytes, str]:
     normal_font, bold_font, italic_font = _register_pdf_fonts()
     summaries = receipt_line_summaries(receipt)
     total_planned, total_received, total_amount = _receipt_totals(summaries)
+    shop_name, shop_description, shop_address, shop_phone = _shop_header(store_info)
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -257,10 +276,10 @@ def render_inventory_receipt_pdf(receipt: dict) -> tuple[bytes, str]:
             [
                 [
                     [
-                        Paragraph(SHOP_NAME, bold),
-                        Paragraph(SHOP_DESCRIPTION, body),
-                        Paragraph("Địa chỉ: ..............................................................", body),
-                        Paragraph("Điện thoại: ...........................................................", body),
+                        Paragraph(xml_escape(shop_name), bold),
+                        Paragraph(xml_escape(shop_description), body),
+                        Paragraph(f"Địa chỉ: {xml_escape(shop_address)}", body),
+                        Paragraph(f"Điện thoại: {xml_escape(shop_phone)}", body),
                     ]
                 ]
             ],
@@ -391,11 +410,12 @@ def _docx_text(cell, text: str = "", bold: bool = False, italic: bool = False, a
     cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
 
 
-def render_inventory_receipt_docx(receipt: dict) -> tuple[bytes, str]:
+def render_inventory_receipt_docx(receipt: dict, store_info: dict | None = None) -> tuple[bytes, str]:
     summaries = receipt_line_summaries(receipt)
     total_planned, total_received, total_amount = _receipt_totals(summaries)
     receipt_date = _date_label(receipt.get("postedAt") or receipt.get("createdAt"))
     status = str(receipt.get("status") or "COMPLETED")
+    shop_name, shop_description, shop_address, shop_phone = _shop_header(store_info)
     document = Document()
     section = document.sections[0]
     section.start_type = WD_SECTION.NEW_PAGE
@@ -411,7 +431,7 @@ def render_inventory_receipt_docx(receipt: dict) -> tuple[bytes, str]:
 
     header = document.add_table(rows=1, cols=1)
     header.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _docx_text(header.cell(0, 0), f"{SHOP_NAME}\n{SHOP_DESCRIPTION}\nĐịa chỉ: ..............................................................\nĐiện thoại: ...........................................................", bold=True)
+    _docx_text(header.cell(0, 0), f"{shop_name}\n{shop_description}\nĐịa chỉ: {shop_address}\nĐiện thoại: {shop_phone}", bold=True)
 
     title = document.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -489,3 +509,163 @@ def render_inventory_receipt_docx(receipt: dict) -> tuple[bytes, str]:
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue(), _safe_filename(str(receipt.get("referenceCode") or "phieu-nhap-kho"), "docx")
+
+
+def render_order_invoice_pdf(order: Any, items: list[Any]) -> tuple[bytes, str]:
+    normal_font, bold_font, italic_font = _register_pdf_fonts()
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=12 * mm,
+        rightMargin=12 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
+    )
+    styles = getSampleStyleSheet()
+    body = ParagraphStyle("InvoiceBody", parent=styles["Normal"], fontName=normal_font, fontSize=9, leading=12)
+    center = ParagraphStyle("InvoiceCenter", parent=body, alignment=TA_CENTER)
+    right = ParagraphStyle("InvoiceRight", parent=body, alignment=TA_RIGHT)
+    title = ParagraphStyle("InvoiceTitle", parent=center, fontName=bold_font, fontSize=18, leading=22)
+    bold = ParagraphStyle("InvoiceBold", parent=body, fontName=bold_font)
+    italic = ParagraphStyle("InvoiceItalic", parent=body, fontName=italic_font)
+
+    def get_val(obj: Any, key: str, default: Any = None) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    order_code = get_val(order, "order_code") or get_val(order, "orderCode", "-")
+    created_at = get_val(order, "created_at") or get_val(order, "createdAt")
+    invoice_date = _date_label(get_val(order, "completed_at") or get_val(order, "completedAt") or created_at)
+
+    recipient_name = get_val(order, "recipient_name") or get_val(order, "recipientName", "-")
+    recipient_phone = get_val(order, "recipient_phone") or get_val(order, "recipientPhone", "-")
+    shipping_address = get_val(order, "shipping_address") or get_val(order, "shippingAddress", "-")
+    payment_method = get_val(order, "payment_method") or get_val(order, "paymentMethod", "-")
+    payment_status = get_val(order, "payment_status") or get_val(order, "paymentStatus", "-")
+    subtotal = _num(get_val(order, "subtotal_amount") or get_val(order, "subtotalAmount", 0))
+    discount = _num(get_val(order, "discount_amount") or get_val(order, "discountAmount", 0))
+    shipping_fee = _num(get_val(order, "shipping_fee") or get_val(order, "shippingFee", 0))
+    total_amount = _num(get_val(order, "total_amount") or get_val(order, "totalAmount", 0))
+
+    story: list[Any] = [
+        Table(
+            [
+                [
+                    [
+                        Paragraph(SHOP_NAME, bold),
+                        Paragraph(SHOP_DESCRIPTION, body),
+                        Paragraph("Địa chỉ: 123 Đường Công Nghệ, Quận 1, TP. Hồ Chí Minh", body),
+                        Paragraph("Điện thoại: 1900 1234 - Email: support@electromart.vn", body),
+                    ]
+                ]
+            ],
+            colWidths=[173 * mm],
+            style=[("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOX", (0, 0), (-1, -1), 0, colors.white)],
+        ),
+        Spacer(1, 8),
+        Paragraph("HÓA ĐƠN BÁN HÀNG", title),
+        Paragraph(invoice_date, ParagraphStyle("DateCenter", parent=italic, alignment=TA_CENTER, fontName=bold_font)),
+        Paragraph(f"Mã đơn hàng: {order_code}", center),
+        Spacer(1, 8),
+        Paragraph(f"- Khách hàng: <b>{recipient_name}</b> &nbsp;&nbsp;&nbsp;&nbsp; Điện thoại: <b>{recipient_phone}</b>", body),
+        Paragraph(f"- Địa chỉ nhận hàng: {shipping_address}", body),
+        Paragraph(f"- Phương thức thanh toán: <b>{payment_method}</b> &nbsp;&nbsp;&nbsp;&nbsp; Trạng thái: <b>{payment_status}</b>", body),
+        Spacer(1, 5),
+    ]
+
+    table_data: list[list[Any]] = [
+        [
+            Paragraph("STT", center),
+            Paragraph("Tên sản phẩm", center),
+            Paragraph("Đơn vị tính", center),
+            Paragraph("Số lượng", center),
+            Paragraph("Đơn giá (VND)", center),
+            Paragraph("Thành tiền (VND)", center),
+        ]
+    ]
+
+    for index, item in enumerate(items, start=1):
+        item_name = get_val(item, "product_name") or get_val(item, "productName", "-")
+        qty = _int(get_val(item, "quantity", 1))
+        price = _num(get_val(item, "unit_price") or get_val(item, "price", 0))
+        item_total = _num(get_val(item, "total_price") or get_val(item, "totalPrice", price * qty))
+
+        table_data.append(
+            [
+                Paragraph(str(index), center),
+                Paragraph(item_name, body),
+                Paragraph("Cái", center),
+                Paragraph(str(qty), center),
+                Paragraph(_money(price), right),
+                Paragraph(_money(item_total), right),
+            ]
+        )
+
+    table_data.extend([
+        [
+            "", Paragraph("Cộng tiền hàng", bold), "", "", "",
+            Paragraph(_money(subtotal), ParagraphStyle("BoldRight", parent=right, fontName=bold_font))
+        ],
+        [
+            "", Paragraph("Giảm giá (Voucher / Điểm)", bold), "", "", "",
+            Paragraph(f"-{_money(discount)}", ParagraphStyle("BoldRight", parent=right, fontName=bold_font))
+        ],
+        [
+            "", Paragraph("Phí vận chuyển", bold), "", "", "",
+            Paragraph(_money(shipping_fee), ParagraphStyle("BoldRight", parent=right, fontName=bold_font))
+        ],
+        [
+            "", Paragraph("Tổng thanh toán", bold), "", "", "",
+            Paragraph(_money(total_amount), ParagraphStyle("TotalRight", parent=right, fontName=bold_font, textColor=colors.HexColor("#d70018")))
+        ]
+    ])
+
+    col_widths = [10 * mm, 78 * mm, 20 * mm, 15 * mm, 25 * mm, 25 * mm]
+    table_style = TableStyle(
+        [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
+            ("GRID", (0, 0), (-1, -5), 0.5, colors.HexColor("#d1d5db")),
+            ("BOX", (0, -4), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
+            ("LINEBELOW", (0, -4), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+            ("SPAN", (1, -4), (4, -4)),
+            ("SPAN", (1, -3), (4, -3)),
+            ("SPAN", (1, -2), (4, -2)),
+            ("SPAN", (1, -1), (4, -1)),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]
+    )
+
+    story.append(Table(table_data, colWidths=col_widths, style=table_style))
+    story.extend([
+        Spacer(1, 8),
+        Paragraph(f"- Tổng tiền thanh toán (viết bằng chữ): <b><i>{amount_in_vietnamese(total_amount)}</i></b>", body),
+        Spacer(1, 15),
+    ])
+
+    signature_data = [
+        [
+            Paragraph("<b>Khách hàng</b><br/>(Ký, ghi rõ họ tên)", center),
+            Paragraph("<b>Người bán hàng</b><br/>(Ký, ghi rõ họ tên)", center),
+        ],
+        ["", ""],
+    ]
+    story.append(
+        Table(
+            signature_data,
+            colWidths=[86 * mm, 87 * mm],
+            style=[
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 40),
+            ],
+        )
+    )
+
+    doc.build(story)
+    return buffer.getvalue(), f"hoa-don-{order_code}.pdf"

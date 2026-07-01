@@ -108,6 +108,7 @@ class Product(Base):
     price: Mapped[float] = mapped_column(NUMERIC(14, 2), nullable=False)
     sale_price: Mapped[float | None] = mapped_column(NUMERIC(14, 2))
     stock_quantity: Mapped[int] = mapped_column(default=0, nullable=False)
+    warranty_period: Mapped[int] = mapped_column(default=12, nullable=False)
     image_url: Mapped[str | None] = mapped_column(Text)
     images: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     video_url: Mapped[str | None] = mapped_column(Text)

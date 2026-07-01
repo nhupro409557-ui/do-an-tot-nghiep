@@ -1,5 +1,5 @@
 from .category import CategoryPayload, CategorySlugCheckPayload, CategoryReorderItem, CategoryReorderPayload, CategoryBulkPayload, CategoryIdentifierMigrationCreatePayload, CategoryIdentifierMigrationScanPayload, CategoryIdentifierMigrationCancelPayload
-from .brand import BrandPayload, BrandCodeCheckPayload, BrandImportItem, BrandImportPayload, BrandStatusPayload, BrandBulkStatusPayload
+from .brand import BrandPayload, BrandCodeCheckPayload, BrandStatusPayload, BrandBulkStatusPayload
 from .supplier import SupplierPayload, SupplierCodeCheckPayload, SupplierStatusPayload, SupplierBulkStatusPayload
 from .product import ProductBulkActionPayload, ProductImportPayload, ProductVariantPayload, ProductAccessoryOfferPayload, ProductAttachedServicePayload, AttachedServicePayload, ProductPayload
 from .inventory import (
@@ -39,8 +39,6 @@ __all__ = [
     "CategoryIdentifierMigrationCancelPayload",
     "BrandPayload",
     "BrandCodeCheckPayload",
-    "BrandImportItem",
-    "BrandImportPayload",
     "BrandStatusPayload",
     "BrandBulkStatusPayload",
     "SupplierPayload",

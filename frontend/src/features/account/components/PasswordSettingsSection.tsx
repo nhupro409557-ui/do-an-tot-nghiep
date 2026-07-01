@@ -53,9 +53,9 @@ export function PasswordSettingsSection({
       {passwordError && <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-5 text-sm">{passwordError}</div>}
       {isPasswordEditing ? (
         <form onSubmit={onPasswordSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <input type={inputType} required value={currentPassword} onChange={event => onSetCurrentPassword(event.target.value)} placeholder="Mật khẩu hiện tại" className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] disabled:bg-gray-50 disabled:text-gray-500" />
-          <input type={inputType} required minLength={6} value={newPassword} onChange={event => onSetNewPassword(event.target.value)} placeholder="Mật khẩu mới" className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] disabled:bg-gray-50 disabled:text-gray-500" />
-          <input type={inputType} required minLength={6} value={confirmPassword} onChange={event => onSetConfirmPassword(event.target.value)} placeholder="Nhập lại mật khẩu mới" className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] disabled:bg-gray-50 disabled:text-gray-500" />
+          <input aria-label="Mật khẩu hiện tại" type={inputType} required value={currentPassword} onChange={event => onSetCurrentPassword(event.target.value)} placeholder="Mật khẩu hiện tại" className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] disabled:bg-gray-50 disabled:text-gray-500" />
+          <input aria-label="Mật khẩu mới" type={inputType} required minLength={6} value={newPassword} onChange={event => onSetNewPassword(event.target.value)} placeholder="Mật khẩu mới" className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] disabled:bg-gray-50 disabled:text-gray-500" />
+          <input aria-label="Nhập lại mật khẩu mới" type={inputType} required minLength={6} value={confirmPassword} onChange={event => onSetConfirmPassword(event.target.value)} placeholder="Nhập lại mật khẩu mới" className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] disabled:bg-gray-50 disabled:text-gray-500" />
           <button type="button" onClick={() => onSetShowPassword(value => !value)} className="inline-flex items-center justify-center gap-2 text-sm font-semibold text-slate-600 hover:text-[#d70018]">
             {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             {showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}

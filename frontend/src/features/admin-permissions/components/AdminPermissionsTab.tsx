@@ -4,6 +4,36 @@ import { AdminBadge, AdminPanel, AdminTable, EmptyState, Input, MetricCard, Mini
 
 type AdminPermissionsTabProps = Record<string, any>;
 
+const orderStatusLabels: Record<string, string> = {
+  PENDING: 'Chờ xử lý',
+  PROCESSING: 'Đang đóng gói',
+  SHIPPED: 'Đang giao',
+  COMPLETED: 'Đã giao',
+  CANCELLED: 'Đã hủy',
+  REFUNDED: 'Đã hoàn tiền',
+  PAYMENT_FAILED: 'Thanh toán thất bại',
+  RETURNING: 'Đang hoàn hàng',
+  RETURNED: 'Đã nhận hàng hoàn',
+};
+
+const paymentStatusLabels: Record<string, string> = {
+  UNPAID: 'Chưa thanh toán',
+  PAID: 'Đã thanh toán',
+  FAILED: 'Thanh toán thất bại',
+  PENDING: 'Đang chờ thanh toán',
+  EXPIRED: 'Đã hết hạn',
+  REFUNDED: 'Đã hoàn tiền',
+  PENDING_PAYMENT: 'Chờ thanh toán',
+};
+
+const paymentMethodLabels: Record<string, string> = {
+  COD: 'COD',
+  MOMO: 'MoMo',
+  ZALOPAY: 'ZaloPay',
+  SEPAY: 'SePay',
+  VNPAY: 'VNPAY',
+};
+
 export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
   const {
     addCustomerNote,
@@ -320,8 +350,8 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                                 {customerOrders.length === 0 ? <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">Chưa có đơn hàng.</td></tr> : customerOrders.map((order) => (
                                   <tr key={order.id}>
                                     <td className="px-4 py-3 font-mono text-xs">{order.orderCode || compactId(order.id)}</td>
-                                    <td className="px-4 py-3">{order.status}</td>
-                                    <td className="px-4 py-3">{order.paymentStatus || order.paymentMethod || '-'}</td>
+                                    <td className="px-4 py-3">{orderStatusLabels[order.status] || order.status}</td>
+                                    <td className="px-4 py-3">{paymentStatusLabels[order.paymentStatus || ''] || paymentMethodLabels[order.paymentMethod || ''] || order.paymentStatus || order.paymentMethod || '-'}</td>
                                     <td className="px-4 py-3">{currency.format(Number(order.totalAmount || 0))}</td>
                                     <td className="px-4 py-3">{order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '-'}</td>
                                   </tr>
@@ -349,8 +379,8 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                               {customerOrders.length === 0 ? <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">Chưa có đơn hàng.</td></tr> : customerOrders.map((order) => (
                                 <tr key={order.id}>
                                   <td className="px-4 py-3 font-mono text-xs">{order.orderCode || compactId(order.id)}</td>
-                                  <td className="px-4 py-3">{order.status}</td>
-                                  <td className="px-4 py-3">{order.paymentStatus || order.paymentMethod || '-'}</td>
+                                  <td className="px-4 py-3">{orderStatusLabels[order.status] || order.status}</td>
+                                  <td className="px-4 py-3">{paymentStatusLabels[order.paymentStatus || ''] || paymentMethodLabels[order.paymentMethod || ''] || order.paymentStatus || order.paymentMethod || '-'}</td>
                                   <td className="px-4 py-3">{currency.format(Number(order.totalAmount || 0))}</td>
                                   <td className="px-4 py-3">{order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '-'}</td>
                                 </tr>

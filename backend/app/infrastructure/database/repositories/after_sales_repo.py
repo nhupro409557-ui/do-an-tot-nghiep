@@ -23,9 +23,10 @@ async def lock_order(session: AsyncSession, order_id: UUID, user_id: UUID | None
     result = await session.execute(
         text(
             """
-            SELECT id, user_id, subtotal_amount, discount_amount, shipping_fee, total_amount, voucher_code, payment_method
+            SELECT id, user_id, status, completed_at, subtotal_amount, discount_amount, shipping_fee, total_amount, voucher_code, payment_method
             FROM orders
-            WHERE id = :order_id AND (:user_id IS NULL OR user_id = :user_id)
+            WHERE id = :order_id
+              AND (CAST(:user_id AS UUID) IS NULL OR user_id = CAST(:user_id AS UUID))
             FOR UPDATE
             """
         ),
@@ -199,6 +200,31 @@ async def insert_event(
     )
 
 
+async def list_events(session: AsyncSession, *, kind: str, reference_id: UUID) -> list[dict]:
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                ev.id::text AS id,
+                ev.old_status AS "oldStatus",
+                ev.new_status AS "newStatus",
+                ev.actor_id::text AS "actorId",
+                ev.note,
+                ev.metadata,
+                ev.created_at AS "createdAt",
+                COALESCE(u.full_name, u.email, ev.actor_name) AS "actorName"
+            FROM after_sales_events ev
+            LEFT JOIN users u ON u.id = ev.actor_id
+            WHERE ev.reference_type = :kind
+              AND ev.reference_id = :reference_id
+            ORDER BY ev.created_at ASC, ev.id ASC
+            """
+        ),
+        {"kind": kind, "reference_id": reference_id},
+    )
+    return [dict(row._mapping) for row in result]
+
+
 async def notify(
     session: AsyncSession, *, user_id: UUID, type_value: str, title: str, message: str,
     entity_type: str, entity_id: UUID, immediate: bool = False, key: str | None = None,
@@ -234,6 +260,33 @@ async def list_requests(
     ]
     params = {"user_id": user_id, "status": status_value, "offset": (page - 1) * limit, "limit": limit}
     order = "DESC" if descending else "ASC"
+    customer_fault_select = (
+        'COALESCE(r.customer_fault, FALSE)' if kind == "RETURN" else "FALSE"
+    )
+    depreciation_select = (
+        'COALESCE(r.depreciation_fee, 0)' if kind == "RETURN" else "0"
+    )
+    repair_summary_select = (
+        """
+        COALESCE((
+            SELECT jsonb_build_object(
+                'diagnosis', ev.metadata #>> '{repair,diagnosis}',
+                'action', ev.metadata #>> '{repair,action}',
+                'parts', ev.metadata #>> '{repair,parts}',
+                'cost', COALESCE((ev.metadata #>> '{repair,cost}')::numeric, 0),
+                'stage', ev.metadata #>> '{repair,stage}',
+                'updatedAt', ev.created_at
+            )
+            FROM after_sales_events ev
+            WHERE ev.reference_type = 'WARRANTY'
+              AND ev.reference_id = r.id
+              AND ev.metadata ? 'repair'
+            ORDER BY ev.created_at DESC
+            LIMIT 1
+        ), '{}'::jsonb)
+        """
+        if kind == "WARRANTY" else "'{}'::jsonb"
+    )
     total = await session.scalar(text(f"SELECT COUNT(*) FROM {request_table} r WHERE {' AND '.join(filters)}"), params)
     result = await session.execute(
         text(
@@ -241,8 +294,11 @@ async def list_requests(
             SELECT r.id::text AS id, r.request_code AS "requestCode", r.user_id::text AS "userId",
                    r.order_id::text AS "orderId", o.order_code AS "orderCode", r.status, r.reason,
                    r.resolution_type AS "resolutionType", r.admin_note AS "adminNote",
+                   {customer_fault_select} AS "customerFault",
+                   {depreciation_select} AS "depreciationFee",
                    r.qc_note AS "qcNote", r.sla_due_at AS "slaDueAt",
                    r.sla_breached_at AS "slaBreachedAt", r.created_at AS "createdAt",
+                   {repair_summary_select} AS "repairSummary",
                    COALESCE((
                        SELECT jsonb_agg(jsonb_build_object(
                            'id', i.id::text, 'orderItemId', i.order_item_id::text,
@@ -283,6 +339,7 @@ async def get_request_for_update(session: AsyncSession, *, kind: str, request_id
 async def update_request_status(
     session: AsyncSession, *, kind: str, request_id: UUID, status_value: str,
     resolution_type: str | None, note: str | None, customer_fault: bool,
+    depreciation_fee: float | None = None,
 ) -> None:
     request_table, _ = _table(kind)
     extra = ""
@@ -296,19 +353,20 @@ async def update_request_status(
     if status_value == "CANCELLED":
         extra += ", cancelled_at = NOW()"
     fault_set = ", customer_fault = :customer_fault" if kind == "RETURN" else ""
+    depreciation_set = ", depreciation_fee = GREATEST(COALESCE(:depreciation_fee, depreciation_fee), 0)" if kind == "RETURN" else ""
     await session.execute(
         text(
             f"""
             UPDATE {request_table}
             SET status = :status, resolution_type = COALESCE(:resolution_type, resolution_type),
                 admin_note = COALESCE(:note, admin_note), updated_at = NOW()
-                {fault_set} {extra}
+                {fault_set} {depreciation_set} {extra}
             WHERE id = :id
             """
         ),
         {
             "id": request_id, "status": status_value, "resolution_type": resolution_type,
-            "note": note, "customer_fault": customer_fault,
+            "note": note, "customer_fault": customer_fault, "depreciation_fee": depreciation_fee,
         },
     )
 

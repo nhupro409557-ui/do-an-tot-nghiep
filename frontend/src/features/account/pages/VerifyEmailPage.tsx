@@ -1,11 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { confirmRegistrationByToken, getAuthErrorMessage } from '../../../services/authDb';
 
+type VerifyEmailState = {
+  status: string;
+  error: string;
+};
+
+const initialVerifyEmailState: VerifyEmailState = {
+  status: 'Đang xác nhận tài khoản...',
+  error: '',
+};
+
+function mergeVerifyEmailState(state: VerifyEmailState, patch: Partial<VerifyEmailState>): VerifyEmailState {
+  return { ...state, ...patch };
+}
+
 export default function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
-  const [status, setStatus] = useState('Đang xác nhận tài khoản...');
-  const [error, setError] = useState('');
+  const [{ status, error }, setPageState] = useReducer(mergeVerifyEmailState, initialVerifyEmailState);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -14,21 +27,19 @@ export default function VerifyEmailPage() {
     const token = searchParams.get('token') || '';
 
     if (!token) {
-      setError('Link xác nhận không hợp lệ.');
-      setStatus('');
+      setPageState({ error: 'Liên kết xác nhận không hợp lệ.', status: '' });
       return () => {};
     }
 
     confirmRegistrationByToken(token)
       .then(() => {
         if (!isActive) return;
-        setStatus('Xác nhận thành công. Bạn sẽ được chuyển về trang chủ.');
+        setPageState({ status: 'Xác nhận thành công. Bạn sẽ được chuyển về trang chủ.', error: '' });
         redirectTimer = setTimeout(() => navigate('/'), 1200);
       })
       .catch((err: any) => {
         if (!isActive) return;
-        setError(getAuthErrorMessage(err.code, err.message || 'Không thể xác nhận tài khoản.'));
-        setStatus('');
+        setPageState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể xác nhận tài khoản.'), status: '' });
       });
 
     return () => {

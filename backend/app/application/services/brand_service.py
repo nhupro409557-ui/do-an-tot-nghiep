@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -55,11 +55,11 @@ async def sync_brand_categories(session: AsyncSession, brand_id: UUID, category_
 
 async def ensure_brand_code_available(session: AsyncSession, code: str, exclude_id: UUID | None = None) -> None:
     if await brand_repo.brand_code_exists(session, code=code, exclude_id=exclude_id):
-        raise HTTPException(status_code=409, detail="M? th??ng hi?u ?? t?n t?i.")
+        raise HTTPException(status_code=409, detail="Mã thương hiệu đã tồn tại.")
 
 async def ensure_brand_slug_available(session: AsyncSession, slug: str, exclude_id: UUID | None = None) -> None:
     if await brand_repo.brand_slug_exists(session, slug=slug, exclude_id=exclude_id):
-        raise HTTPException(status_code=409, detail="Slug th??ng hi?u ?? t?n t?i.")
+        raise HTTPException(status_code=409, detail="Slug thương hiệu đã tồn tại.")
 
 async def invalidate_brand_cache(redis: Redis, *slugs: str | None) -> None:
     return
@@ -231,7 +231,7 @@ async def get_brand_import_job(
         if count == 1:
             await redis.expire(rate_key, 60)
         if count > 30:
-            raise HTTPException(status_code=429, detail="B?n ?ang ki?m tra ti?n tr?nh qu? th??ng xuy?n.")
+            raise HTTPException(status_code=429, detail="Bạn đang kiểm tra tiến trình quá thường xuyên.")
     except HTTPException:
         raise
     except Exception:
@@ -321,7 +321,7 @@ async def deactivate_brand(
         raise HTTPException(status_code=404, detail="Brand not found.")
     product_count = await brand_repo.count_products_for_brand_delete(session, brand_id)
     if product_count > 0:
-        raise HTTPException(status_code=409, detail="Kh?ng th? x?a th??ng hi?u ?ang c? s?n ph?m. H?y ?n th??ng hi?u n?u c?n.")
+        raise HTTPException(status_code=409, detail="Không thể xóa thương hiệu đang có sản phẩm. Hãy ẩn thương hiệu nếu cần.")
 
     deleted = await brand_repo.delete_brand(session, brand_id)
     if deleted == 0:

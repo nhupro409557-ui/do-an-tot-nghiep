@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { BadgePercent, ChevronLeft, ChevronRight, ShieldCheck, ShoppingBag, Truck } from 'lucide-react';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import type { Swiper as SwiperType } from 'swiper';
 import { Autoplay } from 'swiper/modules';
@@ -220,10 +220,44 @@ export const HomeBanner = () => {
                 </SwiperSlide>
               ))}
             </Swiper>
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center bg-slate-50 px-6 text-center text-sm font-medium text-slate-500">
-              {loading ? 'Đang tải banner...' : 'Hiện chưa có banner đang hiển thị.'}
+          ) : loading ? (
+            <div className="absolute inset-0 overflow-hidden bg-slate-50">
+              <div className="h-full w-full animate-pulse bg-gradient-to-r from-slate-100 via-white to-slate-100" />
+              <div className="absolute inset-x-6 bottom-6 space-y-3 sm:inset-x-10 sm:bottom-10">
+                <div className="h-4 w-28 rounded-full bg-white/80" />
+                <div className="h-8 w-3/4 max-w-xl rounded-full bg-white/80" />
+                <div className="h-4 w-1/2 max-w-md rounded-full bg-white/80" />
+              </div>
             </div>
+          ) : (
+            <Link
+              to="/products"
+              className="absolute inset-0 flex overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-red-700 text-white"
+            >
+              <div className="relative z-10 flex h-full max-w-3xl flex-col justify-center px-6 py-8 sm:px-10 lg:px-14">
+                <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-bold uppercase text-white/90">
+                  <BadgePercent className="h-3.5 w-3.5" />
+                  Ưu đãi thiết bị chính hãng
+                </div>
+                <h2 className="max-w-2xl text-2xl font-black leading-tight tracking-tight sm:text-4xl lg:text-5xl">
+                  Mua sắm điện thoại, laptop và phụ kiện dễ hơn mỗi ngày
+                </h2>
+                <p className="mt-4 max-w-xl text-sm leading-6 text-white/75 sm:text-base">
+                  Khám phá danh mục sản phẩm nổi bật, so sánh nhanh cấu hình và nhận gợi ý phù hợp với nhu cầu của bạn.
+                </p>
+                <div className="mt-6 inline-flex h-11 w-fit items-center justify-center gap-2 rounded-lg bg-white px-4 text-sm font-extrabold text-primary shadow-lg shadow-black/20">
+                  <ShoppingBag className="h-4 w-4" />
+                  Xem sản phẩm
+                </div>
+                <div className="mt-6 grid max-w-xl gap-2 text-xs font-semibold text-white/80 sm:grid-cols-3">
+                  <span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> Chính hãng</span>
+                  <span className="flex items-center gap-2"><Truck className="h-4 w-4" /> Giao nhanh</span>
+                  <span className="flex items-center gap-2"><BadgePercent className="h-4 w-4" /> Nhiều ưu đãi</span>
+                </div>
+              </div>
+              <div className="absolute right-8 top-10 hidden h-24 w-36 rounded-2xl border border-white/10 bg-white/10 lg:block" />
+              <div className="absolute bottom-10 right-28 hidden h-32 w-44 rounded-2xl border border-white/10 bg-white/10 lg:block" />
+            </Link>
           )}
 
           {activeBanner && (

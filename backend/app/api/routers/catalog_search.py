@@ -1,4 +1,4 @@
-﻿from uuid import UUID
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,13 +54,13 @@ async def list_rankings(
 ) -> list[dict]:
     period_lower = period.lower()
     criteria_lower = criteria.lower()
-    
+
     from app.api.routers.catalog_utils import RANKING_PERIODS, RANKING_ORDER_FIELDS
-    
+
     days = RANKING_PERIODS.get(period_lower, 30)
     order_field = RANKING_ORDER_FIELDS.get(criteria_lower, "trendScore")
     history_sql = ranking_history_sql_config(period_lower)
-    
+
     category_filter_sql = ""
     category_id_param = None
     if category and category.lower() != "all":
@@ -358,41 +358,41 @@ async def list_rankings(
             COALESCE(pso_stats.revenue, 0.0) AS "periodRevenue",
             COALESCE(pl_stats.like_count, 0) AS "periodLikeCount",
             COALESCE(pr_stats.review_count, 0) AS "periodReviewCount",
-            
+
             COALESCE(prev_pv.view_count, 0) AS "previousViewCount",
             COALESCE(prev_ps.search_count, 0) AS "previousSearchCount",
             COALESCE(prev_pso.sold_count, 0) AS "previousPeriodSoldCount",
             COALESCE(prev_pl.like_count, 0) AS "previousPeriodLikeCount",
             COALESCE(prev_pr.review_count, 0) AS "previousPeriodReviewCount",
-            
+
             COALESCE(v24.view_count, 0) AS "view24h",
             COALESCE(s24.search_count, 0) AS "search24h",
             COALESCE(sl24.sold_count, 0) AS "sold24h",
             COALESCE(l24.like_count, 0) AS "like24h",
             COALESCE(r24.review_count, 0) AS "review24h",
             COALESCE(r24.avg_rating, 0.0) AS "rating24h",
-            
+
             COALESCE(v7.view_count, 0) AS "view7d",
             COALESCE(s7.search_count, 0) AS "search7d",
             COALESCE(sl7.sold_count, 0) AS "sold7d",
             COALESCE(l7.like_count, 0) AS "like7d",
             COALESCE(r7.review_count, 0) AS "review7d",
             COALESCE(r7.avg_rating, 0.0) AS "rating7d",
-            
+
             COALESCE(v30.view_count, 0) AS "view30d",
             COALESCE(s30.search_count, 0) AS "search30d",
             COALESCE(sl30.sold_count, 0) AS "sold30d",
             COALESCE(l30.like_count, 0) AS "like30d",
             COALESCE(r30.review_count, 0) AS "review30d",
             COALESCE(r30.avg_rating, 0.0) AS "rating30d",
-            
+
             COALESCE(v1y.view_count, 0) AS "view1y",
             COALESCE(s1y.search_count, 0) AS "search1y",
             COALESCE(sl1y.sold_count, 0) AS "sold1y",
             COALESCE(l1y.like_count, 0) AS "like1y",
             COALESCE(r1y.review_count, 0) AS "review1y",
             COALESCE(r1y.avg_rating, 0.0) AS "rating1y",
-            
+
             h.history
         FROM products p
         LEFT JOIN categories c ON c.id = p.category_id
@@ -449,31 +449,31 @@ async def list_rankings(
         LEFT JOIN previous_period_solds prev_pso ON prev_pso.product_id = p.id
         LEFT JOIN previous_period_likes prev_pl ON prev_pl.product_id = p.id
         LEFT JOIN previous_period_reviews prev_pr ON prev_pr.product_id = p.id
-        
+
         LEFT JOIN views_24h v24 ON v24.product_id = p.id
         LEFT JOIN searches_24h s24 ON s24.product_id = p.id
         LEFT JOIN solds_24h sl24 ON sl24.product_id = p.id
         LEFT JOIN likes_24h l24 ON l24.product_id = p.id
         LEFT JOIN reviews_24h r24 ON r24.product_id = p.id
-        
+
         LEFT JOIN views_7d v7 ON v7.product_id = p.id
         LEFT JOIN searches_7d s7 ON s7.product_id = p.id
         LEFT JOIN solds_7d sl7 ON sl7.product_id = p.id
         LEFT JOIN likes_7d l7 ON l7.product_id = p.id
         LEFT JOIN reviews_7d r7 ON r7.product_id = p.id
-        
+
         LEFT JOIN views_30d v30 ON v30.product_id = p.id
         LEFT JOIN searches_30d s30 ON s30.product_id = p.id
         LEFT JOIN solds_30d sl30 ON sl30.product_id = p.id
         LEFT JOIN likes_30d l30 ON l30.product_id = p.id
         LEFT JOIN reviews_30d r30 ON r30.product_id = p.id
-        
+
         LEFT JOIN views_1y v1y ON v1y.product_id = p.id
         LEFT JOIN searches_1y s1y ON s1y.product_id = p.id
         LEFT JOIN solds_1y sl1y ON sl1y.product_id = p.id
         LEFT JOIN likes_1y l1y ON l1y.product_id = p.id
         LEFT JOIN reviews_1y r1y ON r1y.product_id = p.id
-        
+
         LEFT JOIN historical_stats h ON h.p_id = p.id
         WHERE p.status = 'ACTIVE' AND p.deleted_at IS NULL {category_filter_sql}
         GROUP BY p.id, c.id, sc.id, os.sold_count, review_stats.rating, review_stats.review_count,
@@ -487,13 +487,13 @@ async def list_rankings(
             h.history
     """
     rows = await catalog_search_repo.execute_rankings_query(session, sql, query_params)
-    
+
     items = [ranking_row(row) for row in rows]
-    
+
     # Sort in python for complex criteria
     if order_field in {"trendScore", "searchCount", "viewCount", "favoriteCount", "periodSoldCount", "rating"}:
         items.sort(key=lambda item: (item.get(order_field) or 0, item.get("soldCount") or 0), reverse=True)
-        
+
     return items[:limit]
 
 @router.get("/images")
@@ -520,12 +520,12 @@ async def list_product_images(
     )
     collection = build_product_image_collection(products, q, category)
     items = collection["items"]
-    
+
     total_products = len(items)
     total_images = collection["totalImages"]
     total_pages = max(1, (total_products + limit - 1) // limit)
     start_offset = (page - 1) * limit
-    
+
     return {
         "items": items[start_offset : start_offset + limit],
         "categories": collection["categories"],
@@ -543,25 +543,25 @@ async def resolve_product_image(
     limit: int = Query(default=12, ge=1, le=50),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    parts = view_id.split("-")
-    if len(parts) >= 2:
+    parts = view_id.rsplit("-", 1)
+    if len(parts) == 2:
         try:
             prod_id = UUID(parts[0])
             img_index = int(parts[1])
         except ValueError:
             prod_id = None
             img_index = 0
-            
+
         if prod_id:
             row = await catalog_search_repo.get_active_product_image_source(session, prod_id)
-            
+
             if row:
                 product = dict(row._mapping)
                 all_urls = [product.get("imageUrl")] + list(product.get("images") or [])
                 all_urls = [u for u in all_urls if u]
-                
+
                 target_url = all_urls[img_index] if img_index < len(all_urls) else (all_urls[0] if all_urls else None)
-                
+
                 # Fetch related products in the same category
                 rel_results = await catalog_search_repo.list_related_products_by_category(
                     session,
@@ -570,7 +570,7 @@ async def resolve_product_image(
                     limit=limit,
                 )
                 related = [product_row(r) for r in rel_results]
-                
+
                 return {
                     "url": target_url,
                     "productId": str(prod_id),

@@ -3,6 +3,7 @@ import { Check, Heart, MessageCircle, Send, Share2, X, Play, Pause } from 'lucid
 import { Link } from 'react-router-dom';
 import { publicApi } from '../../../services/publicApi';
 import { ImageWithFallback } from '../../../components/ui/ImageWithFallback';
+import { useAuth } from '../../../context/AuthContext';
 
 interface Product {
   id: string;
@@ -66,12 +67,15 @@ export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClos
 }
 
 function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<ImagesModalProps, 'isOpen'>) {
+  const { user } = useAuth();
   const [showComments, setShowComments] = useState(false);
   const [copied, setCopied] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
-  
+  const [reducedMotion, setReducedMotion] = useState(() => (
+    typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+  ));
+
   // Real database comments and local actions
   const [imageComments, setImageComments] = useState<CommentItem[]>([]);
   const [replyTarget, setReplyTarget] = useState<CommentItem | null>(null);
@@ -80,15 +84,20 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
 
   // 360 Spin / 3D Carousel states
   const [isDragging, setIsDragging] = useState(false);
-  const [startX, setStartX] = useState(0);
   const [rotationY, setRotationY] = useState(0);
   const [zoom, setZoom] = useState<number | null>(null);
-  const [startRotationY, setStartRotationY] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
+  const startXRef = useRef(0);
+  const startRotationYRef = useRef(0);
 
-  // Responsive Card Dimensions (Khung vuông để ảnh dọc ngang không bị cắt nhỏ)
-  const [cardDim, setCardDim] = useState({ w: 360, h: 360 });
+  // Responsive Card Dimensions
+  const [cardDim, setCardDim] = useState(() => {
+    const width = typeof window !== 'undefined' ? window.innerWidth : 1024;
+    if (width >= 1024) return { w: 360, h: 360 };
+    if (width >= 640) return { w: 300, h: 300 };
+    return { w: 230, h: 230 };
+  });
 
   useEffect(() => {
     const handleResize = () => {
@@ -96,7 +105,6 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
       else if (window.innerWidth >= 640) setCardDim({ w: 300, h: 300 });
       else setCardDim({ w: 230, h: 230 });
     };
-    handleResize(); // initialize
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -105,7 +113,6 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
     const query = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     if (!query) return;
     const updateReducedMotion = () => setReducedMotion(query.matches);
-    updateReducedMotion();
     query.addEventListener?.('change', updateReducedMotion);
     return () => query.removeEventListener?.('change', updateReducedMotion);
   }, []);
@@ -176,8 +183,9 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
 
   const handleToggleLike = useCallback((event: React.MouseEvent) => {
     event.stopPropagation();
+    if (!user) return alert('Vui lòng đăng nhập để lưu sản phẩm yêu thích.');
     if (!currentItem?.productId) return;
-    
+
     const productId = currentItem.productId;
     setLikedIds((prev) => {
       const next = new Set(prev);
@@ -192,7 +200,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
         return next;
       });
     });
-  }, [currentItem?.productId]);
+  }, [currentItem?.productId, user]);
 
   const baseLikes = useMemo(() => {
     if (!currentItem) return 0;
@@ -202,7 +210,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
   const displayLikes = isLiked ? baseLikes + 1 : baseLikes;
 
   useEffect(() => {
-    if (!isCarouselMode || !isAutoPlaying || isDragging || N <= 1) return;
+    if (!isCarouselMode || !isAutoPlaying || reducedMotion || isDragging || N <= 1) return;
 
     let lastTime = performance.now();
     const animate = (time: number) => {
@@ -217,7 +225,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
       if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
       animationRef.current = null;
     };
-  }, [isCarouselMode, isAutoPlaying, isDragging, N]);
+  }, [isCarouselMode, isAutoPlaying, reducedMotion, isDragging, N]);
 
   useEffect(() => {
     if (!isCarouselMode) return;
@@ -268,10 +276,10 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
   const handleStart = (clientX: number) => {
     if (!isCarouselMode) return;
     setIsDragging(true);
-    setStartX(clientX);
-    setStartRotationY(rotationY);
+    startXRef.current = clientX;
+    startRotationYRef.current = rotationY;
     setIsAutoPlaying(false);
-    
+
     lastXRef.current = clientX;
     lastTimeRef.current = performance.now();
     velocityRef.current = 0;
@@ -279,9 +287,9 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
 
   const handleMove = (clientX: number) => {
     if (!isCarouselMode || !isDragging || N <= 1) return;
-    const deltaX = clientX - startX;
+    const deltaX = clientX - startXRef.current;
     const speed = 0.18;
-    setRotationY(startRotationY + deltaX * speed);
+    setRotationY(startRotationYRef.current + deltaX * speed);
 
     const now = performance.now();
     const dt = now - lastTimeRef.current;
@@ -306,6 +314,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
 
   async function handleSubmitComment(event: React.FormEvent) {
     event.preventDefault();
+    if (!user) return alert('Vui lòng đăng nhập để gửi bình luận.');
     const content = commentText.trim();
     if (!content || !currentItem?.productId) return;
     const parentId = replyTarget?.parentId || replyTarget?.id || null;
@@ -347,7 +356,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 px-3 py-4 backdrop-blur-md">
-      <button
+      <button type="button"
         onClick={onClose}
         className="absolute right-6 top-6 z-[60] rounded-full bg-zinc-900/60 border border-white/10 p-3 text-white transition-all duration-300 hover:bg-zinc-800/80 hover:scale-105 active:scale-95 shadow-lg backdrop-blur-md cursor-pointer"
         aria-label="Đóng"
@@ -367,8 +376,10 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
       )}
 
       <div className="relative h-[92vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-zinc-950 border border-white/5 shadow-2xl">
-        <div 
+        <div
           className="relative h-full w-full touch-none select-none overflow-hidden cursor-grab active:cursor-grabbing"
+          role="application"
+          aria-label={currentItem?.productName || 'Ảnh sản phẩm'}
           onMouseDown={(e) => handleStart(e.clientX)}
           onMouseMove={(e) => handleMove(e.clientX)}
           onMouseUp={handleEnd}
@@ -383,10 +394,10 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
               style={{ backgroundImage: `url(${currentItem.url})` }}
             />
           )}
-          
+
           <div className="absolute inset-0 bg-black/40 pointer-events-none" />
 
-          <div 
+          <div
             ref={containerRef}
             className="absolute inset-0 flex items-center justify-center pb-24"
             style={{ perspective: '1200px' }}
@@ -398,7 +409,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                 height: `${cardDim.h}px`,
                 transformStyle: 'preserve-3d',
                 transform: `translateZ(${effectiveZoom}px) rotateY(${effectiveRotationY}deg)`,
-                transition: isDragging || isAutoPlaying ? 'none' : 'transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1)',
+                transition: isDragging || isAutoPlaying || reducedMotion ? 'none' : 'transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1)',
               }}
             >
               {displayPlaylist.map((item, cardIndex) => {
@@ -409,7 +420,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                 if (diffFromCenter > 180) diffFromCenter = 360 - diffFromCenter;
 
                 const isCulled = diffFromCenter > 135;
-                
+
                 if (isCulled) {
                   return (
                     <div
@@ -419,16 +430,16 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                         width: `${cardDim.w}px`,
                         height: `${cardDim.h}px`,
                         transform: `rotateY(${cardAngle}deg) translateZ(${radius}px)`,
-                        visibility: 'hidden', 
+                        visibility: 'hidden',
                         pointerEvents: 'none'
                       }}
                     />
                   );
                 }
-                
+
                 const blurDiff = Math.max(0, diffFromCenter - 80);
                 const blurRatio = Math.min(1, blurDiff / 55);
-                const blurAmount = blurRatio * 8; 
+                const blurAmount = blurRatio * 8;
                 const opacAmount = 1 - (blurRatio * 0.8);
 
                 return (
@@ -518,12 +529,12 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                 )}
 
                 <div className="flex items-center gap-3 text-white mt-0.5">
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     onClick={handleToggleLike}
                     className={`group flex items-center gap-2 px-3 py-1.5 rounded-full border text-white transition-all duration-300 cursor-pointer ${
-                      isLiked 
-                        ? 'bg-red-500/10 border-red-500/40 text-red-400' 
+                      isLiked
+                        ? 'bg-red-500/10 border-red-500/40 text-red-400'
                         : 'bg-white/5 border-white/10 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400'
                     }`}
                   >
@@ -590,9 +601,9 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
           <div className="flex h-full flex-col">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3.5">
               <h4 className="text-sm font-black uppercase tracking-wider text-zinc-300">Bình luận ({commentCount})</h4>
-              <button 
-                onClick={() => setShowComments(false)} 
-                className="rounded-full p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white cursor-pointer" 
+              <button type="button"
+                onClick={() => setShowComments(false)}
+                className="rounded-full p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white cursor-pointer"
                 aria-label="Đóng bình luận"
               >
                 <X className="h-4 w-4" />
@@ -638,16 +649,16 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                           ))}
                           {comment.replies.length > 2 && (
                             <button
-                              type="button"
-                              onClick={() => setExpandedReplies((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(comment.id)) next.delete(comment.id);
-                                else next.add(comment.id);
-                                return next;
-                              })}
-                              className="text-[11px] font-bold text-white/60 hover:text-white cursor-pointer"
+                               type="button"
+                               onClick={() => setExpandedReplies((prev) => {
+                                 const next = new Set(prev);
+                                 if (next.has(comment.id)) next.delete(comment.id);
+                                 else next.add(comment.id);
+                                 return next;
+                               })}
+                               className="text-[11px] font-bold text-white/60 hover:text-white cursor-pointer"
                             >
-                              {expandedReplies.has(comment.id) ? 'Thu gọn câu trả lời' : `Xem ${comment.replies.length - 2} câu trả lời`}
+                               {expandedReplies.has(comment.id) ? 'Thu gọn câu trả lời' : `Xem ${comment.replies.length - 2} câu trả lời`}
                             </button>
                           )}
                         </div>
@@ -669,14 +680,15 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
               )}
               <div className="flex items-center gap-2">
                 <input
+                  aria-label={replyTarget ? `Trả lời ${replyTarget.userName || 'khách hàng'}` : 'Viết bình luận ảnh'}
                   value={commentText}
                   onChange={(event) => setCommentText(event.target.value)}
                   placeholder={replyTarget ? `Trả lời ${replyTarget.userName || 'khách hàng'}...` : 'Viết bình luận...'}
                   className="h-11 flex-1 rounded-full border border-white/5 bg-white/5 px-4 text-xs text-white outline-none placeholder:text-zinc-500 focus:border-red-500/40 focus:ring-1 focus:ring-red-500/20 transition-all duration-300"
                 />
-                <button 
-                  type="submit" 
-                  disabled={!commentText.trim()} 
+                <button
+                  type="submit"
+                  disabled={!commentText.trim()}
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-500 disabled:opacity-40 cursor-pointer shadow-lg shadow-red-600/10 hover:shadow-red-600/20"
                 >
                   <Send className="h-4 w-4" />

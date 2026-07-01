@@ -20,13 +20,19 @@ export type CatalogGroup = {
   items: string[];
 };
 
+export type CatalogBrand = {
+  name: string;
+  logoUrl?: string;
+  logoAltText?: string;
+};
+
 export type CatalogCategory = {
   id: string;
   name: string;
   slug: string;
   slugs: string[];
   icon: LucideIcon;
-  brands: string[];
+  brands: CatalogBrand[];
   groups: CatalogGroup[];
   featuredProducts: { id: string; name: string }[];
 };

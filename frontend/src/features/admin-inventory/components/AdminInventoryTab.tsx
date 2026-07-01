@@ -49,6 +49,28 @@ type LocationDraft = {
   usableRatio: number | '';
   description: string;
 };
+type InventoryLocationEntry = {
+  id: string;
+  code: string;
+  name: string;
+  zone: string;
+  onHandQuantity: number;
+};
+type InventoryLocationDetailModal = {
+  row: any;
+  locations: InventoryLocationEntry[];
+};
+type InventoryView = 'stock' | 'ledger' | 'locations' | 'aging';
+
+function resolveInventoryLocationZone(code: string, name: string, zone: string) {
+  const explicitZone = zone.trim();
+  if (explicitZone) return explicitZone;
+  const nameZone = name.match(/Dãy\s+([A-ZÀ-Ỵ0-9]+)/i)?.[1];
+  if (nameZone) return `Dãy ${nameZone.toUpperCase()}`;
+  const codeZone = code.match(/^([A-Z])-/i)?.[1];
+  if (codeZone) return `Dãy ${codeZone.toUpperCase()}`;
+  return '-';
+}
 
 const locationPurposeOptions: [string, string][] = [
   ['STORAGE', 'Lưu hàng bán'],
@@ -85,6 +107,12 @@ function stockStateLabel(state: string, blockSaleWhenOutOfStock = true) {
   return blockSaleWhenOutOfStock ? 'Khóa bán khi hết' : 'Hết hàng';
 }
 
+const documentStatusLabels: Record<string, string> = {
+  DRAFT: 'Nháp',
+  APPROVED: 'Đã duyệt',
+  CANCELLED: 'Đã hủy',
+};
+
 function transactionTypeLabel(type: string) {
   const labels: Record<string, string> = {
     RECEIPT: 'Nhập kho',
@@ -94,6 +122,16 @@ function transactionTypeLabel(type: string) {
     REVERSAL: 'Đảo phiếu',
   };
   return labels[type] || type || '-';
+}
+
+function dispositionReasonLabel(reason: string) {
+  const labels: Record<string, string> = {
+    RTV_COMPLETED: 'RTV hoàn tất',
+    LIQUIDATED: 'Đã thanh lý',
+    SCRAP: 'Hủy/phế phẩm',
+    OUT_OF_SYSTEM: 'Xuất khỏi hệ thống',
+  };
+  return labels[reason] || '';
 }
 
 function renderIdentifierSummary(row: any) {
@@ -111,9 +149,44 @@ function renderIdentifierSummary(row: any) {
   return parts.join(' | ');
 }
 
+function inventoryLocationEntries(row: any): InventoryLocationEntry[] {
+  const locations = Array.isArray(row?.locations) ? row.locations : [];
+  return locations.map((item: any, index: number) => {
+    const code = String(item?.code || '').trim();
+    const name = String(item?.name || '').trim();
+    const zone = String(item?.zone || '').trim();
+    return {
+      id: String(item?.id || item?.locationId || item?.code || index),
+      code,
+      name,
+      zone: resolveInventoryLocationZone(code, name, zone),
+      onHandQuantity: Number(item?.onHandQuantity || 0),
+    };
+  });
+}
+
+function inventoryLocationSummary(row: any) {
+  const locations = inventoryLocationEntries(row);
+  if (locations.length === 0) {
+    return {
+      locations,
+      primary: Number(row?.physicalStock || 0) > 0 ? 'Chưa phân bổ kệ' : '-',
+      secondary: '',
+    };
+  }
+  const totalQuantity = locations.reduce((sum, item) => sum + item.onHandQuantity, 0);
+  const firstLocation = locations[0];
+  return {
+    locations,
+    primary: `${locations.length} kệ`,
+    secondary: `${firstLocation.code || 'Kệ không rõ'}${locations.length > 1 ? ` +${locations.length - 1}` : ''} • ${totalQuantity} SP`,
+  };
+}
+
 export default function AdminInventoryTab(props: AdminInventoryTabProps) {
   const [identifierModal, setIdentifierModal] = useState<{ row: any; data: any } | null>(null);
   const [issueSuggestionModal, setIssueSuggestionModal] = useState<{ row: any; quantity: number; suggestions: any[] } | null>(null);
+  const [locationDetailModal, setLocationDetailModal] = useState<InventoryLocationDetailModal | null>(null);
   const [identifierLoading, setIdentifierLoading] = useState(false);
   const [pendingEditRequests, setPendingEditRequests] = useState<any[]>([]);
   const [stockCounts, setStockCounts] = useState<any[]>([]);
@@ -125,7 +198,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
   const [adjustmentDraft, setAdjustmentDraft] = useState<AdjustmentDraft | null>(null);
   const [adjustmentDetail, setAdjustmentDetail] = useState<any | null>(null);
   const [locationDraft, setLocationDraft] = useState<LocationDraft | null>(null);
-  const [inventoryView, setInventoryView] = useState<'stock' | 'ledger' | 'locations'>('stock');
+  const [inventoryView, setInventoryView] = useState<InventoryView>('stock');
   const [locationSearchFilter, setLocationSearchFilter] = useState('');
   const [locationZoneFilter, setLocationZoneFilter] = useState('');
   const [locationPurposeFilter, setLocationPurposeFilter] = useState('');
@@ -133,6 +206,9 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
   const [locationAisleFilter, setLocationAisleFilter] = useState('');
   const [locationShelfFilter, setLocationShelfFilter] = useState('');
   const [locationBinFilter, setLocationBinFilter] = useState('');
+  const [agingReport, setAgingReport] = useState<any | null>(null);
+  const [agingBucketFilter, setAgingBucketFilter] = useState('');
+  const [agingLoading, setAgingLoading] = useState(false);
   const {
     categories,
     exportInventorySnapshot,
@@ -156,6 +232,8 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
     setLedgerDateTo,
     ledgerTransactionType,
     setLedgerTransactionType,
+    ledgerReason,
+    setLedgerReason,
     loadInventoryLedger,
     loadInventoryLocations,
     applyInventoryAdvancedFilters,
@@ -198,6 +276,25 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
       .filter(Boolean)),
   ).sort();
 
+  function renderInventoryLocationCell(row: any) {
+    const summary = inventoryLocationSummary(row);
+    if (summary.locations.length === 0) {
+      return <span className="text-xs font-semibold text-slate-500">{summary.primary}</span>;
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => setLocationDetailModal({ row, locations: summary.locations })}
+        className="inline-flex w-full max-w-40 items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800 hover:border-emerald-300 hover:bg-emerald-100"
+        title="Xem danh sách kệ của sản phẩm"
+      >
+        <ClipboardList className="h-3.5 w-3.5" />
+        <span>Xem danh sách kệ</span>
+        <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-black text-emerald-700">{summary.locations.length}</span>
+      </button>
+    );
+  }
+
   async function loadPendingEditRequests() {
     const rows = await adminInventoryApi.adminListIdentifierEditRequests('PENDING').catch(() => []);
     setPendingEditRequests(Array.isArray(rows) ? rows : []);
@@ -211,6 +308,19 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
   async function loadAdjustments() {
     const rows = await adminInventoryApi.adminListAdjustments(query || '').catch(() => []);
     setAdjustments(Array.isArray(rows) ? rows : []);
+  }
+
+  async function loadInventoryAgingReport(bucket = agingBucketFilter) {
+    setAgingLoading(true);
+    try {
+      const report = await adminInventoryApi.adminGetInventoryAgingReport(query || '', bucket || '');
+      setAgingReport(report && typeof report === 'object' ? report : null);
+    } catch (err) {
+      console.error('Không thể tải báo cáo tuổi tồn kho:', err);
+      setAgingReport(null);
+    } finally {
+      setAgingLoading(false);
+    }
   }
 
   async function submitLocationDraft(event?: React.FormEvent) {
@@ -278,6 +388,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
     void loadPendingEditRequests();
     void loadStockCounts();
     void loadAdjustments();
+    void loadInventoryAgingReport('');
     if (typeof loadInventoryLocations === 'function') void loadInventoryLocations();
     if (typeof loadInventoryLedger === 'function') void loadInventoryLedger(query);
   }, []);
@@ -287,6 +398,8 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
     try {
       const data = await adminInventoryApi.adminListIdentifiers(row.productId, row.variantId || null);
       setIdentifierModal({ row, data });
+    } catch {
+      window.alert('Không tải được danh sách IMEI/Serial. Vui lòng thử lại sau.');
     } finally {
       setIdentifierLoading(false);
     }
@@ -658,6 +771,13 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
         >
           Kệ hàng
         </button>
+        <button
+          type="button"
+          onClick={() => setInventoryView('aging')}
+          className={`h-9 rounded-lg px-4 text-sm font-bold transition ${inventoryView === 'aging' ? 'bg-slate-900 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+        >
+          Tuổi tồn kho
+        </button>
       </div>
       <div className={inventoryView === 'stock' ? 'contents' : 'hidden'}>
       <section className="mb-4 grid gap-3 xl:grid-cols-[420px_1fr]">
@@ -920,6 +1040,66 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
         </div>
       </section>
 
+      <section className={`${inventoryView === 'aging' ? '' : 'hidden'} mb-4 rounded-xl border border-slate-200 bg-white p-4`}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Báo cáo tuổi tồn kho</h3>
+            <div className="text-xs font-semibold text-slate-500">Tính theo các lô còn tồn, ngày nhập kho và giá vốn của từng lô.</div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              noLabel={true}
+              label="Nhóm tuổi"
+              value={agingBucketFilter}
+              onChange={setAgingBucketFilter}
+              options={[
+                ['', 'Tất cả nhóm tuổi'],
+                ['0_30', '0-30 ngày'],
+                ['31_90', '31-90 ngày'],
+                ['91_180', '91-180 ngày'],
+                ['180_PLUS', 'Trên 180 ngày'],
+              ]}
+            />
+            <button type="button" onClick={() => void loadInventoryAgingReport()} disabled={agingLoading} className="h-9 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50">
+              {agingLoading ? 'Đang tải...' : 'Tải báo cáo'}
+            </button>
+          </div>
+        </div>
+        <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {(agingReport?.buckets || []).map((bucket: any) => (
+            <div key={bucket.bucket} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-bold uppercase text-slate-500">{bucket.label}</div>
+              <div className="mt-2 text-2xl font-black text-slate-900">{Number(bucket.quantity || 0).toLocaleString('vi-VN')}</div>
+              <div className="mt-1 text-xs font-semibold text-slate-600">
+                {bucket.skuCount || 0} dòng · {currency.format(Number(bucket.totalCost || 0))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <AdminTable headers={['Nhóm tuổi', 'Sản phẩm', 'SKU / Biến thể', 'Kệ', 'Nhập lâu nhất', 'Tuổi cao nhất', 'Số lượng', 'Giá trị vốn']}>
+          {agingLoading ? (
+            <tr><td colSpan={8} className="px-4 py-6 text-center text-sm font-semibold text-slate-500">Đang tải báo cáo tuổi tồn kho...</td></tr>
+          ) : (agingReport?.items || []).length === 0 ? (
+            <tr><td colSpan={8} className="px-4 py-6 text-center text-sm font-semibold text-slate-500">Không có lô tồn kho phù hợp.</td></tr>
+          ) : (agingReport?.items || []).map((item: any) => (
+            <tr key={`${item.bucket}-${item.productId}-${item.variantId || 'base'}-${item.locationId}`}>
+              <td className="px-4 py-3 text-xs font-bold text-slate-700">{item.bucketLabel || item.bucket}</td>
+              <td className="px-4 py-3 font-semibold text-slate-900">{item.productName || '-'}</td>
+              <td className="px-4 py-3 font-mono text-xs text-slate-700">
+                {item.variantSku || item.productSku || '-'}
+                {item.variantColor ? ` - ${item.variantColor}` : ''}
+                {item.variantConfiguration ? ` - ${item.variantConfiguration}` : ''}
+              </td>
+              <td className="px-4 py-3 text-xs text-slate-600">{item.locationCode || '-'}{item.locationName ? ` - ${item.locationName}` : ''}</td>
+              <td className="px-4 py-3 text-xs font-semibold text-slate-600">{item.oldestReceivedAt ? new Date(item.oldestReceivedAt).toLocaleDateString('vi-VN') : '-'}</td>
+              <td className="px-4 py-3 text-right font-bold text-amber-700">{Number(item.maxAgeDays || 0).toLocaleString('vi-VN')} ngày</td>
+              <td className="px-4 py-3 text-right font-bold text-slate-900">{Number(item.quantity || 0).toLocaleString('vi-VN')}</td>
+              <td className="px-4 py-3 text-right font-semibold text-slate-700">{currency.format(Number(item.totalCost || 0))}</td>
+            </tr>
+          ))}
+        </AdminTable>
+      </section>
+
       <div className="contents">
       <section className={`${inventoryView === 'ledger' ? '' : 'hidden'} mb-4 rounded-xl border border-slate-200 bg-white p-4`}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -928,8 +1108,9 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
             <input type="date" value={ledgerDateFrom || ''} onChange={(event) => setLedgerDateFrom(event.target.value)} className="h-9 rounded-lg border border-slate-200 px-2 text-sm font-semibold text-slate-700" />
             <input type="date" value={ledgerDateTo || ''} onChange={(event) => setLedgerDateTo(event.target.value)} className="h-9 rounded-lg border border-slate-200 px-2 text-sm font-semibold text-slate-700" />
             <Select noLabel={true} label="Loại giao dịch" value={ledgerTransactionType || ''} onChange={setLedgerTransactionType} options={[['', 'Tất cả giao dịch'], ['RECEIPT', 'Nhập kho'], ['SALE', 'Xuất bán'], ['ADJUSTMENT', 'Điều chỉnh/Kiểm kê'], ['RETURN', 'Hoàn hàng'], ['REVERSAL', 'Đảo phiếu']]} />
+            <Select noLabel={true} label="Lý do định đoạt" value={ledgerReason || ''} onChange={setLedgerReason} options={[['', 'Tất cả lý do'], ['RTV_COMPLETED', 'RTV hoàn tất'], ['LIQUIDATED', 'Đã thanh lý'], ['SCRAP', 'Hủy/phế phẩm'], ['OUT_OF_SYSTEM', 'Xuất khỏi hệ thống']]} />
             <button type="button" onClick={() => void applyInventoryLedgerFilters()} className="h-9 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-100">Lọc sổ</button>
-            {(ledgerDateFrom || ledgerDateTo || ledgerTransactionType) && (
+            {(ledgerDateFrom || ledgerDateTo || ledgerTransactionType || ledgerReason) && (
               <button type="button" onClick={() => void clearInventoryLedgerFilters()} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50">Xóa lọc</button>
             )}
           </div>
@@ -944,7 +1125,14 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                 <div className="font-semibold text-slate-900">{item.productName || '-'}</div>
                 <div className="font-mono text-xs text-slate-500">{item.variantSku || item.productSku || '-'}</div>
               </td>
-              <td className="px-4 py-3 text-xs font-bold text-slate-700">{transactionTypeLabel(item.transactionType)}</td>
+              <td className="px-4 py-3 text-xs font-bold text-slate-700">
+                <div>{transactionTypeLabel(item.transactionType)}</div>
+                {dispositionReasonLabel(item.reason) && (
+                  <div className="mt-1 inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                    {dispositionReasonLabel(item.reason)}
+                  </div>
+                )}
+              </td>
               <td className="px-4 py-3 font-mono text-xs text-slate-700">{item.referenceCode || '-'}</td>
               <td className="px-4 py-3 text-right">{item.oldQuantity ?? '-'}</td>
               <td className={`px-4 py-3 text-right font-bold ${Number(item.delta || 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{Number(item.delta || 0) >= 0 ? '+' : ''}{item.delta || 0}</td>
@@ -987,7 +1175,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
             {stockCounts.map((item: any) => (
               <tr key={item.id || item.referenceCode}>
                 <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{item.referenceCode}</td>
-                <td className="px-4 py-3 text-xs font-semibold text-slate-600">{item.status}</td>
+                <td className="px-4 py-3 text-xs font-semibold text-slate-600">{documentStatusLabels[item.status] || item.status}</td>
                 <td className="px-4 py-3">{item.lineCount || 0}</td>
                 <td className="px-4 py-3">{item.absoluteVarianceQuantity || 0}</td>
                 <td className="px-4 py-3">{item.netVarianceQuantity || 0}</td>
@@ -1025,7 +1213,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
             {adjustments.map((item: any) => (
               <tr key={item.id || item.referenceCode}>
                 <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{item.referenceCode}</td>
-                <td className="px-4 py-3 text-xs font-semibold text-slate-600">{item.status}</td>
+                <td className="px-4 py-3 text-xs font-semibold text-slate-600">{documentStatusLabels[item.status] || item.status}</td>
                 <td className="px-4 py-3">{item.lineCount || 0}</td>
                 <td className="px-4 py-3">{item.absoluteVarianceQuantity || 0}</td>
                 <td className="px-4 py-3">{item.netVarianceQuantity || 0}</td>
@@ -1069,6 +1257,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
         'Đang giữ',
         'Khả dụng',
         'Giá vốn BQ',
+        'Kệ',
         'IMEI / Serial',
         'Cảnh báo',
         'Trạng thái',
@@ -1097,15 +1286,13 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                 <td className="px-4 py-3">{item.reservedStock ?? 0}</td>
                 <td className="px-4 py-3 font-semibold text-slate-900">{item.availableStock ?? 0}</td>
                 <td className="px-4 py-3 text-sm font-semibold text-slate-700">{currency.format(Number(item.averageUnitCost || 0))}</td>
+                <td className="w-40 px-4 py-3">{renderInventoryLocationCell(item)}</td>
                 <td className="px-4 py-3 text-xs text-slate-600">
-                  <div className="space-y-2">
-                    <div>{renderIdentifierSummary(item)}</div>
-                    {(item.tracksImei || item.tracksSerialNumber) && (
-                      <button type="button" onClick={() => void openIdentifierModal(item)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                        <Eye className="h-3.5 w-3.5" /> Xem mã
-                      </button>
-                    )}
-                  </div>
+                  {(item.tracksImei || item.tracksSerialNumber) ? (
+                    <button type="button" onClick={() => void openIdentifierModal(item)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                      <Eye className="h-3.5 w-3.5" /> Xem mã
+                    </button>
+                  ) : '-'}
                 </td>
                 <td className="px-4 py-3">{item.stockAlert === 'LOW' ? `Cần nhập thêm (min ${item.minimumStock || 0})` : 'Ổn định'}</td>
                 <td className="px-4 py-3">
@@ -1136,6 +1323,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
               <td className="px-4 py-3">{item.stock ?? 0}</td>
               <td className="px-4 py-3">-</td>
               <td className="px-4 py-3">-</td>
+              <td className="px-4 py-3">-</td>
               <td className="px-4 py-3">{Number(item.stock || 0) <= inventorySettings.minimumStock ? `Cần nhập thêm (min ${inventorySettings.minimumStock})` : 'Ổn định'}</td>
               <td className="px-4 py-3">
                 <div className="space-y-2">
@@ -1156,6 +1344,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                 <td className="px-4 py-3">{variant.stockQuantity ?? 0}</td>
                 <td className="px-4 py-3">0</td>
                 <td className="px-4 py-3">{variant.stockQuantity ?? 0}</td>
+                <td className="px-4 py-3">-</td>
                 <td className="px-4 py-3">-</td>
                 <td className="px-4 py-3">-</td>
                 <td className="px-4 py-3">{Number(variant.stockQuantity || 0) <= inventorySettings.minimumStock ? `Cần nhập thêm (min ${inventorySettings.minimumStock})` : 'Ổn định'}</td>
@@ -1203,6 +1392,50 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
       </div>
       </div>
       </div>
+      {locationDetailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Danh sách kệ</h3>
+                <p className="text-sm font-semibold text-slate-600">
+                  {locationDetailModal.row.productName || locationDetailModal.row.name || 'Sản phẩm'}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {locationDetailModal.row.variantSku || locationDetailModal.row.productSku || compactId(locationDetailModal.row.variantId || locationDetailModal.row.productId || locationDetailModal.row.id)}
+                </p>
+              </div>
+              <button type="button" onClick={() => setLocationDetailModal(null)} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50" aria-label="Đóng danh sách kệ">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-auto p-5">
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Mã kệ</th>
+                      <th className="px-4 py-3">Tên kệ</th>
+                      <th className="px-4 py-3">Dãy</th>
+                      <th className="px-4 py-3 text-right">Số lượng</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {locationDetailModal.locations.map((location) => (
+                      <tr key={location.id}>
+                        <td className="px-4 py-3 font-mono text-xs font-bold text-slate-800">{location.code || '-'}</td>
+                        <td className="px-4 py-3 text-slate-700">{location.name || 'Kệ không rõ'}</td>
+                        <td className="px-4 py-3 text-slate-600">{location.zone || '-'}</td>
+                        <td className="px-4 py-3 text-right font-bold text-emerald-700">{location.onHandQuantity}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {locationDraft && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
           <form onSubmit={(event) => void submitLocationDraft(event)} className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">

@@ -79,8 +79,10 @@ export default function LoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="mb-2 block text-sm font-bold text-gray-700">Email</label>
+              <label htmlFor="login-email" className="mb-2 block text-sm font-bold text-gray-700">Email</label>
               <input
+                id="login-email"
+                aria-label="Email đăng nhập"
                 type="email"
                 required
                 placeholder="Nhập email của bạn"
@@ -91,8 +93,10 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-bold text-gray-700">Mật khẩu</label>
+              <label htmlFor="login-password" className="mb-2 block text-sm font-bold text-gray-700">Mật khẩu</label>
               <input
+                id="login-password"
+                aria-label="Mật khẩu đăng nhập"
                 type="password"
                 required
                 placeholder="Nhập mật khẩu của bạn"

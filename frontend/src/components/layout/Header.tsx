@@ -31,7 +31,7 @@ export const Header = () => {
   return (
     <header className="sticky top-0 z-50 bg-primary text-white shadow-md">
       <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-6">
-        <div className="flex min-h-16 items-center gap-3">
+        <div className="flex min-h-16 items-center gap-2 sm:gap-3">
           <Link to="/" className="flex shrink-0 items-center" aria-label="ElectroMart Vietnam">
             <img
               src={emvLogo}
@@ -146,7 +146,7 @@ export const Header = () => {
                 </span>
               )}
             </div>
-            <span className="hidden text-xs lg:block max-w-[80px] truncate">
+            <span className="hidden max-w-[80px] truncate text-xs lg:block">
               {user ? (user.displayName || 'Tài khoản') : 'Tài khoản'}
             </span>
           </Link>

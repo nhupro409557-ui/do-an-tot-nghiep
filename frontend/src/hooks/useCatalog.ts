@@ -3,6 +3,7 @@ import { brandApi } from '../services/brandApi';
 import { categoryApi } from '../services/categoryApi';
 import { publicApi } from '../services/publicApi';
 import {
+  CatalogBrand,
   CatalogCategory,
   CatalogGroup,
   categoryIconMap,
@@ -20,15 +21,53 @@ const normalizeSlug = (value: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
-const unique = <T,>(items: T[]) => Array.from(new Set(items.filter(Boolean)));
+const unique = <T,>(items: T[]) => {
+  const values = new Set<T>();
+  for (const item of items) {
+    if (item) values.add(item);
+  }
+  return Array.from(values);
+};
 
-const includesAny = (values: unknown[], candidates: string[]) =>
-  values.some((value) => value && candidates.includes(String(value)));
+const uniqueBrands = (items: CatalogBrand[]) => {
+  const values = new Map<string, CatalogBrand>();
+  for (const item of items) {
+    const name = item.name?.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const current = values.get(key);
+    if (!current || (!current.logoUrl && item.logoUrl)) {
+      values.set(key, { ...item, name });
+    }
+  }
+  return Array.from(values.values());
+};
 
-const toFeaturedProducts = (products: any[]) =>
-  products
-    .map((product: any) => ({ id: product.id, name: product.name }))
-    .filter((product: any) => product.id && product.name);
+const includesAny = (values: unknown[], candidates: Set<string>) =>
+  values.some((value) => value && candidates.has(String(value)));
+
+const toFeaturedProducts = (products: any[]) => {
+  const featuredProducts: { id: string; name: string }[] = [];
+  for (const product of products) {
+    if (product.id && product.name) featuredProducts.push({ id: product.id, name: product.name });
+  }
+  return featuredProducts;
+};
+
+function collectSubcategories(categoryDocs: any[]) {
+  const subcategories: any[] = [];
+  for (const category of categoryDocs) {
+    for (const child of category.children || []) {
+      subcategories.push({
+        ...child,
+        categoryId: category.id,
+        categorySlug: category.slug,
+        groupTitle: CHILD_CATEGORY_TITLE,
+      });
+    }
+  }
+  return subcategories;
+}
 
 type UseCatalogOptions = {
   includeRankedFeatured?: boolean;
@@ -48,14 +87,7 @@ export function useCatalog(options: UseCatalogOptions = {}) {
         brandApi.listBrands(),
         publicApi.listProducts(),
       ]);
-      const subcategoryDocs = categoryDocs.flatMap((category: any) =>
-        (category.children || []).map((child: any) => ({
-          ...child,
-          categoryId: category.id,
-          categorySlug: category.slug,
-          groupTitle: CHILD_CATEGORY_TITLE,
-        }))
-      );
+      const subcategoryDocs = collectSubcategories(categoryDocs);
 
       const sourceCategories = categoryDocs.length > 0
         ? categoryDocs
@@ -80,6 +112,7 @@ export function useCatalog(options: UseCatalogOptions = {}) {
               normalizeSlug(child.name || child.title || ''),
             ]),
           ]);
+          const relatedSlugSet = new Set(relatedSlugs);
           const icon = categoryIconMap[category.icon || category.iconKey || slug] || defaultCategoryIcon;
 
           const grouped = childCategories
@@ -101,18 +134,26 @@ export function useCatalog(options: UseCatalogOptions = {}) {
             normalizeSlug(product.categoryName || ''),
             normalizeSlug(product.subcategory || ''),
             normalizeSlug(product.subcategoryName || ''),
-          ], relatedSlugs));
+          ], relatedSlugSet));
 
-          const dbBrands = brandDocs
-            .filter((brand: any) => {
-              const brandCategoryIds = brand.categoryIds || [];
-              return relatedSlugs.includes(brand.categoryId || brand.categorySlug)
-                || brandCategoryIds.some((categoryId: string) => relatedSlugs.includes(categoryId));
-            })
-            .sort((a: any, b: any) => (a.order || 0) - (b.order || 0))
-            .map((brand: any) => brand.name || brand.title);
+          const matchedBrands = [];
+          for (const brand of brandDocs) {
+            const brandCategoryIds = brand.categoryIds || [];
+            if (
+              relatedSlugSet.has(brand.categoryId || brand.categorySlug)
+              || brandCategoryIds.some((categoryId: string) => relatedSlugSet.has(categoryId))
+            ) {
+              matchedBrands.push(brand);
+            }
+          }
+          matchedBrands.sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+          const dbBrands = matchedBrands.map((brand: any) => ({
+            name: brand.name || brand.title,
+            logoUrl: brand.logoUrl,
+            logoAltText: brand.logoAltText,
+          }));
 
-          const productBrands = categoryProducts.map((product: any) => product.brand);
+          const productBrands = categoryProducts.map((product: any) => ({ name: product.brand }));
           const fallbackFeaturedProducts = toFeaturedProducts(categoryProducts.slice(0, 10));
 
           const groups: CatalogGroup[] = Object.entries(grouped).map(([title, items]) => ({
@@ -126,7 +167,7 @@ export function useCatalog(options: UseCatalogOptions = {}) {
             slug,
             slugs: relatedSlugs,
             icon,
-            brands: unique([...dbBrands, ...productBrands]),
+            brands: uniqueBrands([...dbBrands, ...productBrands]),
             groups,
             featuredProducts: fallbackFeaturedProducts,
             order: category.order || 0,

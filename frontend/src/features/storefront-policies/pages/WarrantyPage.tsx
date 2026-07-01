@@ -27,8 +27,8 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 bg-white">
-          {rows.map((row, i) => (
-            <tr key={i} className="hover:bg-slate-50/60 transition-colors">
+          {rows.map((row) => (
+            <tr key={row.join('\u001f')} className="hover:bg-slate-50/60 transition-colors">
               {row.map((cell, j) => (
                 <td key={j} className={`px-4 py-2.5 text-slate-600 leading-relaxed ${j === 0 ? 'font-semibold text-slate-700 whitespace-nowrap' : ''}`}>
                   {cell}
@@ -51,12 +51,7 @@ function Note({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function WarrantyPage() {
-  const [expandedSection, setExpandedSection] = useState<string | null>('w-1');
-
-  const toggle = (id: string) => setExpandedSection((p) => (p === id ? null : id));
-
-  const sections: Section[] = [
+const WARRANTY_PAGE_SECTIONS: Section[] = [
     {
       id: 'w-1',
       number: '1',
@@ -348,6 +343,12 @@ export default function WarrantyPage() {
     },
   ];
 
+
+export default function WarrantyPage() {
+  const [expandedSection, setExpandedSection] = useState<string | null>('w-1');
+
+  const toggle = (id: string) => setExpandedSection((p) => (p === id ? null : id));
+
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Banner */}
@@ -403,7 +404,7 @@ export default function WarrantyPage() {
       {/* Content */}
       <div className="mx-auto max-w-5xl px-4 py-10 lg:px-6">
         <div className="space-y-3">
-          {sections.map((section) => {
+          {WARRANTY_PAGE_SECTIONS.map((section) => {
             const isOpen = expandedSection === section.id;
             return (
               <div
@@ -414,7 +415,7 @@ export default function WarrantyPage() {
                     : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
                 }`}
               >
-                <button
+                <button type="button"
                   id={`warranty-section-${section.number}`}
                   onClick={() => toggle(section.id)}
                   className="flex w-full items-center gap-4 px-5 py-4 text-left"

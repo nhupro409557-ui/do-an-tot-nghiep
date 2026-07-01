@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, CreditCard, MapPin, PackageCheck, Plus, ShieldCheck, Tag } from 'lucide-react';
 import { useCart } from '../../../context/CartContext';
@@ -21,6 +21,14 @@ const emptyAddressData: AddressData = {
 };
 
 const formatCurrency = (value: number) => `${value.toLocaleString('vi-VN')}đ`;
+
+const getVoucherDeviceId = () => {
+  const existingDeviceId = localStorage.getItem('voucher_device_id');
+  if (existingDeviceId) return existingDeviceId;
+  const deviceId = crypto.randomUUID();
+  localStorage.setItem('voucher_device_id', deviceId);
+  return deviceId;
+};
 
 const CheckoutProductImage: React.FC<{ src: string; alt: string }> = ({ src, alt }) => {
   const [hasError, setHasError] = useState(false);
@@ -77,22 +85,32 @@ const formatMaintenanceTime = (startsAtStr: string | null, endsAtStr: string | n
 
 export default function CheckoutPage() {
   const { items, totalPrice, clearCheckedItems } = useCart();
-  const checkedItems = items.filter(item => item.checked !== false);
+  const checkedItems = useMemo(
+    () => items.filter(item => item.checked !== false),
+    [items],
+  );
   const { user, userData } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [voucherCode, setVoucherCode] = useState('');
+  const [appliedVoucherCode, setAppliedVoucherCode] = useState('');
   const [discount, setDiscount] = useState(0);
   const [voucherError, setVoucherError] = useState('');
   const [voucherHint, setVoucherHint] = useState('');
-  const [shippingFee, setShippingFee] = useState(0);
-  const [shippingQuoteNote, setShippingQuoteNote] = useState('');
+  const [shippingQuote, setShippingQuote] = useState({ fee: 0, note: '' });
+  const shippingQuoteRequestIdRef = useRef(0);
+  const voucherValidationIdRef = useRef(0);
+  const validatedVoucherContextRef = useRef('');
+  const { fee: shippingFee, note: shippingQuoteNote } = shippingQuote;
   const [shippingDetails, setShippingDetails] = useState({
     name: user?.displayName || '',
     phone: '',
     address: '',
   });
-  const addresses = (userData?.addresses || []) as AccountAddress[];
+  const addresses = useMemo(
+    () => (userData?.addresses || []) as AccountAddress[],
+    [userData?.addresses],
+  );
   const [selectedAddressId, setSelectedAddressId] = useState('');
   const [isAddingAddress, setIsAddingAddress] = useState(false);
   const [newAddress, setNewAddress] = useState({
@@ -108,11 +126,13 @@ export default function CheckoutPage() {
   const totalQuantity = checkedItems.reduce((sum, item) => sum + item.quantity, 0);
 
   useEffect(() => {
+    let isActive = true;
     const fetchPaymentMethods = async () => {
       try {
         const methods = await adminPaymentMethodsApi.listStorefrontPaymentMethods();
+        if (!isActive) return;
         setDbPaymentMethods(methods);
-        
+
         // Nếu phương thức COD (cash) mặc định bị bảo trì, chuyển sang phương thức khả dụng đầu tiên
         const codMethod = methods.find(m => m.code === 'COD');
         if (codMethod && !codMethod.is_available) {
@@ -126,16 +146,16 @@ export default function CheckoutPage() {
       }
     };
     void fetchPaymentMethods();
+    return () => {
+      isActive = false;
+    };
   }, []);
   const finalPrice = Math.max(0, totalPrice - discount + shippingFee);
   const checkoutPaymentMethod = (method: typeof paymentMethod = paymentMethod) => method === 'cash' ? 'COD' : method.toUpperCase();
 
   useEffect(() => {
     if (!user) return;
-    if (addresses.length === 0) {
-      setIsAddingAddress(false);
-      return;
-    }
+    if (addresses.length === 0) return;
     if (selectedAddressId && addresses.some(address => address.id === selectedAddressId)) return;
     const preferredAddress = addresses.find(address => address.isDefault) || addresses[0];
     setSelectedAddressId(preferredAddress.id);
@@ -144,15 +164,17 @@ export default function CheckoutPage() {
       phone: preferredAddress.receiverPhone,
       address: preferredAddress.addressLine,
     });
-  }, [user?.uid, userData?.addresses]);
+  }, [addresses, selectedAddressId, user]);
 
   useEffect(() => {
+    const requestId = shippingQuoteRequestIdRef.current + 1;
+    shippingQuoteRequestIdRef.current = requestId;
     if (!shippingDetails.address || shippingDetails.address.trim().length < 10) {
-      setShippingFee(0);
-      setShippingQuoteNote('');
+      setShippingQuote({ fee: 0, note: '' });
       return;
     }
     const selectedAddress = addresses.find(address => address.id === selectedAddressId);
+    let isActive = true;
     const timer = window.setTimeout(async () => {
       try {
         const quote = await adminOrdersApi.quoteShipping({
@@ -162,43 +184,48 @@ export default function CheckoutPage() {
           lat: selectedAddress?.lat,
           lng: selectedAddress?.lng,
         });
-        setShippingFee(Number(quote.shipping_fee || quote.shippingFee || 0));
-        setShippingQuoteNote(quote.note || '');
-
+        if (!isActive || shippingQuoteRequestIdRef.current !== requestId) return;
+        setShippingQuote({
+          fee: Number(quote.shipping_fee || quote.shippingFee || 0),
+          note: quote.note || '',
+        });
       } catch {
-        setShippingFee(0);
-        setShippingQuoteNote('');
+        if (isActive && shippingQuoteRequestIdRef.current === requestId) {
+          setShippingQuote({ fee: 0, note: '' });
+        }
       }
     }, 300);
-    return () => window.clearTimeout(timer);
-  }, [shippingDetails.address, totalPrice, checkedItems]);
+    return () => {
+      isActive = false;
+      window.clearTimeout(timer);
+    };
+  }, [addresses, checkedItems, selectedAddressId, shippingDetails.address, totalPrice]);
 
-  if (checkedItems.length === 0) {
-    return (
-      <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center px-4 py-20 text-center">
-        <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-slate-100 text-slate-400">
-          <PackageCheck className="h-10 w-10" strokeWidth={1.7} />
-        </div>
-        <h1 className="text-2xl font-extrabold text-slate-950">Giỏ hàng trống</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-500">
-          Hãy thêm sản phẩm vào giỏ hàng trước khi thực hiện thanh toán.
-        </p>
-        <button
-          onClick={() => navigate('/')}
-          className="mt-8 w-full max-w-xs rounded-lg bg-[#d70018] px-6 py-3 text-sm font-bold text-white transition hover:bg-[#c00015]"
-        >
-          Quay lại mua sắm
-        </button>
-      </div>
-    );
-  }
+  const voucherProductKey = checkedItems
+    .map((item) => `${item.productId}:${item.quantity}:${item.price}`)
+    .join('|');
 
-  const applyVoucher = async (method: typeof paymentMethod = paymentMethod) => {
-    if (!voucherCode) return;
+  const voucherContext = (code: string, method: typeof paymentMethod) => [
+    code,
+    method,
+    totalPrice,
+    user?.uid || '',
+    userData?.tier || '',
+    voucherProductKey,
+  ].join('::');
+
+  const applyVoucher = async (
+    method: typeof paymentMethod = paymentMethod,
+    code: string = voucherCode,
+  ) => {
+    const normalizedCode = code.trim().toUpperCase();
+    if (!normalizedCode) return;
+    const validationId = voucherValidationIdRef.current + 1;
+    voucherValidationIdRef.current = validationId;
+    const context = voucherContext(normalizedCode, method);
     try {
-      const deviceId = localStorage.getItem('voucher_device_id') || crypto.randomUUID();
-      localStorage.setItem('voucher_device_id', deviceId);
-      const voucher = await adminVouchersApi.validateVoucher(voucherCode, totalPrice, {
+      const deviceId = getVoucherDeviceId();
+      const voucher = await adminVouchersApi.validateVoucher(normalizedCode, totalPrice, {
         user_id: user?.uid || null,
         user_tier: userData?.tier || null,
         device_id: deviceId,
@@ -206,28 +233,58 @@ export default function CheckoutPage() {
         channel: 'WEB',
         product_ids: checkedItems.map((item) => item.productId.replace('-accessory', '').replace('-normal', '')),
       });
+      if (voucherValidationIdRef.current !== validationId) return;
       if (!voucher.valid) {
+        setAppliedVoucherCode('');
+        validatedVoucherContextRef.current = '';
         setVoucherError(voucher.message || 'Mã ưu đãi không hợp lệ hoặc đã hết hạn.');
         const shortfallAmount = Number(voucher?.metadata?.shortfall_amount || 0);
         setVoucherHint(shortfallAmount > 0 ? `Mua thêm ${formatCurrency(shortfallAmount)} để đủ điều kiện áp mã.` : '');
         setDiscount(0);
       } else {
+        setAppliedVoucherCode(normalizedCode);
+        validatedVoucherContextRef.current = context;
         setDiscount(Number(voucher.discount_amount || voucher.discountAmount || 0));
         setVoucherError('');
         setVoucherHint('');
       }
     } catch (err) {
+      if (voucherValidationIdRef.current !== validationId) return;
       console.error(err);
+      setAppliedVoucherCode('');
+      validatedVoucherContextRef.current = '';
       setVoucherError('Không thể kiểm tra mã ưu đãi. Vui lòng thử lại.');
       setVoucherHint('');
       setDiscount(0);
     }
   };
+  const applyVoucherRef = useRef(applyVoucher);
+  applyVoucherRef.current = applyVoucher;
 
   const changePaymentMethod = (method: typeof paymentMethod) => {
     setPaymentMethod(method);
-    if (voucherCode) void applyVoucher(method);
+    if (appliedVoucherCode) void applyVoucher(method, appliedVoucherCode);
   };
+
+  const changeVoucherCode = (code: string) => {
+    voucherValidationIdRef.current += 1;
+    validatedVoucherContextRef.current = '';
+    setVoucherCode(code.toUpperCase());
+    setAppliedVoucherCode('');
+    setDiscount(0);
+    setVoucherError('');
+    setVoucherHint('');
+  };
+
+  const appliedVoucherContext = appliedVoucherCode
+    ? voucherContext(appliedVoucherCode, paymentMethod)
+    : '';
+
+  useEffect(() => {
+    if (!appliedVoucherCode) return;
+    if (validatedVoucherContextRef.current === appliedVoucherContext) return;
+    void applyVoucherRef.current(paymentMethod, appliedVoucherCode);
+  }, [appliedVoucherCode, appliedVoucherContext, paymentMethod]);
 
   const selectSavedAddress = (address: AccountAddress) => {
     setSelectedAddressId(address.id);
@@ -311,8 +368,7 @@ export default function CheckoutPage() {
     setShippingError('');
     setLoading(true);
     try {
-      const deviceId = localStorage.getItem('voucher_device_id') || crypto.randomUUID();
-      localStorage.setItem('voucher_device_id', deviceId);
+      const deviceId = getVoucherDeviceId();
       const selectedAddress = addresses.find(address => address.id === selectedAddressId);
       const order = await adminOrdersApi.createOrder({
         user_id: user.uid,
@@ -342,7 +398,7 @@ export default function CheckoutPage() {
         },
 
         payment_method: checkoutPaymentMethod(),
-        voucher_code: voucherCode || null,
+        voucher_code: appliedVoucherCode || null,
         voucher_device_id: deviceId,
         loyalty_points_used: 0,
       });
@@ -361,6 +417,27 @@ export default function CheckoutPage() {
       setLoading(false);
     }
   };
+
+  if (checkedItems.length === 0) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center px-4 py-20 text-center">
+        <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+          <PackageCheck className="h-10 w-10" strokeWidth={1.7} />
+        </div>
+        <h1 className="text-2xl font-extrabold text-slate-950">Giỏ hàng trống</h1>
+        <p className="mt-3 text-sm leading-6 text-slate-500">
+          Hãy thêm sản phẩm vào giỏ hàng trước khi thực hiện thanh toán.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          className="mt-8 w-full max-w-xs rounded-lg bg-[#d70018] px-6 py-3 text-sm font-bold text-white transition hover:bg-[#c00015]"
+        >
+          Quay lại mua sắm
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-slate-50 py-6 lg:py-8">
@@ -401,19 +478,28 @@ export default function CheckoutPage() {
               </div>
 
               <div className="p-4 sm:p-5">
-                {addresses.length === 0 && (
+                {addresses.length === 0 && !isAddingAddress && (
                   <div className="text-center py-8 px-4 border border-dashed border-slate-300 rounded-xl bg-slate-50/50">
                     <p className="text-slate-600 text-sm mb-4">
                       Bạn chưa có địa chỉ nhận hàng. Vui lòng thêm địa chỉ để tiếp tục đặt hàng.
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/dashboard?tab=addresses&action=new&redirect=/checkout')}
-                      className="inline-flex items-center gap-2 rounded-lg bg-[#d70018] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#c00015] shadow-sm"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Thêm địa chỉ nhận hàng
-                    </button>
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingAddress(true)}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[#d70018] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#c00015] shadow-sm"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Thêm địa chỉ tại đây
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/dashboard?tab=addresses&action=new&redirect=/checkout')}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 shadow-sm"
+                      >
+                        Đến trang cá nhân
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -499,15 +585,13 @@ export default function CheckoutPage() {
                     </div>
                     {addressFormError && <p className="mt-3 text-sm font-semibold text-red-600">{addressFormError}</p>}
                     <div className="mt-4 flex justify-end gap-2">
-                      {addresses.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setIsAddingAddress(false)}
-                          className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-white"
-                        >
-                          Hủy
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingAddress(false)}
+                        className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-white"
+                      >
+                        Hủy
+                      </button>
                       <button
                         type="button"
                         onClick={saveNewAddress}
@@ -560,6 +644,7 @@ export default function CheckoutPage() {
                           value={clientVal}
                           checked={isSelected}
                           disabled
+                          readOnly
                           className="mt-1 h-4 w-4"
                         />
                         <div className="flex-1">
@@ -609,16 +694,12 @@ export default function CheckoutPage() {
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
+                  aria-label="Mã giảm giá"
                   type="text"
                   placeholder="Nhập mã giảm giá"
                   className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm uppercase outline-none transition focus:border-[#d70018]"
                   value={voucherCode}
-                  onChange={(event) => {
-                    setVoucherCode(event.target.value.toUpperCase());
-                    setVoucherError('');
-                    setVoucherHint('');
-                    setDiscount(0);
-                  }}
+                  onChange={(event) => changeVoucherCode(event.target.value)}
                 />
                 <button
                   type="button"
@@ -649,7 +730,7 @@ export default function CheckoutPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="line-clamp-2 text-sm font-semibold leading-5 text-slate-900">{item.name}</p>
-                    
+
                     {/* Dịch vụ đi kèm */}
                     {item.attachedServices && item.attachedServices.length > 0 && (
                       <div className="mt-1 space-y-0.5">

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120" role="img" aria-labelledby="title">
+  <title id="title">GoPro logo</title>
+  <rect width="240" height="120" rx="20" fill="#111827"/>
+  <text x="102" y="72" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="700" fill="#ffffff">GoPro</text>
+  <rect x="158" y="54" width="14" height="14" fill="#00a3e0"/>
+  <rect x="176" y="54" width="14" height="14" fill="#0071ce"/>
+  <rect x="194" y="54" width="14" height="14" fill="#ffffff"/>
+</svg>

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bell, Package, Gift, ShieldAlert } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
 import { publicApi } from '../../services/publicApi';
 import { useAuth } from '../../context/AuthContext';
 import { getAccessToken } from '../../services/authDb';
@@ -12,6 +12,15 @@ interface Notification {
   message: string;
   date: string;
   read: boolean;
+}
+
+function getNotificationIcon(type: string) {
+  switch (type) {
+    case 'order': return <Package className="h-4 w-4 text-primary" />;
+    case 'loyalty': return <Gift className="h-4 w-4 text-yellow-500" />;
+    case 'security': return <ShieldAlert className="h-4 w-4 text-red-500" />;
+    default: return <Bell className="h-4 w-4 text-gray-500" />;
+  }
 }
 
 export function NotificationDropdown() {
@@ -64,15 +73,6 @@ export function NotificationDropdown() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const getIcon = (type: string) => {
-    switch (type) {
-      case 'order': return <Package className="w-4 h-4 text-primary" />;
-      case 'loyalty': return <Gift className="w-4 h-4 text-yellow-500" />;
-      case 'security': return <ShieldAlert className="w-4 h-4 text-red-500" />;
-      default: return <Bell className="w-4 h-4 text-gray-500" />;
-    }
-  };
-
   const markAllRead = async () => {
     if (!user) return;
     try {
@@ -85,7 +85,7 @@ export function NotificationDropdown() {
 
   return (
     <div className="relative" ref={dropdownRef}>
-      <button 
+      <button type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="flex flex-col items-center p-1 hover:text-white/85 relative transition-colors"
       >
@@ -94,9 +94,10 @@ export function NotificationDropdown() {
         {unreadCount > 0 && <span className="absolute -top-1 -right-1 bg-yellow-400 text-black text-[10px] font-bold rounded-full h-4 w-4 flex items-center justify-center">{unreadCount}</span>}
       </button>
 
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
+      <LazyMotion features={domAnimation}>
+        <AnimatePresence>
+          {isOpen && (
+            <m.div
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
@@ -106,7 +107,7 @@ export function NotificationDropdown() {
             <div className="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
               <h3 className="font-bold text-sm">Thông báo hệ thống</h3>
               {unreadCount > 0 && (
-                <button onClick={markAllRead} className="text-[10px] text-blue-600 hover:underline">Đã đọc tất cả</button>
+                <button type="button" onClick={markAllRead} className="text-[10px] text-blue-600 hover:underline">Đã đọc tất cả</button>
               )}
             </div>
 
@@ -114,7 +115,7 @@ export function NotificationDropdown() {
               {notifications.length > 0 ? notifications.map(notif => (
                 <div key={notif.id} className={`p-3 border-b border-gray-50 flex gap-3 hover:bg-gray-50 transition-colors ${!notif.read ? 'bg-blue-50/30' : ''}`}>
                   <div className="mt-1 bg-white p-2 border border-gray-100 rounded-full h-8 w-8 flex items-center justify-center shrink-0">
-                    {getIcon(notif.type)}
+                      {getNotificationIcon(notif.type)}
                   </div>
                   <div>
                     <h4 className="text-xs font-bold leading-tight mb-1">{notif.title}</h4>
@@ -129,9 +130,10 @@ export function NotificationDropdown() {
                 </div>
               )}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </m.div>
+          )}
+        </AnimatePresence>
+      </LazyMotion>
     </div>
   );
 }

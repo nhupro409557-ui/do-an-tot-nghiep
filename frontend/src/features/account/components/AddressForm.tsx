@@ -76,6 +76,15 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * c;
 }
 
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsText(haystack: string, needle: string) {
+  if (!needle) return true;
+  return new RegExp(escapeRegex(needle)).test(haystack);
+}
+
 export function AddressForm({
   addressDraft,
   editingAddressId,
@@ -116,13 +125,20 @@ export function AddressForm({
 
           const addr = data.address;
           const possibleProvinceNames = [addr.city, addr.province, addr.state].filter(Boolean);
+          const normalizedProvinces = provincesData.map((province) => ({
+            province,
+            normalizedName: norm(province.tentinhmoi),
+          }));
+          const provinceByName = new Map(provincesData.map((province) => [province.tentinhmoi, province]));
           let matchedProvince: NewProvince | null = null;
           for (const name of possibleProvinceNames) {
             const n = norm(name);
-            matchedProvince = provincesData.find(p => {
-              const pNorm = norm(p.tentinhmoi);
-              return pNorm.includes(n) || n.includes(pNorm);
-            }) || null;
+            for (const item of normalizedProvinces) {
+              if (containsText(item.normalizedName, n) || containsText(n, item.normalizedName)) {
+                matchedProvince = item.province;
+                break;
+              }
+            }
             if (matchedProvince) break;
           }
 
@@ -140,7 +156,7 @@ export function AddressForm({
             }
 
             if (nearestProvinceName) {
-              matchedProvince = provincesData.find(p => p.tentinhmoi === nearestProvinceName) || null;
+              matchedProvince = provinceByName.get(nearestProvinceName) || null;
               if (matchedProvince) {
                 isNearestProvinceUsed = true;
               }
@@ -155,6 +171,10 @@ export function AddressForm({
 
           const possibleWardNames = [addr.suburb, addr.quarter, addr.town, addr.village, addr.commune].filter(Boolean);
           const possibleDistrictNames = [addr.city_district, addr.district, addr.county].filter(Boolean);
+          const normalizedWards = matchedProvince.phuongxa.map((ward) => ({
+            ward,
+            normalizedName: norm(ward.tenphuongxa),
+          }));
           let matchedWard: NewWard | null = null;
 
           for (const wName of possibleWardNames) {
@@ -162,16 +182,23 @@ export function AddressForm({
             // Ưu tiên khớp cả quận/huyện
             for (const dName of possibleDistrictNames) {
               const dNorm = norm(dName);
-              matchedWard = matchedProvince.phuongxa.find(w => {
-                const wn = norm(w.tenphuongxa);
-                return wn.includes(wNorm) && wn.includes(dNorm);
-              }) || null;
+              for (const item of normalizedWards) {
+                if (containsText(item.normalizedName, wNorm) && containsText(item.normalizedName, dNorm)) {
+                  matchedWard = item.ward;
+                  break;
+                }
+              }
               if (matchedWard) break;
             }
             if (matchedWard) break;
 
             // Fallback chỉ khớp phường xã
-            matchedWard = matchedProvince.phuongxa.find(w => norm(w.tenphuongxa).includes(wNorm)) || null;
+            for (const item of normalizedWards) {
+              if (containsText(item.normalizedName, wNorm)) {
+                matchedWard = item.ward;
+                break;
+              }
+            }
             if (matchedWard) break;
           }
 
@@ -232,12 +259,12 @@ export function AddressForm({
 
   return (
     <form onSubmit={onSubmitAddress} className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5 rounded-lg border border-slate-100 bg-slate-50 p-4">
-      <input required value={addressDraft.receiverName} onChange={event => onUpdateAddressDraft({ ...addressDraft, receiverName: event.target.value })} placeholder="Họ tên người nhận" className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500" />
-      <input required value={addressDraft.receiverPhone} onChange={event => onUpdateAddressDraft({ ...addressDraft, receiverPhone: event.target.value })} placeholder="Số điện thoại người nhận" className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500" />
+      <input aria-label="Họ tên người nhận" required value={addressDraft.receiverName} onChange={event => onUpdateAddressDraft({ ...addressDraft, receiverName: event.target.value })} placeholder="Họ tên người nhận" className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500" />
+      <input aria-label="Số điện thoại người nhận" required value={addressDraft.receiverPhone} onChange={event => onUpdateAddressDraft({ ...addressDraft, receiverPhone: event.target.value })} placeholder="Số điện thoại người nhận" className="px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500" />
 
       <div className="md:col-span-2">
         <div className="flex items-center justify-between mb-2">
-          <label className="text-sm font-semibold text-gray-700">Địa chỉ nhận hàng</label>
+          <span className="text-sm font-semibold text-gray-700">Địa chỉ nhận hàng</span>
           <button
             type="button"
             onClick={handleAutoLocate}
@@ -266,7 +293,7 @@ export function AddressForm({
         />
       </div>
 
-      <input value={addressDraft.note} onChange={event => onUpdateAddressDraft({ ...addressDraft, note: event.target.value })} placeholder="Ghi chú giao hàng (không bắt buộc)" className="md:col-span-2 px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500" />
+      <input aria-label="Ghi chú giao hàng" value={addressDraft.note} onChange={event => onUpdateAddressDraft({ ...addressDraft, note: event.target.value })} placeholder="Ghi chú giao hàng (không bắt buộc)" className="md:col-span-2 px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] bg-white disabled:bg-gray-50 disabled:text-gray-500" />
 
       <div className="md:col-span-2">
         <LocationPicker

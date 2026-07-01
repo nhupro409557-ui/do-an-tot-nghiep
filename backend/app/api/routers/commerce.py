@@ -1,10 +1,11 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services import order_service, payment_method_service, store_info_service
 from app.infrastructure.database.repositories import order_repo, voucher_repo
+from app.api.dependencies import require_staff_or_admin
 
 from app.application.commerce.schemas import (
     AdminUpdateOrderRequest,
@@ -168,8 +169,11 @@ async def update_order_status(
 async def admin_update_order(
     order_id: UUID,
     payload: AdminUpdateOrderRequest,
+    _staff_user=Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ) -> None:
+    if session.in_transaction():
+        await session.rollback()
     await CompleteOrderUseCase(session=session).execute_admin_update(order_id=order_id, request=payload)
 
 
@@ -298,3 +302,22 @@ async def revenue_report(session: AsyncSession = Depends(get_session)) -> Revenu
 @router.get("/store/info")
 async def get_store_info(session: AsyncSession = Depends(get_session)) -> dict:
     return await store_info_service.get_store_info(session)
+
+
+@router.get("/orders/{order_id}/invoice")
+async def export_order_invoice(
+    order_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    from app.application.services import order_service
+    from app.application.services.document_export_service import render_order_invoice_pdf
+
+    order = await order_service.get_order_detail(session, order_id)
+    items = order.get("items") or []
+    pdf_content, filename = render_order_invoice_pdf(order, items)
+
+    return Response(
+        content=pdf_content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

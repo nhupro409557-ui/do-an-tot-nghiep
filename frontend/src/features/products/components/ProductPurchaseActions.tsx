@@ -120,6 +120,7 @@ export function ProductPurchaseActions({
                 <div className="grid grid-cols-3 gap-2">
                   {ramOptions.map((ram) => (
                     <button
+                      type="button"
                       key={`ram-${ram}`}
                       onClick={() => selectRam(ram)}
                       className={`relative min-h-[46px] rounded-xl border px-3 py-2 text-center text-sm font-bold transition-all duration-200 cursor-pointer ${sameOptionValue(selectedRam, ram) ? 'border-primary bg-red-50 text-primary ring-1 ring-primary' : 'border-gray-200 text-gray-700 hover:border-gray-300'}`}
@@ -144,6 +145,7 @@ export function ProductPurchaseActions({
                     const priceForStorage = variantForStorage ? (variantForStorage.salePrice || variantForStorage.price) : null;
                     return (
                       <button
+                        type="button"
                         key={`storage-${storage}`}
                         onClick={() => selectStorage(storage)}
                         className={`relative flex min-h-[62px] flex-col items-center justify-center rounded-xl border px-2 py-2 text-center transition-all duration-200 cursor-pointer ${sameOptionValue(selectedStorage, storage) ? 'border-primary bg-red-50 text-primary ring-1 ring-primary' : 'border-gray-200 text-gray-700 hover:border-gray-300'}`}
@@ -168,6 +170,7 @@ export function ProductPurchaseActions({
                 <div className="grid grid-cols-2 gap-2">
                   {configurationOptions.map((configuration) => (
                     <button
+                      type="button"
                       key={`configuration-${configuration}`}
                       onClick={() => selectConfiguration(configuration)}
                       className={`relative min-h-[46px] rounded-xl border px-3 py-2 text-center text-sm font-bold transition-all duration-200 cursor-pointer ${sameOptionValue(selectedConfiguration, configuration) ? 'border-primary bg-red-50 text-primary ring-1 ring-primary' : 'border-gray-200 text-gray-700 hover:border-gray-300'}`}
@@ -191,6 +194,7 @@ export function ProductPurchaseActions({
               const colorCode = color.raw?.code || colorFallback[color.label.toLowerCase()] || '#e5e7eb';
               return (
                 <button
+                  type="button"
                   key={color.key}
                   onClick={() => selectColor(color.label)}
                   className={`relative flex items-center gap-3 rounded-xl border px-3.5 py-3.5 text-left transition-all duration-200 cursor-pointer ${selectedColor === color.label ? 'border-primary bg-red-50 ring-1 ring-primary' : 'border-gray-200 hover:border-gray-300'}`}
@@ -231,22 +235,23 @@ export function ProductPurchaseActions({
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-bold text-gray-800">Số lượng</h2>
         <div className="flex overflow-hidden rounded-xl border border-gray-200">
-          <button onClick={() => setQuantity(Math.max(1, quantity - 1))} className="flex h-9 w-9 items-center justify-center text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
+          <button type="button" onClick={() => setQuantity(Math.max(1, quantity - 1))} className="flex h-9 w-9 items-center justify-center text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
             <Minus className="h-4 w-4" />
           </button>
           <div className="flex h-9 w-10 items-center justify-center border-x border-gray-200 text-sm font-bold bg-gray-50/30">{quantity}</div>
-          <button onClick={() => setQuantity(quantity + 1)} className="flex h-9 w-9 items-center justify-center text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
+          <button type="button" onClick={() => setQuantity(quantity + 1)} className="flex h-9 w-9 items-center justify-center text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
             <Plus className="h-4 w-4" />
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-[1fr_58px] gap-2">
-        <button onClick={handleBuyNow} className="rounded-xl bg-primary px-4 py-3 text-center text-white shadow-md hover:bg-red-700 transition-colors duration-200 cursor-pointer">
+        <button type="button" onClick={handleBuyNow} className="rounded-xl bg-primary px-4 py-3 text-center text-white shadow-md hover:bg-red-700 transition-colors duration-200 cursor-pointer">
           <span className="block text-base font-extrabold">MUA NGAY</span>
           <span className="block text-xs font-medium opacity-90">Giao tận nơi hoặc nhận tại cửa hàng</span>
         </button>
         <button
+          type="button"
           onClick={handleAddToCart}
           className={`flex items-center justify-center rounded-xl border-2 transition-all duration-200 cursor-pointer ${addedToCart ? 'border-green-500 bg-green-50 text-green-600' : 'border-primary text-primary hover:bg-red-50'}`}
           title="Thêm vào giỏ hàng"
@@ -256,11 +261,11 @@ export function ProductPurchaseActions({
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <button className="flex flex-col items-center justify-center rounded-xl border border-amber-200 bg-amber-50/50 px-2 py-2 text-center transition-all hover:bg-amber-100/60 shadow-sm cursor-pointer">
+        <button type="button" className="flex flex-col items-center justify-center rounded-xl border border-amber-200 bg-amber-50/50 px-2 py-2 text-center transition-all hover:bg-amber-100/60 shadow-sm cursor-pointer">
           <span className="text-xs font-bold text-amber-800">TRẢ GÓP 0%</span>
           <span className="text-[10px] text-amber-600 font-medium mt-0.5">Duyệt hồ sơ nhanh 5 phút</span>
         </button>
-        <button className="flex flex-col items-center justify-center rounded-xl border border-blue-200 bg-blue-50/50 px-2 py-2 text-center transition-all hover:bg-blue-100/60 shadow-sm cursor-pointer">
+        <button type="button" className="flex flex-col items-center justify-center rounded-xl border border-blue-200 bg-blue-50/50 px-2 py-2 text-center transition-all hover:bg-blue-100/60 shadow-sm cursor-pointer">
           <span className="text-xs font-bold text-blue-800">TRẢ GÓP QUA THẺ</span>
           <span className="text-[10px] text-blue-600 font-medium mt-0.5">Visa, Mastercard, JCB</span>
         </button>

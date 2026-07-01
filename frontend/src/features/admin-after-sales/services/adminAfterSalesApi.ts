@@ -6,10 +6,20 @@ export const adminAfterSalesApi = {
   updateReturn: (id: string, data: any) => request<any>(`/admin/after-sales/returns/${encodeURIComponent(id)}/status`, {
     method: 'PATCH', body: JSON.stringify(data),
   }),
+  listReturnEvents: (id: string) => request<any[]>(`/admin/after-sales/returns/${encodeURIComponent(id)}/events`),
+  addReturnEvent: (id: string, data: any) => request<any>(`/admin/after-sales/returns/${encodeURIComponent(id)}/events`, {
+    method: 'POST', body: JSON.stringify(data),
+  }),
   updateWarranty: (id: string, data: any) => request<any>(`/admin/after-sales/warranties/${encodeURIComponent(id)}/status`, {
     method: 'PATCH', body: JSON.stringify(data),
   }),
+  listWarrantyEvents: (id: string) => request<any[]>(`/admin/after-sales/warranties/${encodeURIComponent(id)}/events`),
+  addWarrantyEvent: (id: string, data: any) => request<any>(`/admin/after-sales/warranties/${encodeURIComponent(id)}/events`, {
+    method: 'POST', body: JSON.stringify(data),
+  }),
   listDefectiveIdentifiers: () => request<any[]>('/admin/after-sales/defective-identifiers'),
+  getDefectiveDispositionReport: () => request<any>('/admin/after-sales/reports/defective-disposition'),
+  listDispositionEvents: (id: string) => request<any[]>(`/admin/after-sales/defective-identifiers/${encodeURIComponent(id)}/disposition-events`),
   updateDisposition: (id: string, data: any) => request<any>(`/admin/after-sales/defective-identifiers/${encodeURIComponent(id)}/disposition`, {
     method: 'PATCH', body: JSON.stringify(data),
   }),

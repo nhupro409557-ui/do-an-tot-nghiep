@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Eye, Heart, Search, Share2, Video } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../../../context/AuthContext';
 import { publicApi } from '../../../services/publicApi';
 import ReelsModal from '../components/ReelsModal';
 
@@ -87,6 +88,23 @@ function findRelatedProduct(video: any, products: any[]) {
     || products[0];
 }
 
+function likedVideoIds(videos: any[]) {
+  const ids = new Set<string>();
+  for (const video of videos) {
+    if (localStorage.getItem(videoKey(video)) === '1') {
+      ids.add(video.id);
+    }
+  }
+  return ids;
+}
+
+function videoMatchesFilter(video: any, activeTab: string, keyword: string) {
+  const category = inferCategory(video);
+  if (activeTab !== 'Tất cả' && category !== activeTab) return false;
+  if (!keyword) return true;
+  return [video.title, video.description, category].filter(Boolean).join(' ').toLowerCase().includes(keyword);
+}
+
 
 function fallbackRatioForTile(index: number) {
   const ratios = [16 / 10, 4 / 5, 16 / 9, 1, 3 / 4, 16 / 11, 5 / 4, 9 / 12];
@@ -105,6 +123,15 @@ function rowSpanForRatio(ratio: number, wide: boolean) {
 
 function shortDescription(video: any) {
   return video.shortDescription || video.description || 'Xem nhanh điểm nổi bật, trải nghiệm thực tế và thông tin cần biết trước khi chọn mua.';
+}
+
+async function shareVideo(video: any) {
+  const url = `${window.location.origin}/video?watch=${encodeURIComponent(video.id)}`;
+  if (navigator.share) {
+    await navigator.share({ title: video.title || 'Video', url }).catch(() => undefined);
+    return;
+  }
+  await navigator.clipboard?.writeText(url);
 }
 
 interface VideoTileProps {
@@ -170,7 +197,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
   useEffect(() => {
     if (!touched) return;
     function dismiss() { setTouched(false); }
-    document.addEventListener('touchstart', dismiss, { once: true });
+    document.addEventListener('touchstart', dismiss, { once: true, passive: true });
     return () => document.removeEventListener('touchstart', dismiss);
   }, [touched]);
 
@@ -184,16 +211,15 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
     <article
       style={{ aspectRatio: resolvedRatio, gridColumn: tileColumnSpan, gridRowEnd: tileRowSpan } as React.CSSProperties}
       className="group relative min-h-60 w-full min-w-0 cursor-pointer overflow-hidden rounded-2xl border border-white/70 bg-slate-950 shadow-[0_10px_28px_rgba(15,23,42,0.10)] ring-1 ring-slate-900/5 transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-0.5 hover:border-red-200 hover:shadow-[0_18px_36px_rgba(15,23,42,0.18)] lg:h-full lg:min-h-0 lg:hover:translate-y-0"
-      onClick={onOpen}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onTouchStart={handleTouch}
       role="group"
       aria-label={video.title || 'Video sản phẩm'}
     >
       <div className="absolute inset-0 bg-slate-950">
         {video.videoUrl && !isYouTubeVideo(video) && !videoRatio && (
           <video
+            aria-label={video.title ? `Tải thông tin video ${video.title}` : 'Tải thông tin video'}
             src={video.videoUrl}
             preload="metadata"
             muted
@@ -214,6 +240,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_36%,rgba(255,255,255,0.10),transparent_34%),linear-gradient(to_bottom,rgba(2,6,23,0.10),rgba(2,6,23,0.28))]" />
         {video.videoUrl && !isYouTubeVideo(video) && isActive ? (
           <video
+            aria-label={video.title || 'Video sản phẩm'}
             ref={previewRef}
             src={video.videoUrl}
             poster={image}
@@ -245,7 +272,15 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
         )}
       </div>
 
-      <div className={`absolute inset-0 z-10 flex items-center justify-center transition-opacity duration-300 ${isActive ? 'pointer-events-none opacity-0' : 'opacity-100'}`}>
+      <button
+        type="button"
+        aria-label={video.title ? `Mở video ${video.title}` : 'Mở video sản phẩm'}
+        className="absolute inset-0 z-10 cursor-pointer"
+        onClick={onOpen}
+        onTouchStart={handleTouch}
+      />
+
+      <div className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center transition-opacity duration-300 ${isActive ? 'opacity-0' : 'opacity-100'}`}>
         <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/40 bg-white/25 shadow-[0_10px_30px_rgba(15,23,42,0.25)] backdrop-blur-md transition-transform duration-300 group-hover:scale-105">
           <div className="ml-1 h-0 w-0 border-b-8 border-l-[14px] border-t-8 border-b-transparent border-l-white border-t-transparent" />
         </div>
@@ -343,6 +378,7 @@ function MasonryGrid({ videos, likedIds, onOpen, onLike, onShare }: MasonryGridP
 }
 
 export default function VideoPage() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('Tất cả');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortMode>('newest');
@@ -352,40 +388,42 @@ export default function VideoPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [videoPage, setVideoPage] = useState(1);
+  const videoPageRef = useRef(1);
   const [hasMoreVideos, setHasMoreVideos] = useState(false);
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
   const dismissedWatchRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  const loadMoreInFlightRef = useRef(false);
+  const likeRequestVersionsRef = useRef<Map<string, number> | null>(null);
+  if (!likeRequestVersionsRef.current) likeRequestVersionsRef.current = new Map<string, number>();
+  const likeRequestVersions = likeRequestVersionsRef.current;
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
     publicApi.listVideosPage({ page: 1, limit: VIDEO_PAGE_LIMIT })
       .catch(() => ({ items: [], page: 1, hasMore: false }))
       .then((videoData) => {
-        if (!mounted) return;
+        if (!mountedRef.current) return;
         const items = Array.isArray(videoData) ? videoData : videoData.items || [];
         setVideos(items);
-        setVideoPage(Number(videoData.page || 1));
+        setLikedIds(likedVideoIds(items));
+        videoPageRef.current = Number(videoData.page || 1);
         setHasMoreVideos(Boolean(videoData.hasMore));
       })
       .finally(() => {
-        if (mounted) setLoading(false);
+        if (mountedRef.current) setLoading(false);
       });
 
     publicApi.listProducts({ limit: 100 })
       .then((productData) => {
-        if (mounted) setProducts(productData);
+        if (mountedRef.current) setProducts(productData);
       })
       .catch(() => undefined);
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
     };
   }, []);
-
-  useEffect(() => {
-    setLikedIds(new Set(videos.filter((video) => localStorage.getItem(videoKey(video)) === '1').map((video) => video.id)));
-  }, [videos]);
 
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -396,9 +434,13 @@ export default function VideoPage() {
 
   const filteredVideos = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    return videos
-      .filter((video) => activeTab === 'Tất cả' || inferCategory(video) === activeTab)
-      .filter((video) => !keyword || [video.title, video.description, inferCategory(video)].filter(Boolean).join(' ').toLowerCase().includes(keyword))
+    const matchedVideos: any[] = [];
+    for (const video of videos) {
+      if (videoMatchesFilter(video, activeTab, keyword)) {
+        matchedVideos.push(video);
+      }
+    }
+    return matchedVideos
       .sort((a, b) => {
         if (sort === 'views') return numericCount(b.viewCount) - numericCount(a.viewCount);
         if (sort === 'likes') return numericCount(b.likeCount) - numericCount(a.likeCount);
@@ -449,7 +491,13 @@ export default function VideoPage() {
   }
 
   async function toggleLike(video: any) {
+    if (!user) {
+      window.alert('Vui lòng đăng nhập để thích video.');
+      return;
+    }
     const wasLiked = likedIds.has(video.id);
+    const requestVersion = (likeRequestVersions.get(video.id) || 0) + 1;
+    likeRequestVersions.set(video.id, requestVersion);
     const next = new Set(likedIds);
     if (wasLiked) {
       next.delete(video.id);
@@ -464,6 +512,7 @@ export default function VideoPage() {
       return { ...item, likeCount: Math.max(0, item.likeCount + (wasLiked ? -1 : 1)) };
     }));
     publicApi.toggleVideoLike(video.id).then((result) => {
+      if (!mountedRef.current || likeRequestVersions.get(video.id) !== requestVersion) return;
       if (typeof result?.liked === 'boolean') {
         setLikedIds((current) => {
           const synced = new Set(current);
@@ -483,30 +532,31 @@ export default function VideoPage() {
     }).catch(() => undefined);
   }
 
-  async function shareVideo(video: any) {
-    const url = `${window.location.origin}/video?watch=${encodeURIComponent(video.id)}`;
-    if (navigator.share) {
-      await navigator.share({ title: video.title || 'Video', url }).catch(() => undefined);
-      return;
-    }
-    await navigator.clipboard?.writeText(url);
-  }
-
   async function loadMoreVideos() {
-    if (loadingMore || !hasMoreVideos) return;
+    if (loadMoreInFlightRef.current || !hasMoreVideos) return;
+    loadMoreInFlightRef.current = true;
     setLoadingMore(true);
-    const nextPage = videoPage + 1;
+    const nextPage = videoPageRef.current + 1;
     try {
       const data = await publicApi.listVideosPage({ page: nextPage, limit: VIDEO_PAGE_LIMIT });
+      if (!mountedRef.current) return;
       const items = Array.isArray(data) ? data : data.items || [];
       setVideos((current) => {
         const seen = new Set(current.map((item) => item.id));
         return [...current, ...items.filter((item: any) => !seen.has(item.id))];
       });
-      setVideoPage(Number(data.page || nextPage));
+      setLikedIds((current) => {
+        const nextLikedIds = new Set(current);
+        for (const item of items) {
+          if (localStorage.getItem(videoKey(item)) === '1') nextLikedIds.add(item.id);
+        }
+        return nextLikedIds;
+      });
+      videoPageRef.current = Number(data.page || nextPage);
       setHasMoreVideos(Boolean(data.hasMore));
     } finally {
-      setLoadingMore(false);
+      loadMoreInFlightRef.current = false;
+      if (mountedRef.current) setLoadingMore(false);
     }
   }
 
@@ -550,7 +600,7 @@ export default function VideoPage() {
           </button>
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {availableTabs.map((category) => (
-              <button
+              <button type="button"
                 key={category}
                 onClick={() => setActiveTab(category)}
                 className={`h-9 shrink-0 whitespace-nowrap rounded-lg px-3 text-xs font-bold transition-colors sm:rounded-md sm:px-4 sm:text-sm ${

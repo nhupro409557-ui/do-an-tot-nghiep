@@ -1,18 +1,36 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { adminBrandsApi } from '../../admin-brands/services/adminBrandsApi';
 import { ProductCard } from '../components/ProductCard';
 
+type BrandLandingState = {
+  brand: any | null;
+  products: any[];
+  pagination: { page: number; limit: number; total: number };
+  loading: boolean;
+};
+
+const initialBrandLandingState: BrandLandingState = {
+  brand: null,
+  products: [],
+  pagination: { page: 1, limit: 24, total: 0 },
+  loading: true,
+};
+
+function mergeBrandLandingState(state: BrandLandingState, patch: Partial<BrandLandingState>): BrandLandingState {
+  return { ...state, ...patch };
+}
+
 export default function BrandLandingPage() {
   const { slug = '' } = useParams();
-  const [brand, setBrand] = useState<any | null>(null);
-  const [products, setProducts] = useState<any[]>([]);
-  const [pagination, setPagination] = useState({ page: 1, limit: 24, total: 0 });
-  const [loading, setLoading] = useState(true);
+  const [{ brand, products, pagination, loading }, setPageState] = useReducer(
+    mergeBrandLandingState,
+    initialBrandLandingState,
+  );
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
+    setPageState({ loading: true });
     adminBrandsApi.getBrandLanding(slug, { page: pagination.page, limit: pagination.limit })
       .then((data) => {
         if (!mounted) return;
@@ -20,15 +38,17 @@ export default function BrandLandingPage() {
           window.location.replace(`/brands/${data.redirectTo}`);
           return;
         }
-        setBrand(data.brand);
-        setProducts(data.products || []);
-        setPagination(data.pagination || { page: 1, limit: 24, total: 0 });
+        setPageState({
+          brand: data.brand,
+          products: data.products || [],
+          pagination: data.pagination || { page: 1, limit: 24, total: 0 },
+        });
       })
-      .finally(() => mounted && setLoading(false));
+      .finally(() => mounted && setPageState({ loading: false }));
     return () => {
       mounted = false;
     };
-  }, [slug, pagination.page]);
+  }, [slug, pagination.limit, pagination.page]);
 
   useEffect(() => {
     if (!brand) return;
@@ -80,8 +100,8 @@ export default function BrandLandingPage() {
         {!products.length && <div className="rounded-lg border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">Chưa có sản phẩm đang hiển thị cho thương hiệu này.</div>}
         {pagination.total > pagination.limit && (
           <div className="mt-6 flex justify-center gap-2">
-            <button type="button" disabled={pagination.page <= 1} onClick={() => setPagination((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) }))} className="rounded-md border border-slate-200 px-4 py-2 text-sm disabled:opacity-40">Trước</button>
-            <button type="button" disabled={pagination.page * pagination.limit >= pagination.total} onClick={() => setPagination((prev) => ({ ...prev, page: prev.page + 1 }))} className="rounded-md border border-slate-200 px-4 py-2 text-sm disabled:opacity-40">Sau</button>
+            <button type="button" disabled={pagination.page <= 1} onClick={() => setPageState({ pagination: { ...pagination, page: Math.max(1, pagination.page - 1) } })} className="rounded-md border border-slate-200 px-4 py-2 text-sm disabled:opacity-40">Trước</button>
+            <button type="button" disabled={pagination.page * pagination.limit >= pagination.total} onClick={() => setPageState({ pagination: { ...pagination, page: pagination.page + 1 } })} className="rounded-md border border-slate-200 px-4 py-2 text-sm disabled:opacity-40">Sau</button>
           </div>
         )}
       </section>

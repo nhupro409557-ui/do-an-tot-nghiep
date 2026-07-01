@@ -30,6 +30,14 @@ type NewWard = {
 
 const NEW_ADDRESS_DATA_URL = 'https://raw.githubusercontent.com/phucanhle/vn-xaphuong-2025/main/danhmucxaphuong.json';
 
+function normalizeText(text: string) {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd');
+}
+
 export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
   const [provinces, setProvinces] = useState<NewProvince[]>([]);
   const [wardSearch, setWardSearch] = useState('');
@@ -37,12 +45,16 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
   const wardDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let active = true;
     fetch(NEW_ADDRESS_DATA_URL)
       .then(res => res.json())
       .then(data => {
-        if (Array.isArray(data)) setProvinces(data);
+        if (active && Array.isArray(data)) setProvinces(data);
       })
       .catch(console.error);
+    return () => {
+      active = false;
+    };
   }, []);
 
   const wards = useMemo(() => {
@@ -84,13 +96,6 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
 
     onChange(nextData);
   };
-
-  const normalizeText = (text: string) =>
-    text
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/đ/g, 'd');
 
   const filteredWards = wardSearch.trim()
     ? wards.filter(ward => normalizeText(ward.tenphuongxa).includes(normalizeText(wardSearch.trim())))
@@ -137,7 +142,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
             <div className="absolute z-50 mt-2 w-full rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden">
               <div className="p-2 border-b border-gray-100">
                 <input
-                  autoFocus
+                  aria-label="Tìm phường xã"
                   value={wardSearch}
                   onChange={(event) => setWardSearch(event.target.value)}
                   placeholder="Tìm nhanh phường/xã"
@@ -170,6 +175,7 @@ export function VietnamAddressSelector({ value, onChange, disabled }: Props) {
       </div>
 
       <input
+        aria-label="Địa chỉ đường và số nhà"
         disabled={disabled}
         required
         value={value.street}

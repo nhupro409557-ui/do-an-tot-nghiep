@@ -35,6 +35,7 @@ export function ProductSpecsTable({ specs }: ProductSpecsTableProps) {
         </div>
         <div className="border-t border-gray-100 p-3">
           <button
+            type="button"
             onClick={() => setShowAllSpecs(true)}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary bg-white py-2.5 text-sm font-bold text-primary hover:bg-red-50 cursor-pointer"
           >
@@ -106,6 +107,7 @@ export function SpecsModal({
         <div className="shrink-0 flex items-center justify-between border-b border-gray-200 px-5 py-4">
           <h2 className="text-xl font-bold text-gray-900">Thông số kỹ thuật</h2>
           <button
+            type="button"
             onClick={onClose}
             className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
             aria-label="Đóng thông số kỹ thuật"
@@ -118,6 +120,7 @@ export function SpecsModal({
           <div className="shrink-0 border-b border-gray-200 px-5">
             <div className="flex max-w-full gap-5 overflow-x-auto overflow-y-hidden pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <button
+                type="button"
                 onClick={() => scrollToGroup('all')}
                 className={`shrink-0 border-b-2 py-3 text-sm font-bold cursor-pointer ${activeGroup === 'all' ? 'border-primary text-primary' : 'border-transparent text-gray-500'}`}
               >
@@ -125,6 +128,7 @@ export function SpecsModal({
               </button>
               {groups.map((group) => (
                 <button
+                  type="button"
                   key={group.title}
                   onClick={() => scrollToGroup(group.title)}
                   className={`shrink-0 border-b-2 py-3 text-sm font-bold cursor-pointer ${activeGroup === group.title ? 'border-primary text-primary' : 'border-transparent text-gray-500'}`}

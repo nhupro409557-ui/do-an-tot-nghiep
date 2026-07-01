@@ -1,5 +1,40 @@
 import { X } from 'lucide-react';
 
+const userStatusLabels: Record<string, string> = {
+  ACTIVE: 'Hoạt động',
+  SUSPENDED: 'Đang khóa',
+  INACTIVE: 'Ngưng hoạt động',
+  PENDING: 'Chờ kích hoạt',
+};
+
+const walletStatusLabels: Record<string, string> = {
+  ACTIVE: 'Hoạt động',
+  SUSPENDED: 'Tạm khóa',
+  CLOSED: 'Đã đóng',
+};
+
+const orderStatusLabels: Record<string, string> = {
+  PENDING: 'Chờ xử lý',
+  PROCESSING: 'Đang đóng gói',
+  SHIPPED: 'Đang giao',
+  COMPLETED: 'Đã giao',
+  CANCELLED: 'Đã hủy',
+  REFUNDED: 'Đã hoàn tiền',
+  PAYMENT_FAILED: 'Thanh toán thất bại',
+  RETURNING: 'Đang hoàn hàng',
+  RETURNED: 'Đã nhận hàng hoàn',
+};
+
+const paymentStatusLabels: Record<string, string> = {
+  UNPAID: 'Chưa thanh toán',
+  PAID: 'Đã thanh toán',
+  FAILED: 'Thanh toán thất bại',
+  PENDING: 'Đang chờ thanh toán',
+  EXPIRED: 'Đã hết hạn',
+  REFUNDED: 'Đã hoàn tiền',
+  PENDING_PAYMENT: 'Chờ thanh toán',
+};
+
 type CustomerSection = 'summary' | 'orders' | 'loyalty' | 'notes' | 'audit';
 
 type CustomerDetailModalProps = {
@@ -116,7 +151,7 @@ export default function CustomerDetailModal(props: CustomerDetailModalProps) {
                   <section className="rounded-lg border border-slate-200 p-4">
                     <h4 className="text-sm font-bold text-slate-900">Thông tin tài khoản</h4>
                     <dl className="mt-4 grid gap-4 md:grid-cols-2">
-                      {[['Họ và tên', customer.fullName], ['Email', customer.email], ['Điện thoại', customer.phone], ['Vai trò', customer.role], ['Trạng thái', customer.status], ['Hạng thành viên', customer.tier], ['Trạng thái ví điểm', customer.walletStatus], ['Ngày tạo', formatDate(customer.createdAt)], ['Cập nhật gần nhất', formatDate(customer.updatedAt)], ['Tổng điểm đã nhận', customer.totalPointsEarned ?? 0], ['Tổng điểm đã dùng', customer.totalPointsUsed ?? 0], ['Số ghi chú', customer.noteCount ?? 0]].map(([label, value]) => <div key={String(label)}><dt className="text-xs font-bold uppercase text-slate-400">{label}</dt><dd className="mt-1 break-words text-sm font-semibold text-slate-800">{value === null || value === undefined || value === '' ? '-' : String(value)}</dd></div>)}
+                      {[['Họ và tên', customer.fullName], ['Email', customer.email], ['Điện thoại', customer.phone], ['Vai trò', customer.role], ['Trạng thái', userStatusLabels[customer.status] || customer.status], ['Hạng thành viên', customer.tier], ['Trạng thái ví điểm', walletStatusLabels[customer.walletStatus] || customer.walletStatus], ['Ngày tạo', formatDate(customer.createdAt)], ['Cập nhật gần nhất', formatDate(customer.updatedAt)], ['Tổng điểm đã nhận', customer.totalPointsEarned ?? 0], ['Tổng điểm đã dùng', customer.totalPointsUsed ?? 0], ['Số ghi chú', customer.noteCount ?? 0]].map(([label, value]) => <div key={String(label)}><dt className="text-xs font-bold uppercase text-slate-400">{label}</dt><dd className="mt-1 break-words text-sm font-semibold text-slate-800">{value === null || value === undefined || value === '' ? '-' : String(value)}</dd></div>)}
                     </dl>
                   </section>
                   <section className="rounded-lg border border-slate-200 p-4">
@@ -140,9 +175,9 @@ export default function CustomerDetailModal(props: CustomerDetailModalProps) {
                       <label className="block">
                         <span className="text-xs font-bold uppercase text-slate-500">Trạng thái ví điểm</span>
                         <select disabled={!canUpdateProfile} value={profileDraft.walletStatus} onChange={(event) => onProfileDraftChange({ ...profileDraft, walletStatus: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-500 disabled:bg-slate-100">
-                          <option value="ACTIVE">ACTIVE</option>
-                          <option value="SUSPENDED">SUSPENDED</option>
-                          <option value="CLOSED">CLOSED</option>
+                          <option value="ACTIVE">Hoạt động</option>
+                          <option value="SUSPENDED">Tạm khóa</option>
+                          <option value="CLOSED">Đã đóng</option>
                         </select>
                       </label>
                     </div>
@@ -159,7 +194,7 @@ export default function CustomerDetailModal(props: CustomerDetailModalProps) {
                 </div>
               )}
 
-              {activeSection === 'orders' && <Table headers={['Mã đơn', 'Trạng thái', 'Thanh toán', 'Tổng tiền', 'Điểm nhận/dùng', 'Ngày tạo']}>{orders.length === 0 ? <EmptyRow colSpan={6} text="Chưa có đơn hàng." /> : orders.map((order) => <tr key={order.id}><td className="px-4 py-3 font-mono text-xs">{order.orderCode}</td><td className="px-4 py-3">{order.status}</td><td className="px-4 py-3">{order.paymentStatus || order.paymentMethod || '-'}</td><td className="px-4 py-3 font-semibold">{currency.format(Number(order.totalAmount || 0))}</td><td className="px-4 py-3">{order.pointsEarned || 0} / {order.pointsUsed || 0}</td><td className="px-4 py-3">{formatDate(order.createdAt)}</td></tr>)}</Table>}
+              {activeSection === 'orders' && <Table headers={['Mã đơn', 'Trạng thái', 'Thanh toán', 'Tổng tiền', 'Điểm nhận/dùng', 'Ngày tạo']}>{orders.length === 0 ? <EmptyRow colSpan={6} text="Chưa có đơn hàng." /> : orders.map((order) => <tr key={order.id}><td className="px-4 py-3 font-mono text-xs">{order.orderCode}</td><td className="px-4 py-3">{orderStatusLabels[order.status] || order.status}</td><td className="px-4 py-3">{paymentStatusLabels[order.paymentStatus || ''] || order.paymentMethod || '-'}</td><td className="px-4 py-3 font-semibold">{currency.format(Number(order.totalAmount || 0))}</td><td className="px-4 py-3">{order.pointsEarned || 0} / {order.pointsUsed || 0}</td><td className="px-4 py-3">{formatDate(order.createdAt)}</td></tr>)}</Table>}
 
               {activeSection === 'loyalty' && (
                 <div className="space-y-4">

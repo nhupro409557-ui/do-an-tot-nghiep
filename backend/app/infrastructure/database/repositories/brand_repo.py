@@ -221,7 +221,6 @@ async def list_admin_brands(session: AsyncSession, *, page: int, limit: int, sea
                 b.landing_title AS "landingTitle",
                 b.sort_order AS "order",
                 b.is_active AS "isActive",
-                b.created_at AS "createdAt",
                 b.updated_at AS "updatedAt",
                 COUNT(DISTINCT p.id) AS "productCount",
                 COALESCE(

@@ -12,10 +12,12 @@ import { FlashSaleCountdown } from './FlashSaleCountdown';
 
 export const FlashSale = () => {
   const [flashSaleProducts, setFlashSaleProducts] = useState<any[]>([]);
-  const nearestEndTime = flashSaleProducts
-    .map((product) => product.flashSale?.endsAt)
-    .filter(Boolean)
-    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0];
+  const nearestEndTime = flashSaleProducts.reduce<string | undefined>((nearest, product) => {
+    const endsAt = product.flashSale?.endsAt;
+    if (!endsAt) return nearest;
+    if (!nearest) return endsAt;
+    return new Date(endsAt).getTime() < new Date(nearest).getTime() ? endsAt : nearest;
+  }, undefined);
 
   useEffect(() => {
     publicApi.listProducts({ flashSale: true, limit: 12 })

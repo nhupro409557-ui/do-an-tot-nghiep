@@ -109,6 +109,8 @@ async def list_admin_products(
                     "fixedPrice": service["fixed_price"],
                     "percentValue": service["percent_value"],
                     "baseAmount": service["base_amount"],
+                    "overridePrice": service["override_price"],
+                    "metadata": service["metadata"] if isinstance(service["metadata"], dict) else {},
                 }
             )
         bundles: dict[str, list[str]] = {}
@@ -143,6 +145,25 @@ async def list_admin_products(
                     continue
                 product_id = str(offer.get("productId") or "")
                 accessory_meta = resolved_accessory_by_id.get(product_id, {})
+                original_price = float(accessory_meta.get("price") or 0)
+                normal_discount_price = float(
+                    accessory_meta.get("salePrice")
+                    or accessory_meta.get("discountPrice")
+                    or original_price
+                    or 0
+                )
+                configured_price = float(offer.get("price") or 0)
+                discount_type = str(offer.get("discountType") or "").upper()
+                discount_value = float(offer.get("discountValue") or 0)
+                if configured_price > 0:
+                    offer_price = configured_price
+                elif discount_type == "PERCENT":
+                    offer_price = max(0, round(normal_discount_price * (1 - discount_value / 100)))
+                elif discount_type in {"FIXED", "AMOUNT", "FIXED_AMOUNT"}:
+                    offer_price = max(0, round(normal_discount_price - discount_value))
+                else:
+                    offer_price = round(normal_discount_price)
+                stock_quantity = int(accessory_meta.get("stock_quantity") or 0)
                 accessory_offers.append(
                     {
                         **offer,
@@ -150,6 +171,13 @@ async def list_admin_products(
                         "productName": accessory_meta.get("name", ""),
                         "productSku": accessory_meta.get("sku", ""),
                         "imageUrl": accessory_meta.get("imageUrl", ""),
+                        "price": offer_price,
+                        "salePrice": normal_discount_price,
+                        "discountPrice": normal_discount_price,
+                        "originalPrice": original_price,
+                        "normalDiscountPrice": normal_discount_price,
+                        "stockQuantity": stock_quantity,
+                        "isSellable": accessory_meta.get("status") == "ACTIVE" and stock_quantity > 0,
                     }
                 )
             item["salesConfig"] = {

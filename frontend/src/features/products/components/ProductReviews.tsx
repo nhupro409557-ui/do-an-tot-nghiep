@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
 import { Pencil, Star, Trash2 } from 'lucide-react';
 import { publicApi } from '../../../services/publicApi';
 import { useAuth } from '../../../context/AuthContext';
@@ -15,6 +15,8 @@ interface Review {
   shopRepliedAt?: string;
   orderOutcome?: string;
 }
+
+const ratingStars = [1, 2, 3, 4, 5];
 
 export function ProductReviews({ productId }: { productId: string }) {
   const { user } = useAuth();
@@ -33,13 +35,13 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
   const [submitSuccess, setSubmitSuccess] = useState('');
   const [editingReviewId, setEditingReviewId] = useState<string | null>(null);
 
-  const applyExistingReview = (existingReview: any) => {
+  const applyExistingReview = useCallback((existingReview: any) => {
     if (!existingReview) return;
     setEditingReviewId(existingReview.id || null);
     setNewReview(existingReview.comment || '');
     setRating(Number(existingReview.rating || 5));
     setMediaInput(Array.isArray(existingReview.mediaUrls) ? existingReview.mediaUrls.join('\n') : '');
-  };
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -72,7 +74,7 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [productId]);
 
   useEffect(() => {
     if (!user) return;
@@ -87,13 +89,13 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
         if (!isActive) return;
         setEligibility({
           canReview: false,
-          message: 'Kh?ng th? ki?m tra quy?n ??nh gi? l?c n?y.',
+          message: 'Không thể kiểm tra quyền đánh giá lúc này.',
         });
       });
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [applyExistingReview, productId, user]);
 
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -106,7 +108,10 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
     }
 
     const userName = user?.displayName || user?.email || 'Khách hàng';
-    const mediaUrls = mediaInput.split('\n').map((item) => item.trim()).filter(Boolean);
+    const mediaUrls = mediaInput.split('\n').flatMap((item) => {
+      const trimmedUrl = item.trim();
+      return trimmedUrl ? [trimmedUrl] : [];
+    });
     setSubmitting(true);
     setSubmitError('');
     setSubmitSuccess('');
@@ -202,7 +207,7 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
           <div className="mb-3 flex items-center gap-2">
             <span className="text-sm font-semibold">Đánh giá của bạn:</span>
             <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map((star) => (
+              {ratingStars.map((star) => (
                 <Star
                   key={star}
                   className={`h-5 w-5 cursor-pointer ${star <= rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
@@ -212,12 +217,14 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
             </div>
           </div>
           <textarea
+            aria-label="Nhập nhận xét về sản phẩm"
             placeholder="Nhập nhận xét của bạn về sản phẩm này..."
             className="mb-3 min-h-[100px] w-full rounded-lg border border-gray-300 p-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
             value={newReview}
             onChange={(event) => setNewReview(event.target.value)}
           />
           <textarea
+            aria-label="Link ảnh hoặc video đánh giá"
             placeholder="Tùy chọn: dán link ảnh/video, mỗi dòng một URL"
             className="mb-3 min-h-[88px] w-full rounded-lg border border-gray-300 p-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
             value={mediaInput}
@@ -242,9 +249,10 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
       <div className="space-y-4">
         {loading && <div className="text-sm text-gray-400">Đang tải đánh giá...</div>}
         {!loading && reviews.length === 0 && <div className="text-sm text-gray-400">Chưa có đánh giá nào cho sản phẩm này.</div>}
-        <AnimatePresence>
-          {reviews.map((review) => (
-            <motion.div
+        <LazyMotion features={domAnimation}>
+          <AnimatePresence>
+            {reviews.map((review) => (
+              <m.div
               key={review.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -261,8 +269,8 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
                   </div>
                 </div>
                 <div className="flex gap-0.5">
-                  {[...Array(5)].map((_, index) => (
-                    <Star key={index} className={`h-3.5 w-3.5 ${index < review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`} />
+                  {ratingStars.map((star) => (
+                    <Star key={`${review.id}-star-${star}`} className={`h-3.5 w-3.5 ${star <= review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`} />
                   ))}
                 </div>
               </div>
@@ -277,8 +285,8 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
                   {review.mediaUrls.map((url) => {
                     const isVideo = /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url);
                     return isVideo ? (
-                      <video key={url} controls className="h-28 w-full rounded-lg border border-gray-200 bg-black object-cover">
-                        <source src={url} />
+                      <video key={url} aria-label="Video đính kèm đánh giá" src={url} controls className="h-28 w-full rounded-lg border border-gray-200 bg-black object-cover">
+                        <track kind="captions" />
                       </video>
                     ) : (
                       <img key={url} src={url} alt="Đính kèm đánh giá" className="h-28 w-full rounded-lg border border-gray-200 object-cover" />
@@ -299,9 +307,10 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
                   Đây là đánh giá của bạn
                 </div>
               )}
-            </motion.div>
-          ))}
-        </AnimatePresence>
+              </m.div>
+            ))}
+          </AnimatePresence>
+        </LazyMotion>
       </div>
     </div>
   );

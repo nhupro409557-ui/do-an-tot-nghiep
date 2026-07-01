@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ChevronDown, ChevronUp, Shield, Database, Lock, EyeOff, UserCheck, 
-  CreditCard, Clock, FileText, AlertTriangle, UserX, Activity, Share2, 
+  ChevronDown, ChevronUp, Shield, Database, Lock, EyeOff, UserCheck,
+  CreditCard, Clock, FileText, AlertTriangle, UserX, Activity, Share2,
   Server, Key, HelpCircle, FileCheck, ShieldAlert, ArrowRight
 } from 'lucide-react';
 
@@ -20,8 +20,8 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 bg-white">
-          {rows.map((row, i) => (
-            <tr key={i} className="transition-colors hover:bg-slate-50/60">
+          {rows.map((row) => (
+            <tr key={row.join('\u001f')} className="transition-colors hover:bg-slate-50/60">
               {row.map((cell, j) => (
                 <td
                   key={j}
@@ -52,8 +52,8 @@ function Note({ children }: { children: React.ReactNode }) {
 function BulletList({ items }: { items: string[] }) {
   return (
     <ul className="space-y-1.5 text-sm text-slate-600">
-      {items.map((item, i) => (
-        <li key={i} className="flex items-start gap-2 leading-relaxed">
+      {items.map((item) => (
+        <li key={item} className="flex items-start gap-2 leading-relaxed">
           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
           {item}
         </li>
@@ -70,11 +70,7 @@ interface Section {
   content: React.ReactNode;
 }
 
-export default function PrivacyPage() {
-  const [expanded, setExpanded] = useState<string | null>('pr-1');
-  const toggle = (id: string) => setExpanded((p) => (p === id ? null : id));
-
-  const sections: Section[] = [
+const PRIVACY_PAGE_SECTIONS: Section[] = [
     {
       id: 'pr-1',
       number: '1',
@@ -425,6 +421,11 @@ export default function PrivacyPage() {
     },
   ];
 
+
+export default function PrivacyPage() {
+  const [expanded, setExpanded] = useState<string | null>('pr-1');
+  const toggle = (id: string) => setExpanded((p) => (p === id ? null : id));
+
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Banner */}
@@ -480,7 +481,7 @@ export default function PrivacyPage() {
       {/* Content */}
       <div className="mx-auto max-w-5xl px-4 py-10 lg:px-6">
         <div className="space-y-3">
-          {sections.map((section) => {
+          {PRIVACY_PAGE_SECTIONS.map((section) => {
             const isOpen = expanded === section.id;
             return (
               <div
@@ -491,7 +492,7 @@ export default function PrivacyPage() {
                     : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
                 }`}
               >
-                <button
+                <button type="button"
                   id={`pr-section-${section.number}`}
                   onClick={() => toggle(section.id)}
                   className="flex w-full items-center gap-4 px-5 py-4 text-left"

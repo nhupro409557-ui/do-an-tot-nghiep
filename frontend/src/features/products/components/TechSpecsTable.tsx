@@ -38,7 +38,7 @@ export function TechSpecsTable({ specs }: TechSpecsTableProps) {
             <div className="divide-y divide-gray-100">
               {group.specs.map((spec, index) => (
                 <div
-                  key={`${group.title}-${index}`}
+                  key={`${group.title}-${spec.label}-${spec.value}`}
                   className={`grid grid-cols-[38%_1fr] gap-3 px-4 py-3 text-sm ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/70'}`}
                 >
                   <span className="font-medium text-gray-500">{spec.label}</span>

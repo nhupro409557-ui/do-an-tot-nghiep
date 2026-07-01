@@ -3,6 +3,7 @@ import { Swiper, SwiperSlide } from 'swiper/react';
 import { Mousewheel } from 'swiper/modules';
 import { Check, Heart, MessageCircle, Pause, Play, Send, Share2, Volume2, VolumeX, X, ShoppingBag } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../../context/AuthContext';
 import { publicApi } from '../../../services/publicApi';
 import 'swiper/css';
 
@@ -20,6 +21,10 @@ const VIDEO_MUTED_KEY = 'video_reels_muted';
 function initialMutedPreference() {
   if (typeof window === 'undefined') return true;
   return localStorage.getItem(VIDEO_MUTED_KEY) !== '0';
+}
+
+function rememberPosition(videoId: string, currentTime: number) {
+  sessionStorage.setItem(`video_pos_${videoId}`, String(Math.floor(currentTime)));
 }
 
 function mediaPoster(video: any) {
@@ -58,10 +63,28 @@ function inferCategory(video: any) {
 function youtubeEmbedUrl(video: any) {
   const url = String(video?.embedUrl || video?.videoUrl || '');
   if (!url) return '';
-  if (url.includes('youtube.com/embed/')) return url;
-  if (url.includes('youtu.be/')) return `https://www.youtube.com/embed/${url.split('youtu.be/')[1].split(/[/?&]/)[0]}`;
-  if (url.includes('youtube.com/shorts/')) return `https://www.youtube.com/embed/${url.split('youtube.com/shorts/')[1].split(/[/?&]/)[0]}`;
-  if (url.includes('youtube.com/watch') && url.includes('v=')) return `https://www.youtube.com/embed/${url.split('v=')[1].split('&')[0]}`;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, '');
+    if (host === 'youtube.com' && parsed.pathname.startsWith('/embed/')) {
+      const id = parsed.pathname.split('/embed/')[1]?.split('/')[0] || '';
+      return id ? `https://www.youtube.com/embed/${encodeURIComponent(id)}` : '';
+    }
+    if (host === 'youtu.be') {
+      const id = parsed.pathname.replace(/^\//, '').split('/')[0] || '';
+      return id ? `https://www.youtube.com/embed/${encodeURIComponent(id)}` : '';
+    }
+    if (host === 'youtube.com' && parsed.pathname.startsWith('/shorts/')) {
+      const id = parsed.pathname.split('/shorts/')[1]?.split('/')[0] || '';
+      return id ? `https://www.youtube.com/embed/${encodeURIComponent(id)}` : '';
+    }
+    if (host === 'youtube.com' && parsed.pathname === '/watch') {
+      const id = parsed.searchParams.get('v') || '';
+      return id ? `https://www.youtube.com/embed/${encodeURIComponent(id)}` : '';
+    }
+  } catch {
+    return '';
+  }
   return '';
 }
 
@@ -111,13 +134,7 @@ function ReelsMedia({
   const [canLoadVideo, setCanLoadVideo] = useState(false);
 
   useEffect(() => {
-    setPosterReady(!poster);
-    setCanLoadVideo(false);
-  }, [poster, video.id]);
-
-  useEffect(() => {
     if (!active) {
-      setCanLoadVideo(false);
       return;
     }
     if (!posterReady) {
@@ -129,6 +146,8 @@ function ReelsMedia({
   }, [active, posterReady]);
 
   if (youtubeUrl) {
+    const playerUrl = active && canLoadVideo ? youtubePlayerUrl(video, true, muted) : '';
+    const canRenderPlayer = playerUrl.startsWith('https://www.youtube.com/embed/');
     return (
       <>
         {poster && (
@@ -139,12 +158,14 @@ function ReelsMedia({
             onLoad={() => setPosterReady(true)}
           />
         )}
-        {active && canLoadVideo ? (
+        {canRenderPlayer ? (
+          // react-doctor-disable-next-line react-doctor/clickjacking-redirect-risk -- youtube URLs are allowlisted to https://www.youtube.com/embed/ and sandboxed.
           <iframe
-            src={youtubePlayerUrl(video, true, muted)}
+            src={playerUrl}
             title={video.title || 'Video'}
             className="pointer-events-none relative z-0 h-full w-full bg-black"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            sandbox="allow-scripts allow-presentation allow-popups"
             allowFullScreen
           />
         ) : !poster ? (
@@ -176,6 +197,7 @@ function ReelsMedia({
       )}
       {active && canLoadVideo ? (
         <video
+          aria-label={video.title || 'Video reels'}
           ref={(el) => {
             if (el) videoRefs.current.set(index, el);
             else videoRefs.current.delete(index);
@@ -191,7 +213,9 @@ function ReelsMedia({
           onClick={onTogglePlay}
           onLoadedMetadata={(event) => onLoadedMetadata(event, index, video)}
           onTimeUpdate={(event) => onTimeUpdate(event, index, video)}
-        />
+        >
+          <track kind="captions" />
+        </video>
       ) : !poster ? (
         <div className="flex h-full w-full items-center justify-center bg-zinc-900 p-6 text-center text-sm font-semibold text-white/70">
           Đang chuẩn bị video...
@@ -217,6 +241,7 @@ export default function ReelsModal({ isOpen, playlist, initialIndex = 0, onClose
 }
 
 function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onToggleLike }: Omit<ReelsModalProps, 'isOpen'>) {
+  const { user } = useAuth();
   const [muted, setMuted] = useState(initialMutedPreference);
   const [paused, setPaused] = useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -229,7 +254,8 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
   const [videoDurations, setVideoDurations] = useState<Record<number, number>>({});
   const [localComments, setLocalComments] = useState<Record<string, any[]>>({});
   const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
-  const videoRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
+  const videoElements = useMemo(() => new Map<number, HTMLVideoElement>(), []);
+  const videoRefs = useRef<Map<number, HTMLVideoElement>>(videoElements);
 
   const currentVideo = playlist[activeIdx] || null;
   const commentCount = (currentVideo?.commentCount || currentVideo?.comments?.length || 0) + (currentVideo?.id ? (localComments[currentVideo.id] || []).length : 0);
@@ -339,12 +365,12 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
     next?.play().catch(() => undefined);
   }, []);
 
-  function rememberPosition(videoId: string, currentTime: number) {
-    sessionStorage.setItem(`video_pos_${videoId}`, String(Math.floor(currentTime)));
-  }
-
   function handleSubmitComment(event: React.FormEvent) {
     event.preventDefault();
+    if (!user) {
+      window.alert('Vui lòng đăng nhập để gửi bình luận.');
+      return;
+    }
     const content = commentText.trim();
     if (!content || !currentVideo?.id) return;
     const parentId = replyTarget?.parentId || replyTarget?.id || null;
@@ -363,7 +389,7 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 px-3 py-4 backdrop-blur-sm">
-      <button
+      <button type="button"
         onClick={toggleMuted}
         className="absolute left-4 top-4 z-[60] flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white shadow-lg backdrop-blur-md transition duration-300 hover:bg-black/60 hover:scale-105 active:scale-95"
         title={muted ? 'Bật âm thanh' : 'Tắt âm thanh'}
@@ -371,7 +397,7 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
         {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
       </button>
 
-      <button
+      <button type="button"
         onClick={onClose}
         className="absolute right-4 top-4 z-[60] flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-black/40 text-white shadow-lg backdrop-blur-md transition duration-300 hover:bg-black/60 hover:scale-105 hover:rotate-90 active:scale-95"
         aria-label="Đóng"
@@ -401,6 +427,7 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
               )}
 
               <ReelsMedia
+                key={`${video.id || index}-${index === activeIdx ? 'active' : 'idle'}-${mediaPoster(video)}`}
                 video={video}
                 index={index}
                 active={index === activeIdx}
@@ -573,7 +600,7 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
           <div className="flex h-full flex-col">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 bg-zinc-950/40">
               <h4 className="text-sm font-bold tracking-wide">Bình luận ({commentCount})</h4>
-              <button onClick={() => setShowComments(false)} className="rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white" aria-label="Đóng bình luận">
+              <button type="button" onClick={() => setShowComments(false)} className="rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white" aria-label="Đóng bình luận">
                 <X className="h-4.5 w-4.5" />
               </button>
             </div>
@@ -656,6 +683,7 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
               )}
               <div className="flex items-center gap-2">
                 <input
+                  aria-label={replyTarget ? `Trả lời @${replyTarget.userName}` : 'Viết bình luận reels'}
                   value={commentText}
                   onChange={(event) => setCommentText(event.target.value)}
                   placeholder={replyTarget ? `Trả lời @${replyTarget.userName}...` : "Viết bình luận..."}

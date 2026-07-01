@@ -23,6 +23,22 @@ class UpdateAfterSalesStatusRequest(BaseModel):
     customer_fault: bool = False
     replacement_imei: str | None = Field(default=None, max_length=80)
     shipping_deduction: float = Field(default=0, ge=0)
+    depreciation_fee: float = Field(default=0, ge=0)
+    repair_diagnosis: str | None = Field(default=None, max_length=2000)
+    repair_action: str | None = Field(default=None, max_length=2000)
+    repair_parts: str | None = Field(default=None, max_length=2000)
+    repair_cost: float = Field(default=0, ge=0)
+
+
+class InspectAfterSalesRequest(BaseModel):
+    result: str
+    qc_note: str = Field(min_length=10, max_length=4000)
+    customer_fault: bool = False
+    depreciation_fee: float = Field(default=0, ge=0)
+
+
+class AfterSalesTimelineNoteRequest(BaseModel):
+    note: str = Field(min_length=3, max_length=4000)
 
 
 class ImeiDispositionRequest(BaseModel):

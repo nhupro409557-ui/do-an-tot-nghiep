@@ -1,5 +1,4 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { motion } from 'motion/react';
 import { useAuth } from '../../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { publicApi } from '../../../services/publicApi';
@@ -10,6 +9,34 @@ const LoyaltyBadge3D = lazy(() =>
   import('../../loyalty/components/LoyaltyBadge3D').then(module => ({ default: module.LoyaltyBadge3D })),
 );
 
+function getNextTierInfo(points: number) {
+  if (points < 3000) {
+    return { nextTier: 'S-Mem', needed: 3000 - points, percentage: (points / 3000) * 100 };
+  }
+  if (points < 15000) {
+    return { nextTier: 'S-Vip', needed: 15000 - points, percentage: ((points - 3000) / 12000) * 100 };
+  }
+  return { nextTier: 'Tối đa', needed: 0, percentage: 100 };
+}
+
+function getTierGradient(tier: string) {
+  switch (tier) {
+    case 'S-Mem': return 'from-gray-300 to-gray-500 text-gray-900';
+    case 'S-Vip': return 'from-gray-800 to-black text-white border border-gray-700';
+    case 'S-New':
+    default: return 'from-yellow-400 to-yellow-600 text-white';
+  }
+}
+
+function getTierDisplayName(tier: string) {
+  switch (tier) {
+    case 'S-Vip': return 'VIP';
+    case 'S-Mem': return 'MEMBER';
+    case 'S-New':
+    default: return 'NEW';
+  }
+}
+
 export default function LoyaltyRewardsPage() {
   const { user, userData } = useAuth();
   const navigate = useNavigate();
@@ -18,17 +45,6 @@ export default function LoyaltyRewardsPage() {
   const currentPoints = userData?.points ?? 0;
   const currentTier = userData?.tier ?? 'S-New';
   const displayName = user?.displayName || user?.email?.split('@')[0] || 'Khách hàng';
-
-  // Tính toán tier tiếp theo dựa trên điểm thực tế
-  const getNextTierInfo = (points: number) => {
-    if (points < 3000) {
-      return { nextTier: 'S-Mem', needed: 3000 - points, percentage: (points / 3000) * 100 };
-    } else if (points < 15000) {
-      return { nextTier: 'S-Vip', needed: 15000 - points, percentage: ((points - 3000) / 12000) * 100 };
-    } else {
-      return { nextTier: 'Tối đa', needed: 0, percentage: 100 };
-    }
-  };
 
   const nextTierInfo = getNextTierInfo(currentPoints);
 
@@ -43,26 +59,6 @@ export default function LoyaltyRewardsPage() {
   // State quản lý Modal xóa tài khoản
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  // Chọn màu gradient cho thẻ tùy theo hạng
-  const getTierGradient = (tier: string) => {
-    switch(tier) {
-      case 'S-Mem': return 'from-gray-300 to-gray-500 text-gray-900';
-      case 'S-Vip': return 'from-gray-800 to-black text-white border border-gray-700';
-      case 'S-New':
-      default: return 'from-yellow-400 to-yellow-600 text-white';
-    }
-  };
-
-  // Map tier display name
-  const getTierDisplayName = (tier: string) => {
-    switch(tier) {
-      case 'S-Vip': return 'VIP';
-      case 'S-Mem': return 'MEMBER';
-      case 'S-New':
-      default: return 'NEW';
-    }
-  };
 
   const handleDeleteAccount = async () => {
     if (!user) return;
@@ -94,7 +90,7 @@ export default function LoyaltyRewardsPage() {
         {/* Họa tiết trang trí thẻ */}
         <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 rounded-full bg-white opacity-10"></div>
         <div className="absolute bottom-0 right-10 -mb-8 w-24 h-24 rounded-full bg-white opacity-10"></div>
-        
+
         <div className="flex justify-between items-start relative z-10">
           <div>
             <p className="text-sm opacity-80 mb-1">Thành viên</p>
@@ -139,7 +135,7 @@ export default function LoyaltyRewardsPage() {
           <h2 className="text-xl font-bold text-gray-800">🎁 Cửa hàng ưu đãi</h2>
           <span className="text-sm text-blue-600 cursor-pointer hover:underline">Lịch sử đổi điểm</span>
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {rewardsStore.length === 0 && (
             <div className="md:col-span-2 text-center py-10 text-gray-400 bg-white rounded-xl border border-gray-100">
@@ -155,24 +151,24 @@ export default function LoyaltyRewardsPage() {
                   <span className="text-2xl mb-1">{reward.type === 'shipping' ? '🚚' : reward.type === 'event' ? '🎟️' : '🎫'}</span>
                   <span className="text-xs text-center font-semibold">VOUCHER</span>
                 </div>
-                
+
                 {/* Phần thông tin bên phải */}
                 <div className="p-3 flex-1 flex flex-col justify-between relative">
                   <div>
                     <h3 className={`font-bold text-sm ${isLocked ? 'text-gray-600' : 'text-gray-800'}`}>{reward.title}</h3>
                     <p className="text-xs text-gray-500 mt-1">{reward.description}</p>
                   </div>
-                  
+
                   <div className="flex items-center justify-between mt-3">
                     <span className={`font-bold text-sm ${isLocked ? 'text-gray-500' : 'text-primary'}`}>
                       {reward.cost} điểm
                     </span>
                     {isLocked ? (
-                      <button className="flex items-center gap-1 text-xs bg-gray-200 text-gray-600 px-3 py-1 rounded-full cursor-not-allowed">
+                      <button type="button" className="flex items-center gap-1 text-xs bg-gray-200 text-gray-600 px-3 py-1 rounded-full cursor-not-allowed">
                         🔒 Thiếu {reward.cost - currentPoints} điểm
                       </button>
                     ) : (
-                      <button className="text-xs bg-red-100 text-primary font-bold px-4 py-1 rounded-full hover:bg-primary hover:text-white transition-colors">
+                      <button type="button" className="text-xs bg-red-100 text-primary font-bold px-4 py-1 rounded-full hover:bg-primary hover:text-white transition-colors">
                         Đổi ngay
                       </button>
                     )}
@@ -187,7 +183,7 @@ export default function LoyaltyRewardsPage() {
       {/* 4. Quản lý tài khoản & Cảnh báo bảo mật */}
       <div className="mt-12 pt-6 border-t border-gray-200">
         <h3 className="text-lg font-bold text-gray-800 mb-4">Cài đặt tài khoản</h3>
-        <button 
+        <button type="button"
           onClick={() => setShowDeleteModal(true)}
           className="text-red-600 border border-red-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors"
         >

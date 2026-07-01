@@ -11,6 +11,8 @@ class CheckoutItem(BaseModel):
     quantity: int = Field(gt=0, le=99)
     unit_price: Decimal = Field(ge=0)
     category_id: UUID | None = None
+    imeis: list[str] = Field(default_factory=list, max_length=99)
+    serial_numbers: list[str] = Field(default_factory=list, max_length=99)
 
 
 class ShippingInfo(BaseModel):

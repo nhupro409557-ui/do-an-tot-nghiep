@@ -136,10 +136,16 @@ export function firstVariantImage(variant: any) {
 export function youtubeVideoId(url?: string | null) {
   const value = String(url || '').trim();
   if (!value) return '';
-  if (value.includes('youtube.com/embed/')) return value.split('youtube.com/embed/')[1].split(/[/?&]/)[0];
-  if (value.includes('youtu.be/')) return value.split('youtu.be/')[1].split(/[/?&]/)[0];
-  if (value.includes('youtube.com/shorts/')) return value.split('youtube.com/shorts/')[1].split(/[/?&]/)[0];
-  if (value.includes('youtube.com/watch') && value.includes('v=')) return value.split('v=')[1].split('&')[0];
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.replace(/^www\./, '');
+    if (host === 'youtube.com' && parsed.pathname.startsWith('/embed/')) return parsed.pathname.split('/embed/')[1]?.split('/')[0] || '';
+    if (host === 'youtu.be') return parsed.pathname.replace(/^\//, '').split('/')[0] || '';
+    if (host === 'youtube.com' && parsed.pathname.startsWith('/shorts/')) return parsed.pathname.split('/shorts/')[1]?.split('/')[0] || '';
+    if (host === 'youtube.com' && parsed.pathname === '/watch') return parsed.searchParams.get('v') || '';
+  } catch {
+    return '';
+  }
   return '';
 }
 
@@ -175,9 +181,10 @@ export function variantImageSource(product: any, variant: any) {
 }
 
 export function buildOptions(product: any, key: string, fallback: any[] = []) {
-  const fromVariants = (product.variants || [])
-    .map((variant: any) => variant?.specs?.[key] || (key === 'storage' ? variant?.storage : undefined))
-    .filter(Boolean);
+  const fromVariants = (product.variants || []).flatMap((variant: any) => {
+    const value = variant?.specs?.[key] || (key === 'storage' ? variant?.storage : undefined);
+    return value ? [value] : [];
+  });
   return Array.from(new Set([...(fallback || []), ...fromVariants]));
 }
 
@@ -195,13 +202,14 @@ export function optionKey(value: any, index: number) {
 
 export function normalizeOptionList(values: any[] = []) {
   const seen = new Set<string>();
-  return values
-    .map((value, index) => ({ raw: value, label: optionLabel(value), key: String(optionKey(value, index)) }))
-    .filter((item) => {
-      if (!item.label || seen.has(item.label)) return false;
-      seen.add(item.label);
-      return true;
-    });
+  const options: Array<{ raw: any; label: string; key: string }> = [];
+  values.forEach((value, index) => {
+    const label = optionLabel(value);
+    if (!label || seen.has(label)) return;
+    seen.add(label);
+    options.push({ raw: value, label, key: String(optionKey(value, index)) });
+  });
+  return options;
 }
 
 export function variantSpecValue(variant: any, key: string) {
@@ -223,11 +231,10 @@ export function variantConfigParts(variant: any) {
   const storage = variantSpecValue(variant, 'storage');
   const configuration = optionLabel(variant?.configuration || variant?.specs?.configuration);
   const shouldShowConfiguration = configuration && !sameOptionValue(configuration, storage) && !sameOptionValue(configuration, ram);
-  const parts = [
-    ram && { key: 'ram', label: 'RAM', value: ram },
-    storage && { key: 'storage', label: 'ROM', value: storage },
-    shouldShowConfiguration && { key: 'configuration', label: 'Cấu hình', value: configuration },
-  ].filter(Boolean) as Array<{ key: string; label: string; value: string }>;
+  const parts: Array<{ key: string; label: string; value: string }> = [];
+  if (ram) parts.push({ key: 'ram', label: 'RAM', value: ram });
+  if (storage) parts.push({ key: 'storage', label: 'ROM', value: storage });
+  if (shouldShowConfiguration) parts.push({ key: 'configuration', label: 'Cấu hình', value: configuration });
   if (!parts.length) {
     const fallback = optionLabel(variant?.name || variant?.sku);
     return fallback ? [{ key: 'variant', label: 'Phiên bản', value: fallback }] : [];
@@ -272,22 +279,24 @@ export function optionVariant(option: any) {
 
 export function uniqueVariantValues(variants: any[], key: 'ram' | 'storage' | 'configuration') {
   const seen = new Set<string>();
-  return variants
-    .map((variant) => {
-      if (key === 'configuration') {
-        const configuration = optionLabel(variant?.configuration || variant?.specs?.configuration);
-        const ram = variantSpecValue(variant, 'ram');
-        const storage = variantSpecValue(variant, 'storage');
-        if (!configuration || sameOptionValue(configuration, ram) || sameOptionValue(configuration, storage)) return '';
-        return configuration;
-      }
-      return variantSpecValue(variant, key);
-    })
-    .filter((value) => {
-      if (!value || seen.has(value)) return false;
-      seen.add(value);
-      return true;
-    });
+  const values: string[] = [];
+  variants.forEach((variant) => {
+    let value = '';
+    if (key === 'configuration') {
+      const configuration = optionLabel(variant?.configuration || variant?.specs?.configuration);
+      const ram = variantSpecValue(variant, 'ram');
+      const storage = variantSpecValue(variant, 'storage');
+      value = !configuration || sameOptionValue(configuration, ram) || sameOptionValue(configuration, storage)
+        ? ''
+        : configuration;
+    } else {
+      value = variantSpecValue(variant, key);
+    }
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    values.push(value);
+  });
+  return values;
 }
 
 export function variantMatchesSelectedSpecs(
@@ -305,22 +314,19 @@ export function variantMatchesSelectedSpecs(
 
 export function buildConfigurationOptions(product: any) {
   const seen = new Set<string>();
-  const fromVariants = (product?.variants || [])
-    .map((variant: any, index: number) => {
-      const details = variantConfigParts(variant);
-      const label = variantConfigLabel(variant);
-      return {
-        raw: variant,
-        label,
-        key: String(variant?.id || variant?.sku || label || `variant-config-${index}`),
-        details,
-      };
-    })
-    .filter((item: any) => {
-      if (!item.label || seen.has(item.label)) return false;
-      seen.add(item.label);
-      return true;
+  const fromVariants: Array<{ raw: any; label: string; key: string; details: Array<{ key: string; label: string; value: string }> }> = [];
+  (product?.variants || []).forEach((variant: any, index: number) => {
+    const details = variantConfigParts(variant);
+    const label = variantConfigLabel(variant);
+    if (!label || seen.has(label)) return;
+    seen.add(label);
+    fromVariants.push({
+      raw: variant,
+      label,
+      key: String(variant?.id || variant?.sku || label || `variant-config-${index}`),
+      details,
     });
+  });
   if (fromVariants.length) return fromVariants;
   return normalizeOptionList(product?.capacities || []).map((item) => ({
     ...item,
@@ -449,11 +455,18 @@ export function fallbackSpecMeta(key: string) {
 
 export function formatSpecValue(value: any): string {
   if (value === null || value === undefined || value === '') return '';
-  if (Array.isArray(value)) return value.map(formatSpecValue).filter(Boolean).join(', ');
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      const formatted = formatSpecValue(item);
+      return formatted ? [formatted] : [];
+    }).join(', ');
+  }
   if (typeof value === 'object') {
     return Object.entries(value)
-      .map(([key, item]) => `${key}: ${formatSpecValue(item)}`)
-      .filter((item) => !item.endsWith(': '))
+      .flatMap(([key, item]) => {
+        const formatted = formatSpecValue(item);
+        return formatted ? [`${key}: ${formatted}`] : [];
+      })
       .join(', ');
   }
   return String(value);
@@ -496,44 +509,42 @@ export function buildProductSpecs(product: any): Spec[] {
   if (Array.isArray(rawSpecs)) {
     const seenKeys = new Set<string>();
     return rawSpecs
-      .map((item: any, index: number) => {
+      .flatMap((item: any, index: number) => {
         const key = normalizeSpecKey(item.key || item.label || `spec-${index}`);
-        if (seenKeys.has(key)) return null;
+        if (seenKeys.has(key)) return [];
         const field = specFieldMap.get(key) as { label?: string; group?: string } | undefined;
         const fallback = fallbackSpecMeta(key);
         const value = formatSpecValue(item.value ?? item.content ?? item.text);
         const originalLabel = item.label || field?.label || fallback.label;
         if (value) seenKeys.add(key);
         return value
-          ? {
+          ? [{
               label: translateLabel(originalLabel),
               value,
               group: item.group || field?.group || fallback.group,
-            }
-          : null;
-      })
-      .filter(Boolean) as Spec[];
+            }]
+          : [];
+      });
   }
 
   const seenKeys = new Set<string>();
-  return Object.entries(rawSpecs)
-    .map(([rawKey, value]) => [normalizeSpecKey(rawKey), value] as [string, any])
-    .filter(([key]) => {
-      if (key === '_variantSpecKeys' || seenKeys.has(key)) return false;
-      seenKeys.add(key);
-      return true;
-    })
-    .map(([key, value]) => {
-      const field = specFieldMap.get(key) as { label?: string; group?: string } | undefined;
-      const fallback = fallbackSpecMeta(key);
-      const originalLabel = field?.label || fallback.label;
-      return {
-        label: translateLabel(originalLabel),
-        value: formatSpecValue(value),
-        group: field?.group || fallback.group,
-      };
-    })
-    .filter((item) => !!item.value);
+  const specs: Spec[] = [];
+  for (const [rawKey, rawValue] of Object.entries(rawSpecs)) {
+    const key = normalizeSpecKey(rawKey);
+    if (key === '_variantSpecKeys' || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    const field = specFieldMap.get(key) as { label?: string; group?: string } | undefined;
+    const fallback = fallbackSpecMeta(key);
+    const originalLabel = field?.label || fallback.label;
+    const value = formatSpecValue(rawValue);
+    if (!value) continue;
+    specs.push({
+      label: translateLabel(originalLabel),
+      value,
+      group: field?.group || fallback.group,
+    });
+  }
+  return specs;
 }
 
 export function productWithActiveVariantSpecs(
@@ -563,12 +574,14 @@ export function selectedConfigParts(product: any, activeVariant: any, selected: 
   const ram = selected.ram || variantSpecValue(activeVariant, 'ram') || productSpecValue(product, 'ram');
   const storage = selected.storage || variantSpecValue(activeVariant, 'storage') || productSpecValue(product, 'storage');
   const configuration = selected.configuration || optionLabel(activeVariant?.configuration || activeVariant?.specs?.configuration);
-  return [
-    ram && { key: 'ram', label: 'RAM', value: ram },
-    storage && { key: 'storage', label: 'ROM', value: storage },
-    configuration && !sameOptionValue(configuration, ram) && !sameOptionValue(configuration, storage) && { key: 'configuration', label: 'Cấu hình', value: configuration },
-    selected.color && { key: 'color', label: 'Màu', value: selected.color },
-  ].filter(Boolean) as Array<{ key: string; label: string; value: string }>;
+  const parts: Array<{ key: string; label: string; value: string }> = [];
+  if (ram) parts.push({ key: 'ram', label: 'RAM', value: ram });
+  if (storage) parts.push({ key: 'storage', label: 'ROM', value: storage });
+  if (configuration && !sameOptionValue(configuration, ram) && !sameOptionValue(configuration, storage)) {
+    parts.push({ key: 'configuration', label: 'Cấu hình', value: configuration });
+  }
+  if (selected.color) parts.push({ key: 'color', label: 'Màu', value: selected.color });
+  return parts;
 }
 
 export function selectedConfigName(product: any, activeVariant: any, selected: { ram?: string; storage?: string; configuration?: string }) {

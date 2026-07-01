@@ -6,10 +6,12 @@ import { FlashSaleCountdown } from '../../home/components/FlashSaleCountdown';
 import { ProductCard } from '../components/ProductCard';
 import { ProductSkeleton } from '../components/ProductSkeleton';
 
-const getNearestEndTime = (products: any[]) => products
-  .map((product) => product.flashSale?.endsAt)
-  .filter(Boolean)
-  .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0];
+const getNearestEndTime = (products: any[]) => products.reduce<string | undefined>((nearest, product) => {
+  const endsAt = product.flashSale?.endsAt;
+  if (!endsAt) return nearest;
+  if (!nearest) return endsAt;
+  return new Date(endsAt).getTime() < new Date(nearest).getTime() ? endsAt : nearest;
+}, undefined);
 
 export default function FlashSalePage() {
   const [products, setProducts] = useState<any[]>([]);

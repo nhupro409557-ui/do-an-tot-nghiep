@@ -43,10 +43,19 @@ Các nguyên tắc này được chắt lọc từ bộ hướng dẫn `andrej-k
 ### Sửa đúng phạm vi
 
 - Chỉ sửa những dòng/file liên quan trực tiếp đến yêu cầu.
-- Không refactor, đổi format, đổi comment hoặc dọn dẹp code lân cận nếu không cần để hoàn thành việc chính.
+- Không refactor, đổi format, đổi comment hoặc “dọn dẹp” code lân cận nếu không cần để hoàn thành việc chính.
 - Giữ phong cách code hiện có của project, kể cả khi có thể viết theo style khác.
 - Nếu thay đổi của mình làm phát sinh import/biến/hàm không dùng nữa thì dọn phần đó.
 - Nếu thấy code chết hoặc vấn đề không liên quan, chỉ ghi nhận hoặc báo lại, không tự xóa khi chưa được yêu cầu.
+
+### Tách module mới khỏi luồng chính
+
+- Trước khi code, kiểm tra chức năng được yêu cầu đã thuộc module nào trong hệ thống hay chưa.
+- Nếu chức năng thuộc phạm vi của module hiện có, mở rộng đúng module đó và tái sử dụng service, model, API, component hoặc dữ liệu hiện có; không tạo module mới trùng trách nhiệm.
+- Nếu đây là một module nghiệp vụ mới, độc lập và chưa tồn tại trong hệ thống, tạo file hoặc thư mục module riêng theo cấu trúc hiện có của project thay vì viết toàn bộ logic trực tiếp vào file luồng chính.
+- File luồng chính như entrypoint, router tổng, dashboard tổng hoặc file cấu hình chỉ nên chứa phần đăng ký, điều phối, import và kết nối tối thiểu tới module mới.
+- Không đưa logic nghiệp vụ lớn, truy vấn dữ liệu, xử lý trạng thái hoặc giao diện phức tạp của module mới vào file luồng chính.
+- Chỉ tách file khi có ranh giới trách nhiệm rõ ràng; thay đổi rất nhỏ, chỉ dùng một lần và không làm nặng luồng chính thì không cần tạo module riêng máy móc.
 
 ### Có tiêu chí hoàn tất
 

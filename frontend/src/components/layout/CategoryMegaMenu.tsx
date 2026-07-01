@@ -1,13 +1,26 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight, Flame, ShieldCheck, Truck, Zap } from 'lucide-react';
-import { CatalogGroup } from '../../data/categories';
+import { CatalogBrand, CatalogGroup } from '../../data/categories';
 import { useCatalog } from '../../hooks/useCatalog';
+import { resolveImageUrl } from '../../services/productMedia';
 
 type Props = {
   compact?: boolean;
   onNavigate?: () => void;
 };
+
+type MenuItem = string | CatalogBrand;
+
+type MenuGroup = {
+  title: string;
+  items: MenuItem[];
+};
+
+const getMenuItemLabel = (item: MenuItem) => (typeof item === 'string' ? item : item.name);
+
+const isBrandWithLogo = (groupTitle: string, item: MenuItem): item is CatalogBrand =>
+  groupTitle === 'Thương hiệu' && typeof item !== 'string' && Boolean(item.logoUrl);
 
 const defaultGroups: CatalogGroup[] = [
   { title: 'Phân khúc giá', items: ['Dưới 2 triệu', 'Từ 2 - 4 triệu', 'Từ 4 - 7 triệu', 'Từ 7 - 13 triệu', 'Từ 13 - 20 triệu', 'Trên 20 triệu'] },
@@ -106,13 +119,15 @@ const priceRangeByLabel: Record<string, { min?: number; max?: number }> = {
   'Trên 40 triệu': { min: 40 * million },
 };
 
-const getMenuItemLink = (categorySlug: string, groupTitle: string, item: string) => {
+const getMenuItemLink = (categorySlug: string, groupTitle: string, item: MenuItem) => {
+  const label = getMenuItemLabel(item);
+
   if (groupTitle === 'Thương hiệu') {
-    return `/products/${categorySlug}?brand=${encodeURIComponent(item)}`;
+    return `/products/${categorySlug}?brand=${encodeURIComponent(label)}`;
   }
 
   if (groupTitle === 'Phân khúc giá') {
-    const range = priceRangeByLabel[item];
+    const range = priceRangeByLabel[label];
     if (range) {
       const search = new URLSearchParams();
       if (range.min !== undefined) search.set('min_price', String(range.min));
@@ -121,7 +136,7 @@ const getMenuItemLink = (categorySlug: string, groupTitle: string, item: string)
     }
   }
 
-  return `/search?q=${encodeURIComponent(item)}&category=${categorySlug}`;
+  return `/search?q=${encodeURIComponent(label)}&category=${categorySlug}`;
 };
 
 const findConfiguredGroups = (slug: string) => {
@@ -131,7 +146,7 @@ const findConfiguredGroups = (slug: string) => {
   return defaultGroups;
 };
 
-const getMenuGroups = (slug: string, subcategoryGroups: CatalogGroup[], brands: string[]) => {
+const getMenuGroups = (slug: string, subcategoryGroups: CatalogGroup[], brands: CatalogBrand[]): MenuGroup[] => {
   const brandGroup = brands.length ? [{ title: 'Thương hiệu', items: brands.slice(0, 14) }] : [];
   const configuredGroups = findConfiguredGroups(slug);
   const demandGroups = subcategoryGroups.length
@@ -149,18 +164,13 @@ const quickLinks = [
 
 export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
   const { categories, loading } = useCatalog({ includeRankedFeatured: true });
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedActiveId, setSelectedActiveId] = useState<string | null>(null);
+  const activeId = selectedActiveId || (!compact ? categories[0]?.id || null : null);
 
   const activeCategory = useMemo(
     () => categories.find(category => category.id === activeId || category.slug === activeId) || null,
     [activeId, categories]
   );
-
-  useEffect(() => {
-    if (!compact && !activeId && categories.length > 0) {
-      setActiveId(categories[0].id);
-    }
-  }, [activeId, categories, compact]);
 
   if (loading) {
     return (
@@ -192,7 +202,7 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
 
     if (isTouchLayout || activeCategory?.id !== category.id) {
       event.preventDefault();
-      setActiveId(category.id);
+      setSelectedActiveId(category.id);
     } else {
       onNavigate?.();
     }
@@ -201,7 +211,7 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
   return (
     <div
       onMouseLeave={() => {
-        if (compact) setActiveId(null);
+        if (compact) setSelectedActiveId(null);
       }}
       className={`relative flex overflow-visible text-slate-900 ${
         compact ? 'h-full min-h-0 w-[274px]' : 'w-full'
@@ -217,8 +227,8 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
               <Link
                 key={category.id}
                 to={`/products/${category.slug}`}
-                onMouseEnter={() => setActiveId(category.id)}
-                onFocus={() => setActiveId(category.id)}
+                onMouseEnter={() => setSelectedActiveId(category.id)}
+                onFocus={() => setSelectedActiveId(category.id)}
                 onClick={(event) => handleCategoryClick(event, category)}
                 className={`flex min-w-[196px] items-center justify-between px-5 text-[15px] font-semibold transition md:min-w-0 ${
                   compact ? 'min-h-11 flex-1' : 'h-11'
@@ -262,21 +272,40 @@ export function CategoryMegaMenu({ compact = false, onNavigate }: Props) {
                 <section key={`${group.title}-${groupIndex}`} className="min-w-0">
                   <h3 className="mb-2 text-[15px] font-bold text-slate-950">{group.title}</h3>
                   <div className="space-y-2">
-                    {group.items.slice(0, 12).map((item, index) => (
-                      <Link
-                        key={`${group.title}-${item}`}
-                        to={getMenuItemLink(activeCategory.slug, group.title, item)}
-                        onClick={onNavigate}
-                        className="group flex min-h-6 items-start gap-2 text-sm leading-5 text-slate-500 transition hover:text-primary"
-                      >
-                        <span className="min-w-0 break-words">{item}</span>
-                        {index === 0 && group.title === 'Theo nhu cầu' && (
-                          <span className="mt-0.5 shrink-0 rounded bg-primary px-1 py-0.5 text-[9px] font-bold leading-none text-white">
-                            HOT
-                          </span>
-                        )}
-                      </Link>
-                    ))}
+                    {group.items.slice(0, 12).map((item, index) => {
+                      const label = getMenuItemLabel(item);
+                      const showLogo = isBrandWithLogo(group.title, item);
+
+                      return (
+                        <Link
+                          key={`${group.title}-${label}`}
+                          to={getMenuItemLink(activeCategory.slug, group.title, item)}
+                          onClick={onNavigate}
+                          className={`group flex min-h-6 gap-2 text-sm leading-5 text-slate-500 transition hover:text-primary ${
+                            showLogo ? 'items-center' : 'items-start'
+                          }`}
+                          aria-label={label}
+                        >
+                          {showLogo ? (
+                            <span className="flex h-9 w-28 items-center justify-center rounded-md border border-slate-100 bg-white px-2 py-1 shadow-sm transition group-hover:border-primary/50">
+                              <img
+                                src={resolveImageUrl(item.logoUrl)}
+                                alt={item.logoAltText || `${label} logo`}
+                                className="max-h-7 max-w-full object-contain"
+                                loading="lazy"
+                              />
+                            </span>
+                          ) : (
+                            <span className="min-w-0 break-words">{label}</span>
+                          )}
+                          {index === 0 && group.title === 'Theo nhu cầu' && (
+                            <span className="mt-0.5 shrink-0 rounded bg-primary px-1 py-0.5 text-[9px] font-bold leading-none text-white">
+                              HOT
+                            </span>
+                          )}
+                        </Link>
+                      );
+                    })}
                   </div>
                 </section>
               ))}

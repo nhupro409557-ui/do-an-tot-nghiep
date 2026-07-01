@@ -1,4 +1,4 @@
-﻿from uuid import UUID
+from uuid import UUID
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response, status
 from redis.asyncio import Redis
@@ -25,6 +25,7 @@ from app.api.routers.auth_utils import (
     get_active_user,
     issue_auth_response,
     auth_payload,
+    to_profile_response,
     hash_refresh_token,
     store_refresh_session,
     clear_refresh_cookie,
@@ -294,6 +295,8 @@ async def update_profile(
     profile = dict(user.profile_json or {})
     if "addresses" in updates:
         user.addresses = list(updates.pop("addresses") or [])
+    if "marketingOptIn" in updates:
+        user.marketing_opt_in = bool(updates.pop("marketingOptIn"))
     profile.update(updates)
     if "displayName" in profile and profile["displayName"]:
         user.full_name = str(profile["displayName"])

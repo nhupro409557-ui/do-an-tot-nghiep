@@ -288,7 +288,7 @@ export default function AboutPage() {
                     : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
                 }`}
               >
-                <button
+                <button type="button"
                   id={`about-section-${section.number}`}
                   onClick={() => toggleSection(section.id)}
                   className="flex w-full items-center gap-4 px-5 py-4 text-left"

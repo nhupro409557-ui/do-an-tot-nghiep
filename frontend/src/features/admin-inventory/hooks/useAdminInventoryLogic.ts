@@ -99,6 +99,7 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
   const [ledgerDateFrom, setLedgerDateFrom] = useState('');
   const [ledgerDateTo, setLedgerDateTo] = useState('');
   const [ledgerTransactionType, setLedgerTransactionType] = useState('');
+  const [ledgerReason, setLedgerReason] = useState('');
   const [inventoryReceipts, setInventoryReceipts] = useState<any[]>([]);
   const [receiptPage, setReceiptPage] = useState(1);
   const [receiptTotal, setReceiptTotal] = useState(0);
@@ -134,6 +135,7 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
       dateFrom: ledgerDateFrom,
       dateTo: ledgerDateTo,
       transactionType: ledgerTransactionType,
+      reason: ledgerReason,
       page,
       pageSize: INVENTORY_PAGE_SIZE,
     }).catch(() => ({ items: [], total: 0, totalPages: 1 }));
@@ -169,6 +171,7 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     setLedgerDateFrom('');
     setLedgerDateTo('');
     setLedgerTransactionType('');
+    setLedgerReason('');
     const result = await adminInventoryApi.adminListInventoryLedger({ search: query.trim(), page: 1, pageSize: INVENTORY_PAGE_SIZE }).catch(() => ({ items: [], total: 0, totalPages: 1 }));
     setInventoryLedger(Array.isArray(result?.items) ? result.items : []);
     setLedgerPage(1);
@@ -643,6 +646,8 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     setLedgerDateTo,
     ledgerTransactionType,
     setLedgerTransactionType,
+    ledgerReason,
+    setLedgerReason,
     inventoryReceipts,
     receiptPage,
     receiptTotal,

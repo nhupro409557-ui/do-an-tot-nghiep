@@ -16,10 +16,10 @@ export interface CartItem {
   imageUrl: string;
   quantity: number;
   originalPrice?: number;
-  
+
   // Dịch vụ đi kèm
   attachedServices?: AttachedServiceItem[];
-  
+
   // Sản phẩm mua kèm
   isAccessory?: boolean;
   parentProductId?: string;
@@ -46,7 +46,7 @@ const areServicesEqual = (a?: AttachedServiceItem[], b?: AttachedServiceItem[]) 
   if (a.length !== b.length) return false;
   const aIds = a.map(s => s.serviceId).sort();
   const bIds = b.map(s => s.serviceId).sort();
-  return aIds.every((id, idx) => id === bIds[idx]);
+  return aIds.length === bIds.length && aIds.every((id, idx) => id === bIds[idx]);
 };
 
 // Hàm sinh cartItemId duy nhất cho item trong store
@@ -68,7 +68,7 @@ export const useCartStore = create<CartState>()(
         set((state) => {
           const cartItemId = newItem.cartItemId || generateCartItemId(newItem);
           const itemToInsert = { ...newItem, cartItemId, checked: newItem.checked ?? true };
-          
+
           const existingIdx = state.items.findIndex((item) => item.cartItemId === cartItemId);
           if (existingIdx === -1) {
             return { items: [...state.items, itemToInsert] };
@@ -158,17 +158,17 @@ export function getNormalizedCartItems(items: CartItem[]): CartItem[] {
   // 1. Phân loại sản phẩm chính và sản phẩm phụ
   const mainItems = sanitizedItems.filter(item => !item.isAccessory);
   const accessoryItems = sanitizedItems.filter(item => item.isAccessory);
-  
+
   // Lưu trữ danh sách ID các sản phẩm chính đang có trong giỏ hàng
   const mainProductIds = new Set(mainItems.map(item => item.productId));
-  
+
   const normalized: CartItem[] = [];
-  
+
   // Thêm tất cả sản phẩm chính vào danh sách normalized
   mainItems.forEach(item => {
     normalized.push({ ...item });
   });
-  
+
   // Nhóm các accessory theo productId để gộp số lượng trước khi phân bổ
   const accessoryGroups: Record<string, CartItem[]> = {};
   accessoryItems.forEach(item => {
@@ -177,32 +177,32 @@ export function getNormalizedCartItems(items: CartItem[]): CartItem[] {
     }
     accessoryGroups[item.productId].push(item);
   });
-  
+
   // Phân bổ từng nhóm accessory
   Object.entries(accessoryGroups).forEach(([productId, group]) => {
     // Tổng số lượng của phụ kiện này trong giỏ hàng
     const totalQty = group.reduce((sum, item) => sum + item.quantity, 0);
-    
+
     // Tìm xem phụ kiện này đi kèm với sản phẩm chính nào (lấy parentProductId từ item đầu tiên)
     const parentProductId = group[0].parentProductId;
-    
+
     // Kiểm tra xem sản phẩm chính đó có trong giỏ hàng không
     const hasParentInCart = parentProductId && mainProductIds.has(parentProductId);
-    
+
     if (hasParentInCart) {
       // Có sản phẩm chính -> được hưởng ưu đãi mua kèm tối đa là 1 chiếc
       const discountQty = 1;
       const normalQty = totalQty - discountQty;
-      
+
       // Tự động kiểm tra và giảm giá nếu giá mua kèm ưu đãi đang bị 0đ hoặc không hợp lệ
       let finalPrice = Number(group[0].price || 0);
       const baseOriginalPrice = Number(group[0].originalPrice || 0);
-      
+
       // Nếu giá bán kèm là 0 hoặc bằng giá gốc, và có giá gốc hợp lệ -> tự giảm giá (mặc định giảm 25%)
       if (finalPrice <= 0 && baseOriginalPrice > 0) {
         finalPrice = Math.round(baseOriginalPrice * 0.75); // Tự động giảm giá 25%
       }
-      
+
       // Dòng 1: Mua kèm giảm giá (tối đa 1 chiếc)
       normalized.push({
         ...group[0],
@@ -213,7 +213,7 @@ export function getNormalizedCartItems(items: CartItem[]): CartItem[] {
         price: finalPrice, // Giá ưu đãi bán kèm đã tự động xử lý
         originalPrice: baseOriginalPrice,
       });
-      
+
       // Dòng 2: Bình thường (số lượng còn lại, nếu có)
       if (normalQty > 0) {
         normalized.push({
@@ -244,6 +244,6 @@ export function getNormalizedCartItems(items: CartItem[]): CartItem[] {
       });
     }
   });
-  
+
   return normalized;
 }

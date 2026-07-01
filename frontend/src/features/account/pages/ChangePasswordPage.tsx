@@ -1,44 +1,70 @@
-import React, { useState } from 'react';
+import React, { useReducer } from 'react';
 import { Link } from 'react-router-dom';
 import { Eye, EyeOff, KeyRound, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { changePassword, getAuthErrorMessage } from '../../../services/authDb';
 
+type ChangePasswordState = {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+  showPassword: boolean;
+  message: string;
+  error: string;
+  loading: boolean;
+};
+
+type ChangePasswordAction =
+  | Partial<ChangePasswordState>
+  | ((state: ChangePasswordState) => ChangePasswordState);
+
+const initialChangePasswordState: ChangePasswordState = {
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+  showPassword: false,
+  message: '',
+  error: '',
+  loading: false,
+};
+
+function mergeChangePasswordState(state: ChangePasswordState, action: ChangePasswordAction): ChangePasswordState {
+  return typeof action === 'function' ? action(state) : { ...state, ...action };
+}
+
 export default function ChangePasswordPage() {
   const { user } = useAuth();
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [{ currentPassword, newPassword, confirmPassword, showPassword, message, error, loading }, setFormState] = useReducer(
+    mergeChangePasswordState,
+    initialChangePasswordState,
+  );
 
   const handleChangePassword = async (event: React.FormEvent) => {
     event.preventDefault();
-    setMessage('');
-    setError('');
+    setFormState({ message: '', error: '' });
 
     if (newPassword !== confirmPassword) {
-      setError('Mật khẩu mới nhập lại không khớp.');
+      setFormState({ error: 'Mật khẩu mới nhập lại không khớp.' });
       return;
     }
     if (newPassword === currentPassword) {
-      setError('Mật khẩu mới cần khác mật khẩu hiện tại.');
+      setFormState({ error: 'Mật khẩu mới cần khác mật khẩu hiện tại.' });
       return;
     }
 
-    setLoading(true);
+    setFormState({ loading: true });
     try {
       await changePassword(currentPassword, newPassword);
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      setMessage('Đổi mật khẩu thành công. Lần đăng nhập sau hãy dùng mật khẩu mới.');
+      setFormState({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+        message: 'Đổi mật khẩu thành công. Lần đăng nhập sau hãy dùng mật khẩu mới.',
+      });
     } catch (err: any) {
-      setError(getAuthErrorMessage(err.code, err.message || 'Không thể đổi mật khẩu.'));
+      setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể đổi mật khẩu.') });
     } finally {
-      setLoading(false);
+      setFormState({ loading: false });
     }
   };
 
@@ -51,12 +77,12 @@ export default function ChangePasswordPage() {
           <ul className="text-sm font-medium text-gray-700">
             <li>
               <Link to="/dashboard" className="block px-6 py-3 border-l-4 border-transparent hover:bg-gray-50 hover:text-red-500">
-                🏠 Tổng quan
+                Tổng quan
               </Link>
             </li>
-            <li className="px-6 py-3 border-l-4 border-transparent text-gray-400">📋 Lịch sử mua hàng</li>
-            <li className="px-6 py-3 border-l-4 border-transparent text-gray-400">💎 Hạng thành viên</li>
-            <li className="px-6 py-3 border-l-4 border-transparent text-gray-400">⚙️ Cài đặt tài khoản</li>
+            <li className="px-6 py-3 border-l-4 border-transparent text-gray-400">Lịch sử mua hàng</li>
+            <li className="px-6 py-3 border-l-4 border-transparent text-gray-400">Hạng thành viên</li>
+            <li className="px-6 py-3 border-l-4 border-transparent text-gray-400">Cài đặt tài khoản</li>
             <li className="px-6 py-3 text-[#d70018] bg-red-50 border-l-4 border-[#d70018]">Đổi mật khẩu</li>
           </ul>
         </aside>
@@ -82,41 +108,47 @@ export default function ChangePasswordPage() {
 
           <form onSubmit={handleChangePassword} className="max-w-xl space-y-5">
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">Mật khẩu hiện tại</label>
+              <label htmlFor="current-password" className="block text-sm font-bold text-gray-700 mb-2">Mật khẩu hiện tại</label>
               <input
+                id="current-password"
+                aria-label="Mật khẩu hiện tại"
                 type={inputType}
                 required
                 value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
+                onChange={(event) => setFormState({ currentPassword: event.target.value })}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-primary focus:ring-1 focus:ring-primary outline-none"
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">Mật khẩu mới</label>
+              <label htmlFor="new-password" className="block text-sm font-bold text-gray-700 mb-2">Mật khẩu mới</label>
               <input
+                id="new-password"
+                aria-label="Mật khẩu mới"
                 type={inputType}
                 required
                 minLength={6}
                 value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
+                onChange={(event) => setFormState({ newPassword: event.target.value })}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-primary focus:ring-1 focus:ring-primary outline-none"
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">Nhập lại mật khẩu mới</label>
+              <label htmlFor="confirm-new-password" className="block text-sm font-bold text-gray-700 mb-2">Nhập lại mật khẩu mới</label>
               <input
+                id="confirm-new-password"
+                aria-label="Nhập lại mật khẩu mới"
                 type={inputType}
                 required
                 minLength={6}
                 value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
+                onChange={(event) => setFormState({ confirmPassword: event.target.value })}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:border-primary focus:ring-1 focus:ring-primary outline-none"
               />
             </div>
 
             <button
               type="button"
-              onClick={() => setShowPassword(value => !value)}
+              onClick={() => setFormState((state) => ({ ...state, showPassword: !state.showPassword }))}
               className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-[#d70018]"
             >
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

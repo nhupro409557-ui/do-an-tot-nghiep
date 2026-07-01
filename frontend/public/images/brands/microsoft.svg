@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120" role="img" aria-labelledby="title">
+  <title id="title">Microsoft logo</title>
+  <rect width="240" height="120" rx="20" fill="#ffffff"/>
+  <rect x="34" y="34" width="22" height="22" fill="#f25022"/>
+  <rect x="60" y="34" width="22" height="22" fill="#7fba00"/>
+  <rect x="34" y="60" width="22" height="22" fill="#00a4ef"/>
+  <rect x="60" y="60" width="22" height="22" fill="#ffb900"/>
+  <text x="150" y="72" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#374151">Microsoft</text>
+</svg>

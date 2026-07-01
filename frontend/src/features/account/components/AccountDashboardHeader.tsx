@@ -34,7 +34,7 @@ export function AccountDashboardHeader({
         {avatarUrl ? (
           <img src={avatarUrl} alt="Ảnh đại diện" className="w-16 h-16 rounded-full object-cover shrink-0 border border-gray-100" />
         ) : (
-          <div className="w-16 h-16 bg-yellow-400 rounded-full flex items-center justify-center text-xl font-bold text-gray-800 shrink-0">
+          <div className="w-16 h-16 bg-yellow-400 rounded-full flex items-center justify-center text-xl font-bold text-yellow-950 shrink-0">
             {avatarLetter.toUpperCase()}
           </div>
         )}
@@ -55,7 +55,7 @@ export function AccountDashboardHeader({
       <div className="flex-[2] md:px-6">
         <div className="bg-gradient-to-br from-slate-900 to-slate-700 rounded-xl shadow-lg p-5 text-white w-full max-w-md">
           <div className="flex justify-between items-start mb-2">
-            <span className="text-[10px] bg-yellow-500 text-slate-900 px-2 py-0.5 rounded-full font-bold">{currentTier}</span>
+            <span className="text-[10px] bg-yellow-500 text-yellow-950 px-2 py-0.5 rounded-full font-bold">{currentTier}</span>
             <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
           </div>
           <div className="flex items-end gap-2 mb-3">
@@ -71,7 +71,7 @@ export function AccountDashboardHeader({
       </div>
 
       <div className="flex-1 md:pl-6 md:border-l border-gray-100 flex justify-end">
-        <button onClick={onSignOut} className="inline-flex items-center justify-center gap-2 text-sm font-medium text-red-600 hover:text-white hover:bg-red-600 border border-red-600 transition-colors px-4 py-2 rounded-lg w-full">
+        <button type="button" onClick={onSignOut} className="inline-flex items-center justify-center gap-2 text-sm font-medium text-red-600 hover:text-white hover:bg-red-600 border border-red-600 transition-colors px-4 py-2 rounded-lg w-full">
           <LogOut className="w-4 h-4" /> Đăng xuất
         </button>
       </div>

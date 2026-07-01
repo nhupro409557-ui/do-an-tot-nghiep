@@ -1,6 +1,25 @@
-﻿# Ghi chú sửa lỗi React Doctor
+# Ghi chú sửa lỗi React Doctor
 
-Ngày cập nhật: 2026-06-03
+Ngày cập nhật: 2026-06-29
+
+## Cập nhật 2026-06-29 - Hoàn tất nhóm stale state và async race
+
+- `VideoPage` khởi tạo like cùng dữ liệu video, khóa load-more đồng thời và chỉ nhận response like mới nhất của từng video.
+- `ProductDetail` dùng component con có `key` theo sản phẩm/variant, khởi tạo lựa chọn bằng state initializer và dẫn xuất ảnh từ media hiện tại; không còn `setState` trong render.
+- `CheckoutPage` tách mã voucher đang nhập khỏi mã đã xác nhận, chỉ gửi mã hợp lệ khi tạo đơn và bỏ qua response voucher/phí vận chuyển lỗi thời.
+- `useAdminLogic` reset phân trang ngay trong handler tìm kiếm/bộ lọc và dùng ref hiện tại cho loader/quyền tải tab.
+- Verification: `npm run lint` pass, `npm run build` pass; React Doctor verbose giảm từ 204 xuống 187 cảnh báo và Bugs giảm từ 93 xuống 73.
+- Cache npm và báo cáo React Doctor tạm được xóa sau mỗi lần chạy; manifest và lockfile không thay đổi.
+
+## Cập nhật 2026-06-29 - Sửa các cảnh báo có tác động thực tế
+
+- Chạy React Doctor v0.5.8 bằng cache tạm, tắt telemetry và xóa toàn bộ cache/báo cáo tạm sau khi quét.
+- Bổ sung `query` vào luồng tải khách hàng Admin để tìm kiếm vẫn gọi lại API khi đang ở trang 1.
+- Luồng polling import thương hiệu dùng `loadDataRef.current` và theo dõi tab hiện tại, tránh gọi loader hoặc tab cũ.
+- Trang ảnh đặt lại trang ngay trong thao tác đổi bộ lọc/từ khóa và bỏ qua response đã lỗi thời, tránh request cũ ghi đè dữ liệu mới.
+- POS kiểm tra lại voucher khi khách hàng, phương thức thanh toán, mã voucher, tổng tiền hoặc danh sách sản phẩm thay đổi; response cũ không còn ghi đè response mới.
+- Kết quả: `npm run lint` pass, `npm run build` pass; React Doctor verbose giảm từ 206 xuống 204 cảnh báo và nhóm Bugs giảm từ 97 xuống 93.
+- Không sửa các cảnh báo thuần maintainability/style hoặc các cảnh báo không phù hợp với ngữ cảnh nghiệp vụ.
 
 ## Mục tiêu
 

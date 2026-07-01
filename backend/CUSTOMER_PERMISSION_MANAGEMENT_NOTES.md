@@ -1,5 +1,13 @@
 # Quản lý khách hàng và phân quyền
 
+## Cập nhật 2026-06-29 - Bổ sung test staff và phân quyền admin
+
+- Bổ sung test API cho danh sách permissions/roles, tạo tài khoản `STAFF_ADMIN`, xem/cập nhật quyền riêng theo tài khoản và chuyển staff về `CUSTOMER`.
+- Test xác nhận customer bị chặn khỏi API phân quyền, admin không được xem/cập nhật quyền của chính mình, quyền không tồn tại trả `400`, staff role không được cập nhật qua role permissions vì dùng per-account permissions.
+- Test assert trực tiếp `users`, `user_permissions`, `role_permissions`.
+- Ghi nhận hành vi hiện tại: `create_staff_account` bỏ qua `permissionCodes` trong payload tạo mới và trả `extraPermissionCodes = []`; quyền được cấp qua endpoint `/users/{id}/permissions`.
+- Verification: `pytest backend/tests/test_14_admin_staff_permissions_flow.py -q` pass.
+
 ## Phạm vi hiện tại
 
 - Danh sách khách hàng trong Admin hỗ trợ tìm theo tên, email, vai trò, hạng và trạng thái.

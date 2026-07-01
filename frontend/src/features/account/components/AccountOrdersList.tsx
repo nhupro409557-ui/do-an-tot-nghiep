@@ -1,5 +1,29 @@
 import { Link } from 'react-router-dom';
 
+const statusLabels: Record<string, string> = {
+  PENDING: 'Chờ xử lý',
+  PROCESSING: 'Đang xử lý',
+  SHIPPED: 'Đang giao hàng',
+  COMPLETED: 'Hoàn tất',
+  CANCELLED: 'Đã hủy',
+  PAYMENT_FAILED: 'Thanh toán thất bại',
+  RETURNING: 'Đang hoàn hàng',
+  RETURNED: 'Đã hoàn hàng',
+  REFUNDED: 'Đã hoàn tiền',
+};
+
+const statusStyles: Record<string, { bg: string; text: string }> = {
+  PENDING: { bg: 'bg-amber-50', text: 'text-amber-700' },
+  PROCESSING: { bg: 'bg-blue-50', text: 'text-blue-700' },
+  SHIPPED: { bg: 'bg-indigo-50', text: 'text-indigo-700' },
+  COMPLETED: { bg: 'bg-emerald-50', text: 'text-emerald-700' },
+  CANCELLED: { bg: 'bg-rose-50', text: 'text-rose-700' },
+  PAYMENT_FAILED: { bg: 'bg-rose-50', text: 'text-rose-700' },
+  RETURNING: { bg: 'bg-purple-50', text: 'text-purple-700' },
+  RETURNED: { bg: 'bg-slate-50', text: 'text-slate-700' },
+  REFUNDED: { bg: 'bg-slate-50', text: 'text-slate-700' },
+};
+
 type AccountOrder = {
   id: string;
   orderCode?: string | null;
@@ -31,7 +55,9 @@ export function AccountOrdersList({ orders, limit }: AccountOrdersListProps) {
         <div key={order.id} className="border border-gray-100 rounded-lg p-4 text-sm">
           <div className="flex justify-between mb-2">
             <span className="font-mono font-medium text-gray-700">#{order.orderCode || order.id.slice(0, 8).toUpperCase()}</span>
-            <span className="text-green-600 bg-green-50 px-2 py-0.5 rounded text-xs font-semibold">{order.status}</span>
+            <span className={`${order.status && statusStyles[order.status] ? `${statusStyles[order.status].text} ${statusStyles[order.status].bg}` : 'text-green-600 bg-green-50'} px-2 py-0.5 rounded text-xs font-semibold`}>
+              {order.status ? (statusLabels[order.status] || order.status) : ''}
+            </span>
           </div>
           <div className="text-gray-500 text-xs mb-3">Ngày đặt: {formatOrderDate(order.createdAt)}</div>
           <div className="flex justify-between font-bold text-gray-800 border-t border-dashed pt-3">

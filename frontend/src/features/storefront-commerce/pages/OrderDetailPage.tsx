@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { customerCenterApi } from '../../account/services/customerCenterApi';
 import { adminOrdersApi } from '../../admin-orders/services/adminOrdersApi';
@@ -52,6 +52,24 @@ const paymentStatusStyles: Record<string, { text: string; bg: string }> = {
   EXPIRED: { text: 'text-rose-700', bg: 'bg-rose-50' },
   REFUNDED: { text: 'text-slate-700', bg: 'bg-slate-50' },
 };
+
+type OrderDetailState = {
+  order: any | null;
+  loading: boolean;
+  error: string;
+  shipmentEvents: any[];
+};
+
+const initialOrderDetailState: OrderDetailState = {
+  order: null,
+  loading: true,
+  error: '',
+  shipmentEvents: [],
+};
+
+function mergeOrderDetailState(state: OrderDetailState, patch: Partial<OrderDetailState>): OrderDetailState {
+  return { ...state, ...patch };
+}
 
 function formatCurrency(value: unknown) {
   return Number(value || 0).toLocaleString('vi-VN') + 'đ';
@@ -150,25 +168,46 @@ const AlertCircleIcon = () => (
   </svg>
 );
 
+const orderSteps = [
+  { label: 'Đã đặt đơn', desc: 'Đặt hàng thành công', icon: CartIcon },
+  { label: 'Đang xử lý', desc: 'Shop đang chuẩn bị hàng', icon: ProcessingIcon },
+  { label: 'Đang giao hàng', desc: 'Đơn vị vận chuyển đã nhận', icon: ShippingIcon },
+  { label: 'Hoàn tất', desc: 'Đã nhận hàng thành công', icon: CompletedIcon },
+];
+
 export default function OrderDetailPage() {
   const { orderId = '' } = useParams();
-  const [order, setOrder] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [shipmentEvents, setShipmentEvents] = useState<any[]>([]);
+  const [{ order, loading, error, shipmentEvents }, setPageState] = useReducer(
+    mergeOrderDetailState,
+    initialOrderDetailState,
+  );
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!orderId) return;
-    setLoading(true);
-    adminOrdersApi.getOrderDetail(orderId)
-      .then(data => {
-        setOrder(data);
-        setError('');
-        customerCenterApi.shipmentTimeline(orderId).then(setShipmentEvents).catch(() => setShipmentEvents([]));
+    let isActive = true;
+    setPageState({ loading: true });
+
+    Promise.all([
+      adminOrdersApi.getOrderDetail(orderId),
+      customerCenterApi.shipmentTimeline(orderId).catch(() => []),
+    ])
+      .then(([orderData, timeline]) => {
+        if (!isActive) return;
+        setPageState({ order: orderData, shipmentEvents: timeline, error: '' });
       })
-      .catch((err: any) => setError(err.message || 'Không thể tải chi tiết đơn hàng.'))
-      .finally(() => setLoading(false));
+      .catch((err: any) => {
+        if (!isActive) return;
+        setPageState({ error: err.message || 'Không thể tải chi tiết đơn hàng.' });
+      })
+      .finally(() => {
+        if (!isActive) return;
+        setPageState({ loading: false });
+      });
+
+    return () => {
+      isActive = false;
+    };
   }, [orderId]);
 
   const handleCopyCode = (code: string) => {
@@ -180,7 +219,10 @@ export default function OrderDetailPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-4xl py-32 text-center">
-        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-slate-300 border-r-transparent align-[-0.125em]" role="status"></div>
+        <output
+          aria-label="Đang tải chi tiết đơn hàng"
+          className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-slate-300 border-r-transparent align-[-0.125em]"
+        />
         <div className="mt-4 text-sm font-medium text-slate-500">Đang tải chi tiết đơn hàng...</div>
       </div>
     );
@@ -201,14 +243,6 @@ export default function OrderDetailPage() {
     );
   }
 
-  // Cấu hình các bước Stepper lớn
-  const steps = [
-    { label: 'Đã đặt đơn', desc: 'Đặt hàng thành công', icon: CartIcon },
-    { label: 'Đang xử lý', desc: 'Shop đang chuẩn bị hàng', icon: ProcessingIcon },
-    { label: 'Đang giao hàng', desc: 'Đơn vị vận chuyển đã nhận', icon: ShippingIcon },
-    { label: 'Hoàn tất', desc: 'Đã nhận hàng thành công', icon: CompletedIcon },
-  ];
-
   const getStepState = (index: number) => {
     const statusOrder: Record<string, number> = {
       PENDING: 0,
@@ -216,7 +250,7 @@ export default function OrderDetailPage() {
       SHIPPED: 2,
       COMPLETED: 3,
     };
-    
+
     // Nếu trạng thái đặc biệt
     if (['CANCELLED', 'PAYMENT_FAILED', 'RETURNING', 'RETURNED', 'REFUNDED'].includes(order.status)) {
       return 'disabled';
@@ -230,9 +264,11 @@ export default function OrderDetailPage() {
 
   const isSpecialStatus = ['CANCELLED', 'PAYMENT_FAILED', 'RETURNING', 'RETURNED', 'REFUNDED'].includes(order.status);
   const badgeStyle = statusStyles[order.status] || { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' };
-  const latestPendingPayment = [...(order.payments || [])]
-    .filter((payment: any) => payment.status === 'PENDING')
-    .sort((a: any, b: any) => Number(b.attemptNumber || 0) - Number(a.attemptNumber || 0))[0];
+  const latestPendingPayment = (order.payments || []).reduce((latest: any, payment: any) => {
+    if (payment.status !== 'PENDING') return latest;
+    if (!latest) return payment;
+    return Number(payment.attemptNumber || 0) > Number(latest.attemptNumber || 0) ? payment : latest;
+  }, undefined);
   const pendingPaymentExpiresAt = latestPendingPayment?.expiresAt ? new Date(latestPendingPayment.expiresAt).getTime() : 0;
   const hasValidPaymentLink = Boolean(
     latestPendingPayment?.id
@@ -244,7 +280,7 @@ export default function OrderDetailPage() {
   return (
     <div className="min-h-screen bg-slate-50/50 py-10">
       <div className="container mx-auto max-w-5xl px-4">
-        
+
         {/* Navigation & Header */}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -255,7 +291,7 @@ export default function OrderDetailPage() {
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Đơn hàng</h1>
               <div className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-sm font-semibold text-slate-800 shadow-sm border border-slate-100">
                 <span>#{order.orderCode}</span>
-                <button 
+                <button type="button"
                   onClick={() => handleCopyCode(order.orderCode)}
                   className="group relative p-1 rounded-md hover:bg-slate-50"
                   aria-label="Sao chép mã đơn hàng"
@@ -305,28 +341,28 @@ export default function OrderDetailPage() {
         {!isSpecialStatus && (
           <div className="mb-8 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
             <div className="relative flex flex-col justify-between gap-6 md:flex-row md:items-center">
-              {steps.map((step, index) => {
+              {orderSteps.map((step, index) => {
                 const state = getStepState(index);
                 const StepIcon = step.icon;
 
                 return (
-                  <div key={index} className="flex flex-1 items-center gap-4 md:flex-col md:text-center relative">
+                  <div key={step.label} className="flex flex-1 items-center gap-4 md:flex-col md:text-center relative">
                     {/* Line nối giữa các bước */}
-                    {index < steps.length - 1 && (
+                    {index < orderSteps.length - 1 && (
                       <div className="hidden md:block absolute top-5 left-[calc(50%+24px)] right-[calc(-50%+24px)] h-0.5 bg-slate-100 z-0">
-                        <div 
+                        <div
                           className={`h-full transition-all duration-500 ${
                             state === 'completed' ? 'w-full bg-emerald-500' : 'w-0 bg-slate-100'
-                          }`} 
+                          }`}
                         />
                       </div>
                     )}
 
                     {/* Vòng tròn Icon */}
-                    <div 
+                    <div
                       className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all duration-300 ${
-                        state === 'completed' 
-                          ? 'bg-emerald-500 text-white ring-8 ring-emerald-50' 
+                        state === 'completed'
+                          ? 'bg-emerald-500 text-white ring-8 ring-emerald-50'
                           : state === 'active'
                           ? 'bg-slate-900 text-white ring-8 ring-slate-100 animate-pulse'
                           : 'bg-slate-50 text-slate-400 border border-slate-200'
@@ -353,10 +389,10 @@ export default function OrderDetailPage() {
 
         {/* Grid Details */}
         <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
-          
+
           {/* Cột trái (Thông tin chính) */}
           <div className="space-y-8">
-            
+
             {/* Card Sản phẩm */}
             <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-bold text-slate-900 border-b border-slate-100 pb-4 mb-4 flex items-center gap-2">
@@ -398,7 +434,7 @@ export default function OrderDetailPage() {
                       <span className={`absolute -left-[23px] top-1.5 z-10 h-3.5 w-3.5 rounded-full border-2 bg-white transition-all duration-300 ${
                         isNewest ? 'border-emerald-500 ring-4 ring-emerald-50 scale-110' : 'border-slate-300'
                       }`} />
-                      
+
                       <div className="flex-1">
                         <p className={`text-sm font-semibold ${isNewest ? 'text-slate-900' : 'text-slate-700'}`}>
                           {event.title}
@@ -456,7 +492,7 @@ export default function OrderDetailPage() {
 
           {/* Cột phải (Hóa đơn và trạng thái thanh toán) */}
           <div className="space-y-8">
-            
+
             {/* Card Thanh toán & Vận chuyển */}
             <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-bold text-slate-900 border-b border-slate-100 pb-4 mb-5">
@@ -524,7 +560,7 @@ export default function OrderDetailPage() {
             <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm relative overflow-hidden">
               {/* Receipt top border design */}
               <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-slate-200 via-slate-400 to-slate-200" />
-              
+
               <h2 className="text-lg font-bold text-slate-900 border-b border-slate-100 pb-4 mb-4">
                 Tổng cộng
               </h2>
@@ -541,7 +577,7 @@ export default function OrderDetailPage() {
                   <span>Phí vận chuyển</span>
                   <span className="font-medium text-slate-700">{formatCurrency(order.shippingFee)}</span>
                 </div>
-                
+
                 <div className="border-t border-slate-100 pt-4 mt-4 flex items-baseline justify-between">
                   <span className="font-bold text-slate-900 text-base">Tổng tiền</span>
                   <div className="text-right">

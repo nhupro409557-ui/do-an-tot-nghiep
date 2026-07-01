@@ -28,7 +28,7 @@ export function OverviewTab({ addresses, orders, onOpenAddresses, onOpenLoyalty 
       <section className="bg-white rounded-xl shadow-sm p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h3 className="font-bold text-gray-800">Địa chỉ giao hàng</h3>
-          <button onClick={onOpenAddresses} className="text-sm font-semibold text-[#d70018]">Quản lý địa chỉ</button>
+          <button type="button" onClick={onOpenAddresses} className="text-sm font-semibold text-[#d70018]">Quản lý địa chỉ</button>
         </div>
         {addresses.length === 0 ? (
           <p className="text-sm text-gray-500">Bạn chưa có địa chỉ. Thêm địa chỉ để hỗ trợ thanh toán và tích hợp đơn vị vận chuyển.</p>
@@ -59,7 +59,7 @@ export function OverviewTab({ addresses, orders, onOpenAddresses, onOpenLoyalty 
 
         <section className="bg-white rounded-xl shadow-sm p-6">
           <h3 className="font-bold text-gray-800 mb-4">Ưu đãi / Nhiệm vụ</h3>
-          <button onClick={onOpenLoyalty} className="w-full flex gap-4 items-center border border-gray-100 rounded-lg p-4 hover:border-red-100 transition-colors text-left">
+          <button type="button" onClick={onOpenLoyalty} className="w-full flex gap-4 items-center border border-gray-100 rounded-lg p-4 hover:border-red-100 transition-colors text-left">
             <div className="w-12 h-12 bg-[#d70018] text-white rounded-lg flex items-center justify-center shadow-sm"><Gift className="w-6 h-6" /></div>
             <div>
               <h4 className="font-bold text-sm text-gray-800 mb-1">Cửa hàng quy đổi loyalty</h4>

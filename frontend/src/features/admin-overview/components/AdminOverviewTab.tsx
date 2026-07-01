@@ -1,18 +1,18 @@
 import React from 'react';
-import { 
-  Activity, 
-  AlertTriangle, 
-  BarChart3, 
-  Boxes, 
-  Building2, 
-  FolderTree, 
-  RotateCcw, 
-  ShieldCheck, 
-  ShoppingBag, 
-  TrendingUp, 
-  Users, 
-  PlusCircle, 
-  ArrowRight, 
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Boxes,
+  Building2,
+  FolderTree,
+  RotateCcw,
+  ShieldCheck,
+  ShoppingBag,
+  TrendingUp,
+  Users,
+  PlusCircle,
+  ArrowRight,
   Database,
   Percent,
   ClipboardList,
@@ -71,8 +71,8 @@ export default function AdminOverviewTab({
   };
 
   // Corporate styling configs for stat cards (clean white cards with border accent)
-  const cardStyles: Record<string, { 
-    iconColor: string; 
+  const cardStyles: Record<string, {
+    iconColor: string;
     iconBg: string;
     borderColor: string;
   }> = {
@@ -115,10 +115,42 @@ export default function AdminOverviewTab({
     { label: 'Duyệt phản hồi', desc: 'Kiểm duyệt đánh giá', icon: ClipboardList, tab: 'reviews', color: 'text-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 border-indigo-100' },
     { label: 'Bảo mật hệ thống', desc: 'Nhật ký audit an toàn', icon: ShieldCheck, tab: 'audit', color: 'text-slate-600 bg-slate-50 hover:bg-slate-100 border-slate-200' },
   ];
+  const operationalAlerts = [
+    {
+      label: 'Đơn pending quá lâu',
+      value: overview?.orders?.pendingOverdue || overview?.orders?.pending || 0,
+      detail: 'Đơn hàng chờ xác nhận cần được xử lý trước khi trễ cam kết.',
+    },
+    {
+      label: 'Hậu mãi trễ SLA',
+      value: overview?.afterSales?.slaBreached || overview?.afterSalesSlaBreached || 0,
+      detail: 'Hồ sơ đổi trả/bảo hành đã vượt thời hạn xử lý.',
+    },
+    {
+      label: 'Tồn kho trên 180 ngày',
+      value: overview?.inventoryAging?.over180Days || overview?.oldInventoryCount || 0,
+      detail: 'Lô tồn lâu cần kiểm tra khuyến mãi, điều chuyển hoặc thanh lý.',
+    },
+    {
+      label: 'Voucher sắp hết hạn',
+      value: overview?.vouchers?.expiringSoon || overview?.riskyVoucherCount || 0,
+      detail: 'Voucher gần hết hạn hoặc đã dùng quá 80% ngân sách.',
+    },
+    {
+      label: 'IMEI lỗi chưa định đoạt',
+      value: overview?.afterSales?.defectivePending || overview?.defectivePendingCount || 0,
+      detail: 'IMEI lỗi còn chờ RTV, thanh lý, hủy hoặc xuất khỏi hệ thống.',
+    },
+    {
+      label: 'Sản phẩm sắp hết hàng',
+      value: overview?.lowStockCount || 0,
+      detail: 'Tồn kho bé hơn hoặc bằng ngưỡng an toàn.',
+    },
+  ];
 
   return (
     <div className="space-y-6 text-slate-800">
-      
+
       {/* Clean Corporate Light Header */}
       <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 md:flex-row md:items-center md:justify-between">
         <div>
@@ -139,8 +171,8 @@ export default function AdminOverviewTab({
           const style = cardStyles[item.label] || cardStyles['Doanh thu'];
           const Icon = item.icon;
           return (
-            <div 
-              key={item.label} 
+            <div
+              key={item.label}
               className={`rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm transition-all duration-200 hover:shadow-md ${style.borderColor}`}
             >
               <div className="flex items-center justify-between">
@@ -160,7 +192,7 @@ export default function AdminOverviewTab({
 
       {/* Operations Grid: Order Fulfillment Flow & Quick Shortcuts */}
       <div className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
-        
+
         {/* Order Fulfillment Flow */}
         <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm flex flex-col justify-between">
           <div>
@@ -241,7 +273,7 @@ export default function AdminOverviewTab({
 
       {/* Revenue Charts Section */}
       <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-        
+
         {/* Line Chart */}
         <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm">
           <div className="mb-4">
@@ -261,13 +293,13 @@ export default function AdminOverviewTab({
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f8fafc" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fontWeight: 600 }} stroke="#94a3b8" tickLine={false} axisLine={false} />
-                <YAxis 
-                  tickFormatter={(value) => compactCurrency.format(Number(value))} 
-                  tick={{ fontSize: 10, fontWeight: 600 }} 
-                  stroke="#94a3b8" 
-                  width={52} 
-                  tickLine={false} 
-                  axisLine={false} 
+                <YAxis
+                  tickFormatter={(value) => compactCurrency.format(Number(value))}
+                  tick={{ fontSize: 10, fontWeight: 600 }}
+                  stroke="#94a3b8"
+                  width={52}
+                  tickLine={false}
+                  axisLine={false}
                 />
                 <Tooltip content={renderTooltip} />
                 <Area type="monotone" dataKey="total" stroke="#4f46e5" strokeWidth={2} fill="url(#adminRevenueLight)" />
@@ -289,13 +321,13 @@ export default function AdminOverviewTab({
               <BarChart data={overview?.revenueByMonth || []} margin={{ top: 10, right: 5, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f8fafc" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 10, fontWeight: 600 }} stroke="#94a3b8" tickLine={false} axisLine={false} />
-                <YAxis 
-                  tickFormatter={(value) => compactCurrency.format(Number(value))} 
-                  tick={{ fontSize: 10, fontWeight: 600 }} 
-                  stroke="#94a3b8" 
-                  width={52} 
-                  tickLine={false} 
-                  axisLine={false} 
+                <YAxis
+                  tickFormatter={(value) => compactCurrency.format(Number(value))}
+                  tick={{ fontSize: 10, fontWeight: 600 }}
+                  stroke="#94a3b8"
+                  width={52}
+                  tickLine={false}
+                  axisLine={false}
                 />
                 <Tooltip content={renderBarTooltip} />
                 <Bar dataKey="total" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={28} />
@@ -315,11 +347,11 @@ export default function AdminOverviewTab({
             </h3>
             <p className="text-xs text-slate-400 font-medium">Top 5 sản phẩm có doanh số bán cao nhất.</p>
           </div>
-          
+
           <div className="space-y-2 flex-1">
             {(overview?.topProducts || []).map((product: any, index: number) => (
-              <div 
-                key={product.id || product.name} 
+              <div
+                key={product.id || product.name}
                 className="flex items-center justify-between border-b border-slate-100 pb-2.5 last:border-b-0 last:pb-0"
               >
                 <div className="min-w-0 flex-1 pr-3">
@@ -367,13 +399,13 @@ export default function AdminOverviewTab({
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <AlertTriangle className="h-4.5 w-4.5 text-slate-600" /> Cảnh báo vận hành hệ thống
             </h3>
-            <p className="text-xs text-slate-400 font-medium">Các cảnh báo tự động về kho bãi và ngân sách.</p>
+            <p className="text-xs text-slate-400 font-medium">Các điểm nghẽn cần xử lý trong bán hàng, kho và hậu mãi.</p>
           </div>
 
           <div className="space-y-2 flex-1 justify-center content-center">
-            <AlertRow label="Voucher cạn ngân sách" value={overview?.riskyVoucherCount || 0} detail="Tỷ lệ sử dụng voucher đã vượt quá 80%" />
-            <AlertRow label="Tồn kho âm hệ thống" value={overview?.negativeStockCount || 0} detail="Số lượng tồn của sản phẩm bé hơn 0" />
-            <AlertRow label="Sản phẩm sắp hết hàng" value={overview?.lowStockCount || 0} detail="Tồn kho bé hơn hoặc bằng ngưỡng an toàn" />
+            {operationalAlerts.map((alert) => (
+              <AlertRow key={alert.label} label={alert.label} value={alert.value} detail={alert.detail} />
+            ))}
           </div>
         </div>
       </div>

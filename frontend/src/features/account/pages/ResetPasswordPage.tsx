@@ -1,21 +1,41 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useReducer } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { confirmPasswordResetByVerificationToken, getAuthErrorMessage, resetPasswordWithToken } from '../../../services/authDb';
 
+type ResetPasswordState = {
+  password: string;
+  confirmPassword: string;
+  resetToken: string;
+  error: string;
+  message: string;
+  loading: boolean;
+};
+
+const initialResetPasswordState: ResetPasswordState = {
+  password: '',
+  confirmPassword: '',
+  resetToken: '',
+  error: '',
+  message: '',
+  loading: false,
+};
+
+function mergeResetPasswordState(state: ResetPasswordState, patch: Partial<ResetPasswordState>): ResetPasswordState {
+  return { ...state, ...patch };
+}
+
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [resetToken, setResetToken] = useState('');
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [{ password, confirmPassword, resetToken, error, message, loading }, setFormState] = useReducer(
+    mergeResetPasswordState,
+    initialResetPasswordState,
+  );
   const navigate = useNavigate();
 
   useEffect(() => {
     const directToken = searchParams.get('token');
     if (directToken) {
-      setResetToken(directToken);
+      setFormState({ resetToken: directToken });
       return;
     }
 
@@ -23,35 +43,34 @@ export default function ResetPasswordPage() {
     if (!verificationToken) return;
 
     confirmPasswordResetByVerificationToken(verificationToken)
-      .then(setResetToken)
+      .then((confirmedToken) => setFormState({ resetToken: confirmedToken }))
       .catch((err: any) => {
-        setError(getAuthErrorMessage(err.code, err.message || 'Lien ket xac nhan khong hop le.'));
+        setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Liên kết xác nhận không hợp lệ.') });
       });
   }, [searchParams]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setError('');
-    setMessage('');
+    setFormState({ error: '', message: '' });
 
     if (!resetToken) {
-      setError('Ban can xac nhan bang ma hoac lien ket trong email truoc khi dat lai mat khau.');
+      setFormState({ error: 'Bạn cần xác nhận bằng mã hoặc liên kết trong email trước khi đặt lại mật khẩu.' });
       return;
     }
     if (password !== confirmPassword) {
-      setError('Mat khau nhap lai khong khop.');
+      setFormState({ error: 'Mật khẩu nhập lại không khớp.' });
       return;
     }
 
-    setLoading(true);
+    setFormState({ loading: true });
     try {
       await resetPasswordWithToken(resetToken, password);
-      setMessage('Da doi mat khau thanh cong. Ban co the dang nhap bang mat khau moi.');
+      setFormState({ message: 'Đã đổi mật khẩu thành công. Bạn có thể đăng nhập bằng mật khẩu mới.' });
       setTimeout(() => navigate('/login'), 1200);
     } catch (err: any) {
-      setError(getAuthErrorMessage(err.code, err.message || 'Khong the dat lai mat khau.'));
+      setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể đặt lại mật khẩu.') });
     } finally {
-      setLoading(false);
+      setFormState({ loading: false });
     }
   };
 
@@ -65,25 +84,29 @@ export default function ResetPasswordPage() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="mb-2 block text-sm font-bold text-gray-700">Mat khau moi</label>
+            <label htmlFor="reset-password-new" className="mb-2 block text-sm font-bold text-gray-700">Mật khẩu mới</label>
             <input
+              id="reset-password-new"
+              aria-label="Mật khẩu mới"
               type="password"
               required
               minLength={6}
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => setFormState({ password: event.target.value })}
               className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
             />
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-bold text-gray-700">Nhap lai mat khau</label>
+            <label htmlFor="reset-password-confirm" className="mb-2 block text-sm font-bold text-gray-700">Nhập lại mật khẩu</label>
             <input
+              id="reset-password-confirm"
+              aria-label="Nhập lại mật khẩu mới"
               type="password"
               required
               minLength={6}
               value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
+              onChange={(event) => setFormState({ confirmPassword: event.target.value })}
               className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none transition-all focus:border-primary focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -93,12 +116,12 @@ export default function ResetPasswordPage() {
             disabled={loading || !resetToken}
             className="w-full rounded-lg bg-primary py-3 font-bold text-white transition-colors hover:bg-red-700 disabled:opacity-70"
           >
-            {loading ? 'Dang luu...' : 'Luu mat khau moi'}
+            {loading ? 'Đang lưu...' : 'Lưu mật khẩu mới'}
           </button>
         </form>
 
         <div className="mt-6 text-center text-sm">
-          <Link to="/forgot-password" className="font-bold text-primary hover:underline">Gui lai ma xac nhan</Link>
+          <Link to="/forgot-password" className="font-bold text-primary hover:underline">Gửi lại mã xác nhận</Link>
         </div>
       </div>
     </div>

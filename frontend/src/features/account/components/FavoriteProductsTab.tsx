@@ -41,11 +41,16 @@ export function FavoriteProductsTab({ favorites, onOpenProduct, onRemoveFavorite
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {favorites.map((product) => (
-            <div
+            <article
               key={product.id}
               className="border border-gray-100 rounded-lg p-4 flex flex-col cursor-pointer hover:shadow-md transition-shadow relative"
-              onClick={() => onOpenProduct(product)}
             >
+              <button
+                type="button"
+                aria-label={`Mở sản phẩm ${product.name}`}
+                className="absolute inset-0 cursor-pointer rounded-lg"
+                onClick={() => onOpenProduct(product)}
+              />
               <div className="aspect-square mb-3 relative flex items-center justify-center p-2">
                 <img src={product.imageUrl || ''} alt={product.name} className="w-full h-full object-contain" />
                 <button
@@ -54,7 +59,8 @@ export function FavoriteProductsTab({ favorites, onOpenProduct, onRemoveFavorite
                     event.stopPropagation();
                     onRemoveFavorite(product.id);
                   }}
-                  className="absolute top-2 right-2 p-1.5 bg-white/80 backdrop-blur-sm shadow-sm rounded-full text-[#d70018] hover:scale-110 transition-transform"
+                  className="absolute top-2 right-2 z-10 p-1.5 bg-white/80 backdrop-blur-sm shadow-sm rounded-full text-[#d70018] hover:scale-110 transition-transform"
+                  aria-label={`Bỏ yêu thích ${product.name}`}
                 >
                   <Heart className="w-5 h-5 fill-[#d70018]" />
                 </button>
@@ -62,7 +68,7 @@ export function FavoriteProductsTab({ favorites, onOpenProduct, onRemoveFavorite
               <h4 className="text-sm font-semibold text-gray-800 line-clamp-2 mt-auto">{product.name}</h4>
               <p className="text-[#d70018] font-bold mt-2">{(product.discountPrice || product.price || 0).toLocaleString('vi-VN')} đ</p>
               <p className="mt-1 text-xs font-medium text-slate-500">Đã yêu thích lúc {formatFavoriteTime(product.favoritedAt)}</p>
-            </div>
+            </article>
           ))}
         </div>
       )}

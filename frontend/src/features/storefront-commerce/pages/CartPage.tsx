@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
 import {
   ArrowLeft,
   ChevronRight,
@@ -18,6 +18,23 @@ import { publicApi } from '../../../services/publicApi';
 
 const formatCurrency = (value: number) => `${value.toLocaleString('vi-VN')}đ`;
 
+
+type CartSuggestionsState = {
+  suggestedProducts: any[];
+  loadingSuggestions: boolean;
+};
+
+const initialCartSuggestionsState: CartSuggestionsState = {
+  suggestedProducts: [],
+  loadingSuggestions: true,
+};
+
+function mergeCartSuggestionsState(
+  state: CartSuggestionsState,
+  patch: Partial<CartSuggestionsState>,
+): CartSuggestionsState {
+  return { ...state, ...patch };
+}
 const EmptyCartIllustration = () => (
   <div className="mb-6 flex h-28 w-28 items-center justify-center rounded-full bg-rose-50 text-[#d70018]">
     <ShoppingBag className="h-12 w-12" strokeWidth={1.8} />
@@ -46,15 +63,17 @@ const CartProductImage: React.FC<{ src: string; alt: string }> = ({ src, alt }) 
 };
 
 export default function CartPage() {
-  const { items, updateQuantity, removeFromCart, totalPrice, totalQuantity, toggleCheckItem, toggleCheckAll } = useCart();
+  const { items, updateQuantity, removeFromCart, totalPrice, totalQuantity, toggleCheckItem, toggleCheckAll, addToCart } = useCart();
   const navigate = useNavigate();
-  
+
   // State lưu ngưỡng freeship động lấy từ backend
   const [freeShippingThreshold, setFreeShippingThreshold] = React.useState(3000000); // mặc định 3.000.000đ theo backend
-  
+
   // State lưu sản phẩm gợi ý
-  const [suggestedProducts, setSuggestedProducts] = React.useState<any[]>([]);
-  const [loadingSuggestions, setLoadingSuggestions] = React.useState(true);
+  const [{ suggestedProducts, loadingSuggestions }, setSuggestionsState] = React.useReducer(
+    mergeCartSuggestionsState,
+    initialCartSuggestionsState,
+  );
 
   // Gọi API lấy cấu hình phí vận chuyển
   React.useEffect(() => {
@@ -71,19 +90,19 @@ export default function CartPage() {
 
   // Gọi API lấy sản phẩm gợi ý mua kèm
   React.useEffect(() => {
-    setLoadingSuggestions(true);
+    setSuggestionsState({ loadingSuggestions: true });
     publicApi.listProducts({ limit: 12, featured: true })
       .then((products) => {
         // Lọc bỏ những sản phẩm đã có trong giỏ hàng để tránh gợi ý trùng
         const cartProductIds = new Set(items.map(item => item.productId.replace('-accessory', '').replace('-normal', '')));
         const filtered = products.filter(p => !cartProductIds.has(String(p.id)));
-        setSuggestedProducts(filtered.slice(0, 4));
+        setSuggestionsState({ suggestedProducts: filtered.slice(0, 4) });
       })
       .catch((err) => {
         console.error("Failed to load product suggestions", err);
       })
       .finally(() => {
-        setLoadingSuggestions(false);
+        setSuggestionsState({ loadingSuggestions: false });
       });
   }, [items]);
 
@@ -99,7 +118,7 @@ export default function CartPage() {
   };
 
   const handleAddSuggestionToCart = (product: any) => {
-    useCart().addToCart({
+    addToCart({
       productId: String(product.id),
       name: product.name,
       price: product.price || product.salePrice,
@@ -198,9 +217,10 @@ export default function CartPage() {
             </div>
           </div>
 
-          <AnimatePresence mode="popLayout">
-            {items.map((item) => (
-              <motion.article
+          <LazyMotion features={domAnimation}>
+            <AnimatePresence mode="popLayout">
+              {items.map((item) => (
+                <m.article
                 layout
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -211,6 +231,7 @@ export default function CartPage() {
                 {/* Checkbox chọn sản phẩm */}
                 <div className="flex h-20 sm:h-28 items-center justify-center shrink-0">
                   <input
+                    aria-label={`Chọn sản phẩm ${item.name}`}
                     type="checkbox"
                     checked={item.checked !== false}
                     onChange={() => toggleCheckItem(item.cartItemId || item.productId)}
@@ -228,7 +249,7 @@ export default function CartPage() {
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">
                       <h3 className="line-clamp-2 text-sm font-bold leading-6 text-slate-900">{item.name}</h3>
-                      
+
                       {/* Dịch vụ đi kèm */}
                       {item.attachedServices && item.attachedServices.length > 0 && (
                         <div className="mt-1.5 space-y-1">
@@ -261,7 +282,7 @@ export default function CartPage() {
                     <button
                       type="button"
                       onClick={() => removeFromCart(item.cartItemId || item.productId)}
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-[#d70018] self-start md:self-auto"
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#d70018] transition hover:bg-rose-50 hover:text-[#b80014] self-start md:self-auto"
                       aria-label="Xóa sản phẩm"
                       title="Xóa sản phẩm"
                     >
@@ -303,9 +324,10 @@ export default function CartPage() {
                     </div>
                   </div>
                 </div>
-              </motion.article>
-            ))}
-          </AnimatePresence>
+                </m.article>
+              ))}
+            </AnimatePresence>
+          </LazyMotion>
         </section>
 
         <aside className="h-fit rounded-lg border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-24">

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ChevronDown, ChevronUp, Scale, Settings, CheckCircle, ShoppingCart, 
-  Tag, CreditCard, User, Users, ShieldCheck, XOctagon, AlertTriangle, 
+  ChevronDown, ChevronUp, Scale, Settings, CheckCircle, ShoppingCart,
+  Tag, CreditCard, User, Users, ShieldCheck, XOctagon, AlertTriangle,
   MessageSquare, BookOpen, Database, FileText, Repeat, LayoutDashboard,
   ArrowRight
 } from 'lucide-react';
@@ -21,8 +21,8 @@ function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 bg-white">
-          {rows.map((row, i) => (
-            <tr key={i} className="transition-colors hover:bg-slate-50/60">
+          {rows.map((row) => (
+            <tr key={row.join('\u001f')} className="transition-colors hover:bg-slate-50/60">
               {row.map((cell, j) => (
                 <td
                   key={j}
@@ -53,8 +53,8 @@ function Note({ children }: { children: React.ReactNode }) {
 function BulletList({ items }: { items: string[] }) {
   return (
     <ul className="space-y-1.5 text-sm text-slate-600">
-      {items.map((item, i) => (
-        <li key={i} className="flex items-start gap-2 leading-relaxed">
+      {items.map((item) => (
+        <li key={item} className="flex items-start gap-2 leading-relaxed">
           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
           {item}
         </li>
@@ -71,11 +71,7 @@ interface Section {
   content: React.ReactNode;
 }
 
-export default function TermsPage() {
-  const [expanded, setExpanded] = useState<string | null>('t-1');
-  const toggle = (id: string) => setExpanded((p) => (p === id ? null : id));
-
-  const sections: Section[] = [
+const TERMS_PAGE_SECTIONS: Section[] = [
     {
       id: 't-1',
       number: '1',
@@ -395,6 +391,11 @@ export default function TermsPage() {
     },
   ];
 
+
+export default function TermsPage() {
+  const [expanded, setExpanded] = useState<string | null>('t-1');
+  const toggle = (id: string) => setExpanded((p) => (p === id ? null : id));
+
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Banner */}
@@ -450,7 +451,7 @@ export default function TermsPage() {
       {/* Content */}
       <div className="mx-auto max-w-5xl px-4 py-10 lg:px-6">
         <div className="space-y-3">
-          {sections.map((section) => {
+          {TERMS_PAGE_SECTIONS.map((section) => {
             const isOpen = expanded === section.id;
             return (
               <div
@@ -461,7 +462,7 @@ export default function TermsPage() {
                     : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
                 }`}
               >
-                <button
+                <button type="button"
                   id={`terms-section-${section.number}`}
                   onClick={() => toggle(section.id)}
                   className="flex w-full items-center gap-4 px-5 py-4 text-left"

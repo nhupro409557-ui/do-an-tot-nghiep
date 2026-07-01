@@ -20,7 +20,7 @@ function Table({ headers, rows, highlight }: { headers: string[]; rows: string[]
         </thead>
         <tbody className="divide-y divide-slate-100 bg-white">
           {rows.map((row, i) => (
-            <tr key={i} className={`transition-colors hover:bg-slate-50/60 ${highlight === i ? 'bg-indigo-50/60' : ''}`}>
+            <tr key={row.join('\u001f')} className={`transition-colors hover:bg-slate-50/60 ${highlight === i ? 'bg-indigo-50/60' : ''}`}>
               {row.map((cell, j) => (
                 <td
                   key={j}
@@ -49,8 +49,8 @@ function Note({ children }: { children: React.ReactNode }) {
 function BulletList({ items }: { items: string[] }) {
   return (
     <ul className="space-y-1.5 text-sm text-slate-600">
-      {items.map((item, i) => (
-        <li key={i} className="flex items-start gap-2 leading-relaxed">
+      {items.map((item) => (
+        <li key={item} className="flex items-start gap-2 leading-relaxed">
           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" />
           {item}
         </li>
@@ -76,11 +76,7 @@ interface Section {
   content: React.ReactNode;
 }
 
-export default function ExtendedWarrantyPage() {
-  const [expanded, setExpanded] = useState<string | null>('ew-1');
-  const toggle = (id: string) => setExpanded((p) => (p === id ? null : id));
-
-  const pkgCards = [
+const EXTENDED_WARRANTY_PACKAGE_CARDS = [
     {
       icon: <Star className="h-5 w-5 text-indigo-600" />,
       name: '1 đổi 1 VIP',
@@ -107,7 +103,7 @@ export default function ExtendedWarrantyPage() {
     },
   ];
 
-  const sections: Section[] = [
+const EXTENDED_WARRANTY_PAGE_SECTIONS: Section[] = [
     {
       id: 'ew-1',
       number: '1',
@@ -124,7 +120,7 @@ export default function ExtendedWarrantyPage() {
 
           {/* 3 package cards */}
           <div className="grid gap-3 sm:grid-cols-3">
-            {pkgCards.map((pkg) => (
+            {EXTENDED_WARRANTY_PACKAGE_CARDS.map((pkg) => (
               <div key={pkg.name} className={`rounded-xl border p-4 ${pkg.color}`}>
                 <div className="mb-2 flex items-center gap-2">
                   <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${pkg.badge} text-white`}>
@@ -574,6 +570,12 @@ export default function ExtendedWarrantyPage() {
     },
   ];
 
+
+export default function ExtendedWarrantyPage() {
+  const [expanded, setExpanded] = useState<string | null>('ew-1');
+  const toggle = (id: string) => setExpanded((p) => (p === id ? null : id));
+
+
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Banner */}
@@ -629,7 +631,7 @@ export default function ExtendedWarrantyPage() {
       {/* Content */}
       <div className="mx-auto max-w-5xl px-4 py-10 lg:px-6">
         <div className="space-y-3">
-          {sections.map((section) => {
+          {EXTENDED_WARRANTY_PAGE_SECTIONS.map((section) => {
             const isOpen = expanded === section.id;
             return (
               <div
@@ -640,7 +642,7 @@ export default function ExtendedWarrantyPage() {
                     : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
                 }`}
               >
-                <button
+                <button type="button"
                   id={`extwarranty-section-${section.number}`}
                   onClick={() => toggle(section.id)}
                   className="flex w-full items-center gap-4 px-5 py-4 text-left"

@@ -37,6 +37,11 @@ export function useAdminLogic() {
   const { canAccessAdmin, loading, usePermission, useAnyPermission, isSuperAdmin } = useAuth();
   const [tab, setTab] = useState<AdminTab>('overview');
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 350);
+    return () => clearTimeout(timer);
+  }, [query]);
   const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState('');
   const [inventoryBrandFilter, setInventoryBrandFilter] = useState('');
   const [brandCategoryFilter, setBrandCategoryFilter] = useState('');
@@ -299,7 +304,7 @@ export function useAdminLogic() {
   const filteredVouchers = useMemo(() => {
     return vouchers.filter((voucher) => matchesSearch(voucher, query, ['code', 'discountType', 'status']));
   }, [vouchers, query]);
-  const filteredCustomers = useMemo(() => customers, [customers]);
+  const filteredCustomers = customers;
   const filteredInventory = useMemo(() => {
     return inventoryLogic.inventoryLevels.filter((row: any) => {
       const product = products.find((item: any) => String(item.id) === String(row.productId));
@@ -450,7 +455,7 @@ export function useAdminLogic() {
     if (canAccessAdmin && canLoadTab('customers') && tab === 'customers') {
       void loadData('customers', { force: true });
     }
-  }, [canAccessAdmin, tab, customerPage, tabAccess]);
+  }, [canAccessAdmin, tab, customerPage, debouncedQuery, tabAccess]);
 
   async function loadData(targetTab: AdminTab = tab, options: { force?: boolean; silent?: boolean; prefetch?: boolean } = {}) {
     if (!canLoadTab(targetTab)) return;
@@ -560,7 +565,7 @@ export function useAdminLogic() {
       const customerPickerLimit = 100;
       const loadCustomers = async (role: 'CUSTOMER' | 'STAFF_ADMIN' = 'CUSTOMER', options: { picker?: boolean } = {}) => {
         const customerData = await adminCustomersApi.adminListCustomers({
-          search: role === 'CUSTOMER' && !options.picker ? query : undefined,
+          search: role === 'CUSTOMER' && !options.picker ? debouncedQuery : undefined,
           page: role === 'CUSTOMER' && !options.picker ? customerPage : 1,
           limit: role === 'CUSTOMER' && !options.picker ? 20 : customerPickerLimit,
           role,

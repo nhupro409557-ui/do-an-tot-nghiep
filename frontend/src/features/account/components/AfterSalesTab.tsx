@@ -1,5 +1,47 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { customerCenterApi } from '../services/customerCenterApi';
+
+type FilePreview = { url: string; type: string; name: string };
+
+const progressSteps = [
+  { key: 'SUBMITTED', label: 'Gửi yêu cầu' },
+  { key: 'QC', label: 'Kiểm QC' },
+  { key: 'PROCESSING', label: 'Xử lý' },
+  { key: 'COMPLETED', label: 'Hoàn tất' }
+];
+
+const qcStatuses = new Set(['RECEIVED', 'QC_IN_PROGRESS']);
+const processingStatuses = new Set([
+  'QC_APPROVED', 'WARRANTY_ACCEPTED', 'REPAIRING', 'REPLACEMENT_APPROVED',
+  'WAITING_FOR_STOCK', 'EXCHANGE_PROCESSING', 'REPLACEMENT_PROCESSING',
+  'REFUND_PROCESSING', 'READY_TO_RETURN'
+]);
+const closedStatuses = new Set(['REJECTED', 'CANCELLED', 'CLOSED_EXPIRED']);
+
+const revokeFilePreviews = (previews: FilePreview[]) => {
+  previews.forEach(item => URL.revokeObjectURL(item.url));
+};
+
+const getProgressSteps = (status: string) => {
+  let currentStepIndex = 0;
+  if (qcStatuses.has(status)) {
+    currentStepIndex = 1;
+  } else if (processingStatuses.has(status)) {
+    currentStepIndex = 2;
+  } else if (status === 'COMPLETED') {
+    currentStepIndex = 3;
+  }
+
+  if (closedStatuses.has(status)) {
+    return { isSpecial: true, statusText: statusLabel[status] || status };
+  }
+
+  return {
+    isSpecial: false,
+    currentStepIndex,
+    steps: progressSteps
+  };
+};
 
 const statusLabel: Record<string, string> = {
   SUBMITTED: 'Đã gửi yêu cầu',
@@ -57,8 +99,8 @@ export function AfterSalesTab({ kind, orders }: Props) {
   const [reason, setReason] = useState('');
   const [imei, setImei] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
-  const [files, setFiles] = useState<File[]>([]);
-  const [filePreviews, setFilePreviews] = useState<{ url: string; type: string; name: string }[]>([]);
+  const filesRef = useRef<File[]>([]);
+  const [filePreviews, setFilePreviews] = useState<FilePreview[]>([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -71,45 +113,44 @@ export function AfterSalesTab({ kind, orders }: Props) {
     return validOrders.find(order => String(order.id) === orderId);
   }, [validOrders, orderId]);
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const data = await api({ page: 1, limit: 50 });
       setItems(data.items || []);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Không thể tải yêu cầu hậu mãi.');
     }
-  }
+  }, [api]);
 
   useEffect(() => {
     void load();
-  }, [kind]);
+  }, [load]);
 
-  // Sinh previews cho file đính kèm
   useEffect(() => {
-    if (!files.length) {
-      setFilePreviews([]);
-      return;
-    }
-    const urls = files.map(file => ({
+    return () => revokeFilePreviews(filePreviews);
+  }, [filePreviews]);
+
+  const syncFiles = (nextFiles: File[]) => {
+    filesRef.current = nextFiles;
+
+    const nextPreviews = nextFiles.map(file => ({
       url: URL.createObjectURL(file),
       type: file.type,
       name: file.name
     }));
-    setFilePreviews(urls);
 
-    return () => {
-      urls.forEach(item => URL.revokeObjectURL(item.url));
-    };
-  }, [files]);
+    setFilePreviews(nextPreviews);
+  };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || []);
     // Khống chế tối đa 5 files
-    setFiles(prev => [...prev, ...selectedFiles].slice(0, 5));
+    syncFiles([...filesRef.current, ...selectedFiles].slice(0, 5));
+    event.target.value = '';
   };
 
   const removeFile = (index: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
+    syncFiles(filesRef.current.filter((_, i) => i !== index));
   };
 
   async function submit(event: React.FormEvent) {
@@ -131,13 +172,13 @@ export function AfterSalesTab({ kind, orders }: Props) {
           serial_number: serialNumber.trim() || null,
         }],
       });
-      if (files.length) {
-        await uploadApi(created.id, files);
+      if (filesRef.current.length) {
+        await uploadApi(created.id, filesRef.current);
       }
       setReason('');
       setImei('');
       setSerialNumber('');
-      setFiles([]);
+      syncFiles([]);
       setMessage(`Đã gửi thành công yêu cầu ${created.requestCode}.`);
       await load();
     } catch (error) {
@@ -157,43 +198,6 @@ export function AfterSalesTab({ kind, orders }: Props) {
     }
   }
 
-  // Lấy tiến trình stepper tương ứng với status hiện tại
-  const getProgressSteps = (status: string) => {
-    // 4 Mốc lớn
-    const stepsList = [
-      { key: 'SUBMITTED', label: 'Gửi yêu cầu' },
-      { key: 'QC', label: 'Kiểm QC' },
-      { key: 'PROCESSING', label: 'Xử lý' },
-      { key: 'COMPLETED', label: 'Hoàn tất' }
-    ];
-
-    const qcStatuses = ['RECEIVED', 'QC_IN_PROGRESS'];
-    const processingStatuses = [
-      'QC_APPROVED', 'WARRANTY_ACCEPTED', 'REPAIRING', 'REPLACEMENT_APPROVED',
-      'WAITING_FOR_STOCK', 'EXCHANGE_PROCESSING', 'REPLACEMENT_PROCESSING',
-      'REFUND_PROCESSING', 'READY_TO_RETURN'
-    ];
-
-    let currentStepIndex = 0;
-    if (qcStatuses.includes(status)) {
-      currentStepIndex = 1;
-    } else if (processingStatuses.includes(status)) {
-      currentStepIndex = 2;
-    } else if (status === 'COMPLETED') {
-      currentStepIndex = 3;
-    }
-
-    if (['REJECTED', 'CANCELLED', 'CLOSED_EXPIRED'].includes(status)) {
-      return { isSpecial: true, statusText: statusLabel[status] || status };
-    }
-
-    return {
-      isSpecial: false,
-      currentStepIndex,
-      steps: stepsList
-    };
-  };
-
   return (
     <div className="space-y-8">
       {/* Form Tạo Yêu Cầu */}
@@ -201,15 +205,16 @@ export function AfterSalesTab({ kind, orders }: Props) {
         <h3 className="text-lg font-extrabold text-slate-900 border-b border-slate-50 pb-3">
           Tạo yêu cầu {isReturn ? 'đổi trả hàng' : 'bảo hành thiết bị'}
         </h3>
-        
+
         <div className="mt-5 grid gap-5 md:grid-cols-2">
           {/* Dropdown Đơn hàng */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Đơn hàng của bạn</label>
-            <select 
-              value={orderId} 
-              onChange={event => { setOrderId(event.target.value); setOrderItemId(''); }} 
-              className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm focus:border-slate-900 focus:bg-white focus:outline-none transition-colors" 
+            <label htmlFor="after-sales-order" className="text-xs font-bold text-slate-500 uppercase tracking-wider">Đơn hàng của bạn</label>
+            <select
+              id="after-sales-order"
+              value={orderId}
+              onChange={event => { setOrderId(event.target.value); setOrderItemId(''); }}
+              className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm focus:border-slate-900 focus:bg-white focus:outline-none transition-colors"
               required
             >
               <option value="">-- Chọn đơn hàng hợp lệ --</option>
@@ -223,12 +228,13 @@ export function AfterSalesTab({ kind, orders }: Props) {
 
           {/* Dropdown Sản phẩm */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sản phẩm lỗi</label>
-            <select 
-              value={orderItemId} 
-              onChange={event => setOrderItemId(event.target.value)} 
-              className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm focus:border-slate-900 focus:bg-white focus:outline-none transition-colors disabled:opacity-60" 
-              required 
+            <label htmlFor="after-sales-order-item" className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sản phẩm lỗi</label>
+            <select
+              id="after-sales-order-item"
+              value={orderItemId}
+              onChange={event => setOrderItemId(event.target.value)}
+              className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm focus:border-slate-900 focus:bg-white focus:outline-none transition-colors disabled:opacity-60"
+              required
               disabled={!selectedOrder}
             >
               <option value="">-- Chọn sản phẩm cần bảo trì --</option>
@@ -240,43 +246,49 @@ export function AfterSalesTab({ kind, orders }: Props) {
 
           {/* Nhập IMEI */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mã IMEI</label>
-            <input 
-              value={imei} 
-              onChange={event => setImei(event.target.value)} 
-              placeholder="Nhập IMEI (Thường ghi trên thân máy/vỏ hộp)" 
-              className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm focus:border-slate-900 focus:bg-white focus:outline-none transition-colors" 
+            <label htmlFor="after-sales-imei" className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mã IMEI</label>
+            <input
+              id="after-sales-imei"
+              aria-label="Mã IMEI"
+              value={imei}
+              onChange={event => setImei(event.target.value)}
+              placeholder="Nhập IMEI (Thường ghi trên thân máy/vỏ hộp)"
+              className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm focus:border-slate-900 focus:bg-white focus:outline-none transition-colors"
             />
           </div>
 
           {/* Nhập Serial Number */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mã Serial Number (S/N)</label>
-            <input 
-              value={serialNumber} 
-              onChange={event => setSerialNumber(event.target.value)} 
-              placeholder="Nhập Serial number (nếu có)" 
-              className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm focus:border-slate-900 focus:bg-white focus:outline-none transition-colors" 
+            <label htmlFor="after-sales-serial-number" className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mã Serial Number (S/N)</label>
+            <input
+              id="after-sales-serial-number"
+              aria-label="Mã Serial Number"
+              value={serialNumber}
+              onChange={event => setSerialNumber(event.target.value)}
+              placeholder="Nhập Serial number (nếu có)"
+              className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm focus:border-slate-900 focus:bg-white focus:outline-none transition-colors"
             />
           </div>
         </div>
 
         {/* Lý do và mô tả chi tiết */}
         <div className="mt-5 flex flex-col gap-1.5">
-          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mô tả tình trạng lỗi của sản phẩm</label>
-          <textarea 
-            value={reason} 
-            onChange={event => setReason(event.target.value)} 
-            minLength={10} 
-            required 
-            placeholder="Vui lòng cung cấp chi tiết lỗi của máy để kỹ thuật viên kiểm tra QC nhanh nhất (ví dụ: màn hình sọc ngang, loa rè, không sạc được pin, ...)" 
-            className="min-h-28 w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm focus:border-slate-900 focus:bg-white focus:outline-none transition-colors" 
+          <label htmlFor="after-sales-reason" className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mô tả tình trạng lỗi của sản phẩm</label>
+          <textarea
+            id="after-sales-reason"
+            aria-label="Mô tả tình trạng lỗi của sản phẩm"
+            value={reason}
+            onChange={event => setReason(event.target.value)}
+            minLength={10}
+            required
+            placeholder="Vui lòng cung cấp chi tiết lỗi của máy để kỹ thuật viên kiểm tra QC nhanh nhất (ví dụ: màn hình sọc ngang, loa rè, không sạc được pin, ...)"
+            className="min-h-28 w-full rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm focus:border-slate-900 focus:bg-white focus:outline-none transition-colors"
           />
         </div>
 
         {/* Upload file và Preview */}
         <div className="mt-5 flex flex-col gap-1.5">
-          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Hình ảnh / Video minh chứng lỗi (Tối đa 5 tệp)</label>
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Hình ảnh / Video minh chứng lỗi (Tối đa 5 tệp)</span>
           <div className="mt-1 flex items-center justify-center w-full">
             <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-200 border-dashed rounded-xl cursor-pointer bg-slate-50/50 hover:bg-slate-100/50 transition-colors">
               <div className="flex flex-col items-center justify-center pt-5 pb-6">
@@ -286,12 +298,12 @@ export function AfterSalesTab({ kind, orders }: Props) {
                 <p className="mb-1 text-sm text-slate-500 font-medium">Click để chọn ảnh hoặc video minh họa</p>
                 <p className="text-xs text-slate-400">Chấp nhận JPG, PNG, WEBP, MP4, MOV (Dưới 20MB)</p>
               </div>
-              <input 
-                type="file" 
-                multiple 
-                accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime" 
-                onChange={handleFileChange} 
-                className="hidden" 
+              <input
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime"
+                onChange={handleFileChange}
+                className="hidden"
               />
             </label>
           </div>
@@ -300,7 +312,7 @@ export function AfterSalesTab({ kind, orders }: Props) {
           {filePreviews.length > 0 && (
             <div className="mt-4 grid grid-cols-5 gap-3">
               {filePreviews.map((preview, index) => (
-                <div key={index} className="relative group rounded-lg overflow-hidden border border-slate-200 bg-slate-100 aspect-square">
+                <div key={preview.url} className="relative group rounded-lg overflow-hidden border border-slate-200 bg-slate-100 aspect-square">
                   {preview.type.startsWith('video/') ? (
                     <div className="flex h-full w-full items-center justify-center bg-slate-900 text-white">
                       <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -311,9 +323,9 @@ export function AfterSalesTab({ kind, orders }: Props) {
                   ) : (
                     <img src={preview.url} alt={preview.name} className="h-full w-full object-cover" />
                   )}
-                  <button 
-                    type="button" 
-                    onClick={() => removeFile(index)} 
+                  <button
+                    type="button"
+                    onClick={() => removeFile(index)}
                     className="absolute -top-1 -right-1 m-1.5 h-5 w-5 bg-rose-500 text-white rounded-full flex items-center justify-center text-xs font-bold opacity-90 hover:opacity-100 shadow-sm"
                   >
                     ×
@@ -326,8 +338,8 @@ export function AfterSalesTab({ kind, orders }: Props) {
 
         {/* Nút gửi */}
         <div className="mt-6 flex justify-end">
-          <button 
-            disabled={busy} 
+          <button type="submit"
+            disabled={busy}
             className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-3 text-sm font-bold text-white shadow-md hover:bg-slate-800 focus:outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {busy ? (
@@ -354,7 +366,7 @@ export function AfterSalesTab({ kind, orders }: Props) {
         <h3 className="text-lg font-extrabold text-slate-900 border-b border-slate-50 pb-3">
           Lịch sử yêu cầu đã gửi
         </h3>
-        
+
         <div className="mt-5 space-y-4">
           {items.map(item => {
             const progress = getProgressSteps(item.status);
@@ -379,10 +391,10 @@ export function AfterSalesTab({ kind, orders }: Props) {
                     <span className="font-bold text-slate-800 text-xs block mb-1 uppercase tracking-wide">Mô tả lỗi:</span>
                     {item.reason}
                   </p>
-                  
+
                   <div className="text-xs text-slate-400 flex flex-wrap gap-1.5 items-center mt-2.5">
                     <span className="font-bold text-slate-500">Sản phẩm lỗi:</span>
-                    {(item.items || []).map((line: any, idx: number) => (
+                    {(item.items || []).map((line: any) => (
                       <span key={line.id} className="inline-flex items-center bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-slate-600 font-medium">
                         {line.productName}
                         {line.imei && ` (IMEI: ${line.imei})`}
@@ -398,9 +410,9 @@ export function AfterSalesTab({ kind, orders }: Props) {
                     <div className="flex items-center justify-between relative max-w-xl mx-auto">
                       {/* Line nền */}
                       <div className="absolute top-[13px] left-[16px] right-[16px] h-0.5 bg-slate-100 z-0" />
-                      
+
                       {/* Line tiến độ */}
-                      <div 
+                      <div
                         className="absolute top-[13px] left-[16px] h-0.5 bg-emerald-500 z-0 transition-all duration-300"
                         style={{ width: `${(progress.currentStepIndex / (progress.steps.length - 1)) * 100}%` }}
                       />
@@ -409,10 +421,10 @@ export function AfterSalesTab({ kind, orders }: Props) {
                         const isDone = idx < (progress.currentStepIndex ?? 0);
                         const isActive = idx === progress.currentStepIndex;
                         return (
-                          <div key={idx} className="flex flex-col items-center z-10">
-                            <div 
+                          <div key={step.key} className="flex flex-col items-center z-10">
+                            <div
                               className={`h-7 w-7 rounded-full flex items-center justify-center border text-xs font-bold transition-all duration-300 ${
-                                isDone 
+                                isDone
                                   ? 'bg-emerald-500 border-emerald-500 text-white ring-4 ring-emerald-50'
                                   : isActive
                                   ? 'bg-slate-900 border-slate-900 text-white ring-4 ring-slate-100 animate-pulse'
@@ -443,9 +455,9 @@ export function AfterSalesTab({ kind, orders }: Props) {
                 {/* Hủy yêu cầu (chỉ khi chưa xử lý) */}
                 {['SUBMITTED', 'WAITING_FOR_STOCK'].includes(item.status) && (
                   <div className="mt-4 border-t border-slate-50 pt-4 flex justify-end">
-                    <button 
-                      type="button" 
-                      onClick={() => void cancel(item.id)} 
+                    <button
+                      type="button"
+                      onClick={() => void cancel(item.id)}
                       className="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-lg transition-colors"
                     >
                       Hủy yêu cầu
