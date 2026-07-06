@@ -21,10 +21,10 @@ async def resolve_brand_redirect(session: AsyncSession, slug: str, max_hops: int
         if not next_slug:
             return current if current != slug else None
         if next_slug in seen:
-            raise HTTPException(status_code=409, detail="Brand redirect loop detected.")
+            raise HTTPException(status_code=409, detail="Phát hiện vòng lặp redirect thương hiệu.")
         seen.add(str(next_slug))
         current = str(next_slug)
-    raise HTTPException(status_code=409, detail="Brand redirect chain is too long.")
+    raise HTTPException(status_code=409, detail="Chuỗi redirect thương hiệu quá dài.")
 
 
 @router.get("/brands/{slug}")
@@ -43,7 +43,7 @@ async def get_brand_landing(
             response.status_code = status.HTTP_308_PERMANENT_REDIRECT
             response.headers["Location"] = f"/api/storefront/brands/{redirect}"
             return {"redirectTo": redirect}
-        raise HTTPException(status_code=404, detail="Brand not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy thương hiệu.")
 
     cache_key = f"storefront:brand:{brand['slug']}:v:{brand['cacheVersion']}:page:{page}:limit:{limit}"
     try:
@@ -67,7 +67,7 @@ async def get_brand_landing(
         "pagination": {"page": page, "limit": limit, "total": total},
     }
     try:
-        await redis.setex(cache_key, 30 * 60, json.dumps(payload, ensure_ascii=False, default=str))
+        await redis.set(cache_key, json.dumps(payload, ensure_ascii=False, default=str), ex=30 * 60)
     except Exception:
         pass
     return payload

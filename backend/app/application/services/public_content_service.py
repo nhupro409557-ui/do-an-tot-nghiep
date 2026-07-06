@@ -219,7 +219,7 @@ async def update_own_review(
         user_id=current_user_id,
     )
     if not review:
-        raise HTTPException(status_code=404, detail="Review not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đánh giá.")
     expires_at = review["review_window_expires_at"]
     if not expires_at or datetime.now(timezone.utc) > expires_at:
         raise HTTPException(status_code=403, detail="Đã hết hạn chỉnh sửa đánh giá.")
@@ -276,14 +276,14 @@ async def delete_own_review(
         user_id=current_user_id,
     )
     if not review:
-        raise HTTPException(status_code=404, detail="Review not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đánh giá.")
     expires_at = review["review_window_expires_at"]
     if not expires_at or datetime.now(timezone.utc) > expires_at:
         raise HTTPException(status_code=403, detail="Đã hết hạn xóa đánh giá.")
 
     deleted_count = await public_content_repo.delete_review(session, review_id)
     if deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Review not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đánh giá.")
     await sync_product_review_stats(session=session, product_id=product_id)
     await session.commit()
     return {"ok": True}
@@ -376,7 +376,7 @@ async def record_video_view(
 ) -> dict:
     exists = await public_content_repo.published_video_exists(session, video_id)
     if not exists:
-        raise HTTPException(status_code=404, detail="Video not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy video.")
     if not payload.visible:
         return {"counted": False}
 
@@ -389,14 +389,14 @@ async def record_video_view(
         await redis.expire(base_key, 60 * 60)
         if watched < 30:
             return {"counted": False, "watchedSeconds": int(watched)}
-        await redis.setex(counted_key, 24 * 60 * 60, "1")
+        await redis.set(counted_key, "1", ex=24 * 60 * 60)
         await redis.delete(base_key)
     except Exception:
         pass
 
     view_count = await public_content_repo.increment_video_view_count(session, video_id)
     if view_count is None:
-        raise HTTPException(status_code=404, detail="Video not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy video.")
     await session.commit()
     return {"counted": True, "viewCount": int(view_count)}
 
@@ -408,7 +408,7 @@ async def toggle_video_like(
 ) -> dict:
     exists = await public_content_repo.video_exists(session, video_id)
     if not exists:
-        raise HTTPException(status_code=404, detail="Video not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy video.")
     liked = await public_content_repo.user_liked_video(session, video_id=video_id, user_id=current_user_id)
     if liked:
         await public_content_repo.delete_video_like(session, video_id=video_id, user_id=current_user_id)
@@ -429,14 +429,14 @@ async def create_video_comment(
 ) -> dict:
     video_exists = await public_content_repo.published_video_exists(session, video_id)
     if not video_exists:
-        raise HTTPException(status_code=404, detail="Video not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy video.")
 
     parent_id = payload.parentId
     reply_to_user_name = payload.replyToUserName
     if parent_id:
         parent = await content_comment_repo.get_video_comment_parent(session, parent_id=parent_id, video_id=video_id)
         if not parent:
-            raise HTTPException(status_code=404, detail="Parent comment not found.")
+            raise HTTPException(status_code=404, detail="Không tìm thấy bình luận cha.")
         if parent["parent_id"]:
             parent_id = parent["parent_id"]
         reply_to_user_name = reply_to_user_name or parent["user_name"]
@@ -477,7 +477,7 @@ async def retract_video_comment(
 ) -> dict:
     updated_count = await content_comment_repo.retract_video_comment(session, video_id=video_id, comment_id=comment_id, user_id=current_user_id)
     if updated_count == 0:
-        raise HTTPException(status_code=404, detail="Comment not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy bình luận.")
     await session.commit()
     return {"ok": True}
 
@@ -494,13 +494,13 @@ async def create_product_image_comment(
 ) -> dict:
     exists = await public_content_repo.product_exists(session, product_id)
     if not exists:
-        raise HTTPException(status_code=404, detail="Product not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
     parent_id = payload.parentId
     reply_to_user_name = payload.replyToUserName
     if parent_id:
         parent = await content_comment_repo.get_product_image_comment_parent(session, parent_id=parent_id, product_id=product_id)
         if not parent:
-            raise HTTPException(status_code=404, detail="Parent comment not found.")
+            raise HTTPException(status_code=404, detail="Không tìm thấy bình luận cha.")
         if parent["parent_id"]:
             parent_id = parent["parent_id"]
             reply_to_user_name = reply_to_user_name or parent["user_name"]
@@ -542,7 +542,7 @@ async def retract_product_image_comment(
 ) -> dict:
     updated_count = await content_comment_repo.retract_product_image_comment(session, product_id=product_id, comment_id=comment_id, user_id=current_user_id)
     if updated_count == 0:
-        raise HTTPException(status_code=404, detail="Comment not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy bình luận.")
     await session.commit()
     return {"ok": True}
 
@@ -559,7 +559,7 @@ async def create_product_question(
 ) -> dict:
     exists = await public_content_repo.product_exists(session, product_id)
     if not exists:
-        raise HTTPException(status_code=404, detail="Product not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
     parent_id = payload.parentId
     reply_to_user_name = payload.replyToUserName
     if parent_id:
@@ -570,7 +570,7 @@ async def create_product_question(
             interaction_type="PRODUCT_QA",
         )
         if not parent:
-            raise HTTPException(status_code=404, detail="Parent question not found.")
+            raise HTTPException(status_code=404, detail="Không tìm thấy câu hỏi cha.")
         if parent["parent_id"]:
             parent_id = parent["parent_id"]
             reply_to_user_name = reply_to_user_name or parent["user_name"]
@@ -618,6 +618,6 @@ async def retract_product_question(
         interaction_type="PRODUCT_QA",
     )
     if updated_count == 0:
-        raise HTTPException(status_code=404, detail="Question not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy câu hỏi.")
     await session.commit()
     return {"ok": True}

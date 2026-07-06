@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import p5 from 'p5';
+import type p5 from 'p5';
 
 // Định nghĩa các hạng thành viên
 export type Tier = 'Member' | 'Silver' | 'Gold' | 'Diamond';
@@ -9,11 +9,31 @@ interface LoyaltyBadgeProps {
   size?: number; // Kích thước của canvas
 }
 
+function normalizeTier(tier: string): Tier {
+  switch (tier) {
+    case 'S-Mem':
+      return 'Silver';
+    case 'S-Vip':
+      return 'Diamond';
+    case 'Member':
+    case 'Silver':
+    case 'Gold':
+    case 'Diamond':
+      return tier;
+    case 'S-New':
+    default:
+      return 'Member';
+  }
+}
+
 export const LoyaltyBadge3D: React.FC<LoyaltyBadgeProps> = ({ tier, size = 200 }) => {
   const renderRef = useRef<HTMLDivElement>(null);
+  const visualTier = normalizeTier(tier);
 
   useEffect(() => {
     if (!renderRef.current) return;
+    let p5Instance: p5 | null = null;
+    let cancelled = false;
 
     // Định nghĩa logic của p5.js (Generative Art)
     const sketch = (p: p5) => {
@@ -38,7 +58,7 @@ export const LoyaltyBadge3D: React.FC<LoyaltyBadgeProps> = ({ tier, size = 200 }
         p.rotateY(p.frameCount * 0.015);
 
         // --- Cấu hình vật liệu và hình khối theo Hạng (Tier) ---
-        switch (tier) {
+        switch (visualTier) {
           case 'Member':
             // Hạng thường: Khối lập phương bo tròn, màu đồng/xám
             p.specularMaterial(180, 150, 130);
@@ -84,14 +104,17 @@ export const LoyaltyBadge3D: React.FC<LoyaltyBadgeProps> = ({ tier, size = 200 }
       };
     };
 
-    // Khởi tạo instance của p5
-    const p5Instance = new p5(sketch, renderRef.current);
+    void import('p5').then(({ default: P5 }) => {
+      if (cancelled || !renderRef.current) return;
+      p5Instance = new P5(sketch, renderRef.current);
+    });
 
     // Dọn dẹp (Cleanup) khi component bị unmount để tránh rò rỉ bộ nhớ
     return () => {
-      p5Instance.remove();
+      cancelled = true;
+      p5Instance?.remove();
     };
-  }, [tier, size]); // Render lại sketch nếu tier hoặc size thay đổi
+  }, [visualTier, size]); // Render lại sketch nếu tier hoặc size thay đổi
 
   return (
     <div 

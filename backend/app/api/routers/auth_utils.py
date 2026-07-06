@@ -82,7 +82,6 @@ class RegisterRequest(BaseModel):
 class StartVerificationResponse(BaseModel):
     ok: bool
     email: EmailStr
-    verificationToken: str
 
 class VerifyRegistrationRequest(BaseModel):
     email: EmailStr | None = None
@@ -97,9 +96,9 @@ class LoginRequest(BaseModel):
     password: str
 
 class GoogleLoginRequest(BaseModel):
-    email: EmailStr
-    name: str
-    picture: str | None = None
+    credential: str | None = Field(default=None, min_length=20, max_length=4096)
+    id_token: str | None = Field(default=None, min_length=20, max_length=4096)
+    access_token: str | None = Field(default=None, min_length=20, max_length=4096)
 
 class ChangePasswordRequest(BaseModel):
     currentPassword: str
@@ -111,7 +110,6 @@ class ForgotPasswordRequest(BaseModel):
 class ForgotPasswordResponse(BaseModel):
     ok: bool
     email: EmailStr
-    verificationToken: str
 
 class VerifyPasswordResetRequest(BaseModel):
     email: EmailStr | None = None
@@ -424,7 +422,7 @@ async def record_admin_login_failed(
         count = len(recent)
     if count >= 5:
         try:
-            await redis.setex(f"{key}:locked", 30 * 60, "1")
+            await redis.set(f"{key}:locked", "1", ex=30 * 60)
         except Exception:
             admin_login_locks[key] = time.time() + 30 * 60
         await audit_log(session, "admin_account_locked", request, email=email, metadata={"attempts": count})

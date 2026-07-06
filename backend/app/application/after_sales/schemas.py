@@ -14,6 +14,16 @@ class CreateAfterSalesRequest(BaseModel):
     order_id: UUID
     reason: str = Field(min_length=10, max_length=2000)
     items: list[AfterSalesItemInput] = Field(min_length=1, max_length=20)
+    has_accessories: bool = True
+    good_appearance: bool = True
+    account_unlocked: bool = True
+    has_vat_invoice: bool = True
+
+
+class ReplacementItemInput(BaseModel):
+    request_item_id: UUID
+    imeis: list[str] = Field(default_factory=list, max_length=20)
+    serial_numbers: list[str] = Field(default_factory=list, max_length=20)
 
 
 class UpdateAfterSalesStatusRequest(BaseModel):
@@ -22,6 +32,10 @@ class UpdateAfterSalesStatusRequest(BaseModel):
     note: str | None = Field(default=None, max_length=4000)
     customer_fault: bool = False
     replacement_imei: str | None = Field(default=None, max_length=80)
+    replacement_items: list[ReplacementItemInput] = Field(default_factory=list, max_length=20)
+    refund_transaction_ref: str | None = Field(default=None, max_length=160)
+    refund_proof_url: str | None = Field(default=None, max_length=500)
+    refund_note: str | None = Field(default=None, max_length=1000)
     shipping_deduction: float = Field(default=0, ge=0)
     depreciation_fee: float = Field(default=0, ge=0)
     repair_diagnosis: str | None = Field(default=None, max_length=2000)

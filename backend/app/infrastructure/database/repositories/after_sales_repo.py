@@ -40,8 +40,28 @@ async def get_order_item(session: AsyncSession, order_id: UUID, item_id: UUID) -
     result = await session.execute(
         text(
             """
-            SELECT id, product_id, variant_id, product_name, quantity, unit_price, total_price
-            FROM order_items WHERE id = :item_id AND order_id = :order_id
+            SELECT
+                oi.id,
+                COALESCE(oi.product_id, ud.product_id) AS product_id,
+                COALESCE(oi.variant_id, ud.variant_id) AS variant_id,
+                oi.used_device_id,
+                oi.product_name,
+                oi.quantity,
+                oi.unit_price,
+                oi.total_price,
+                oi.warranty_months_snapshot AS "warrantyMonthsSnapshot",
+                COALESCE(
+                    oi.warranty_months_snapshot,
+                    GREATEST(COALESCE(p.warranty_period, 0), COALESCE(ud.warranty_months, 0), 0),
+                    0
+                ) AS "warrantyMonths",
+                oi.warranty_months_snapshot IS NULL AS "warrantySnapshotMissing",
+                COALESCE(p.name, ud_p.name, 'sản phẩm') AS "currentProductName"
+            FROM order_items oi
+            LEFT JOIN products p ON p.id = oi.product_id
+            LEFT JOIN used_devices ud ON ud.id = oi.used_device_id
+            LEFT JOIN products ud_p ON ud_p.id = ud.product_id
+            WHERE oi.id = :item_id AND oi.order_id = :order_id
             """
         ),
         {"item_id": item_id, "order_id": order_id},
@@ -134,6 +154,61 @@ async def has_active_conflict(
     ))
 
 
+async def get_total_returned_quantity(session: AsyncSession, order_item_id: UUID) -> int:
+    result = await session.scalar(
+        text(
+            """
+            SELECT COALESCE(SUM(quantity), 0)
+            FROM return_request_items i
+            JOIN return_requests r ON r.id = i.request_id
+            WHERE i.order_item_id = :order_item_id
+              AND r.status NOT IN ('CANCELLED', 'REJECTED', 'CLOSED_EXPIRED')
+            """
+        ),
+        {"order_item_id": order_item_id},
+    )
+    return int(result or 0)
+
+
+async def get_active_warranty_quantity(session: AsyncSession, order_item_id: UUID) -> int:
+    result = await session.scalar(
+        text(
+            """
+            SELECT COALESCE(SUM(quantity), 0)
+            FROM warranty_request_items i
+            JOIN warranty_requests w ON w.id = i.request_id
+            WHERE i.order_item_id = :order_item_id
+              AND w.status NOT IN ('CANCELLED', 'REJECTED', 'CLOSED_EXPIRED', 'COMPLETED')
+            """
+        ),
+        {"order_item_id": order_item_id},
+    )
+    return int(result or 0)
+
+
+async def has_completed_return_for_identifier(
+    session: AsyncSession,
+    *,
+    imei: str | None,
+    serial_number: str | None,
+) -> bool:
+    return bool(await session.scalar(
+        text(
+            """
+            SELECT EXISTS(
+                SELECT 1
+                FROM return_request_items i
+                JOIN return_requests r ON r.id = i.request_id
+                WHERE r.status = 'COMPLETED'
+                  AND ((CAST(:imei AS VARCHAR) IS NOT NULL AND i.imei = CAST(:imei AS VARCHAR))
+                       OR (CAST(:serial AS VARCHAR) IS NOT NULL AND i.serial_number = CAST(:serial AS VARCHAR)))
+            )
+            """
+        ),
+        {"imei": imei, "serial": serial_number},
+    ))
+
+
 async def insert_request(
     session: AsyncSession,
     *,
@@ -143,18 +218,34 @@ async def insert_request(
     user_id: UUID,
     order_id: UUID,
     reason: str,
+    has_accessories: bool = True,
+    good_appearance: bool = True,
+    account_unlocked: bool = True,
+    has_vat_invoice: bool = True,
 ) -> None:
     request_table, _ = _table(kind)
     await session.execute(
         text(
             f"""
             INSERT INTO {request_table}
-                (id, request_code, user_id, order_id, status, reason, sla_due_at)
+                (id, request_code, user_id, order_id, status, reason, sla_due_at,
+                 has_accessories, good_appearance, account_unlocked, has_vat_invoice)
             VALUES
-                (:id, :code, :user_id, :order_id, 'SUBMITTED', :reason, NOW() + INTERVAL '3 days')
+                (:id, :code, :user_id, :order_id, 'SUBMITTED', :reason, NOW() + INTERVAL '3 days',
+                 :has_accessories, :good_appearance, :account_unlocked, :has_vat_invoice)
             """
         ),
-        {"id": request_id, "code": request_code, "user_id": user_id, "order_id": order_id, "reason": reason},
+        {
+            "id": request_id,
+            "code": request_code,
+            "user_id": user_id,
+            "order_id": order_id,
+            "reason": reason,
+            "has_accessories": has_accessories,
+            "good_appearance": good_appearance,
+            "account_unlocked": account_unlocked,
+            "has_vat_invoice": has_vat_invoice,
+        },
     )
 
 
@@ -258,7 +349,7 @@ async def list_requests(
         "(CAST(:user_id AS UUID) IS NULL OR r.user_id = CAST(:user_id AS UUID))",
         "(CAST(:status AS VARCHAR) IS NULL OR r.status = CAST(:status AS VARCHAR))",
     ]
-    params = {"user_id": user_id, "status": status_value, "offset": (page - 1) * limit, "limit": limit}
+    params = {"kind": kind, "user_id": user_id, "status": status_value, "offset": (page - 1) * limit, "limit": limit}
     order = "DESC" if descending else "ASC"
     customer_fault_select = (
         'COALESCE(r.customer_fault, FALSE)' if kind == "RETURN" else "FALSE"
@@ -303,13 +394,30 @@ async def list_requests(
                        SELECT jsonb_agg(jsonb_build_object(
                            'id', i.id::text, 'orderItemId', i.order_item_id::text,
                            'productId', i.product_id::text, 'variantId', i.product_variant_id::text,
-                           'productName', oi.product_name, 'quantity', i.quantity,
-                           'imei', i.imei, 'serialNumber', i.serial_number,
-                           'replacementImei', i.replacement_imei
+                            'productName', oi.product_name, 'quantity', i.quantity,
+                            'imei', i.imei, 'serialNumber', i.serial_number,
+                            'replacementImei', i.replacement_imei,
+                            'replacementImeis', COALESCE(i.replacement_imeis, '[]'::jsonb),
+                            'replacementSecondaryImeis', COALESCE(i.replacement_secondary_imeis, '[]'::jsonb),
+                            'replacementSerialNumbers', COALESCE(i.replacement_serial_numbers, '[]'::jsonb)
                        )) FROM {item_table} i
                        JOIN order_items oi ON oi.id = i.order_item_id
                        WHERE i.request_id = r.id
-                   ), '[]'::jsonb) AS items
+                    ), '[]'::jsonb) AS items
+                   ,COALESCE((
+                       SELECT jsonb_agg(jsonb_build_object(
+                           'id', a.id::text,
+                           'originalName', a.original_name,
+                           'url', '/' || a.storage_key,
+                           'contentType', a.content_type,
+                           'sizeBytes', a.size_bytes,
+                           'createdAt', a.created_at
+                       ) ORDER BY a.created_at ASC)
+                       FROM after_sales_attachments a
+                       WHERE a.reference_type = :kind
+                         AND a.reference_id = r.id
+                         AND a.status = 'ACTIVE'
+                   ), '[]'::jsonb) AS attachments
             FROM {request_table} r
             JOIN orders o ON o.id = r.order_id
             WHERE {' AND '.join(filters)}
@@ -373,12 +481,27 @@ async def update_request_status(
 
 async def get_request_items(session: AsyncSession, *, kind: str, request_id: UUID) -> list[dict]:
     _, item_table = _table(kind)
-    result = await session.execute(text(f"SELECT * FROM {item_table} WHERE request_id = :id"), {"id": request_id})
+    result = await session.execute(
+        text(
+            f"""
+            SELECT rit.*, oi.used_device_id
+            FROM {item_table} rit
+            LEFT JOIN order_items oi ON oi.id = rit.order_item_id
+            WHERE rit.request_id = :id
+            """
+        ),
+        {"id": request_id},
+    )
     return [dict(row._mapping) for row in result]
 
 
 async def available_stock(
-    session: AsyncSession, *, product_id: UUID, variant_id: UUID | None,
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    exclude_kind: str | None = None,
+    exclude_request_id: UUID | None = None,
 ) -> int:
     value = await session.scalar(
         text(
@@ -394,22 +517,61 @@ async def available_stock(
                 WHERE status = 'LOCKED'
                   AND product_id = CAST(:product_id AS UUID)
                   AND product_variant_id IS NOT DISTINCT FROM CAST(:variant_id AS UUID)
+                  AND NOT (
+                      CAST(:exclude_kind AS VARCHAR) IS NOT NULL
+                      AND CAST(:exclude_request_id AS UUID) IS NOT NULL
+                      AND reference_type = CAST(:exclude_kind AS VARCHAR)
+                      AND reference_id = CAST(:exclude_request_id AS UUID)
+                  )
             )
             SELECT GREATEST(physical.qty - after_sales.qty, 0) FROM physical, after_sales
             """
         ),
-        {"product_id": product_id, "variant_id": variant_id},
+        {
+            "product_id": product_id,
+            "variant_id": variant_id,
+            "exclude_kind": exclude_kind,
+            "exclude_request_id": exclude_request_id,
+        },
     )
     return int(value or 0)
 
 
 async def create_allocations(session: AsyncSession, *, kind: str, request_id: UUID, items: list[dict]) -> bool:
+    # 1. Group quantities by (product_id, variant_id)
+    grouped: dict[tuple[UUID, UUID | None], int] = {}
     for item in items:
-        if await available_stock(
-            session, product_id=item["product_id"], variant_id=item.get("product_variant_id")
-        ) < int(item["quantity"]):
+        p_id = item["product_id"]
+        v_id = item.get("product_variant_id")
+        key = (p_id, v_id)
+        grouped[key] = grouped.get(key, 0) + int(item["quantity"])
+
+    # 2. Lock inventory levels and verify stock atomic
+    for (p_id, v_id), qty in grouped.items():
+        # SELECT FOR UPDATE to lock inventory rows for this product/variant across all locations
+        await session.execute(
+            text(
+                """
+                SELECT id FROM inventory_levels
+                WHERE product_id = :p_id
+                  AND variant_id IS NOT DISTINCT FROM :v_id
+                FOR UPDATE
+                """
+            ),
+            {"p_id": p_id, "v_id": v_id},
+        )
+        avail = await available_stock(
+            session,
+            product_id=p_id,
+            variant_id=v_id,
+            exclude_kind=kind,
+            exclude_request_id=request_id,
+        )
+        if avail < qty:
             return False
-    for item in items:
+
+    # 3. Insert allocations
+    for (p_id, v_id), qty in grouped.items():
         await session.execute(
             text(
                 """
@@ -419,13 +581,16 @@ async def create_allocations(session: AsyncSession, *, kind: str, request_id: UU
                 VALUES
                     (:id, :kind, :reference_id, :product_id, :variant_id,
                      :quantity, 'LOCKED', NOW() + INTERVAL '48 hours')
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (reference_type, reference_id, product_id, COALESCE(product_variant_id, '00000000-0000-0000-0000-000000000000'::uuid))
+                WHERE status = 'LOCKED'
+                DO UPDATE SET
+                    quantity = after_sales_allocations.quantity + EXCLUDED.quantity
                 """
             ),
             {
                 "id": uuid4(), "kind": kind, "reference_id": request_id,
-                "product_id": item["product_id"], "variant_id": item.get("product_variant_id"),
-                "quantity": item["quantity"],
+                "product_id": p_id, "variant_id": v_id,
+                "quantity": qty,
             },
         )
     return True

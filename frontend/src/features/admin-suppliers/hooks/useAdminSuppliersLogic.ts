@@ -27,22 +27,64 @@ export function useAdminSuppliersLogic({ suppliers, reloadCurrentTab }: UseAdmin
   const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
   const [supplierViewOnly, setSupplierViewOnly] = useState(false);
   const [supplierFormOpen, setSupplierFormOpen] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   function resetSupplierForm() {
     setEditingSupplierId(null);
     setSupplierViewOnly(false);
     setSupplierCodeStatus('idle');
     setSupplierForm(initialSupplierForm);
+    setFormErrors({});
   }
 
   async function handleSupplierSubmit(event: FormEvent) {
     event.preventDefault();
     const currentEditingSupplierId = editingSupplierId;
-    const payload = { ...supplierForm, code: supplierForm.code.trim(), name: supplierForm.name.trim() };
+    const payload = {
+      ...supplierForm,
+      code: supplierForm.code.trim(),
+      name: supplierForm.name.trim(),
+      phone: supplierForm.phone ? supplierForm.phone.replace(/[\s.-]/g, '').trim() : '',
+      email: supplierForm.email ? supplierForm.email.trim() : '',
+    };
+
+    // Front-end Validation
+    const errors: Record<string, string> = {};
+    if (!payload.name) {
+      errors.name = 'Tên nhà cung cấp là bắt buộc.';
+    } else if (payload.name.length < 2 || payload.name.length > 200) {
+      errors.name = 'Tên nhà cung cấp phải từ 2 đến 200 ký tự.';
+    }
+
+    if (!payload.code) {
+      errors.code = 'Mã nhà cung cấp là bắt buộc.';
+    }
+
+    if (payload.email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(payload.email)) {
+        errors.email = 'Email không hợp lệ.';
+      }
+    }
+
+    if (payload.phone) {
+      const phoneRegex = /^(0|\+84)(3|5|7|8|9)\d{8}$/;
+      if (!phoneRegex.test(payload.phone)) {
+        errors.phone = 'Số điện thoại không hợp lệ.';
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+    setFormErrors({});
+
     try {
       const check = await adminSuppliersApi.adminCheckSupplierCode({ code: payload.code, excludeId: editingSupplierId });
       if (!check.available) {
-        window.alert('Mã nhà cung cấp đã tồn tại. Vui lòng chọn mã khác.');
+        setSupplierCodeStatus('taken');
+        setFormErrors({ code: 'Mã nhà cung cấp đã tồn tại. Vui lòng chọn mã khác.' });
         return;
       }
       if (editingSupplierId) await adminSuppliersApi.adminUpdateSupplier(editingSupplierId, payload);
@@ -142,5 +184,6 @@ export function useAdminSuppliersLogic({ suppliers, reloadCurrentTab }: UseAdmin
     hideSupplier,
     deleteSupplier,
     bulkUpdateSupplierStatus,
+    formErrors,
   };
 }

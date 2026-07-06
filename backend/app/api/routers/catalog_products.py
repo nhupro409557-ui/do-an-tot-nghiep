@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_user_id
+from app.api.dependencies import get_current_user_id, require_permission
 from app.api.routers.catalog_utils import CreateProductRequest, ProductAnalyticsEventRequest
 from app.application.services import catalog_product_service
 from app.infrastructure.cache import get_redis
@@ -48,6 +48,6 @@ async def list_favorites(
     return await catalog_product_service.list_favorites(session, current_user_id)
 
 
-@router.post("/products", status_code=status.HTTP_201_CREATED)
+@router.post("/products", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("product:create"))])
 async def create_product(payload: CreateProductRequest, session: AsyncSession = Depends(get_session)) -> dict:
     return await catalog_product_service.create_product(payload, session)

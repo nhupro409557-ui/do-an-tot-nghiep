@@ -46,6 +46,8 @@ const DeliveryPolicyPage = lazy(() => import('./features/storefront-policies/pag
 const ReturnWarrantyPolicyPage = lazy(() => import('./features/storefront-policies/pages/ReturnWarrantyPolicyPage'));
 const TermsPage = lazy(() => import('./features/storefront-policies/pages/TermsPage'));
 const MemberPolicyPage = lazy(() => import('./features/storefront-policies/pages/MemberPolicyPage'));
+const UsedProductsPage = lazy(() => import('./features/used-products/pages/UsedProductsPage'));
+const UsedProductDetailPage = lazy(() => import('./features/used-products/pages/UsedProductDetailPage'));
 
 export default function App() {
   return (
@@ -91,6 +93,8 @@ function AppShell() {
             <Route path="/category" element={<CategoryPage />} />
             <Route path="/category/:categoryName" element={<CategoryPage />} />
             <Route path="/products" element={<ProductListPage />} />
+            <Route path="/used-products" element={<UsedProductsPage />} />
+            <Route path="/used-products/:slug" element={<UsedProductDetailPage />} />
             <Route path="/search" element={<ProductListPage />} />
             <Route path="/flash-sale" element={<FlashSalePage />} />
             <Route path="/products/:categoryName" element={<ProductListPage />} />

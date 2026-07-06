@@ -158,6 +158,7 @@ async def test_admin_flash_sale_create_overlap_delete_and_permission_guards(
         "variantId": str(variant_id),
         "discountType": "PERCENT",
         "discountValue": 10,
+        "quantityLimit": 3,
         "startsAt": starts_at.isoformat(),
         "endsAt": ends_at.isoformat(),
         "status": "ACTIVE",
@@ -195,6 +196,11 @@ async def test_admin_flash_sale_create_overlap_delete_and_permission_guards(
     listed = await api_client.get("/api/admin/flash-sales", headers=admin_headers)
     assert listed.status_code == 200, listed.text
     assert sale_id in listed.text
+    listed_sale = next(item for item in listed.json() if item["id"] == sale_id)
+    assert listed_sale["quantityLimit"] == 3
+    assert listed_sale["soldQuantity"] == 0
+    assert listed_sale["remainingQuantity"] == 3
+    assert listed_sale["isLimited"] is True
 
     deleted = await api_client.delete(
         f"/api/admin/flash-sales/{sale_id}",

@@ -17,8 +17,8 @@ class CustomerNotePayload(BaseModel):
 class CustomerProfilePayload(BaseModel):
     fullName: str = Field(min_length=1, max_length=255)
     phone: str | None = Field(default=None, max_length=30)
-    tier: str = Field(min_length=1, max_length=30)
-    walletStatus: str = Field(pattern="^(ACTIVE|SUSPENDED|CLOSED)$")
+    tier: str = Field(pattern="^(MEMBER|SILVER|GOLD|DIAMOND)$")
+    walletStatus: str = Field(pattern="^(ACTIVE|CLOSED)$")
 
 class CustomerLoyaltyAdjustmentPayload(BaseModel):
     delta: int = Field(ge=-500000, le=500000)

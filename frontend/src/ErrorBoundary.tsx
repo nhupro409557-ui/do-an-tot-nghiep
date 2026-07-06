@@ -15,14 +15,14 @@ export class ErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     this.setState({ errorInfo });
-    console.error("Uncaught error:", error, errorInfo);
+    console.error("Lỗi chưa được xử lý:", error, errorInfo);
   }
 
   render() {
     if (this.state.hasError) {
       return (
         <div style={{ padding: 20, color: 'red', background: '#fee' }}>
-          <h1>Something went wrong.</h1>
+          <h1>Đã xảy ra lỗi.</h1>
           <pre>{this.state.error && this.state.error.toString()}</pre>
           <pre>{this.state.errorInfo?.componentStack}</pre>
         </div>

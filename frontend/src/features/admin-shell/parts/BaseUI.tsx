@@ -157,7 +157,7 @@ export function BrandLogo({ brand }: { brand: any }) {
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white p-1 shadow-sm">
         <img
           src={logoUrl}
-          alt={brand.logoAltText || (brand.name ? `${brand.name} logo` : 'Brand logo')}
+          alt={brand.logoAltText || (brand.name ? `Logo ${brand.name}` : 'Logo thương hiệu')}
           className="h-full w-full rounded-full object-contain"
         />
       </span>

@@ -71,7 +71,7 @@ def category_workflow_status(status_value: str) -> str:
 
 def ensure_not_data_url(value: str | None, field_name: str) -> None:
     if value and DATA_URL_PATTERN.match(value):
-        raise HTTPException(status_code=400, detail=f"{field_name} must be an uploaded URL, not a Base64 data URL.")
+        raise HTTPException(status_code=400, detail=f"{field_name} phải là URL đã tải lên, không phải dữ liệu Base64.")
 
 
 def normalize_status(value: str) -> str:

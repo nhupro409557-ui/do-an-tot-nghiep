@@ -31,7 +31,7 @@ async def validate_permission_codes(session: AsyncSession, permission_codes: lis
         return []
     known = await customer_repo.list_known_permission_codes(session, codes)
     if set(known) != set(codes):
-        raise HTTPException(status_code=400, detail="One or more permissions are invalid.")
+        raise HTTPException(status_code=400, detail="Một hoặc nhiều quyền không hợp lệ.")
     return codes
 
 
@@ -95,7 +95,7 @@ async def ensure_manual_loyalty_limit(
     if today_total + abs(requested_delta) > daily_limit:
         raise HTTPException(
             status_code=429,
-            detail="Daily manual loyalty adjustment limit exceeded for this admin.",
+            detail="Quản trị viên đã vượt hạn mức điều chỉnh điểm thủ công trong ngày.",
         )
 
 
@@ -189,7 +189,7 @@ async def get_admin_customer_detail(session: AsyncSession, user_id: UUID) -> dic
     await ensure_user_permissions_table(session)
     customer = await customer_repo.get_admin_customer_summary(session, user_id)
     if not customer:
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     notes = await customer_repo.get_customer_note_summary(session, user_id)
     return {
         **customer,
@@ -328,18 +328,18 @@ async def create_admin_customer_loyalty_adjustment(
     current_user_id: UUID,
 ) -> dict:
     if payload.delta == 0:
-        raise HTTPException(status_code=400, detail="Delta must not be 0.")
+        raise HTTPException(status_code=400, detail="Số điểm điều chỉnh phải khác 0.")
     await ensure_customer_account(session, user_id)
     await ensure_manual_loyalty_limit(session, actor_id=current_user_id, requested_delta=payload.delta)
     user = await customer_repo.get_loyalty_wallet_for_update(session, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     if user["loyalty_wallet_status"] != "ACTIVE":
-        raise HTTPException(status_code=409, detail="Loyalty wallet is not active.")
+        raise HTTPException(status_code=409, detail="Ví điểm thưởng không ở trạng thái hoạt động.")
     balance_before = int(user["loyalty_points_balance"] or 0)
     balance_after = balance_before + payload.delta
     if balance_after < 0:
-        raise HTTPException(status_code=400, detail="Insufficient loyalty points for this adjustment.")
+        raise HTTPException(status_code=400, detail="Không đủ điểm thưởng để thực hiện điều chỉnh này.")
     await customer_repo.update_loyalty_balance(session, user_id=user_id, balance_after=balance_after)
     await customer_repo.insert_loyalty_adjustment(
         session,
@@ -374,10 +374,10 @@ async def issue_admin_customer_voucher(
 ) -> dict:
     await ensure_customer_account(session, user_id)
     if not await customer_repo.get_user_for_update(session, user_id):
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     voucher = await customer_repo.get_active_voucher_for_update(session, payload.voucherId)
     if not voucher:
-        raise HTTPException(status_code=404, detail="Voucher not found or inactive.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy voucher hoặc voucher không còn hoạt động.")
     expires_at = voucher["ends_at"] or (
         datetime.now(timezone.utc) + timedelta(days=int(voucher["validity_days_after_claim"] or 0))
         if int(voucher["validity_days_after_claim"] or 0) > 0
@@ -390,7 +390,7 @@ async def issue_admin_customer_voucher(
         expires_at=expires_at,
     )
     if not claimed:
-        raise HTTPException(status_code=409, detail="Customer already owns this voucher.")
+        raise HTTPException(status_code=409, detail="Khách hàng đã có voucher này.")
     await audit_admin_event(
         session,
         actor_id=current_user_id,
@@ -412,10 +412,10 @@ async def create_staff_account(
     await ensure_user_permissions_table(session)
     email = payload.email.lower().strip()
     if await customer_repo.get_active_user_id_by_email(session, email):
-        raise HTTPException(status_code=409, detail="Email already exists.")
+        raise HTTPException(status_code=409, detail="Email đã tồn tại.")
     role_id = await customer_repo.get_role_id_by_code(session, "STAFF_ADMIN")
     if role_id is None:
-        raise HTTPException(status_code=404, detail="Staff role not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy vai trò Staff Admin.")
     user_id = uuid4()
     await customer_repo.insert_staff_user(
         session,
@@ -468,7 +468,7 @@ async def get_user_extra_permissions(session: AsyncSession, user_id: UUID, curre
     if user_id == current_user_id:
         raise HTTPException(status_code=403, detail="Bạn không thể xem hoặc điều chỉnh quyền của chính mình.")
     if not await customer_repo.user_exists(session, user_id):
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     return {"userId": str(user_id), "permissionCodes": await list_user_extra_permissions(session, user_id)}
 
 
@@ -483,9 +483,9 @@ async def update_user_extra_permissions(
         raise HTTPException(status_code=403, detail="Bạn không thể xem hoặc điều chỉnh quyền của chính mình.")
     role = await customer_repo.get_user_role(session, user_id)
     if not role:
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     if role != "STAFF_ADMIN":
-        raise HTTPException(status_code=400, detail="Only Staff Admin accounts can receive extra permissions.")
+        raise HTTPException(status_code=400, detail="Chỉ tài khoản Staff Admin mới có thể nhận quyền bổ sung.")
     before = await list_user_extra_permissions(session, user_id)
     after = await set_user_extra_permissions(session, user_id, payload.permissionCodes)
     await revoke_users(session, [user_id], "user_permissions_changed")
@@ -511,12 +511,12 @@ async def update_user_role(
 ) -> dict:
     before = await customer_repo.get_user_access_for_update(session, user_id)
     if before is None:
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     if before["role"] == "SUPER_ADMIN":
-        raise HTTPException(status_code=400, detail="Super Admin cannot be managed from staff/customer access.")
+        raise HTTPException(status_code=400, detail="Không thể quản lý Super Admin từ luồng truy cập nhân viên/khách hàng.")
     role_id = await customer_repo.get_role_id_by_code(session, payload.role)
     if role_id is None:
-        raise HTTPException(status_code=404, detail="Role not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy vai trò.")
     await customer_repo.update_user_role_and_status(session, user_id=user_id, role_id=role_id, status=payload.status)
     extra_permissions: list[str] | None = None
     if payload.role == "STAFF_ADMIN" and payload.permissionCodes is not None:
@@ -550,9 +550,9 @@ async def list_roles(session: AsyncSession) -> list[dict]:
 async def get_role_permissions(session: AsyncSession, role_id: UUID) -> dict:
     role = await customer_repo.get_role(session, role_id)
     if not role:
-        raise HTTPException(status_code=404, detail="Role not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy vai trò.")
     if role["code"] == "SUPER_ADMIN":
-        raise HTTPException(status_code=400, detail="Super Admin permissions are not managed here.")
+        raise HTTPException(status_code=400, detail="Quyền của Super Admin không được quản lý tại đây.")
     return {**role, "permissionCodes": await customer_repo.list_role_permission_codes(session, role_id)}
 
 
@@ -565,19 +565,19 @@ async def update_role_permissions(
 ) -> dict:
     role = await customer_repo.get_role_code(session, role_id)
     if role is None:
-        raise HTTPException(status_code=404, detail="Role not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy vai trò.")
     previous_permission_codes = await customer_repo.list_role_permission_codes(session, role_id)
     if role == "SUPER_ADMIN":
-        raise HTTPException(status_code=400, detail="Super Admin permissions are not managed here.")
+        raise HTTPException(status_code=400, detail="Quyền của Super Admin không được quản lý tại đây.")
     if role == "STAFF_ADMIN":
         raise HTTPException(
             status_code=400,
-            detail="Staff Admin uses per-account permissions. Update the staff account permissions instead.",
+            detail="Staff Admin dùng quyền theo từng tài khoản. Vui lòng cập nhật quyền trực tiếp trên tài khoản nhân viên.",
         )
     permission_codes = sorted(set(payload.permissionCodes))
     unknown = await customer_repo.list_known_permission_codes(session, permission_codes or ["__none__"])
     if set(unknown) != set(permission_codes):
-        raise HTTPException(status_code=400, detail="One or more permissions are invalid.")
+        raise HTTPException(status_code=400, detail="Một hoặc nhiều quyền không hợp lệ.")
 
     await customer_repo.replace_role_permissions(session, role_id=role_id, permission_codes=list(permission_codes))
     user_ids = await customer_repo.list_user_ids_by_role(session, role_id)

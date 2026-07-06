@@ -20,7 +20,7 @@ export function AdminTable({
   itemName?: string;
   hideFooter?: boolean;
 }) {
-  const rowCount = React.Children.count(children);
+  const rowCount = React.Children.toArray(children).length;
 
   return (
     <div className="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-sm">

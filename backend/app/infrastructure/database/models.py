@@ -274,6 +274,12 @@ class OrderItem(Base):
     order_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("orders.id"), nullable=False)
     product_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("products.id"))
     variant_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("product_variants.id"))
+    used_device_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    flash_sale_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    flash_sale_quantity: Mapped[int] = mapped_column(default=0, nullable=False)
+    flash_sale_released_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    warranty_months_snapshot: Mapped[int | None] = mapped_column()
+    attached_services: Mapped[list[dict] | None] = mapped_column(JSONB, default=list)
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)
     quantity: Mapped[int] = mapped_column(nullable=False)
     unit_price: Mapped[float] = mapped_column(NUMERIC(14, 2), nullable=False)
@@ -282,6 +288,8 @@ class OrderItem(Base):
 
     __table_args__ = (
         CheckConstraint("quantity > 0"),
+        CheckConstraint("flash_sale_quantity >= 0"),
+        CheckConstraint("warranty_months_snapshot IS NULL OR warranty_months_snapshot >= 0"),
         CheckConstraint("unit_price >= 0"),
         CheckConstraint("total_price >= 0"),
     )

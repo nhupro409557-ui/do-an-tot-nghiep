@@ -23,7 +23,7 @@ class ProductVariantPayload(BaseModel):
     specs: dict = Field(default_factory=dict)
     imageUrl: str | None = None
     images: list[str] = Field(default_factory=list)
-    price: float = Field(ge=0)
+    price: float = Field(gt=0)
     salePrice: float | None = Field(default=None, ge=0)
     stockQuantity: int = Field(default=0, ge=0)
     isActive: bool = True
@@ -56,7 +56,7 @@ class AttachedServicePayload(BaseModel):
 
 class ProductPayload(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    price: float = Field(ge=0)
+    price: float = Field(gt=0)
     discountPrice: float | None = Field(default=None, ge=0)
     stock: int = Field(default=0, ge=0)
     brand: str = Field(default="Khac", max_length=100)

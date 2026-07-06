@@ -5,7 +5,7 @@ async def list_admin_categories(session: AsyncSession) -> list[dict]:
 
 async def check_category_slug(payload: CategorySlugCheckPayload, session: AsyncSession) -> dict:
     if await category_repo.category_slug_exists(session, slug=slugify(payload.slug), exclude_id=payload.excludeId):
-        raise HTTPException(status_code=409, detail="Slug danh m?c ?? t?n t?i.")
+        raise HTTPException(status_code=409, detail="Slug danh mục đã tồn tại.")
     return {"available": True}
 
 async def create_category(
@@ -153,9 +153,9 @@ async def update_category(
     inventory_policy = normalize_identifier_inventory_policy(payload.inventoryPolicy)
     existing = await category_repo.get_category_for_update(session, category_id)
     if not existing:
-        raise HTTPException(status_code=404, detail="Category not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục.")
     if payload.version is not None and int(existing["version"] or 0) != payload.version:
-        raise HTTPException(status_code=409, detail="Category was updated by another admin. Reload before saving.")
+        raise HTTPException(status_code=409, detail="Danh mục đã được quản trị viên khác cập nhật. Vui lòng tải lại trước khi lưu.")
     old_root_id = category_root_id_from_path(existing["path"])
     await ensure_categories_not_migrating(session, [category_id, existing["parent_id"], payload.parentId])
     await ensure_no_category_cycle(session, category_id, payload.parentId)
@@ -236,7 +236,7 @@ async def update_category(
         spec_version_delta=1 if changed_spec_types else 0,
         path_label=category_path_label(category_id),
     ) == 0:
-        raise HTTPException(status_code=404, detail="Category not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục.")
     if existing["parent_id"] != payload.parentId and existing["path"]:
         await category_repo.update_moved_category_children_paths(session, category_id=category_id, old_path=existing["path"])
     if existing["is_active"] and not is_active:

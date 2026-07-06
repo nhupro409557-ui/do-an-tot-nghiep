@@ -1,4 +1,5 @@
 from .common import *
+from .common import _same_actor
 
 async def list_inventory_identifiers(session: AsyncSession, product_id: UUID, variant_id: UUID | None = None) -> dict:
     imeis = await inventory_repo.list_product_imeis_for_inventory(session, product_id, variant_id)
@@ -25,44 +26,6 @@ async def list_inventory_issue_suggestions(
     quantity: int = 1,
 ) -> list[dict]:
     requested_quantity = max(1, min(int(quantity or 1), 500))
-    identifier_rows = await inventory_repo.list_identifier_issue_candidates(
-        session,
-        product_id=product_id,
-        variant_id=variant_id,
-        limit=requested_quantity,
-    )
-    if identifier_rows:
-        grouped: dict[str, dict] = {}
-        for item in identifier_rows:
-            location_id = str(item.get("locationId") or "")
-            if not location_id:
-                continue
-            group = grouped.setdefault(
-                location_id,
-                {
-                    "warehouseLocationId": location_id,
-                    "locationCode": item.get("locationCode"),
-                    "locationName": item.get("locationName"),
-                    "availableQuantity": 0,
-                    "suggestedQuantity": 0,
-                    "oldestReceivedAt": item.get("receivedAt"),
-                    "identifiers": [],
-                    "mode": "IDENTIFIER",
-                },
-            )
-            group["availableQuantity"] += 1
-            group["suggestedQuantity"] += 1
-            if not group.get("oldestReceivedAt") or (item.get("receivedAt") and item.get("receivedAt") < group["oldestReceivedAt"]):
-                group["oldestReceivedAt"] = item.get("receivedAt")
-            group["identifiers"].append(
-                {
-                    "type": item.get("identifierType"),
-                    "value": item.get("value"),
-                    "receivedAt": item.get("receivedAt"),
-                }
-            )
-        return list(grouped.values())
-
     level_rows = await inventory_repo.list_level_issue_candidates(session, product_id=product_id, variant_id=variant_id)
     remaining = requested_quantity
     suggestions: list[dict] = []
@@ -78,9 +41,9 @@ async def list_inventory_issue_suggestions(
                 "locationName": row.get("locationName"),
                 "availableQuantity": available,
                 "suggestedQuantity": suggested,
-                "oldestReceivedAt": row.get("updatedAt"),
+                "oldestReceivedAt": row.get("oldestReceivedAt") or row.get("updatedAt"),
                 "identifiers": [],
-                "mode": "QUANTITY",
+                "mode": "LOCATION",
             }
         )
         remaining -= suggested
@@ -225,6 +188,12 @@ async def list_inventory_identifier_edit_requests(session: AsyncSession, status_
     return await inventory_repo.list_identifier_edit_requests(session, status=status, limit=200)
 
 
+async def list_inventory_identifier_location_requests(session: AsyncSession, status_filter: str = "PENDING") -> list[dict]:
+    status_filter = status_filter.strip().upper()
+    status = status_filter if status_filter in {"PENDING", "APPROVED", "CANCELLED"} else None
+    return await inventory_repo.list_identifier_location_requests(session, status=status, limit=200)
+
+
 async def create_inventory_identifier_edit_request(
     session: AsyncSession,
     payload: InventoryIdentifierEditRequestPayload,
@@ -300,6 +269,8 @@ async def decide_inventory_identifier_edit_request(
 
     decision = payload.decision.upper()
     if decision == "APPROVED":
+        if _same_actor(request.get("requested_by"), current_user_id):
+            raise HTTPException(status_code=403, detail="Người tạo yêu cầu sửa mã định danh không được tự duyệt.")
         identifier_type = str(request["identifier_type"])
         new_value = str(request["new_value"])
         identifier = await inventory_repo.get_identifier_for_edit(session, identifier_type, request["identifier_id"])
@@ -318,6 +289,197 @@ async def decide_inventory_identifier_edit_request(
         await inventory_repo.update_identifier_value(session, identifier_type, request["identifier_id"], new_value)
 
     await inventory_repo.update_identifier_edit_request_status(
+        session,
+        request_id=request_id,
+        status=decision,
+        decided_by=current_user_id,
+        decision_note=payload.note,
+    )
+    await session.commit()
+    return {"ok": True, "requestId": str(request_id), "status": decision}
+
+
+async def create_inventory_identifier_location_request(
+    session: AsyncSession,
+    payload: InventoryIdentifierLocationRequestPayload,
+    current_user_id: UUID | None = None,
+) -> dict:
+    identifier_type = payload.identifierType.upper()
+    identifier_value = (payload.identifierValue or "").strip()
+    if identifier_type == "IMEI" and identifier_value:
+        _validate_imei_format([identifier_value])
+    elif identifier_type == "SERIAL" and identifier_value:
+        cleaned_serial_numbers = _clean_serial_numbers([identifier_value])
+        identifier_value = cleaned_serial_numbers[0] if cleaned_serial_numbers else ""
+        _validate_serial_number_format([identifier_value])
+
+    identifier = (
+        await inventory_repo.get_identifier_for_edit(session, identifier_type, payload.identifierId)
+        if payload.identifierId
+        else await inventory_repo.get_identifier_by_value(session, identifier_type, identifier_value)
+    )
+    if not identifier:
+        raise HTTPException(status_code=404, detail="Không tìm thấy mã định danh cần gán vị trí.")
+    if UUID(str(identifier["product_id"])) != payload.productId:
+        raise HTTPException(status_code=400, detail="Mã định danh không thuộc sản phẩm đã chọn.")
+    identifier_variant_id = identifier.get("variant_id")
+    if str(identifier_variant_id or "") != str(payload.variantId or ""):
+        raise HTTPException(status_code=400, detail="Mã định danh không thuộc biến thể đã chọn.")
+    if str(identifier.get("status") or "").upper() != "IN_STOCK":
+        raise HTTPException(status_code=409, detail="Chỉ mã đang còn trong kho mới được gán lại vị trí.")
+    if identifier_value and str(identifier["current_value"]) != identifier_value:
+        raise HTTPException(status_code=409, detail="Giá trị mã định danh không khớp dữ liệu hiện tại.")
+    if identifier.get("location_id") == payload.newLocationId:
+        raise HTTPException(status_code=400, detail="Mã định danh đã nằm tại kệ đích.")
+    if await inventory_repo.has_pending_identifier_location_request(session, identifier_type, identifier["id"]):
+        raise HTTPException(status_code=409, detail="Mã này đang có yêu cầu đổi vị trí chờ duyệt.")
+    identifier_pair = await inventory_repo.get_identifier_pair_by_value(
+        session,
+        product_id=payload.productId,
+        variant_id=payload.variantId,
+        identifier_type=identifier_type,
+        identifier_value=str(identifier["current_value"]),
+    )
+    if identifier_pair and await inventory_repo.has_pending_identifier_pair_location_request(session, identifier_pair["id"]):
+        raise HTTPException(status_code=409, detail="Thiết bị này đang có yêu cầu đổi vị trí chờ duyệt cho một mã ghép cặp.")
+
+    target_location = await inventory_repo.get_inventory_location_by_id(session, payload.newLocationId)
+    if not target_location:
+        raise HTTPException(status_code=404, detail="Không tìm thấy kệ đích.")
+    if str(target_location.get("status") or "ACTIVE").upper() != "ACTIVE":
+        raise HTTPException(status_code=400, detail="Kệ đích đang bị khóa.")
+    target_level = await inventory_repo.get_inventory_level_for_transfer(
+        session,
+        product_id=payload.productId,
+        variant_id=payload.variantId,
+        location_id=payload.newLocationId,
+    )
+    if not target_level or int(target_level.get("onHandQuantity") or 0) <= 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Kệ đích chưa có tồn của sản phẩm/biến thể này. Hãy điều chỉnh hoặc chuyển tồn trước khi gán mã.",
+        )
+
+    request_id = uuid4()
+    await inventory_repo.insert_identifier_location_request(
+        session,
+        request_id=request_id,
+        identifier_type=identifier_type,
+        identifier_id=identifier["id"],
+        identifier_value=str(identifier["current_value"]),
+        product_id=payload.productId,
+        variant_id=payload.variantId,
+        identifier_pair_id=identifier_pair["id"] if identifier_pair else None,
+        current_location_id=identifier.get("location_id"),
+        new_location_id=payload.newLocationId,
+        reason=payload.reason.strip(),
+        requested_by=current_user_id,
+    )
+    await session.commit()
+    return {
+        "ok": True,
+        "requestId": str(request_id),
+        "status": "PENDING",
+        "identifierType": identifier_type,
+        "identifierValue": str(identifier["current_value"]),
+        "newLocationId": str(payload.newLocationId),
+    }
+
+
+async def decide_inventory_identifier_location_request(
+    session: AsyncSession,
+    request_id: UUID,
+    payload: InventoryIdentifierEditDecisionPayload,
+    current_user_id: UUID | None = None,
+) -> dict:
+    request = await inventory_repo.get_identifier_location_request_for_update(session, request_id)
+    if not request:
+        raise HTTPException(status_code=404, detail="Không tìm thấy yêu cầu gán vị trí mã định danh.")
+    if request["status"] != "PENDING":
+        raise HTTPException(status_code=400, detail="Yêu cầu gán vị trí này đã được xử lý.")
+
+    decision = payload.decision.upper()
+    if decision == "APPROVED":
+        if _same_actor(request.get("requested_by"), current_user_id):
+            raise HTTPException(status_code=403, detail="Người tạo yêu cầu gán vị trí không được tự duyệt.")
+        identifier_type = str(request["identifier_type"])
+        identifier = await inventory_repo.get_identifier_for_location_update(
+            session,
+            identifier_type,
+            request["identifier_id"],
+        )
+        if not identifier:
+            raise HTTPException(status_code=404, detail="Mã định danh gốc không còn tồn tại.")
+        if str(identifier.get("status") or "").upper() != "IN_STOCK":
+            raise HTTPException(status_code=409, detail="Mã định danh không còn ở trạng thái trong kho.")
+        if str(identifier["current_value"]) != str(request["identifier_value"]):
+            raise HTTPException(status_code=409, detail="Giá trị mã định danh đã thay đổi sau khi tạo yêu cầu.")
+        if str(identifier.get("location_id") or "") != str(request.get("current_location_id") or ""):
+            raise HTTPException(status_code=409, detail="Vị trí mã định danh đã thay đổi sau khi tạo yêu cầu.")
+
+        target_location = await inventory_repo.get_inventory_location_by_id(session, request["new_location_id"])
+        if not target_location or str(target_location.get("status") or "ACTIVE").upper() != "ACTIVE":
+            raise HTTPException(status_code=409, detail="Kệ đích không còn hoạt động.")
+        target_level = await inventory_repo.get_inventory_level_for_transfer(
+            session,
+            product_id=request["product_id"],
+            variant_id=request["variant_id"],
+            location_id=request["new_location_id"],
+        )
+        if not target_level or int(target_level.get("onHandQuantity") or 0) <= 0:
+            raise HTTPException(status_code=409, detail="Kệ đích không còn tồn phù hợp để gán mã.")
+        pair_id = request.get("identifier_pair_id")
+        if pair_id:
+            identifier_pair = await inventory_repo.get_identifier_pair_for_location_update(session, pair_id)
+            if not identifier_pair:
+                raise HTTPException(status_code=409, detail="Bộ IMEI/serial ghép cặp không còn tồn tại.")
+            pair_values = {
+                str(identifier_pair["imei1"]),
+                str(identifier_pair["serial_number"]),
+            }
+            if identifier_pair.get("imei2"):
+                pair_values.add(str(identifier_pair["imei2"]))
+            if str(request["identifier_value"]) not in pair_values:
+                raise HTTPException(status_code=409, detail="Mã định danh không còn thuộc bộ mã ghép cặp ban đầu.")
+            members = await inventory_repo.list_identifier_pair_members_for_update(
+                session,
+                product_id=request["product_id"],
+                variant_id=request["variant_id"],
+                imei1=str(identifier_pair["imei1"]),
+                imei2=str(identifier_pair["imei2"]) if identifier_pair.get("imei2") else None,
+                serial_number=str(identifier_pair["serial_number"]),
+            )
+            expected_member_count = 3 if identifier_pair.get("imei2") else 2
+            if len(members) != expected_member_count:
+                raise HTTPException(status_code=409, detail="Bộ mã ghép cặp đang thiếu IMEI hoặc serial.")
+            unavailable_members = [
+                str(member["identifier_value"])
+                for member in members
+                if str(member.get("status") or "").upper() != "IN_STOCK"
+            ]
+            if unavailable_members:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Bộ mã có thành viên không còn trong kho: {', '.join(unavailable_members)}.",
+                )
+            await inventory_repo.update_identifier_pair_locations(
+                session,
+                product_id=request["product_id"],
+                variant_id=request["variant_id"],
+                imei1=str(identifier_pair["imei1"]),
+                imei2=str(identifier_pair["imei2"]) if identifier_pair.get("imei2") else None,
+                serial_number=str(identifier_pair["serial_number"]),
+                location_id=request["new_location_id"],
+            )
+        else:
+            await inventory_repo.update_identifier_location(
+                session,
+                identifier_type,
+                request["identifier_id"],
+                request["new_location_id"],
+            )
+
+    await inventory_repo.update_identifier_location_request_status(
         session,
         request_id=request_id,
         status=decision,

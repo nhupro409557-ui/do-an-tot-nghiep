@@ -110,12 +110,11 @@ export async function createUserWithEmailAndPassword(email: string, password: st
 }
 
 export async function startRegistration(email: string, password: string, displayName: string): Promise<PendingRegistration> {
-  const payload = await apiRequest<{ email: string; verificationToken: string }>('/auth/register/start', {
+  const payload = await apiRequest<{ email: string }>('/auth/register/start', {
     method: 'POST',
     body: JSON.stringify({ email: email.trim(), password, displayName: displayName.trim() || email.trim() }),
   });
   return {
-    token: payload.verificationToken,
     email: payload.email,
     displayName: displayName.trim() || email.trim().toLowerCase(),
     expiresAt: Date.now() + 15 * 60 * 1000,
@@ -123,12 +122,11 @@ export async function startRegistration(email: string, password: string, display
 }
 
 export async function resendRegistrationCode(email: string): Promise<PendingRegistration> {
-  const payload = await apiRequest<{ email: string; verificationToken: string }>('/auth/register/resend', {
+  const payload = await apiRequest<{ email: string }>('/auth/register/resend', {
     method: 'POST',
     body: JSON.stringify({ email: email.trim() }),
   });
   return {
-    token: payload.verificationToken,
     email: payload.email,
     displayName: payload.email,
     expiresAt: Date.now() + 15 * 60 * 1000,
@@ -151,7 +149,7 @@ export async function confirmRegistrationByToken(token: string): Promise<MockUse
   return currentUser!;
 }
 
-export async function signInWithGoogleProfile(profile: { email: string; name: string; picture?: string }): Promise<MockUser> {
+export async function signInWithGoogleProfile(profile: { credential?: string; id_token?: string; access_token?: string }): Promise<MockUser> {
   persistAuth(await apiRequest('/auth/google', {
     method: 'POST',
     body: JSON.stringify(profile),
@@ -177,22 +175,21 @@ export async function deleteCurrentUser() {
 }
 
 export async function sendPasswordResetEmail(email: string) {
-  return apiRequest<{ email: string; verificationToken: string }>('/auth/forgot-password', {
+  return apiRequest<{ email: string }>('/auth/forgot-password', {
     method: 'POST',
     body: JSON.stringify({ email: email.trim() }),
   });
 }
 
 export async function resendPasswordResetEmail(email: string) {
-  return apiRequest<{ email: string; verificationToken: string }>('/auth/forgot-password/resend', {
+  return apiRequest<{ email: string }>('/auth/forgot-password/resend', {
     method: 'POST',
     body: JSON.stringify({ email: email.trim() }),
   });
 }
 
-export function createPendingPasswordReset(email: string, verificationToken: string): PendingPasswordReset {
+export function createPendingPasswordReset(email: string): PendingPasswordReset {
   return {
-    token: verificationToken,
     email: email.trim().toLowerCase(),
     expiresAt: Date.now() + 15 * 60 * 1000,
   };

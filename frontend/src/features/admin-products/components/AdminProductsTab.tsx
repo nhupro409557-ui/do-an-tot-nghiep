@@ -66,7 +66,10 @@ export default function AdminProductsTab(props: AdminProductsTabProps) {
             noLabel={true}
             label="Danh mục"
             value={productCategoryFilter}
-            onChange={setProductCategoryFilter}
+            onChange={(value) => {
+              setProductCategoryFilter(value);
+              setProductBrandFilter('');
+            }}
             options={[
               ['', 'Tất cả danh mục'],
               ...categories.map((c: any) => [

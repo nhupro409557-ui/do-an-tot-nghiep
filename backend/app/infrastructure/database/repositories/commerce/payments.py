@@ -75,20 +75,27 @@ async def get_payment_transaction_by_reference_for_update(
     )
 
 
-async def expire_pending_payment_transactions(session: AsyncSession) -> int:
+async def expire_pending_payment_transactions(session: AsyncSession) -> list[dict]:
     result = await session.execute(
         text(
             """
-            UPDATE payment_transactions
-            SET status = 'EXPIRED', failed_at = NOW(), updated_at = NOW()
-            WHERE status = 'PENDING'
-              AND expires_at IS NOT NULL
-              AND expires_at <= NOW()
+            UPDATE payment_transactions pt
+            SET status = 'EXPIRED',
+                failed_at = NOW(),
+                updated_at = NOW(),
+                raw_response = COALESCE(pt.raw_response, '{}'::jsonb)
+                    || jsonb_build_object('failure_message', 'Phiên thanh toán đã hết hạn.')
+            FROM orders o
+            WHERE pt.order_id = o.id
+              AND pt.status = 'PENDING'
+              AND pt.expires_at IS NOT NULL
+              AND pt.expires_at <= NOW()
+            RETURNING pt.order_id, o.status AS order_status
             """
         )
     )
     await session.commit()
-    return int(result.rowcount or 0)
+    return [dict(row) for row in result.mappings().all()]
 
 
 async def create_webhook_event(

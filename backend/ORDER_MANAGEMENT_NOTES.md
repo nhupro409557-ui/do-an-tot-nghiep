@@ -1,5 +1,19 @@
 # Order Management Notes
 
+## Cập nhật 2026-07-04 - Chuẩn hóa thông báo lỗi đơn hàng
+
+- Chuẩn hóa lỗi không tìm thấy đơn hàng, chuyển trạng thái không hợp lệ, thiếu lý do hủy đơn và lỗi tài khoản/ví điểm khi tạo đơn sang tiếng Việt có dấu.
+- Cập nhật mô tả lỗi OpenAPI của router commerce cho cùng nhóm lỗi.
+- Không đổi lifecycle đơn hàng, side effect tồn kho/thanh toán/voucher.
+- Verification: `py_compile` và test order/checkout liên quan pass.
+
+## Cập nhật 2026-07-04 - Tránh restock trùng khi đơn có hồ sơ đổi trả
+
+- Khi đơn chuyển order-level sang `RETURNED`, backend kiểm tra đơn có hồ sơ return đang được quản lý qua after-sales hay không.
+- Nếu có hồ sơ return chưa bị hủy/từ chối/hết hạn, order lifecycle không bulk-restock toàn bộ đơn nữa; restock theo từng dòng tiếp tục do after-sales refund xử lý.
+- Luồng trả hàng trực tiếp không qua after-sales vẫn giữ hành vi restock cũ, bao gồm chuyển thiết bị cũ đã bán về QC riêng.
+- Verification: nhóm test order/outbound/after-sales/used-products pass.
+
 ## Cập nhật 2026-06-29 - Bổ sung test đơn hàng sinh phiếu xuất kho
 
 - Bổ sung test admin order lifecycle cho nhánh `PENDING -> PROCESSING`: đơn COD có sản phẩm/variant thật sẽ sinh phiếu xuất kho `OUTBOUND`.
@@ -110,3 +124,11 @@
   - **Badge màu đỏ**: Dành cho Phụ kiện mua kèm, tự động áp dụng giá combo ưu đãi đã giảm (được lưu trong `offer.price`).
   - **Badge màu xanh**: Dành cho Dịch vụ đi kèm (được lưu trong `service.fixedPrice` hoặc `service.percentValue`).
 - **Thao tác một chạm**: Nhân viên chỉ cần nhấp vào các badge này, phụ kiện/dịch vụ sẽ tự động được thêm vào giỏ hàng bên phải dưới dạng các dòng đơn hàng chuẩn hóa `[Mua kèm] <Tên>` hoặc `[Dịch vụ] <Tên>` với đúng giá tiền ưu đãi tương ứng.
+
+## Cập nhật 2026-07-05 - Snapshot bảo hành trên dòng đơn
+
+- `order_items` có thêm `warranty_months_snapshot` để lưu số tháng bảo hành tại thời điểm bán.
+- `CreateOrderUseCase` lấy `products.warranty_period` trong bước resolve checkout và ghi vào từng `OrderItem`.
+- Snapshot này tách quyền bảo hành của đơn đã bán khỏi cấu hình sản phẩm hiện tại, tương tự các snapshot giá/khuyến mãi đã lưu trên dòng đơn.
+- Dòng thiết bị cũ ghi snapshot từ `used_device_listings.warranty_months`, không dùng `products.warranty_period` của sản phẩm gốc.
+- API `GET /api/orders`, `GET /api/orders/{order_id}` và `GET /api/me/orders` trả thêm `items[].warrantyMonthsSnapshot` để frontend khách hàng hiển thị quyền bảo hành đúng theo đơn đã mua.

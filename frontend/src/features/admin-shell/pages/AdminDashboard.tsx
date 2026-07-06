@@ -118,6 +118,18 @@ export default function AdminDashboard() {
             onPointReasonChange={admin.setCustomerPointReason}
             onAdjustPoints={() => void admin.adjustCustomerPoints()}
             currency={adminConfig.currency}
+            tagDraft={admin.customerTagDraft}
+            onTagDraftChange={admin.setCustomerTagDraft}
+            onSaveTags={() => void admin.saveCustomerTags()}
+            noteDraft={admin.customerNoteDraft}
+            onNoteDraftChange={admin.setCustomerNoteDraft}
+            onAddNote={() => void admin.addCustomerNote()}
+            voucherId={admin.customerVoucherId}
+            voucherNote={admin.customerVoucherNote}
+            onVoucherIdChange={admin.setCustomerVoucherId}
+            onVoucherNoteChange={admin.setCustomerVoucherNote}
+            onIssueVoucher={() => void admin.issueCustomerVoucher()}
+            canIssueVoucher={admin.canIssueCustomerVoucher}
             onSectionChange={(section) => {
               if (section === 'summary') admin.setCustomerActiveSection('summary');
               else void admin.loadCustomerSection(section);

@@ -44,17 +44,76 @@ async def get_variant_inventory_for_update(
     *,
     variant_id: UUID,
     product_id: UUID | None,
+    for_update: bool = True,
 ) -> dict | None:
+    lock_clause = "FOR UPDATE OF pv, p" if for_update else ""
     row = (
         await session.execute(
             text(
-                """
-                SELECT id, product_id, stock_quantity
-                FROM product_variants
-                WHERE id = CAST(:variant_id AS uuid)
-                  AND (CAST(:product_id AS uuid) IS NULL OR product_id = CAST(:product_id AS uuid))
-                  AND is_active = TRUE
-                FOR UPDATE
+                f"""
+                SELECT
+                    pv.id,
+                    pv.product_id,
+                    pv.stock_quantity,
+                    p.name AS product_name,
+                    pv.color_name,
+                    pv.storage,
+                    pv.ram,
+                    pv.configuration,
+                    p.category_id,
+                    p.subcategory_id,
+                    p.brand_id,
+                    GREATEST(COALESCE(p.warranty_period, 0), 0) AS warranty_months_snapshot,
+                    COALESCE(NULLIF(pv.sale_price, 0), NULLIF(pv.price, 0), NULLIF(p.sale_price, 0), p.price, 0) AS regular_unit_price,
+                    COALESCE(vfs.id, fs.id)::text AS flash_sale_id,
+                    COALESCE(vfs.discount_type, fs.discount_type) AS flash_sale_discount_type,
+                    COALESCE(vfs.discount_value, fs.discount_value) AS flash_sale_discount_value,
+                    COALESCE(vfs.quantity_limit, fs.quantity_limit) AS flash_sale_quantity_limit,
+                    COALESCE(vfs.sold_quantity, fs.sold_quantity) AS flash_sale_sold_quantity,
+                    CASE
+                        WHEN COALESCE(vfs.quantity_limit, fs.quantity_limit) IS NULL THEN NULL
+                        ELSE GREATEST(COALESCE(vfs.quantity_limit, fs.quantity_limit) - COALESCE(vfs.sold_quantity, fs.sold_quantity), 0)
+                    END AS flash_sale_remaining_quantity
+                FROM product_variants pv
+                JOIN products p ON p.id = pv.product_id
+                LEFT JOIN categories c ON c.id = COALESCE(p.subcategory_id, p.category_id)
+                LEFT JOIN brands b ON b.id = p.brand_id
+                LEFT JOIN LATERAL (
+                    SELECT id, discount_type, discount_value, quantity_limit, sold_quantity
+                    FROM flash_sales
+                    WHERE product_id = p.id
+                      AND variant_id = pv.id
+                      AND status = 'ACTIVE'
+                      AND (starts_at IS NULL OR starts_at <= NOW())
+                      AND (ends_at IS NULL OR ends_at >= NOW())
+                      AND (quantity_limit IS NULL OR sold_quantity < quantity_limit)
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                ) vfs ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT id, discount_type, discount_value, quantity_limit, sold_quantity
+                    FROM flash_sales
+                    WHERE product_id = p.id
+                      AND variant_id IS NULL
+                      AND status = 'ACTIVE'
+                      AND (starts_at IS NULL OR starts_at <= NOW())
+                      AND (ends_at IS NULL OR ends_at >= NOW())
+                      AND (quantity_limit IS NULL OR sold_quantity < quantity_limit)
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                ) fs ON TRUE
+                WHERE pv.id = CAST(:variant_id AS uuid)
+                  AND (CAST(:product_id AS uuid) IS NULL OR pv.product_id = CAST(:product_id AS uuid))
+                  AND pv.is_active = TRUE
+                  AND pv.deleted_at IS NULL
+                  AND LOWER(COALESCE(pv.status, 'active')) = 'active'
+                  AND p.status = 'ACTIVE'
+                  AND p.deleted_at IS NULL
+                  AND COALESCE(p.hidden_by_category, FALSE) = FALSE
+                  AND COALESCE(p.hidden_by_brand, FALSE) = FALSE
+                  AND (c.id IS NULL OR (c.status = 'ACTIVE' AND COALESCE(c.is_active, TRUE) = TRUE AND COALESCE(c.is_deleted, FALSE) = FALSE))
+                  AND (b.id IS NULL OR COALESCE(b.is_active, TRUE) = TRUE)
+                {lock_clause}
                 """
             ),
             {"variant_id": variant_id, "product_id": product_id},
@@ -63,15 +122,58 @@ async def get_variant_inventory_for_update(
     return dict(row) if row else None
 
 
-async def get_product_inventory_for_update(session: AsyncSession, product_id: UUID) -> dict | None:
+async def get_product_inventory_for_update(
+    session: AsyncSession,
+    product_id: UUID,
+    *,
+    for_update: bool = True,
+) -> dict | None:
+    lock_clause = "FOR UPDATE OF p" if for_update else ""
     row = (
         await session.execute(
             text(
-                """
-                SELECT id, stock_quantity
-                FROM products
-                WHERE id = :product_id AND status = 'ACTIVE'
-                FOR UPDATE
+                f"""
+                SELECT
+                    p.id,
+                    p.stock_quantity,
+                    p.name AS product_name,
+                    p.category_id,
+                    p.subcategory_id,
+                    p.brand_id,
+                    GREATEST(COALESCE(p.warranty_period, 0), 0) AS warranty_months_snapshot,
+                    COALESCE(NULLIF(p.sale_price, 0), p.price, 0) AS regular_unit_price,
+                    fs.id::text AS flash_sale_id,
+                    fs.discount_type AS flash_sale_discount_type,
+                    fs.discount_value AS flash_sale_discount_value,
+                    fs.quantity_limit AS flash_sale_quantity_limit,
+                    fs.sold_quantity AS flash_sale_sold_quantity,
+                    CASE
+                        WHEN fs.quantity_limit IS NULL THEN NULL
+                        ELSE GREATEST(fs.quantity_limit - fs.sold_quantity, 0)
+                    END AS flash_sale_remaining_quantity
+                FROM products p
+                LEFT JOIN categories c ON c.id = COALESCE(p.subcategory_id, p.category_id)
+                LEFT JOIN brands b ON b.id = p.brand_id
+                LEFT JOIN LATERAL (
+                    SELECT id, discount_type, discount_value, quantity_limit, sold_quantity
+                    FROM flash_sales
+                    WHERE product_id = p.id
+                      AND variant_id IS NULL
+                      AND status = 'ACTIVE'
+                      AND (starts_at IS NULL OR starts_at <= NOW())
+                      AND (ends_at IS NULL OR ends_at >= NOW())
+                      AND (quantity_limit IS NULL OR sold_quantity < quantity_limit)
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                ) fs ON TRUE
+                WHERE p.id = :product_id
+                  AND p.status = 'ACTIVE'
+                  AND p.deleted_at IS NULL
+                  AND COALESCE(p.hidden_by_category, FALSE) = FALSE
+                  AND COALESCE(p.hidden_by_brand, FALSE) = FALSE
+                  AND (c.id IS NULL OR (c.status = 'ACTIVE' AND COALESCE(c.is_active, TRUE) = TRUE AND COALESCE(c.is_deleted, FALSE) = FALSE))
+                  AND (b.id IS NULL OR COALESCE(b.is_active, TRUE) = TRUE)
+                {lock_clause}
                 """
             ),
             {"product_id": product_id},

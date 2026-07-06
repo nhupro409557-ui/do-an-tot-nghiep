@@ -44,6 +44,22 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
       [variant.sku, variant.configuration, variant.storage, variant.ram, variant.colorName].filter(Boolean).join(' · '),
     ])),
   ];
+  const saleQuantitySummary = (item: any) => {
+    const limit = item.quantityLimit;
+    const sold = Number(item.soldQuantity || 0);
+    if (limit === null || limit === undefined) {
+      return {
+        primary: 'Không giới hạn',
+        secondary: `Đã bán sale ${sold.toLocaleString('vi-VN')}`,
+      };
+    }
+    const limitNumber = Number(limit || 0);
+    const remaining = Math.max(Number(item.remainingQuantity ?? limitNumber - sold), 0);
+    return {
+      primary: `Còn ${remaining.toLocaleString('vi-VN')} / ${limitNumber.toLocaleString('vi-VN')}`,
+      secondary: `Đã bán sale ${sold.toLocaleString('vi-VN')}`,
+    };
+  };
 
   const openCreateForm = () => {
     resetFlashSaleForm();
@@ -167,11 +183,12 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
               )}
               <Select label="Kiểu giảm" value={flashSaleForm.discountType} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, discountType: value as 'PERCENT' | 'FIXED' })} options={[['PERCENT', 'Theo %'], ['FIXED', 'Theo số tiền']]} />
               <Input label={flashSaleForm.discountType === 'PERCENT' ? 'Giảm (%)' : 'Giảm (VND)'} type="number" value={flashSaleForm.discountValue} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, discountValue: Number(value) })} />
+              <Input label="Số lượng sale" type="number" value={flashSaleForm.quantityLimit} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, quantityLimit: value })} placeholder="Để trống nếu không giới hạn" />
               <Input label="Bắt đầu" type="datetime-local" value={flashSaleForm.startsAt} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, startsAt: value })} />
               <Input label="Kết thúc" type="datetime-local" value={flashSaleForm.endsAt} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, endsAt: value })} />
               <Select label="Trạng thái" value={flashSaleForm.status} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, status: value as 'ACTIVE' | 'INACTIVE' })} options={[['ACTIVE', 'Đang bật'], ['INACTIVE', 'Tạm tắt']]} />
-              <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-slate-600">
-                Để trống thời gian bắt đầu để sale có hiệu lực ngay. Để trống thời gian kết thúc nếu sale không có thời hạn.
+              <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-slate-600 md:col-span-2">
+                Để trống thời gian bắt đầu để sale có hiệu lực ngay. Để trống thời gian kết thúc hoặc số lượng sale nếu không muốn giới hạn. Khi hết số lượng sale, hệ thống tự tắt flash sale và sản phẩm quay về giá bán thường.
               </div>
               <div className="md:col-span-2">
                 <SubmitButtons editing={Boolean(editingFlashSaleId)} onCancel={closeForm} />
@@ -181,8 +198,12 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
         </div>
       )}
 
-      <AdminTable headers={['Sản phẩm', 'Giá hiện tại', 'Giá flash sale', 'Thời gian', 'Trạng thái', 'Thao tác']}>
-        {filteredFlashSales.map((item: any) => (
+      <AdminTable headers={['Sản phẩm', 'Giá hiện tại', 'Giá flash sale', 'Số lượng sale', 'Thời gian', 'Trạng thái', 'Thao tác']}>
+        {filteredFlashSales.map((item: any) => {
+          const quantitySummary = saleQuantitySummary(item);
+          const isExhausted = Boolean(item.isExhausted)
+            || (item.quantityLimit !== null && item.quantityLimit !== undefined && Number(item.remainingQuantity ?? 0) <= 0);
+          return (
           <tr key={item.id}>
             <td className="px-4 py-3">
               <div className="flex items-center gap-3">
@@ -205,12 +226,16 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
               </div>
             </td>
             <td className="px-4 py-3 text-sm text-slate-600">
+              <div className="font-bold text-slate-800">{quantitySummary.primary}</div>
+              <div className="text-xs text-slate-500">{quantitySummary.secondary}</div>
+            </td>
+            <td className="px-4 py-3 text-sm text-slate-600">
               <div>{item.startsAt ? new Date(item.startsAt).toLocaleString('vi-VN') : 'Có hiệu lực ngay'}</div>
               <div>{item.endsAt ? new Date(item.endsAt).toLocaleString('vi-VN') : 'Không có thời hạn'}</div>
             </td>
             <td className="px-4 py-3">
-              <AdminBadge tone={item.isRunning ? 'green' : item.status === 'ACTIVE' ? 'blue' : 'slate'}>
-                {item.isRunning ? 'Đang chạy' : item.status === 'ACTIVE' ? 'Đã lên lịch' : 'Tạm tắt'}
+              <AdminBadge tone={isExhausted ? 'slate' : item.isRunning ? 'green' : item.status === 'ACTIVE' ? 'blue' : 'slate'}>
+                {isExhausted ? 'Đã hết suất' : item.isRunning ? 'Đang chạy' : item.status === 'ACTIVE' ? 'Đã lên lịch' : 'Tạm tắt'}
               </AdminBadge>
             </td>
             <td className="px-4 py-3">
@@ -224,7 +249,8 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
               </div>
             </td>
           </tr>
-        ))}
+          );
+        })}
       </AdminTable>
     </AdminPanel>
   );

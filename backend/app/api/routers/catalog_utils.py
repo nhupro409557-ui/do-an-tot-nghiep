@@ -141,6 +141,11 @@ def build_flash_sale_meta(item: dict, base_price: float) -> dict | None:
     ends_at = item.get("flashSaleEndsAt")
     starts_at_value = starts_at.isoformat() if hasattr(starts_at, "isoformat") else starts_at
     ends_at_value = ends_at.isoformat() if hasattr(ends_at, "isoformat") else ends_at
+    quantity_limit = item.get("flashSaleQuantityLimit")
+    sold_quantity = int(item.get("flashSaleSoldQuantity") or 0)
+    remaining_quantity = None
+    if quantity_limit is not None:
+        remaining_quantity = max(int(quantity_limit or 0) - sold_quantity, 0)
     return {
         "id": str(sale_id),
         "discountType": discount_type,
@@ -150,6 +155,10 @@ def build_flash_sale_meta(item: dict, base_price: float) -> dict | None:
         "originalPrice": base_price,
         "salePrice": sale_price,
         "discountPercent": round(((base_price - sale_price) / base_price) * 100),
+        "quantityLimit": int(quantity_limit) if quantity_limit is not None else None,
+        "soldQuantity": sold_quantity,
+        "remainingQuantity": remaining_quantity,
+        "isLimited": quantity_limit is not None,
     }
 
 def apply_flash_sale_to_variant(variant: dict, flash_sale: dict) -> dict:

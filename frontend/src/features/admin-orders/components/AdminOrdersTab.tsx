@@ -41,6 +41,10 @@ function orderItemTotalPrice(item: any): number {
   return Number(item?.totalPrice ?? item?.total_price ?? orderItemUnitPrice(item) * Number(item?.quantity || 0));
 }
 
+function orderItemUsedDeviceId(item: any): string {
+  return String(item?.usedDeviceId || item?.used_device_id || '');
+}
+
 export default function AdminOrdersTab(props: AdminOrdersTabProps) {
   const {
     cancelledOrders,
@@ -282,14 +286,24 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                       <AdminPanel title="Sản phẩm trong đơn" action={<ShoppingBag className="h-5 w-5 text-red-600" />}>
                         {orderItemsOf(selectedOrder).length > 0 ? (
                           <AdminTable headers={['Sản phẩm', 'SL', 'Đơn giá', 'Thành tiền']}>
-                            {orderItemsOf(selectedOrder).map((item: any) => (
-                              <tr key={item.id || orderItemName(item)}>
-                                <td className="px-4 py-3 font-semibold text-slate-900">{orderItemName(item)}</td>
-                                <td className="px-4 py-3">{item.quantity}</td>
-                                <td className="px-4 py-3">{currency.format(orderItemUnitPrice(item))}</td>
-                                <td className="px-4 py-3 font-semibold text-red-600">{currency.format(orderItemTotalPrice(item))}</td>
-                              </tr>
-                            ))}
+                            {orderItemsOf(selectedOrder).map((item: any) => {
+                              const usedDeviceId = orderItemUsedDeviceId(item);
+                              return (
+                                <tr key={item.id || usedDeviceId || orderItemName(item)}>
+                                  <td className="px-4 py-3">
+                                    <div className="font-semibold text-slate-900">{orderItemName(item)}</div>
+                                    {usedDeviceId ? (
+                                      <div className="mt-1 inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                                        Hàng cũ đã thẩm định
+                                      </div>
+                                    ) : null}
+                                  </td>
+                                  <td className="px-4 py-3">{item.quantity}</td>
+                                  <td className="px-4 py-3">{currency.format(orderItemUnitPrice(item))}</td>
+                                  <td className="px-4 py-3 font-semibold text-red-600">{currency.format(orderItemTotalPrice(item))}</td>
+                                </tr>
+                              );
+                            })}
                           </AdminTable>
                         ) : (
                           <EmptyState text="Đơn hàng này chưa có dòng sản phẩm." />

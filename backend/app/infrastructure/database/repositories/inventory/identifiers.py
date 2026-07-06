@@ -68,7 +68,7 @@ async def insert_pending_product_imei(
                 FALSE,
                 'PENDING_INBOUND',
                 :source_reference,
-                NULL
+                NOW()
             )
             ON CONFLICT (imei) DO NOTHING
             """
@@ -128,7 +128,7 @@ async def insert_pending_product_serial_number(
                 id, product_id, variant_id, serial_number, status, source_reference, received_at
             )
             VALUES (
-                :id, :product_id, :variant_id, :serial_number, 'PENDING_INBOUND', :source_reference, NULL
+                :id, :product_id, :variant_id, :serial_number, 'PENDING_INBOUND', :source_reference, NOW()
             )
             ON CONFLICT (product_id, serial_number) DO NOTHING
             """
@@ -246,6 +246,164 @@ async def get_identifier_pair_for_outbound(
     )
     row = result.mappings().first()
     return dict(row) if row else None
+
+
+async def get_identifier_pair_by_value(
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    identifier_type: str,
+    identifier_value: str,
+) -> dict | None:
+    normalized_type = identifier_type.upper()
+    if normalized_type == "IMEI":
+        predicate = "(imei1 = :identifier_value OR imei2 = :identifier_value)"
+    elif normalized_type == "SERIAL":
+        predicate = "serial_number = :identifier_value"
+    else:
+        return None
+    row = (
+        await session.execute(
+            text(
+                f"""
+                SELECT id, product_id, variant_id, imei1, imei2, serial_number
+                FROM product_identifier_pairs
+                WHERE product_id = :product_id
+                  AND variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid)
+                  AND {predicate}
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "identifier_value": identifier_value,
+            },
+        )
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+async def get_identifier_pair_for_location_update(
+    session: AsyncSession,
+    pair_id: UUID,
+) -> dict | None:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT id, product_id, variant_id, imei1, imei2, serial_number
+                FROM product_identifier_pairs
+                WHERE id = :pair_id
+                FOR UPDATE
+                """
+            ),
+            {"pair_id": pair_id},
+        )
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+async def list_identifier_pair_members_for_update(
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    imei1: str,
+    imei2: str | None,
+    serial_number: str,
+) -> list[dict]:
+    imei_values = [value for value in (imei1, imei2) if value]
+    imei_rows = (
+        await session.execute(
+            text(
+                """
+                SELECT id, 'IMEI' AS identifier_type, imei AS identifier_value, status, location_id
+                FROM product_imeis
+                WHERE product_id = :product_id
+                  AND variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid)
+                  AND imei = ANY(:imei_values)
+                FOR UPDATE
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "imei_values": imei_values,
+            },
+        )
+    ).mappings().all()
+    serial_rows = (
+        await session.execute(
+            text(
+                """
+                SELECT id, 'SERIAL' AS identifier_type, serial_number AS identifier_value, status, location_id
+                FROM product_serial_numbers
+                WHERE product_id = :product_id
+                  AND variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid)
+                  AND serial_number = :serial_number
+                FOR UPDATE
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "serial_number": serial_number,
+            },
+        )
+    ).mappings().all()
+    return [dict(row) for row in [*imei_rows, *serial_rows]]
+
+
+async def update_identifier_pair_locations(
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    imei1: str,
+    imei2: str | None,
+    serial_number: str,
+    location_id: UUID,
+) -> None:
+    imei_values = [value for value in (imei1, imei2) if value]
+    await session.execute(
+        text(
+            """
+            UPDATE product_imeis
+            SET location_id = :location_id,
+                updated_at = NOW()
+            WHERE product_id = :product_id
+              AND variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid)
+              AND imei = ANY(:imei_values)
+              AND status = 'IN_STOCK'
+            """
+        ),
+        {
+            "product_id": product_id,
+            "variant_id": variant_id,
+            "imei_values": imei_values,
+            "location_id": location_id,
+        },
+    )
+    await session.execute(
+        text(
+            """
+            UPDATE product_serial_numbers
+            SET location_id = :location_id,
+                updated_at = NOW()
+            WHERE product_id = :product_id
+              AND variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid)
+              AND serial_number = :serial_number
+              AND status = 'IN_STOCK'
+            """
+        ),
+        {
+            "product_id": product_id,
+            "variant_id": variant_id,
+            "serial_number": serial_number,
+            "location_id": location_id,
+        },
+    )
 
 
 async def list_identifier_issue_candidates(
@@ -396,9 +554,9 @@ async def list_product_imeis_for_inventory(
                 pi.source_reference AS "sourceReference",
                 pi.received_at AS "receivedAt",
                 pi.sold_at AS "soldAt",
-                loc.id AS "locationId",
-                loc.code AS "locationCode",
-                loc.name AS "locationName",
+                CASE WHEN pi.status IN ('IN_STOCK', 'RESERVED') THEN loc.id ELSE NULL END AS "locationId",
+                CASE WHEN pi.status IN ('IN_STOCK', 'RESERVED') THEN loc.code ELSE NULL END AS "locationCode",
+                CASE WHEN pi.status IN ('IN_STOCK', 'RESERVED') THEN loc.name ELSE NULL END AS "locationName",
                 req.id AS "pendingRequestId",
                 req.new_value AS "pendingNewValue",
                 req.reason AS "pendingReason"
@@ -433,9 +591,9 @@ async def list_product_serial_numbers_for_inventory(
                 psn.source_reference AS "sourceReference",
                 psn.received_at AS "receivedAt",
                 psn.sold_at AS "soldAt",
-                loc.id AS "locationId",
-                loc.code AS "locationCode",
-                loc.name AS "locationName",
+                CASE WHEN psn.status IN ('IN_STOCK', 'RESERVED') THEN loc.id ELSE NULL END AS "locationId",
+                CASE WHEN psn.status IN ('IN_STOCK', 'RESERVED') THEN loc.code ELSE NULL END AS "locationCode",
+                CASE WHEN psn.status IN ('IN_STOCK', 'RESERVED') THEN loc.name ELSE NULL END AS "locationName",
                 req.id AS "pendingRequestId",
                 req.new_value AS "pendingNewValue",
                 req.reason AS "pendingReason"
@@ -514,7 +672,9 @@ async def get_identifier_for_edit(session: AsyncSession, identifier_type: str, i
                     id,
                     product_id,
                     variant_id,
-                    imei AS current_value
+                    imei AS current_value,
+                    status,
+                    location_id
                 FROM product_imeis
                 WHERE id = :identifier_id
                 """
@@ -529,7 +689,9 @@ async def get_identifier_for_edit(session: AsyncSession, identifier_type: str, i
                     id,
                     product_id,
                     variant_id,
-                    serial_number AS current_value
+                    serial_number AS current_value,
+                    status,
+                    location_id
                 FROM product_serial_numbers
                 WHERE id = :identifier_id
                 """
@@ -539,6 +701,60 @@ async def get_identifier_for_edit(session: AsyncSession, identifier_type: str, i
     else:
         return None
     row = result.mappings().first()
+    return dict(row) if row else None
+
+
+async def get_identifier_by_value(
+    session: AsyncSession,
+    identifier_type: str,
+    identifier_value: str,
+) -> dict | None:
+    normalized_type = identifier_type.upper()
+    if normalized_type == "IMEI":
+        query = """
+            SELECT id, product_id, variant_id, imei AS current_value, status, location_id
+            FROM product_imeis
+            WHERE imei = :identifier_value
+        """
+    elif normalized_type == "SERIAL":
+        query = """
+            SELECT id, product_id, variant_id, serial_number AS current_value, status, location_id
+            FROM product_serial_numbers
+            WHERE serial_number = :identifier_value
+        """
+    else:
+        return None
+    row = (
+        await session.execute(text(query), {"identifier_value": identifier_value})
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+async def get_identifier_for_location_update(
+    session: AsyncSession,
+    identifier_type: str,
+    identifier_id: UUID,
+) -> dict | None:
+    normalized_type = identifier_type.upper()
+    if normalized_type == "IMEI":
+        query = """
+            SELECT id, product_id, variant_id, imei AS current_value, status, location_id
+            FROM product_imeis
+            WHERE id = :identifier_id
+            FOR UPDATE
+        """
+    elif normalized_type == "SERIAL":
+        query = """
+            SELECT id, product_id, variant_id, serial_number AS current_value, status, location_id
+            FROM product_serial_numbers
+            WHERE id = :identifier_id
+            FOR UPDATE
+        """
+    else:
+        return None
+    row = (
+        await session.execute(text(query), {"identifier_id": identifier_id})
+    ).mappings().first()
     return dict(row) if row else None
 
 
@@ -556,6 +772,48 @@ async def has_pending_identifier_edit_request(session: AsyncSession, identifier_
             """
         ),
         {"identifier_type": identifier_type.upper(), "identifier_id": identifier_id},
+    )
+    return bool(result.scalar())
+
+
+async def has_pending_identifier_location_request(
+    session: AsyncSession,
+    identifier_type: str,
+    identifier_id: UUID,
+) -> bool:
+    result = await session.execute(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM inventory_identifier_location_requests
+                WHERE identifier_type = :identifier_type
+                  AND identifier_id = :identifier_id
+                  AND status = 'PENDING'
+            )
+            """
+        ),
+        {"identifier_type": identifier_type.upper(), "identifier_id": identifier_id},
+    )
+    return bool(result.scalar())
+
+
+async def has_pending_identifier_pair_location_request(
+    session: AsyncSession,
+    pair_id: UUID,
+) -> bool:
+    result = await session.execute(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM inventory_identifier_location_requests
+                WHERE identifier_pair_id = :pair_id
+                  AND status = 'PENDING'
+            )
+            """
+        ),
+        {"pair_id": pair_id},
     )
     return bool(result.scalar())
 
@@ -724,3 +982,314 @@ async def update_identifier_edit_request_status(
             "decision_note": decision_note,
         },
     )
+
+
+async def list_identifier_location_requests(
+    session: AsyncSession,
+    *,
+    status: str | None = None,
+    limit: int = 200,
+) -> list[dict]:
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                req.id,
+                req.identifier_type AS "identifierType",
+                req.identifier_id AS "identifierId",
+                req.identifier_value AS "identifierValue",
+                req.product_id AS "productId",
+                req.variant_id AS "variantId",
+                req.identifier_pair_id AS "identifierPairId",
+                pair.imei1,
+                pair.imei2,
+                pair.serial_number AS "pairedSerialNumber",
+                req.current_location_id AS "currentLocationId",
+                source.code AS "currentLocationCode",
+                source.name AS "currentLocationName",
+                req.new_location_id AS "newLocationId",
+                target.code AS "newLocationCode",
+                target.name AS "newLocationName",
+                req.reason,
+                req.status,
+                req.decision_note AS "decisionNote",
+                req.created_at AS "createdAt",
+                req.decided_at AS "decidedAt",
+                p.name AS "productName",
+                p.sku AS "productSku",
+                pv.sku AS "variantSku",
+                pv.color_name AS "variantColor",
+                pv.configuration AS "variantConfiguration"
+            FROM inventory_identifier_location_requests req
+            JOIN products p ON p.id = req.product_id
+            LEFT JOIN product_variants pv ON pv.id = req.variant_id
+            LEFT JOIN product_identifier_pairs pair ON pair.id = req.identifier_pair_id
+            LEFT JOIN inventory_locations source ON source.id = req.current_location_id
+            JOIN inventory_locations target ON target.id = req.new_location_id
+            WHERE (CAST(:status AS varchar) IS NULL OR req.status = CAST(:status AS varchar))
+            ORDER BY req.created_at DESC
+            LIMIT :limit
+            """
+        ),
+        {
+            "status": status,
+            "limit": max(1, min(int(limit or 200), 500)),
+        },
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
+async def insert_identifier_location_request(
+    session: AsyncSession,
+    *,
+    request_id: UUID,
+    identifier_type: str,
+    identifier_id: UUID,
+    identifier_value: str,
+    product_id: UUID,
+    variant_id: UUID | None,
+    identifier_pair_id: UUID | None,
+    current_location_id: UUID | None,
+    new_location_id: UUID,
+    reason: str,
+    requested_by: UUID | None,
+) -> None:
+    await session.execute(
+        text(
+            """
+            INSERT INTO inventory_identifier_location_requests (
+                id, identifier_type, identifier_id, identifier_value,
+                product_id, variant_id, identifier_pair_id, current_location_id, new_location_id,
+                reason, status, requested_by
+            )
+            VALUES (
+                :id, :identifier_type, :identifier_id, :identifier_value,
+                :product_id, :variant_id, :identifier_pair_id, :current_location_id, :new_location_id,
+                :reason, 'PENDING', :requested_by
+            )
+            """
+        ),
+        {
+            "id": request_id,
+            "identifier_type": identifier_type.upper(),
+            "identifier_id": identifier_id,
+            "identifier_value": identifier_value,
+            "product_id": product_id,
+            "variant_id": variant_id,
+            "identifier_pair_id": identifier_pair_id,
+            "current_location_id": current_location_id,
+            "new_location_id": new_location_id,
+            "reason": reason,
+            "requested_by": requested_by,
+        },
+    )
+
+
+async def get_identifier_location_request_for_update(
+    session: AsyncSession,
+    request_id: UUID,
+) -> dict | None:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    id,
+                    identifier_type,
+                    identifier_id,
+                    identifier_value,
+                    product_id,
+                    variant_id,
+                    identifier_pair_id,
+                    current_location_id,
+                    new_location_id,
+                    reason,
+                    status
+                FROM inventory_identifier_location_requests
+                WHERE id = :request_id
+                FOR UPDATE
+                """
+            ),
+            {"request_id": request_id},
+        )
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+async def update_identifier_location(
+    session: AsyncSession,
+    identifier_type: str,
+    identifier_id: UUID,
+    location_id: UUID,
+) -> None:
+    normalized_type = identifier_type.upper()
+    if normalized_type == "IMEI":
+        table_name = "product_imeis"
+    elif normalized_type == "SERIAL":
+        table_name = "product_serial_numbers"
+    else:
+        return
+    await session.execute(
+        text(
+            f"""
+            UPDATE {table_name}
+            SET location_id = :location_id,
+                updated_at = NOW()
+            WHERE id = :identifier_id
+              AND status = 'IN_STOCK'
+            """
+        ),
+        {"identifier_id": identifier_id, "location_id": location_id},
+    )
+
+
+async def update_identifier_location_request_status(
+    session: AsyncSession,
+    *,
+    request_id: UUID,
+    status: str,
+    decided_by: UUID | None,
+    decision_note: str | None,
+) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE inventory_identifier_location_requests
+            SET status = :status,
+                decided_by = :decided_by,
+                decision_note = :decision_note,
+                decided_at = NOW()
+            WHERE id = :request_id
+            """
+        ),
+        {
+            "request_id": request_id,
+            "status": status.upper(),
+            "decided_by": decided_by,
+            "decision_note": decision_note,
+        },
+    )
+
+
+async def lock_identifiers_for_hold(
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    location_id: UUID,
+    imeis: list[str],
+    serial_numbers: list[str],
+) -> tuple[list[str], list[str]]:
+    locked_imeis = []
+    locked_serials = []
+    if imeis:
+        result = await session.execute(
+            text(
+                """
+                UPDATE product_imeis
+                SET status = 'RESERVED',
+                    updated_at = NOW()
+                WHERE product_id = :product_id
+                  AND (variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid))
+                  AND location_id = :location_id
+                  AND imei = ANY(:imeis)
+                  AND status = 'IN_STOCK'
+                RETURNING imei
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "location_id": location_id,
+                "imeis": imeis,
+            }
+        )
+        locked_imeis = [str(row["imei"]) for row in result.mappings().all()]
+
+    if serial_numbers:
+        result = await session.execute(
+            text(
+                """
+                UPDATE product_serial_numbers
+                SET status = 'RESERVED',
+                    updated_at = NOW()
+                WHERE product_id = :product_id
+                  AND (variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid))
+                  AND location_id = :location_id
+                  AND serial_number = ANY(:serial_numbers)
+                  AND status = 'IN_STOCK'
+                RETURNING serial_number
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "location_id": location_id,
+                "serial_numbers": serial_numbers,
+            }
+        )
+        locked_serials = [str(row["serial_number"]) for row in result.mappings().all()]
+
+    return locked_imeis, locked_serials
+
+
+async def unlock_identifiers_for_hold(
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    location_id: UUID,
+    imeis: list[str],
+    serial_numbers: list[str],
+) -> tuple[list[str], list[str]]:
+    unlocked_imeis = []
+    unlocked_serials = []
+    if imeis:
+        result = await session.execute(
+            text(
+                """
+                UPDATE product_imeis
+                SET status = 'IN_STOCK',
+                    updated_at = NOW()
+                WHERE product_id = :product_id
+                  AND (variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid))
+                  AND location_id = :location_id
+                  AND imei = ANY(:imeis)
+                  AND status = 'RESERVED'
+                RETURNING imei
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "location_id": location_id,
+                "imeis": imeis,
+            }
+        )
+        unlocked_imeis = [str(row["imei"]) for row in result.mappings().all()]
+
+    if serial_numbers:
+        result = await session.execute(
+            text(
+                """
+                UPDATE product_serial_numbers
+                SET status = 'IN_STOCK',
+                    updated_at = NOW()
+                WHERE product_id = :product_id
+                  AND (variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid))
+                  AND location_id = :location_id
+                  AND serial_number = ANY(:serial_numbers)
+                  AND status = 'RESERVED'
+                RETURNING serial_number
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "location_id": location_id,
+                "serial_numbers": serial_numbers,
+            }
+        )
+        unlocked_serials = [str(row["serial_number"]) for row in result.mappings().all()]
+
+    return unlocked_imeis, unlocked_serials

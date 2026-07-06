@@ -8,6 +8,7 @@ export type FlashSaleForm = {
   variantId: string;
   discountType: 'PERCENT' | 'FIXED';
   discountValue: number;
+  quantityLimit: string;
   startsAt: string;
   endsAt: string;
   status: 'ACTIVE' | 'INACTIVE';
@@ -18,6 +19,7 @@ const emptyFlashSaleForm: FlashSaleForm = {
   variantId: '',
   discountType: 'PERCENT',
   discountValue: 10,
+  quantityLimit: '',
   startsAt: '',
   endsAt: '',
   status: 'ACTIVE',
@@ -67,7 +69,7 @@ export function useAdminFlashSalesLogic(params: {
         || String(product?.categoryId || '') === flashSaleCategoryFilter
         || String(product?.subcategoryId || '') === flashSaleCategoryFilter;
       const matchesBrand = !flashSaleBrandFilter || String(product?.brandId || '') === flashSaleBrandFilter;
-      const runningStatus = item.isRunning ? 'RUNNING' : item.status === 'ACTIVE' ? 'SCHEDULED' : 'INACTIVE';
+      const runningStatus = item.isExhausted ? 'INACTIVE' : item.isRunning ? 'RUNNING' : item.status === 'ACTIVE' ? 'SCHEDULED' : 'INACTIVE';
       return matchesQuery && matchesCategory && matchesBrand && (!flashSaleStatusFilter || runningStatus === flashSaleStatusFilter);
     });
   }, [flashSaleBrandFilter, flashSaleCategoryFilter, flashSaleStatusFilter, flashSales, products, query]);
@@ -94,6 +96,7 @@ export function useAdminFlashSalesLogic(params: {
       variantId: item.variantId || '',
       discountType: item.discountType === 'FIXED' ? 'FIXED' : 'PERCENT',
       discountValue: Number(item.discountValue || 0),
+      quantityLimit: item.quantityLimit ? String(item.quantityLimit) : '',
       startsAt: toLocalDateTime(item.startsAt),
       endsAt: toLocalDateTime(item.endsAt),
       status: item.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
@@ -105,6 +108,7 @@ export function useAdminFlashSalesLogic(params: {
     variantId: flashSaleForm.variantId || null,
     discountType: flashSaleForm.discountType,
     discountValue: Number(flashSaleForm.discountValue || 0),
+    quantityLimit: flashSaleForm.quantityLimit.trim() ? Number(flashSaleForm.quantityLimit) : null,
     startsAt: toIsoOrNull(flashSaleForm.startsAt),
     endsAt: toIsoOrNull(flashSaleForm.endsAt),
     status: flashSaleForm.status,
@@ -114,6 +118,12 @@ export function useAdminFlashSalesLogic(params: {
     event.preventDefault();
     if (!flashSaleForm.productId) {
       alert('Vui lòng chọn sản phẩm cho flash sale.');
+      return false;
+    }
+    const quantityLimitText = flashSaleForm.quantityLimit.trim();
+    const quantityLimitNumber = Number(quantityLimitText);
+    if (quantityLimitText && (!Number.isInteger(quantityLimitNumber) || quantityLimitNumber < 1)) {
+      alert('Số lượng sale phải lớn hơn 0 hoặc để trống nếu không giới hạn.');
       return false;
     }
     try {

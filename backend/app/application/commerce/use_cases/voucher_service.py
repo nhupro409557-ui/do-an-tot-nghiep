@@ -37,7 +37,7 @@ class VoucherService:
     ) -> VoucherValidationResponse:
         voucher = await self._get_active_voucher(code)
         if voucher is None:
-            return self._invalid(code.upper(), "VOUCHER_ERR_INVALID", "Voucher is invalid or inactive.")
+            return self._invalid(code.upper(), "VOUCHER_ERR_INVALID", "Voucher không hợp lệ hoặc không còn hoạt động.")
 
         now = await commerce_repo.get_database_now(self._session)
         context = VoucherValidationContext(
@@ -67,7 +67,7 @@ class VoucherService:
                 return self._invalid(
                     voucher.code,
                     "VOUCHER_ERR_BUDGET",
-                    "Voucher campaign budget has been reached.",
+                    "Ngân sách chiến dịch voucher đã được dùng hết.",
                     {"budget_cap": str(voucher.total_budget_cap), "used_budget": str(voucher.total_discount_used or 0)},
                 )
             discount = min(discount, remaining_budget)
@@ -75,7 +75,7 @@ class VoucherService:
             code=voucher.code,
             valid=True,
             discount_amount=discount,
-            message="Voucher applied successfully.",
+            message="Áp dụng voucher thành công.",
             error_code=None,
             metadata={
                 "stackable": bool(voucher.stackable),
@@ -88,9 +88,26 @@ class VoucherService:
         now = datetime.now(timezone.utc)
         voucher = await commerce_repo.get_voucher_by_id(self._session, voucher_id)
         if voucher is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voucher not found.")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy voucher.")
         if voucher.status != "ACTIVE":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Voucher is not active.")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Voucher không ở trạng thái hoạt động.")
+        if voucher.ends_at and voucher.ends_at < now:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Voucher đã hết hạn.")
+        if voucher.usage_limit > 0 and voucher.used_count >= voucher.usage_limit:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Voucher đã hết lượt sử dụng.")
+        if voucher.starts_at and voucher.starts_at > now:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Voucher chưa đến thời gian áp dụng.")
+
+        if voucher.audience_type == "SPECIFIC_USER":
+            if voucher.assigned_user_id and voucher.assigned_user_id != user_id:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Voucher này không dành cho tài khoản của bạn.")
+            if not await commerce_repo.has_user_voucher_assignment(self._session, user_id=user_id, voucher_id=voucher_id):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Voucher này không dành cho tài khoản của bạn.")
+
+        if voucher.first_order_only:
+            orders_count = await self._user_order_count(user_id)
+            if orders_count > 0:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Voucher chỉ áp dụng cho khách hàng chưa có đơn hàng nào.")
 
         existing = await commerce_repo.get_existing_user_voucher(self._session, user_id=user_id, voucher_id=voucher_id)
         if existing is not None:

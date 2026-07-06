@@ -81,6 +81,75 @@ const statusStyles: Record<string, { bg: string; text: string; border: string }>
   CLOSED_EXPIRED: { bg: 'bg-slate-100', text: 'text-slate-500', border: 'border-slate-250' },
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+type WarrantyTone = 'emerald' | 'rose' | 'slate' | 'blue';
+
+type WarrantyInfo = {
+  eligible: boolean;
+  label: string;
+  detail?: string;
+  tone: WarrantyTone;
+};
+
+const warrantyToneStyles: Record<WarrantyTone, { bg: string; text: string; border: string }> = {
+  emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
+  rose: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
+  slate: { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200' },
+  blue: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+};
+
+const getWarrantyStartDate = (order: any) => {
+  const rawDate = order?.completedAt;
+  if (!rawDate) return null;
+
+  const parsed = new Date(rawDate);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const getWarrantyInfo = (order: any, item: any, isReturn: boolean): WarrantyInfo | null => {
+  if (isReturn) return null;
+
+  const months = Number(item?.warrantyMonthsSnapshot ?? 0);
+  if (!Number.isFinite(months) || months <= 0) {
+    return {
+      eligible: false,
+      label: 'Không hỗ trợ bảo hành',
+      detail: 'Sản phẩm này không có thời hạn bảo hành tại thời điểm đặt hàng.',
+      tone: 'slate',
+    };
+  }
+
+  const startDate = getWarrantyStartDate(order);
+  if (!startDate) {
+    return {
+      eligible: true,
+      label: `Bảo hành ${months.toLocaleString('vi-VN')} tháng`,
+      detail: 'Chưa có ngày hoàn thành đơn hàng để tính ngày hết hạn.',
+      tone: 'blue',
+    };
+  }
+
+  const endsAt = new Date(startDate.getTime() + months * 30 * DAY_MS);
+  const remainingDays = Math.ceil((endsAt.getTime() - Date.now()) / DAY_MS);
+
+  if (remainingDays < 0) {
+    return {
+      eligible: false,
+      label: `Đã hết hạn bảo hành từ ${endsAt.toLocaleDateString('vi-VN')}`,
+      detail: `Thời hạn snapshot: ${months.toLocaleString('vi-VN')} tháng.`,
+      tone: 'rose',
+    };
+  }
+
+  return {
+    eligible: true,
+    label: remainingDays === 0 ? 'Còn bảo hành đến hôm nay' : `Còn ${remainingDays.toLocaleString('vi-VN')} ngày bảo hành`,
+    detail: `Hết hạn dự kiến: ${endsAt.toLocaleDateString('vi-VN')} (${months.toLocaleString('vi-VN')} tháng).`,
+    tone: 'emerald',
+  };
+};
+
 type Props = {
   kind: 'return' | 'warranty';
   orders: any[];
@@ -99,19 +168,40 @@ export function AfterSalesTab({ kind, orders }: Props) {
   const [reason, setReason] = useState('');
   const [imei, setImei] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
+  const [hasAccessories, setHasAccessories] = useState(false);
+  const [goodAppearance, setGoodAppearance] = useState(false);
+  const [accountUnlocked, setAccountUnlocked] = useState(false);
+  const [hasVatInvoice, setHasVatInvoice] = useState(false);
   const filesRef = useRef<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<FilePreview[]>([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Chỉ cho phép chọn đơn hàng đã giao thành công (COMPLETED) hoặc đang giao (SHIPPED)
+  // Backend chỉ cho phép tạo hậu mãi khi đơn hàng đã hoàn thành.
   const validOrders = useMemo(() => {
-    return (orders || []).filter(order => ['COMPLETED', 'SHIPPED'].includes(order.status));
+    return (orders || []).filter(order => order.status === 'COMPLETED');
   }, [orders]);
 
   const selectedOrder = useMemo(() => {
     return validOrders.find(order => String(order.id) === orderId);
   }, [validOrders, orderId]);
+
+  const selectedOrderItems = useMemo(() => {
+    return selectedOrder?.items || [];
+  }, [selectedOrder]);
+
+  const selectedOrderItem = useMemo(() => {
+    return selectedOrderItems.find((item: any) => String(item.id) === orderItemId);
+  }, [selectedOrderItems, orderItemId]);
+
+  const selectedWarrantyInfo = useMemo(() => {
+    return selectedOrderItem ? getWarrantyInfo(selectedOrder, selectedOrderItem, isReturn) : null;
+  }, [isReturn, selectedOrder, selectedOrderItem]);
+
+  const hasEligibleWarrantyItem = useMemo(() => {
+    if (isReturn || !selectedOrder) return true;
+    return selectedOrderItems.some((item: any) => getWarrantyInfo(selectedOrder, item, false)?.eligible);
+  }, [isReturn, selectedOrder, selectedOrderItems]);
 
   const load = useCallback(async () => {
     try {
@@ -159,6 +249,14 @@ export function AfterSalesTab({ kind, orders }: Props) {
       setMessage('Vui lòng chọn đơn hàng và sản phẩm.');
       return;
     }
+    if (!isReturn && selectedWarrantyInfo && !selectedWarrantyInfo.eligible) {
+      setMessage(selectedWarrantyInfo.label);
+      return;
+    }
+    if (isReturn && (!hasAccessories || !goodAppearance || !accountUnlocked || !hasVatInvoice)) {
+      setMessage('Bạn phải xác nhận thiết bị đáp ứng tất cả các điều kiện chính sách đổi trả.');
+      return;
+    }
     setBusy(true);
     setMessage('');
     try {
@@ -171,6 +269,10 @@ export function AfterSalesTab({ kind, orders }: Props) {
           imei: imei.trim() || null,
           serial_number: serialNumber.trim() || null,
         }],
+        has_accessories: isReturn ? hasAccessories : true,
+        good_appearance: isReturn ? goodAppearance : true,
+        account_unlocked: isReturn ? accountUnlocked : true,
+        has_vat_invoice: isReturn ? hasVatInvoice : true,
       });
       if (filesRef.current.length) {
         await uploadApi(created.id, filesRef.current);
@@ -178,6 +280,10 @@ export function AfterSalesTab({ kind, orders }: Props) {
       setReason('');
       setImei('');
       setSerialNumber('');
+      setHasAccessories(false);
+      setGoodAppearance(false);
+      setAccountUnlocked(false);
+      setHasVatInvoice(false);
       syncFiles([]);
       setMessage(`Đã gửi thành công yêu cầu ${created.requestCode}.`);
       await load();
@@ -220,7 +326,7 @@ export function AfterSalesTab({ kind, orders }: Props) {
               <option value="">-- Chọn đơn hàng hợp lệ --</option>
               {validOrders.map(order => (
                 <option key={order.id} value={order.id}>
-                  #{order.orderCode} ({order.status === 'COMPLETED' ? 'Đã giao' : 'Đang giao'})
+                  #{order.orderCode} (Đã giao)
                 </option>
               ))}
             </select>
@@ -238,11 +344,57 @@ export function AfterSalesTab({ kind, orders }: Props) {
               disabled={!selectedOrder}
             >
               <option value="">-- Chọn sản phẩm cần bảo trì --</option>
-              {(selectedOrder?.items || []).map((item: any) => (
-                <option key={item.id} value={item.id}>{item.productName}</option>
-              ))}
+              {selectedOrderItems.map((item: any) => {
+                const warrantyInfo = getWarrantyInfo(selectedOrder, item, isReturn);
+                const disabled = Boolean(!isReturn && warrantyInfo && !warrantyInfo.eligible);
+                const label = !isReturn && warrantyInfo ? `${item.productName} · ${warrantyInfo.label}` : item.productName;
+
+                return (
+                  <option key={item.id} value={item.id} disabled={disabled}>
+                    {label}
+                  </option>
+                );
+              })}
             </select>
+            {!isReturn && selectedOrder && !hasEligibleWarrantyItem && (
+              <p className="text-xs font-medium text-rose-600">
+                Đơn hàng này chưa có sản phẩm còn hiệu lực bảo hành.
+              </p>
+            )}
+            {!isReturn && selectedWarrantyInfo && (
+              <div className={`rounded-xl border p-3 text-xs ${warrantyToneStyles[selectedWarrantyInfo.tone].bg} ${warrantyToneStyles[selectedWarrantyInfo.tone].text} ${warrantyToneStyles[selectedWarrantyInfo.tone].border}`}>
+                <div className="font-bold">{selectedWarrantyInfo.label}</div>
+                {selectedWarrantyInfo.detail && <div className="mt-1">{selectedWarrantyInfo.detail}</div>}
+              </div>
+            )}
           </div>
+
+          {!isReturn && selectedOrder && selectedOrderItems.length > 0 && (
+            <div className="md:col-span-2 rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Tình trạng bảo hành theo từng sản phẩm
+              </div>
+              <div className="mt-3 grid gap-2">
+                {selectedOrderItems.map((item: any) => {
+                  const warrantyInfo = getWarrantyInfo(selectedOrder, item, false);
+                  if (!warrantyInfo) return null;
+                  const tone = warrantyToneStyles[warrantyInfo.tone];
+
+                  return (
+                    <div key={item.id} className="flex flex-col gap-1 rounded-lg border border-white bg-white p-3 text-xs shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                      <div className="font-semibold text-slate-800">{item.productName}</div>
+                      <div className="flex flex-col gap-1 sm:items-end">
+                        <span className={`inline-flex w-fit items-center rounded-full border px-2.5 py-1 font-bold ${tone.bg} ${tone.text} ${tone.border}`}>
+                          {warrantyInfo.label}
+                        </span>
+                        {warrantyInfo.detail && <span className="text-slate-500">{warrantyInfo.detail}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Nhập IMEI */}
           <div className="flex flex-col gap-1.5">
@@ -286,7 +438,54 @@ export function AfterSalesTab({ kind, orders }: Props) {
           />
         </div>
 
-        {/* Upload file và Preview */}
+        {isReturn && (
+          <div className="mt-5 space-y-3.5 rounded-xl border border-slate-100 bg-slate-50/10 p-4">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Xác nhận điều kiện chính sách đổi trả</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex items-center gap-2.5 py-1 select-none cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hasAccessories}
+                  onChange={e => setHasAccessories(e.target.checked)}
+                  className="h-4.5 w-4.5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                />
+                <span className="text-xs font-semibold text-slate-700">Thiết bị có đầy đủ phụ kiện đi kèm</span>
+              </label>
+
+              <label className="flex items-center gap-2.5 py-1 select-none cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={goodAppearance}
+                  onChange={e => setGoodAppearance(e.target.checked)}
+                  className="h-4.5 w-4.5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                />
+                <span className="text-xs font-semibold text-slate-700">Ngoại quan nguyên vẹn (Không nứt vỡ, trầy xước nặng)</span>
+              </label>
+
+              <label className="flex items-center gap-2.5 py-1 select-none cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={accountUnlocked}
+                  onChange={e => setAccountUnlocked(e.target.checked)}
+                  className="h-4.5 w-4.5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                />
+                <span className="text-xs font-semibold text-slate-700">Đã thoát tài khoản iCloud/Google khỏi thiết bị</span>
+              </label>
+
+              <label className="flex items-center gap-2.5 py-1 select-none cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hasVatInvoice}
+                  onChange={e => setHasVatInvoice(e.target.checked)}
+                  className="h-4.5 w-4.5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                />
+                <span className="text-xs font-semibold text-slate-700">Có hóa đơn mua hàng / VAT đi kèm</span>
+              </label>
+            </div>
+          </div>
+        )}
+
+        {/* Tải file và xem trước */}
         <div className="mt-5 flex flex-col gap-1.5">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Hình ảnh / Video minh chứng lỗi (Tối đa 5 tệp)</span>
           <div className="mt-1 flex items-center justify-center w-full">

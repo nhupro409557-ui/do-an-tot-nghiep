@@ -10,6 +10,7 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.ai.catalog_embedding_index import search_catalog_index_semantic
 from app.application.ai.schemas import AIAssistantRequest, AIAssistantResponse
 from app.config import settings
 from app.infrastructure.database.repositories import ai_repo
@@ -216,10 +217,10 @@ class AIAssistantUseCase:
     async def _cache_dynamic_context(self, request: AIAssistantRequest) -> None:
         cache_key = f"ai:session:{request.conversation_id}"
         try:
-            await self._redis.setex(
+            await self._redis.set(
                 cache_key,
-                60 * 30,
                 json.dumps(request.dynamic_context.model_dump(mode="json"), ensure_ascii=False),
+                ex=60 * 30,
             )
         except RedisError:
             pass
@@ -246,7 +247,10 @@ class AIAssistantUseCase:
                 "handover_recommended": True,
                 "reason": "Customer complaint or negative sentiment detected.",
             }
-        return {"products": await self._find_products(message)}
+        return {
+            "products": await self._find_products(message),
+            "catalog_index": await search_catalog_index_semantic(message),
+        }
 
     async def _find_products(self, message: str) -> list[dict]:
         tokens = keyword_tokens(message)
@@ -393,12 +397,18 @@ class AIAssistantUseCase:
         if products:
             names = ", ".join(product["name"] for product in products[:3])
             return f"Mình tìm thấy một số sản phẩm phù hợp: {names}."
+        catalog_index = retrieved_context.get("catalog_index") or []
+        if catalog_index:
+            names = ", ".join(item["title"] for item in catalog_index[:3])
+            return f"Mình tìm thấy một số thông tin phù hợp trong catalog: {names}."
         return "Mình chưa tìm thấy dữ liệu phù hợp. Bạn có thể nói rõ hơn nhu cầu, ngân sách hoặc sản phẩm bạn quan tâm."
 
     def _sources_for_context(self, context: dict) -> list[str]:
         sources = []
         if context.get("products"):
             sources.append("products")
+        if context.get("catalog_index"):
+            sources.append("cocoindex_catalog")
         if context.get("order"):
             sources.append("orders")
         if context.get("loyalty"):

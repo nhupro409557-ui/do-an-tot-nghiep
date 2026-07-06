@@ -73,6 +73,33 @@ export function useAdminVouchersLogic({ reloadCurrentTab }: UseAdminVouchersLogi
 
   async function handleVoucherSubmit(event: FormEvent) {
     event.preventDefault();
+
+    // 1. Client-side Validation
+    if (voucherForm.discountAmount <= 0) {
+      notifyAdmin('Giá trị giảm giá phải lớn hơn 0.');
+      return;
+    }
+    if (voucherForm.discountType === 'PERCENT' && voucherForm.discountAmount > 100) {
+      notifyAdmin('Giá trị giảm giá theo phần trăm không được lớn hơn 100%.');
+      return;
+    }
+    if (voucherForm.minOrderValue < 0) {
+      notifyAdmin('Giá trị đơn tối thiểu không được âm.');
+      return;
+    }
+    if (voucherForm.maxDiscount < 0) {
+      notifyAdmin('Giảm giá tối đa không được âm.');
+      return;
+    }
+    if (voucherForm.startsAt && voucherForm.endsAt) {
+      const start = new Date(voucherForm.startsAt);
+      const end = new Date(voucherForm.endsAt);
+      if (start >= end) {
+        notifyAdmin('Ngày bắt đầu phải trước ngày kết thúc.');
+        return;
+      }
+    }
+
     const currentEditingVoucherId = editingVoucherId;
     const payload = {
       ...voucherForm,
@@ -89,14 +116,25 @@ export function useAdminVouchersLogic({ reloadCurrentTab }: UseAdminVouchersLogi
       firstOrderOnly: voucherForm.firstOrderOnly || voucherForm.audienceType === 'NEW_CUSTOMER',
       abandonedCartOnly: voucherForm.abandonedCartOnly || voucherForm.audienceType === 'ABANDONED_CART',
     };
-    if (editingVoucherId) await adminVouchersApi.adminUpdateVoucher(editingVoucherId, payload);
-    else await adminVouchersApi.adminCreateVoucher(payload);
-    setVoucherCloseSignal((value) => value + 1);
-    window.setTimeout(resetVoucherForm, 250);
-    await reloadCurrentTab();
-    window.setTimeout(() => {
-      notifyAdmin(currentEditingVoucherId ? 'Đã lưu thay đổi voucher thành công.' : 'Đã thêm voucher thành công.');
-    }, 100);
+
+    try {
+      if (editingVoucherId) {
+        await adminVouchersApi.adminUpdateVoucher(editingVoucherId, payload);
+      } else {
+        await adminVouchersApi.adminCreateVoucher(payload);
+      }
+
+      setVoucherCloseSignal((value) => value + 1);
+      window.setTimeout(resetVoucherForm, 250);
+      await reloadCurrentTab();
+      window.setTimeout(() => {
+        notifyAdmin(currentEditingVoucherId ? 'Đã lưu thay đổi voucher thành công.' : 'Đã thêm voucher thành công.');
+      }, 100);
+    } catch (err: any) {
+      console.error(err);
+      const errorMsg = err?.response?.data?.detail || err?.message || 'Có lỗi xảy ra khi lưu voucher. Vui lòng kiểm tra lại.';
+      notifyAdmin(typeof errorMsg === 'object' ? JSON.stringify(errorMsg) : errorMsg);
+    }
   }
 
   function editVoucher(voucher: any) {

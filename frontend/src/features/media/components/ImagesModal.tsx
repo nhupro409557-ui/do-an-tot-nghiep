@@ -463,7 +463,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                     <ImageWithFallback
                       src={item.url}
                       alt={item.productName || 'Hình ảnh'}
-                      className="max-h-[92%] max-w-[92%] object-contain"
+                      className="max-h-[94%] max-w-[94%] rounded-xl object-contain drop-shadow-[0_18px_35px_rgba(0,0,0,0.45)]"
                       loading="lazy"
                       draggable={false}
                     />
@@ -473,12 +473,13 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
               })}
             </div>
             {!isCarouselMode && (
-              <div className="relative flex h-[min(58vh,480px)] w-full max-w-2xl items-center justify-center px-4">
-                <div className="absolute inset-0 rounded-[2rem] border border-white/10 bg-white/[0.03] shadow-2xl shadow-black/40" />
+              <div className="relative flex h-[min(62vh,540px)] w-full max-w-3xl items-center justify-center px-4 sm:px-8">
+                <div className="absolute inset-x-3 inset-y-0 rounded-[2rem] border border-white/10 bg-white/[0.04] shadow-2xl shadow-black/40 sm:inset-x-6" />
+                <div className="absolute inset-x-6 bottom-6 h-px bg-white/10 sm:inset-x-12" />
                 <ImageWithFallback
                   src={currentItem?.url || ''}
-                  alt={currentItem?.productName || 'Hinh anh san pham'}
-                  className="relative z-10 max-h-[92%] max-w-[92%] rounded-3xl object-contain shadow-2xl"
+                  alt={currentItem?.productName || 'Hình ảnh sản phẩm'}
+                  className="relative z-10 max-h-[94%] max-w-[94%] rounded-2xl object-contain drop-shadow-[0_28px_55px_rgba(0,0,0,0.55)]"
                   loading="eager"
                   draggable={false}
                 />
@@ -491,7 +492,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
               KÉO ĐỂ XOAY 3D • CUỘN ĐỂ PHÓNG TO
             </div>
             <div className="rounded-full bg-zinc-950/80 border border-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white/80 shadow-xl backdrop-blur-md">
-              {isCarouselMode ? 'Keo de xoay 3D - cuon de phong to' : 'Che do xem anh san pham'}
+              {isCarouselMode ? 'Kéo để xoay 3D - cuộn để phóng to' : 'Chế độ xem ảnh sản phẩm'}
             </div>
           </div>
 
@@ -502,7 +503,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
             <div className="mx-auto max-w-4xl flex flex-col sm:flex-row items-center sm:items-center justify-between gap-4 rounded-2xl border border-white/10 bg-zinc-950/70 p-4 shadow-2xl backdrop-blur-xl">
               <div className="flex flex-col gap-2.5 min-w-0 flex-1 w-full text-left">
                 <span className="text-[10px] font-extrabold uppercase tracking-widest text-red-500">
-                  {currentItem?.category || currentItem?.brand || 'Premium Gallery'}
+                  {currentItem?.category || currentItem?.brand || 'Thư viện nổi bật'}
                 </span>
                 <h3 className="line-clamp-1 text-base font-black text-white sm:text-lg">
                   {currentItem?.productName || 'Sản phẩm'}
@@ -538,7 +539,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                         : 'bg-white/5 border-white/10 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400'
                     }`}
                   >
-                    <Heart className={`h-4 w-4 transition group-hover:scale-110 ${isLiked ? 'fill-red-500 text-red-500' : ''}`} />
+                    <Heart className={`h-4 w-4 shrink-0 transition group-hover:scale-110 ${isLiked ? 'fill-red-500 text-red-500' : ''}`} />
                     <span className="text-xs font-bold">{displayLikes}</span>
                   </button>
                   <button
@@ -549,7 +550,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                     }}
                     className="group flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-white transition-all duration-300 hover:bg-blue-500/10 hover:border-blue-500/30 hover:text-blue-400 cursor-pointer"
                   >
-                    <MessageCircle className="h-4 w-4 transition group-hover:scale-110" />
+                    <MessageCircle className="h-4 w-4 shrink-0 transition group-hover:scale-110" />
                     <span className="text-xs font-bold">{commentCount}</span>
                   </button>
                   <button
@@ -560,8 +561,8 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                     }}
                     className="group flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-white transition-all duration-300 hover:bg-green-500/10 hover:border-green-500/30 hover:text-green-400 cursor-pointer"
                   >
-                    {copied ? <Check className="h-4 w-4 text-green-400" /> : <Share2 className="h-4 w-4 transition group-hover:scale-110" />}
-                    <span className="text-xs font-bold">{copied ? 'Copied' : 'Share'}</span>
+                    {copied ? <Check className="h-4 w-4 shrink-0 text-green-400" /> : <Share2 className="h-4 w-4 shrink-0 transition group-hover:scale-110" />}
+                    <span className="text-xs font-bold">{copied ? 'Đã chép' : 'Chia sẻ'}</span>
                   </button>
                 </div>
               </div>

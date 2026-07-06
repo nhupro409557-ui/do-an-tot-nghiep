@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services import document_export_service
 from app.application.services.product_helper_service import persisted_sales_config, sync_parent_price_from_variants
-from app.api.schemas.admin import InventoryAdjustmentPayload, InventoryAdjustmentRequestPayload, InventoryAdjustmentRequestStatusPayload, InventoryIdentifierEditDecisionPayload, InventoryIdentifierEditRequestPayload, InventoryLocationPayload, InventoryLocationStatusPayload, InventoryReceiptImeiPayload, InventoryReceiptPayload, InventoryReceiptQualityPayload, InventoryReceiptReversePayload, InventorySettingsPayload, InventoryStockCountPayload, InventoryStockCountStatusPayload, VariantInventoryPayload
+from app.api.schemas.admin import InventoryAdjustmentPayload, InventoryAdjustmentRequestPayload, InventoryAdjustmentRequestStatusPayload, InventoryCostAdjustmentPayload, InventoryCostAdjustmentStatusPayload, InventoryDisposalPayload, InventoryDisposalStatusPayload, InventoryIdentifierEditDecisionPayload, InventoryIdentifierEditRequestPayload, InventoryIdentifierLocationRequestPayload, InventoryInternalHoldPayload, InventoryInternalHoldStatusPayload, InventoryLocationPayload, InventoryLocationStatusPayload, InventoryReceiptAttachmentDecisionPayload, InventoryReceiptAttachmentsPayload, InventoryReceiptImeiPayload, InventoryReceiptPayload, InventoryReceiptQualityPayload, InventoryReceiptReversePayload, InventorySettingsPayload, InventoryStockCountPayload, InventoryStockCountStatusPayload, InventoryTransferPayload, InventoryTransferStatusPayload, VariantInventoryPayload
 from app.infrastructure.database.repositories import inventory_repo
 
 IMEI_PATTERN = re.compile(r"^[0-9]{15}$")
@@ -46,12 +46,11 @@ QUALITY_STATUS_LABELS = {
     "PASSED": "Đạt",
     "FAILED": "Không đạt",
 }
+SELLABLE_LOCATION_PURPOSES = {"STORAGE", "VIRTUAL"}
+QUARANTINE_LOCATION_PURPOSES = {"QC", "RETURN", "DAMAGED", "WARRANTY"}
 
 
-def _receipt_metadata_from_payload(payload: InventoryReceiptPayload) -> dict:
-    quality_status = str(payload.qualityStatus or "PENDING").strip().upper()
-    if quality_status not in QUALITY_STATUS_LABELS:
-        raise HTTPException(status_code=400, detail="Trạng thái kiểm tra chất lượng không hợp lệ.")
+def _receipt_attachments_from_payload(payload: InventoryReceiptAttachmentsPayload | InventoryReceiptPayload) -> list[dict]:
     attachments = []
     for item in payload.attachments:
         name = item.name.strip()
@@ -66,6 +65,14 @@ def _receipt_metadata_from_payload(payload: InventoryReceiptPayload) -> dict:
                 "note": (item.note or "").strip() or None,
             }
         )
+    return attachments
+
+
+def _receipt_metadata_from_payload(payload: InventoryReceiptPayload) -> dict:
+    quality_status = str(payload.qualityStatus or "PENDING").strip().upper()
+    if quality_status not in QUALITY_STATUS_LABELS:
+        raise HTTPException(status_code=400, detail="Trạng thái kiểm tra chất lượng không hợp lệ.")
+    attachments = _receipt_attachments_from_payload(payload)
     discrepancies = []
     for item in payload.discrepancies:
         description = item.description.strip()
@@ -80,6 +87,14 @@ def _receipt_metadata_from_payload(payload: InventoryReceiptPayload) -> dict:
             }
         )
     return {
+        "supplierId": str(payload.supplierId) if payload.supplierId else None,
+        "invoiceNumber": (payload.invoiceNumber or "").strip() or None,
+        "invoiceDate": payload.invoiceDate.isoformat() if payload.invoiceDate else None,
+        "paymentMode": str(payload.paymentMode or "DEBT").strip().upper(),
+        "paymentTermDays": int(payload.paymentTermDays or 0),
+        "dueDate": payload.dueDate.isoformat() if payload.dueDate else None,
+        "paidAmount": float(payload.paidAmount or 0),
+        "payableNote": (payload.payableNote or "").strip() or None,
         "qualityStatus": quality_status,
         "qualityLabel": QUALITY_STATUS_LABELS[quality_status],
         "qualityNote": (payload.qualityNote or "").strip() or None,
@@ -97,10 +112,6 @@ def _normalize_location_code(value: str) -> str:
 
 
 def _location_sort_order_from_code(code: str, fallback: int = 99999) -> int:
-    match = re.match(r"^([A-Z])-([0-9]{2})-([0-9]{2})$", code)
-    if match:
-        aisle = ord(match.group(1)) - ord("A") + 1
-        return aisle * 10000 + int(match.group(2)) * 100 + int(match.group(3))
     if code.startswith("QC-"):
         return 90000
     if code.startswith("BH-"):
@@ -109,6 +120,11 @@ def _location_sort_order_from_code(code: str, fallback: int = 99999) -> int:
         return 92000
     if code.startswith("RT-"):
         return 93000
+    match = re.match(r"^([A-Z]{1,4})-([0-9]{2})-([0-9]{2})$", code)
+    if match:
+        area = match.group(1)
+        area_order = ord(area[0]) - ord("A") + 1 if len(area) == 1 else 80 + sum(ord(char) - ord("A") + 1 for char in area)
+        return area_order * 10000 + int(match.group(2)) * 100 + int(match.group(3))
     return fallback
 
 
@@ -119,6 +135,27 @@ async def _get_active_inventory_location(session: AsyncSession, location_id: UUI
     if str(location.get("status") or "").upper() != "ACTIVE":
         raise HTTPException(status_code=400, detail=f"{line_label} đã bị khóa, không thể nhập thêm hàng.")
     return location
+
+
+def _location_purpose(location: dict | None) -> str:
+    return str((location or {}).get("purpose") or "STORAGE").strip().upper()
+
+
+def _location_is_sellable(location: dict | None) -> bool:
+    return _location_purpose(location) in SELLABLE_LOCATION_PURPOSES
+
+
+def _ensure_receipt_quarantine_location(location: dict, index: int) -> None:
+    purpose = _location_purpose(location)
+    if purpose not in QUARANTINE_LOCATION_PURPOSES:
+        code = location.get("code") or "kệ đã chọn"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Dòng {index}: phiếu nhập đang bật cách ly nên kệ {code} phải là kệ QC, hàng trả, "
+                "hàng lỗi hoặc bảo hành; không được nhập trực tiếp vào kệ bán được."
+            ),
+        )
 
 
 async def _resolve_receipt_line_location(session: AsyncSession, line, fallback_location_id: UUID, index: int) -> dict:
@@ -215,6 +252,9 @@ async def _ensure_location_has_receipt_capacity(
     quantity: int,
     policy_row: dict | None,
     requested_volume_by_location: dict[str, float],
+    product_id: UUID | None = None,
+    variant_id: UUID | None = None,
+    assigned_skus_by_location: dict[str, set[str]] | None = None,
 ) -> None:
     if quantity <= 0:
         return
@@ -236,6 +276,38 @@ async def _ensure_location_has_receipt_capacity(
                 f"Cần thêm {required_volume:,.0f} cm³, còn {max(available_volume, 0):,.0f} cm³."
             ),
         )
+
+    # Check allowMixedSku
+    loc = await inventory_repo.get_inventory_location_by_id(session, location_id)
+    if loc and not loc.get("allowMixedSku") and product_id is not None:
+        query = text(
+            """
+            SELECT DISTINCT variant_id, product_id
+            FROM inventory_levels
+            WHERE location_id = :location_id AND on_hand_quantity > 0
+            """
+        )
+        res = await session.execute(query, {"location_id": location_id})
+        active_skus = res.fetchall()
+
+        sku_key = f"{product_id}_{variant_id}"
+        for act_var, act_prod in active_skus:
+            act_key = f"{act_prod}_{act_var}"
+            if act_key != sku_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dòng {line_index}: Kệ {loc['code']} không cho phép trộn SKU (đang chứa SKU khác).",
+                )
+
+        if assigned_skus_by_location is not None:
+            assigned_skus = assigned_skus_by_location.setdefault(location_key, set())
+            if assigned_skus and sku_key not in assigned_skus:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dòng {line_index}: Kệ {loc['code']} không cho phép trộn SKU (đã gán SKU khác trong phiếu này).",
+                )
+            assigned_skus.add(sku_key)
+
     requested_volume_by_location[location_key] = previous_requested + required_volume
 
 
@@ -343,5 +415,88 @@ def _shape_inventory_level_row(row: dict) -> dict:
         },
         "blockSaleWhenOutOfStock": bool(sales_config.get("blockSaleWhenOutOfStock", True)),
     }
+
+
+async def validate_identifier_pairs(
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    imeis: list[str],
+    serial_numbers: list[str],
+    line_index: int,
+) -> None:
+    policy_row = await inventory_repo.get_product_inventory_policy(session, product_id)
+    tracks_imei = _policy_tracks_imei(policy_row)
+    tracks_serial = _policy_tracks_serial_number(policy_row)
+
+    if tracks_imei and tracks_serial:
+        if not imeis or not serial_numbers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dòng {line_index}: Sản phẩm yêu cầu nhập cả IMEI và Serial để đối soát ghép cặp.",
+            )
+        result = await session.execute(
+            text(
+                """
+                SELECT imei1, imei2, serial_number
+                FROM product_identifier_pairs
+                WHERE product_id = :product_id
+                  AND variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid)
+                  AND (
+                      imei1 = ANY(:imeis)
+                      OR imei2 = ANY(:imeis)
+                      OR serial_number = ANY(:serials)
+                  )
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "imeis": imeis,
+                "serials": serial_numbers,
+            }
+        )
+        pairs = result.mappings().all()
+
+        # Build lookup maps
+        imei_to_serial = {}
+        serial_to_imeis = {}
+        for p in pairs:
+            i1, i2, sn = p["imei1"], p["imei2"], p["serial_number"]
+            if i1:
+                imei_to_serial[i1] = sn
+            if i2:
+                imei_to_serial[i2] = sn
+            serial_to_imeis[sn] = [i1, i2] if i2 else [i1]
+
+        # Verify serials match imeis
+        for sn in serial_numbers:
+            expected_imeis = serial_to_imeis.get(sn)
+            if not expected_imeis:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dòng {line_index}: Số Serial {sn} chưa được đăng ký ghép cặp với IMEI nào trong hệ thống.",
+                )
+            if not any(i in imeis for i in expected_imeis if i):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dòng {line_index}: Số Serial {sn} yêu cầu đi kèm IMEI {expected_imeis[0]}.",
+                )
+
+        # Verify imeis match serials
+        for im in imeis:
+            expected_serial = imei_to_serial.get(im)
+            if not expected_serial:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dòng {line_index}: Số IMEI {im} chưa được đăng ký ghép cặp với Serial nào trong hệ thống.",
+                )
+            if expected_serial not in serial_numbers:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dòng {line_index}: Số IMEI {im} yêu cầu đi kèm Serial {expected_serial}.",
+                )
+
 
 __all__ = [name for name in globals() if not name.startswith("__")]

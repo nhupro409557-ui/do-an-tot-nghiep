@@ -9,6 +9,7 @@ function query(params: Record<string, string | number | undefined>) {
 }
 
 export const customerCenterApi = {
+  listOrders: () => request<any[]>('/me/orders'),
   listReturns: (params: any = {}) => request<any>(`/me/returns${query(params)}`),
   createReturn: (data: any) => request<any>('/me/returns', {
     method: 'POST',

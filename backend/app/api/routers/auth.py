@@ -154,7 +154,7 @@ async def verify_admin_mfa(
     elif scope != "mfa_verify":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Phiên MFA không hợp lệ.")
     try:
-        await redis.setex(used_token_key, 5 * 60, "1")
+        await redis.set(used_token_key, "1", ex=5 * 60)
     except Exception:
         pass
     return await issue_auth_response(session, response, request, user, event_type="admin_mfa_success")

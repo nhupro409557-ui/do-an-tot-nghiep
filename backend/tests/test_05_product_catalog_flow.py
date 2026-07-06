@@ -76,3 +76,72 @@ async def test_admin_product_to_database_to_storefront_catalog(
     listing = await api_client.get("/api/catalog/products", params={"search": product_name})
     assert listing.status_code == 200, listing.text
     assert product_name in listing.text
+
+
+@pytest.mark.contract
+async def test_admin_product_rejects_zero_price_and_duplicate_variant_combination(
+    api_client,
+    db_session,
+    admin_headers,
+):
+    category_id = await db_session.scalar(
+        text(
+            """
+            SELECT id
+            FROM categories
+            WHERE is_active = TRUE
+            ORDER BY created_at
+            LIMIT 1
+            """
+        )
+    )
+    assert category_id is not None
+
+    zero_price = await api_client.post(
+        "/api/admin/products",
+        headers=admin_headers,
+        json={
+            "name": f"Sản phẩm giá không hợp lệ {uuid4().hex[:8]}",
+            "price": 0,
+            "stock": 0,
+            "brand": "Hãng kiểm thử",
+            "category": "ACCESSORY",
+            "categoryId": str(category_id),
+            "status": "DRAFT",
+        },
+    )
+    assert zero_price.status_code == 422, zero_price.text
+
+    duplicate_variants = await api_client.post(
+        "/api/admin/products",
+        headers=admin_headers,
+        json={
+            "name": f"Sản phẩm trùng biến thể {uuid4().hex[:8]}",
+            "price": 1_250_000,
+            "stock": 0,
+            "brand": "Hãng kiểm thử",
+            "category": "ACCESSORY",
+            "categoryId": str(category_id),
+            "status": "DRAFT",
+            "options": [
+                {"name": "Màu sắc", "values": ["Đen"]},
+                {"name": "Dung lượng", "values": ["128GB"]},
+            ],
+            "variants": [
+                {
+                    "sku": f"DUP-VAR-{uuid4().hex[:8].upper()}-1",
+                    "price": 1_250_000,
+                    "isDefault": True,
+                    "attributes": {"Màu sắc": "Đen", "Dung lượng": "128GB"},
+                },
+                {
+                    "sku": f"DUP-VAR-{uuid4().hex[:8].upper()}-2",
+                    "price": 1_250_000,
+                    "isDefault": False,
+                    "attributes": {"Màu sắc": "Đen", "Dung lượng": "128GB"},
+                },
+            ],
+        },
+    )
+    assert duplicate_variants.status_code == 400, duplicate_variants.text
+    assert "Trùng tổ hợp" in duplicate_variants.text

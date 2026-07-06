@@ -36,3 +36,34 @@ test('frontend → API → backend → database khi cập nhật hồ sơ', asyn
   await page.getByRole('button', { name: /Cài đặt tài khoản/ }).click();
   await expect(page.getByLabel('Họ tên')).toHaveValue(newDisplayName);
 });
+
+test('mobile: trang tích điểm tải huy hiệu 3D mà không tràn giao diện', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/login');
+  await page.getByLabel('Email đăng nhập').fill(customerEmail);
+  await page.getByLabel('Mật khẩu đăng nhập').fill(customerPassword);
+  await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+  await expect(page).toHaveURL('http://127.0.0.1:3001/');
+  await page.waitForLoadState('networkidle');
+
+  consoleErrors.length = 0;
+  await page.goto('/loyalty');
+  await expect(page.getByRole('heading', { name: 'Smember - Khách hàng thân thiết' })).toBeVisible();
+  const badgeCanvas = page.locator('canvas').first();
+  await expect(badgeCanvas).toBeVisible();
+  const firstFrame = await badgeCanvas.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL());
+  await page.waitForTimeout(250);
+  const nextFrame = await badgeCanvas.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL());
+
+  expect(nextFrame).not.toBe(firstFrame);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    ),
+  ).toBe(false);
+  expect(consoleErrors).toEqual([]);
+});

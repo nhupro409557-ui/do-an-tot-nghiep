@@ -22,11 +22,11 @@ router = APIRouter(prefix="/loyalty", tags=["Loyalty"])
     response_model=RedeemPointsResponse,
     status_code=status.HTTP_200_OK,
     responses={
-        400: {"description": "Insufficient points or invalid request."},
-        401: {"description": "Missing or invalid authentication context."},
-        403: {"description": "The user is not allowed to redeem points."},
-        404: {"description": "Active user not found."},
-        409: {"description": "Loyalty wallet is not active."},
+        400: {"description": "Không đủ điểm hoặc yêu cầu không hợp lệ."},
+        401: {"description": "Thiếu hoặc sai ngữ cảnh xác thực."},
+        403: {"description": "Người dùng không được phép đổi điểm."},
+        404: {"description": "Không tìm thấy tài khoản đang hoạt động."},
+        409: {"description": "Ví điểm thưởng không ở trạng thái hoạt động."},
     },
 )
 async def redeem_points(

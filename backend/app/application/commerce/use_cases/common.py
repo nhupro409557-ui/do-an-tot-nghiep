@@ -114,14 +114,14 @@ class VoucherActiveWindowRule(VoucherRule):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_NOT_STARTED",
-                "Voucher is not active yet.",
+                "Voucher chưa đến thời gian áp dụng.",
                 {"starts_at": voucher.starts_at.isoformat()},
             )
         if voucher.ends_at and voucher.ends_at < context.now:
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_EXPIRED",
-                "Voucher has expired.",
+                "Voucher đã hết hạn.",
                 {"ends_at": voucher.ends_at.isoformat()},
             )
         return None
@@ -136,14 +136,14 @@ class VoucherWalletRule(VoucherRule):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_SIGN_IN_REQUIRED",
-                "Please sign in and claim this voucher before applying it.",
+                "Vui lòng đăng nhập và lưu voucher vào ví trước khi áp dụng.",
             )
         claimed = await service._get_claimed_voucher(user_id=context.user_id, voucher_id=voucher.id)
         if claimed is None:
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_CLAIM_REQUIRED",
-                "This voucher must be claimed to your wallet before use.",
+                "Bạn cần lưu voucher này vào ví trước khi sử dụng.",
                 {"claim_window_days": voucher.validity_days_after_claim},
             )
         if claimed.expires_at and claimed.expires_at < context.now:
@@ -151,14 +151,14 @@ class VoucherWalletRule(VoucherRule):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_WALLET_EXPIRED",
-                "Your claimed voucher has expired.",
+                "Voucher trong ví của bạn đã hết hạn.",
                 {"expires_at": claimed.expires_at.isoformat()},
             )
         if claimed.status not in {"AVAILABLE", "RESERVED"}:
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_WALLET_UNAVAILABLE",
-                "This voucher is no longer available in your wallet.",
+                "Voucher này không còn khả dụng trong ví của bạn.",
                 {"wallet_status": claimed.status},
             )
         context.claimed_voucher = claimed
@@ -174,7 +174,7 @@ class MinOrderRule(VoucherRule):
         return service._invalid(
             context.voucher.code,
             "VOUCHER_ERR_MIN_ORDER",
-            f"Order amount must reach at least {minimum:,.0f} to use this voucher.",
+            f"Giá trị đơn hàng cần đạt tối thiểu {minimum:,.0f} để dùng voucher này.",
             {
                 "current_subtotal": str(context.subtotal_amount),
                 "minimum_order_value": str(minimum),
@@ -195,14 +195,14 @@ class ChannelPaymentRule(VoucherRule):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_CHANNEL",
-                "Voucher is not available on this channel.",
+                "Voucher không áp dụng cho kênh bán hàng này.",
                 {"allowed_channels": sorted(allowed_channels), "current_channel": context.channel},
             )
         if allowed_payment_methods and context.payment_method and context.payment_method.upper() not in allowed_payment_methods:
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_PAYMENT_METHOD",
-                "Voucher is not available for this payment method.",
+                "Voucher không áp dụng cho phương thức thanh toán này.",
                 {"allowed_payment_methods": sorted(allowed_payment_methods), "current_payment_method": context.payment_method},
             )
         return None
@@ -215,7 +215,7 @@ class UsageLimitRule(VoucherRule):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_USAGE_LIMIT",
-                "Voucher usage limit has been reached.",
+                "Voucher đã đạt giới hạn lượt sử dụng.",
                 {"usage_limit": voucher.usage_limit, "used_count": voucher.used_count},
             )
         return None
@@ -232,7 +232,7 @@ class BudgetRule(VoucherRule):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_BUDGET",
-                "Voucher campaign budget has been reached.",
+                "Ngân sách chiến dịch voucher đã được dùng hết.",
                 {"budget_cap": str(budget_cap), "used_budget": str(used_budget)},
             )
         return None
@@ -245,14 +245,14 @@ class AudienceRule(VoucherRule):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_ASSIGNED_USER",
-                "Voucher is reserved for another customer.",
+                "Voucher này được dành cho khách hàng khác.",
             )
         if voucher.audience_type == "SPECIFIC_USER" and not voucher.assigned_user_id:
             if not context.user_id:
                 return service._invalid(
                     voucher.code,
                     "VOUCHER_ERR_ASSIGNED_USER_SIGN_IN",
-                    "Please sign in to use this assigned voucher.",
+                    "Vui lòng đăng nhập để sử dụng voucher được cấp riêng.",
                 )
             if not await commerce_repo.has_user_voucher_assignment(
                 service._session,
@@ -262,7 +262,7 @@ class AudienceRule(VoucherRule):
                 return service._invalid(
                     voucher.code,
                     "VOUCHER_ERR_ASSIGNED_USER",
-                    "Voucher is reserved for another customer.",
+                    "Voucher này được dành cho khách hàng khác.",
                 )
         if voucher.eligible_user_registered_after and context.user_id:
             registered_at = await commerce_repo.get_user_created_at(service._session, context.user_id)
@@ -270,7 +270,7 @@ class AudienceRule(VoucherRule):
                 return service._invalid(
                     voucher.code,
                     "VOUCHER_ERR_NEW_USER_ONLY",
-                    "Voucher is only for newer accounts.",
+                    "Voucher chỉ áp dụng cho tài khoản mới hơn.",
                     {"eligible_user_registered_after": voucher.eligible_user_registered_after.isoformat()},
                 )
         eligible_tiers = voucher.eligible_tiers if isinstance(voucher.eligible_tiers, list) else []
@@ -278,7 +278,7 @@ class AudienceRule(VoucherRule):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_TIER",
-                "Voucher is not available for your membership tier.",
+                "Voucher không áp dụng cho hạng thành viên của bạn.",
                 {"eligible_tiers": eligible_tiers, "current_tier": context.user_tier},
             )
         return None
@@ -292,13 +292,13 @@ class FirstOrderRule(VoucherRule):
             return service._invalid(
                 context.voucher.code,
                 "VOUCHER_ERR_FIRST_ORDER_SIGN_IN",
-                "Please sign in to use this first-order voucher.",
+                "Vui lòng đăng nhập để sử dụng voucher cho đơn hàng đầu tiên.",
             )
         if await service._user_order_count(context.user_id) > 0:
             return service._invalid(
                 context.voucher.code,
                 "VOUCHER_ERR_FIRST_ORDER_ONLY",
-                "Voucher is only for the first order.",
+                "Voucher chỉ áp dụng cho đơn hàng đầu tiên.",
             )
         return None
 
@@ -309,7 +309,7 @@ class AbandonedCartRule(VoucherRule):
             return service._invalid(
                 context.voucher.code,
                 "VOUCHER_ERR_ABANDONED_CART",
-                "Voucher is only available from an abandoned cart recovery offer.",
+                "Voucher chỉ áp dụng cho ưu đãi khôi phục giỏ hàng bỏ quên.",
             )
         return None
 
@@ -323,7 +323,7 @@ class IdentityLimitRule(VoucherRule):
                 return service._invalid(
                     voucher.code,
                     "VOUCHER_ERR_USER_LIMIT",
-                    "Voucher per-customer limit has been reached.",
+                    "Voucher đã đạt giới hạn sử dụng cho mỗi khách hàng.",
                     {"per_user_limit": voucher.per_user_limit, "used_count": usage},
                 )
         if voucher.per_device_limit > 0 and context.device_id:
@@ -332,7 +332,7 @@ class IdentityLimitRule(VoucherRule):
                 return service._invalid(
                     voucher.code,
                     "VOUCHER_ERR_DEVICE_LIMIT",
-                    "Voucher device limit has been reached.",
+                    "Voucher đã đạt giới hạn sử dụng theo thiết bị.",
                     {"per_device_limit": voucher.per_device_limit, "used_count": usage},
                 )
         if voucher.per_ip_limit > 0 and context.ip_address:
@@ -341,7 +341,7 @@ class IdentityLimitRule(VoucherRule):
                 return service._invalid(
                     voucher.code,
                     "VOUCHER_ERR_IP_LIMIT",
-                    "Voucher IP limit has been reached.",
+                    "Voucher đã đạt giới hạn sử dụng theo địa chỉ IP.",
                     {"per_ip_limit": voucher.per_ip_limit, "used_count": usage},
                 )
         return None
@@ -360,7 +360,7 @@ class TargetingRule(VoucherRule):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_PRODUCT_SCOPE",
-                "Voucher does not apply to products in this order.",
+                "Voucher không áp dụng cho sản phẩm trong đơn hàng này.",
                 {"required_product_ids": sorted(include_products)},
             )
         if exclude_products:
@@ -369,14 +369,14 @@ class TargetingRule(VoucherRule):
                 return service._invalid(
                     voucher.code,
                     "VOUCHER_ERR_PRODUCT_EXCLUDED",
-                    "Voucher excludes one or more products in this order.",
+                    "Voucher loại trừ một hoặc nhiều sản phẩm trong đơn hàng này.",
                     {"blocked_product_ids": blocked},
                 )
         if include_categories and not context.category_ids.intersection(include_categories):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_CATEGORY_SCOPE",
-                "Voucher does not apply to categories in this order.",
+                "Voucher không áp dụng cho danh mục trong đơn hàng này.",
                 {"required_category_ids": sorted(include_categories)},
             )
         if exclude_categories:
@@ -385,14 +385,14 @@ class TargetingRule(VoucherRule):
                 return service._invalid(
                     voucher.code,
                     "VOUCHER_ERR_CATEGORY_EXCLUDED",
-                    "Voucher excludes one or more categories in this order.",
+                    "Voucher loại trừ một hoặc nhiều danh mục trong đơn hàng này.",
                     {"blocked_category_ids": blocked},
                 )
         if include_brands and not context.brand_ids.intersection(include_brands):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_BRAND_SCOPE",
-                "Voucher does not apply to brands in this order.",
+                "Voucher không áp dụng cho thương hiệu trong đơn hàng này.",
                 {"required_brand_ids": sorted(include_brands)},
             )
         if exclude_brands:
@@ -401,7 +401,7 @@ class TargetingRule(VoucherRule):
                 return service._invalid(
                     voucher.code,
                     "VOUCHER_ERR_BRAND_EXCLUDED",
-                    "Voucher excludes one or more brands in this order.",
+                    "Voucher loại trừ một hoặc nhiều thương hiệu trong đơn hàng này.",
                     {"blocked_brand_ids": blocked},
                 )
         return None

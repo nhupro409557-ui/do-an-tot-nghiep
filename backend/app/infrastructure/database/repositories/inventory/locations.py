@@ -175,9 +175,9 @@ async def list_inventory_locations(
               AND (:status = '' OR loc.status = :status)
               AND (:purpose = '' OR loc.purpose = :purpose)
               AND (:zone = '' OR COALESCE(loc.zone, '') = :zone)
-              AND (:aisle = '' OR substr(loc.code, 1, 1) = :aisle)
-              AND (:shelf = '' OR substr(loc.code, 3, 2) = :shelf)
-              AND (:bin = '' OR substr(loc.code, 6, 2) = :bin)
+              AND (:aisle = '' OR split_part(loc.code, '-', 1) = :aisle)
+              AND (:shelf = '' OR split_part(loc.code, '-', 2) = :shelf)
+              AND (:bin = '' OR split_part(loc.code, '-', 3) = :bin)
               AND (
                   :search = ''
                   OR loc.code ILIKE :search

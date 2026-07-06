@@ -87,17 +87,18 @@ export function useAdminCustomersLogic({
 
   async function loadCustomerSection(section: CustomerSection) {
     if (!selectedCustomer?.id) return;
+    if (section === customerActiveSection) return;
     setCustomerActiveSection(section);
-    if (section === 'orders' && customerOrders.length === 0) {
+    if (section === 'orders') {
       setCustomerOrders(await adminCustomersApi.adminGetCustomerOrders(selectedCustomer.id).catch(() => []));
     }
-    if (section === 'loyalty' && customerLoyaltyHistory.length === 0) {
+    if (section === 'loyalty') {
       setCustomerLoyaltyHistory(await adminCustomersApi.adminGetCustomerLoyaltyHistory(selectedCustomer.id).catch(() => []));
     }
-    if (section === 'notes' && customerNotes.length === 0) {
+    if (section === 'notes') {
       setCustomerNotes(await adminCustomersApi.adminGetCustomerNotes(selectedCustomer.id).catch(() => []));
     }
-    if (section === 'audit' && customerAuditLogs.length === 0) {
+    if (section === 'audit') {
       setCustomerAuditLogs(await adminCustomersApi.adminGetCustomerAuditLogs(selectedCustomer.id).catch(() => []));
     }
   }
@@ -139,6 +140,7 @@ export function useAdminCustomersLogic({
       setCustomerDetailError('');
       await adminCustomersApi.adminCreateCustomerNote(selectedCustomer.id, customerNoteDraft.trim());
       setCustomerNoteDraft('');
+      setCustomerNotes(await adminCustomersApi.adminGetCustomerNotes(selectedCustomer.id).catch(() => []));
       await refreshSelectedCustomer();
       notifyAdmin('Đã thêm ghi chú CSKH.');
     } catch (error) {
@@ -179,17 +181,27 @@ export function useAdminCustomersLogic({
 
   async function bulkSuspendCustomers() {
     if (!selectedCustomerIds.length || !canManageCustomerAccess) return;
-    await adminCustomersApi.adminBulkUpdateUserStatus(selectedCustomerIds, 'SUSPENDED');
-    setSelectedCustomerIds([]);
-    await reloadCurrentTab();
+    try {
+      await adminCustomersApi.adminBulkUpdateUserStatus(selectedCustomerIds, 'SUSPENDED');
+      setSelectedCustomerIds([]);
+      await reloadCurrentTab();
+      notifyAdmin(`Đã khóa ${selectedCustomerIds.length} khách hàng.`);
+    } catch (error) {
+      notifyAdmin(error instanceof Error ? error.message : 'Không thể khóa khách hàng hàng loạt.', 'error');
+    }
   }
 
   async function bulkApplyCustomerTags() {
     if (!selectedCustomerIds.length || !canManageCustomerProfile) return;
     const tags = customerTagDraft.split(',').map((item) => item.trim()).filter(Boolean);
-    await adminCustomersApi.adminBulkUpdateCustomerTags(selectedCustomerIds, tags);
-    setSelectedCustomerIds([]);
-    await reloadCurrentTab();
+    try {
+      await adminCustomersApi.adminBulkUpdateCustomerTags(selectedCustomerIds, tags);
+      setSelectedCustomerIds([]);
+      await reloadCurrentTab();
+      notifyAdmin(`Đã gán tag cho ${selectedCustomerIds.length} khách hàng.`);
+    } catch (error) {
+      notifyAdmin(error instanceof Error ? error.message : 'Không thể gán tag hàng loạt.', 'error');
+    }
   }
 
   return {

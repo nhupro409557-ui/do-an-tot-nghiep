@@ -109,6 +109,7 @@ interface ReelsMediaProps {
   video: any;
   index: number;
   active: boolean;
+  prepare: boolean;
   muted: boolean;
   isLandscapeVideo: boolean;
   videoRefs: React.MutableRefObject<Map<number, HTMLVideoElement>>;
@@ -121,6 +122,7 @@ function ReelsMedia({
   video,
   index,
   active,
+  prepare,
   muted,
   isLandscapeVideo,
   videoRefs,
@@ -134,7 +136,7 @@ function ReelsMedia({
   const [canLoadVideo, setCanLoadVideo] = useState(false);
 
   useEffect(() => {
-    if (!active) {
+    if (!prepare) {
       return;
     }
     if (!posterReady) {
@@ -143,7 +145,7 @@ function ReelsMedia({
     }
     const timer = window.setTimeout(() => setCanLoadVideo(true), 80);
     return () => window.clearTimeout(timer);
-  }, [active, posterReady]);
+  }, [prepare, posterReady]);
 
   if (youtubeUrl) {
     const playerUrl = active && canLoadVideo ? youtubePlayerUrl(video, true, muted) : '';
@@ -195,20 +197,20 @@ function ReelsMedia({
           onLoad={() => setPosterReady(true)}
         />
       )}
-      {active && canLoadVideo ? (
+      {prepare && canLoadVideo ? (
         <video
-          aria-label={video.title || 'Video reels'}
+          aria-label={video.title || 'Video ngắn'}
           ref={(el) => {
             if (el) videoRefs.current.set(index, el);
             else videoRefs.current.delete(index);
           }}
           src={video.videoUrl}
           poster={poster}
-          autoPlay
+          autoPlay={active}
           loop
           muted={muted}
           playsInline
-          preload="metadata"
+          preload={active ? 'auto' : 'metadata'}
           className={`relative z-0 h-full w-full cursor-pointer object-contain ${isLandscapeVideo ? 'pb-32 md:pb-0' : ''}`}
           onClick={onTogglePlay}
           onLoadedMetadata={(event) => onLoadedMetadata(event, index, video)}
@@ -427,10 +429,11 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
               )}
 
               <ReelsMedia
-                key={`${video.id || index}-${index === activeIdx ? 'active' : 'idle'}-${mediaPoster(video)}`}
+                key={`${video.id || index}-${mediaPoster(video)}`}
                 video={video}
                 index={index}
                 active={index === activeIdx}
+                prepare={Math.abs(index - activeIdx) <= 1}
                 muted={muted}
                 isLandscapeVideo={isLandscapeVideo}
                 videoRefs={videoRefs}
@@ -599,8 +602,8 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
         >
           <div className="flex h-full flex-col">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 bg-zinc-950/40">
-              <h4 className="text-sm font-bold tracking-wide">Bình luận ({commentCount})</h4>
-              <button type="button" onClick={() => setShowComments(false)} className="rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white" aria-label="Đóng bình luận">
+              <h4 className="text-sm font-bold tracking-wide text-zinc-300">Bình luận ({commentCount})</h4>
+              <button type="button" onClick={() => setShowComments(false)} className="flex h-8 w-8 items-center justify-center rounded-full text-white/80 transition hover:bg-white/10 hover:text-white" aria-label="Đóng bình luận">
                 <X className="h-4.5 w-4.5" />
               </button>
             </div>

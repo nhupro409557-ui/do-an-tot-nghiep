@@ -47,7 +47,14 @@ async def create_inventory_receipt(
     )
 
     prepared_lines: list[dict] = []
-    await _validate_and_store_receipt_lines(session, document_id, location["id"], payload.lines, prepared_lines)
+    await _validate_and_store_receipt_lines(
+        session,
+        document_id,
+        location["id"],
+        payload.lines,
+        prepared_lines,
+        quarantine=bool(receipt_metadata.get("quarantine")),
+    )
 
     response_payload = {
         "ok": True,
@@ -127,7 +134,14 @@ async def update_inventory_receipt(
     await inventory_repo.delete_inventory_receipt_lines(session, receipt["id"])
 
     prepared_lines: list[dict] = []
-    await _validate_and_store_receipt_lines(session, receipt["id"], location["id"], payload.lines, prepared_lines)
+    await _validate_and_store_receipt_lines(
+        session,
+        receipt["id"],
+        location["id"],
+        payload.lines,
+        prepared_lines,
+        quarantine=bool(receipt_metadata.get("quarantine")),
+    )
     await inventory_repo.insert_inventory_receipt_audit_log(
         session,
         actor_id=current_user_id,
@@ -187,6 +201,22 @@ async def update_inventory_receipt_quality(
         quarantine=bool(payload.quarantine),
         quarantine_location=(payload.quarantineLocation or "").strip() or None,
     )
+    if payload.lines:
+        existing_lines = await inventory_repo.list_inventory_receipt_lines(session, receipt["id"])
+        existing_line_ids = {UUID(str(l["id"])) for l in existing_lines}
+        for l_payload in payload.lines:
+            if l_payload.lineId not in existing_line_ids:
+                raise HTTPException(status_code=400, detail=f"Dòng ID {l_payload.lineId} không thuộc phiếu nhập này.")
+            await inventory_repo.update_inventory_receipt_line_quality(
+                session,
+                line_id=l_payload.lineId,
+                passed_quantity=l_payload.passedQuantity,
+                failed_quantity=l_payload.failedQuantity,
+                notes=l_payload.notes,
+                action_type=l_payload.actionType,
+                images=l_payload.images,
+                checked_by=current_user_id,
+            )
     await inventory_repo.insert_inventory_receipt_audit_log(
         session,
         actor_id=current_user_id,
@@ -206,6 +236,94 @@ async def update_inventory_receipt_quality(
         "referenceCode": reference_code,
         "qualityStatus": quality_status,
         "quarantine": bool(payload.quarantine),
+    }
+
+
+async def update_inventory_receipt_attachments(
+    session: AsyncSession,
+    reference_code: str,
+    payload: InventoryReceiptAttachmentsPayload,
+    current_user_id: UUID | None = None,
+) -> dict:
+    reference_code = reference_code.strip()
+    receipt = await inventory_repo.get_inventory_receipt_for_update(session, reference_code)
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiếu nhập kho.")
+    if receipt["status"] in {"CANCELLED", "REVERSED"}:
+        raise HTTPException(status_code=400, detail="Không thể bổ sung chứng từ cho phiếu nhập đã hủy hoặc đã đảo.")
+
+    previous_attachments = receipt.get("metadata", {}).get("attachments") or []
+    attachments = _receipt_attachments_from_payload(payload)
+    await inventory_repo.update_inventory_receipt_attachments(
+        session,
+        document_id=receipt["id"],
+        attachments=attachments,
+    )
+    await inventory_repo.insert_inventory_receipt_audit_log(
+        session,
+        actor_id=current_user_id,
+        action="attachments_submitted",
+        reference_code=reference_code,
+        metadata={
+            "fromAttachments": previous_attachments,
+            "pendingAttachments": attachments,
+        },
+    )
+    await session.commit()
+    return {
+        "ok": True,
+        "referenceCode": reference_code,
+        "attachments": previous_attachments,
+        "pendingAttachments": attachments,
+        "attachmentApprovalStatus": "PENDING",
+    }
+
+
+async def decide_inventory_receipt_attachments(
+    session: AsyncSession,
+    reference_code: str,
+    payload: InventoryReceiptAttachmentDecisionPayload,
+    current_user_id: UUID | None = None,
+) -> dict:
+    reference_code = reference_code.strip()
+    receipt = await inventory_repo.get_inventory_receipt_for_update(session, reference_code)
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiếu nhập kho.")
+    metadata = receipt.get("metadata", {}) or {}
+    pending_attachments = metadata.get("pendingAttachments") or []
+    if not pending_attachments:
+        raise HTTPException(status_code=400, detail="Phiếu nhập không có chứng từ đang chờ duyệt.")
+
+    approve = bool(payload.approve)
+    note = (payload.note or "").strip() or None
+    current_attachments = metadata.get("attachments") or []
+    await inventory_repo.decide_inventory_receipt_attachments(
+        session,
+        document_id=receipt["id"],
+        attachments=pending_attachments,
+        approve=approve,
+        note=note,
+    )
+    await inventory_repo.insert_inventory_receipt_audit_log(
+        session,
+        actor_id=current_user_id,
+        action="attachments_approved" if approve else "attachments_rejected",
+        reference_code=reference_code,
+        metadata={
+            "fromAttachments": current_attachments,
+            "pendingAttachments": pending_attachments,
+            "toAttachments": pending_attachments if approve else current_attachments,
+            "note": note,
+        },
+    )
+    await session.commit()
+    return {
+        "ok": True,
+        "referenceCode": reference_code,
+        "attachments": pending_attachments if approve else current_attachments,
+        "pendingAttachments": [],
+        "attachmentApprovalStatus": "APPROVED" if approve else "REJECTED",
+        "attachmentApprovalNote": note,
     }
 
 
@@ -253,9 +371,12 @@ async def _validate_and_store_receipt_lines(
     location_id: UUID,
     lines: list,
     prepared_lines: list[dict],
+    *,
+    quarantine: bool = False,
 ) -> None:
     seen_keys: set[tuple[str, str]] = set()
     requested_volume_by_location: dict[str, float] = {}
+    assigned_skus_by_location: dict[str, set[str]] = {}
     for index, line in enumerate(lines, start=1):
         product_id = line.productId
         actual_variant_id = line.variantId
@@ -310,6 +431,8 @@ async def _validate_and_store_receipt_lines(
         tracks_imei = _policy_tracks_imei(policy_row)
         tracks_serial_number = _policy_tracks_serial_number(policy_row)
         line_location = await _resolve_receipt_line_location(session, line, location_id, index)
+        if quarantine:
+            _ensure_receipt_quarantine_location(line_location, index)
         line_location_id = line_location["id"]
         storage_location_code = str(line_location.get("code") or line.storageLocationCode or "").strip()
         storage_location_name = str(line_location.get("name") or line.storageLocationName or "").strip()
@@ -320,6 +443,9 @@ async def _validate_and_store_receipt_lines(
             quantity=quantity,
             policy_row=policy_row,
             requested_volume_by_location=requested_volume_by_location,
+            product_id=product_id,
+            variant_id=actual_variant_id,
+            assigned_skus_by_location=assigned_skus_by_location,
         )
 
         await inventory_repo.insert_inventory_receipt_line(

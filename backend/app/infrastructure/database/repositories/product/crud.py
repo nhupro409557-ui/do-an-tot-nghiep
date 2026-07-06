@@ -111,16 +111,29 @@ async def product_visibility_blocker(
                         COALESCE(CAST(:brand_id AS uuid), p.brand_id) AS brand_id
                     FROM (SELECT 1) seed
                     LEFT JOIN products p ON p.id = CAST(:product_id AS uuid)
+                ),
+                target_category AS (
+                    SELECT id, path
+                    FROM categories
+                    WHERE id = (SELECT COALESCE(subcategory_id, category_id) FROM product_scope)
+                ),
+                inactive_ancestor AS (
+                    SELECT c.name, c.status, c.is_active, COALESCE(c.is_deleted, FALSE) as is_deleted
+                    FROM categories c
+                    JOIN target_category tc ON c.path @> tc.path
+                    WHERE (c.status != 'ACTIVE' OR c.is_active IS NOT TRUE OR COALESCE(c.is_deleted, FALSE) IS TRUE)
+                    ORDER BY nlevel(c.path) ASC
+                    LIMIT 1
                 )
                 SELECT
-                    category.name AS category_name,
-                    category.status AS category_status,
-                    category.is_active AS category_is_active,
-                    COALESCE(category.is_deleted, FALSE) AS category_is_deleted,
+                    ia.name AS category_name,
+                    ia.status AS category_status,
+                    ia.is_active AS category_is_active,
+                    ia.is_deleted AS category_is_deleted,
                     brand.name AS brand_name,
                     brand.is_active AS brand_is_active
                 FROM product_scope scope
-                LEFT JOIN categories category ON category.id = COALESCE(scope.subcategory_id, scope.category_id)
+                LEFT JOIN inactive_ancestor ia ON TRUE
                 LEFT JOIN brands brand ON brand.id = scope.brand_id
                 """
             ),

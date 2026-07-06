@@ -25,6 +25,13 @@ type InventoryDraft = {
   receiptReasonCode: string;
   supplierId: string;
   supplierName: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  paymentMode: string;
+  paymentTermDays: number;
+  dueDate: string;
+  paidAmount: number;
+  payableNote: string;
   note: string;
   locationCode: string;
   locationName: string;
@@ -89,6 +96,7 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
   const [inventoryTotal, setInventoryTotal] = useState(0);
   const [inventoryTotalPages, setInventoryTotalPages] = useState(1);
   const [inventoryLocations, setInventoryLocations] = useState<any[]>([]);
+  const [inventoryAllLocations, setInventoryAllLocations] = useState<any[]>([]);
   const [inventoryDashboard, setInventoryDashboard] = useState<any>({ totalSku: 0, lowStockCount: 0, inventoryValue: 0, reservedSkuCount: 0, topStock: [], topNeedRestock: [] });
   const [inventoryLedger, setInventoryLedger] = useState<any[]>([]);
   const [ledgerPage, setLedgerPage] = useState(1);
@@ -121,12 +129,16 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     setInventoryTotal(Number(result?.total || 0));
     setInventoryTotalPages(Number(result?.totalPages || 1));
     setInventoryLocations(Array.isArray(locations) ? locations : []);
+    setInventoryAllLocations(Array.isArray(locations) ? locations : []);
     setInventoryDashboard(dashboard || { totalSku: 0, lowStockCount: 0, inventoryValue: 0, reservedSkuCount: 0, topStock: [], topNeedRestock: [] });
   }
 
   async function loadInventoryLocations(search = '', filters: any = {}) {
     const rows = await adminInventoryApi.adminListLocations(search, true, filters).catch(() => []);
     setInventoryLocations(Array.isArray(rows) ? rows : []);
+    if (!search && Object.keys(filters || {}).length === 0) {
+      setInventoryAllLocations(Array.isArray(rows) ? rows : []);
+    }
   }
 
   async function loadInventoryLedger(search = query, page = 1) {
@@ -290,6 +302,13 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
       receiptReasonCode: 'NK_MUA',
       supplierId: '',
       supplierName: '',
+      invoiceNumber: '',
+      invoiceDate: '',
+      paymentMode: 'DEBT',
+      paymentTermDays: 0,
+      dueDate: '',
+      paidAmount: 0,
+      payableNote: '',
       note: '',
       locationCode: DEFAULT_LOCATION_CODE,
       locationName: DEFAULT_LOCATION_NAME,
@@ -309,7 +328,8 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
   }
 
   function openReceiptEditDialog(receipt: any) {
-    const supplier = suppliers.find((item: any) => String(item.name || '').trim() === String(receipt?.supplierName || '').trim());
+    const supplier = suppliers.find((item: any) => String(item.id || '') === String(receipt?.supplierId || ''))
+      || suppliers.find((item: any) => String(item.name || '').trim() === String(receipt?.supplierName || '').trim());
     const lines = Array.isArray(receipt?.lines) && receipt.lines.length > 0
       ? receipt.lines.map((line: any) => ({
           id: String(line.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`),
@@ -331,6 +351,13 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
       receiptReasonCode: String(receipt?.receiptReasonCode || 'NK_MUA'),
       supplierId: supplier?.id ? String(supplier.id) : '',
       supplierName: String(receipt?.supplierName || ''),
+      invoiceNumber: String(receipt?.invoiceNumber || ''),
+      invoiceDate: receipt?.invoiceDate ? String(receipt.invoiceDate).slice(0, 10) : '',
+      paymentMode: String(receipt?.paymentMode || 'DEBT'),
+      paymentTermDays: Number(receipt?.paymentTermDays || 0),
+      dueDate: receipt?.dueDate ? String(receipt.dueDate).slice(0, 10) : '',
+      paidAmount: Number(receipt?.paidAmount || 0),
+      payableNote: String(receipt?.payableNote || ''),
       note: String(receipt?.note || ''),
       locationCode: String(receipt?.locationCode || DEFAULT_LOCATION_CODE),
       locationName: String(receipt?.locationName || DEFAULT_LOCATION_NAME),
@@ -514,7 +541,15 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     const payload = {
       referenceCode: inventoryDraft.referenceCode.trim(),
       receiptReasonCode: inventoryDraft.receiptReasonCode || 'NK_MUA',
+      supplierId: inventoryDraft.supplierId || null,
       supplierName: inventoryDraft.supplierName.trim() || null,
+      invoiceNumber: inventoryDraft.invoiceNumber.trim() || null,
+      invoiceDate: inventoryDraft.invoiceDate ? new Date(inventoryDraft.invoiceDate).toISOString() : null,
+      paymentMode: inventoryDraft.paymentMode || 'DEBT',
+      paymentTermDays: Number(inventoryDraft.paymentTermDays || 0),
+      dueDate: inventoryDraft.dueDate ? new Date(inventoryDraft.dueDate).toISOString() : null,
+      paidAmount: Number(inventoryDraft.paidAmount || 0),
+      payableNote: inventoryDraft.payableNote.trim() || null,
       note: inventoryDraft.note || null,
       locationCode: inventoryDraft.locationCode || DEFAULT_LOCATION_CODE,
       locationName: inventoryDraft.locationName || DEFAULT_LOCATION_NAME,
@@ -631,6 +666,7 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     inventoryTotal,
     inventoryTotalPages,
     inventoryLocations,
+    inventoryAllLocations,
     inventoryDashboard,
     inventoryLedger,
     ledgerPage,

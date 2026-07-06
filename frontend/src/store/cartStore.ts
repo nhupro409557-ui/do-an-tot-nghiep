@@ -11,6 +11,8 @@ export interface AttachedServiceItem {
 export interface CartItem {
   cartItemId?: string; // Khóa chính duy nhất trong store
   productId: string; // ID sản phẩm/variant thực tế
+  variantId?: string; // ID biến thể để checkout đúng giá/flash sale của biến thể
+  usedDeviceId?: string;
   name: string;
   price: number;
   imageUrl: string;
@@ -23,6 +25,7 @@ export interface CartItem {
   // Sản phẩm mua kèm
   isAccessory?: boolean;
   parentProductId?: string;
+  isUsedDevice?: boolean;
 
   // Trạng thái tích chọn để thanh toán
   checked?: boolean;
@@ -51,13 +54,19 @@ const areServicesEqual = (a?: AttachedServiceItem[], b?: AttachedServiceItem[]) 
 
 // Hàm sinh cartItemId duy nhất cho item trong store
 export const generateCartItemId = (item: CartItem): string => {
+  if (item.isUsedDevice && item.usedDeviceId) {
+    return `used-${item.usedDeviceId}`;
+  }
   const serviceSuffix = item.attachedServices && item.attachedServices.length > 0
     ? `_srv-${item.attachedServices.map(s => s.serviceId).sort().join('-')}`
     : '';
   const accessorySuffix = item.isAccessory
     ? `_acc-${item.parentProductId}`
     : '';
-  return `${item.productId}${serviceSuffix}${accessorySuffix}`;
+  const variantSuffix = item.variantId
+    ? `_var-${item.variantId}`
+    : '';
+  return `${item.productId}${variantSuffix}${serviceSuffix}${accessorySuffix}`;
 };
 
 export const useCartStore = create<CartState>()(
@@ -75,6 +84,14 @@ export const useCartStore = create<CartState>()(
           }
 
           const updatedItems = [...state.items];
+          if (updatedItems[existingIdx].isUsedDevice) {
+            updatedItems[existingIdx] = {
+              ...updatedItems[existingIdx],
+              quantity: 1,
+              checked: updatedItems[existingIdx].checked ?? true,
+            };
+            return { items: updatedItems };
+          }
           updatedItems[existingIdx] = {
             ...updatedItems[existingIdx],
             quantity: updatedItems[existingIdx].quantity + newItem.quantity,
@@ -94,6 +111,10 @@ export const useCartStore = create<CartState>()(
               : state.items.map((item) =>
                   (item.cartItemId || generateCartItemId(item)) === cartItemId
                     ? { ...item, cartItemId: item.cartItemId || generateCartItemId(item), quantity }
+                    : item,
+                ).map((item) =>
+                  (item.cartItemId || generateCartItemId(item)) === cartItemId && item.isUsedDevice
+                    ? { ...item, quantity: 1 }
                     : item,
                 ),
         })),

@@ -1,22 +1,29 @@
 import os
+import secrets
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-import os
 
 class Settings(BaseSettings):
     database_url: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:anhnhu057@localhost:5432/postgres")
-    jwt_secret_key: str = "change-me"
+    jwt_secret_key: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     jwt_algorithm: str = "HS256"
     redis_url: str = "redis://localhost:6379/0"
     ai_rate_limit_per_minute: int = 20
     gemini_api_key: str = ""
     gemini_model: str = "gemini-flash-latest"
+    gemini_embedding_model: str = "gemini-embedding-001"
+    gemini_embedding_output_dimensionality: int = 768
+    catalog_embedding_index_path: str = "var/cocoindex/catalog_embeddings.json"
+    catalog_embedding_request_delay_seconds: float = 1.2
+    catalog_embedding_max_documents: int = 0
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_from_email: str = ""
     frontend_url: str = "http://localhost:3000"
+    google_client_id: str = "293864704533-n31a0a66ro184o9vkq8tv8m0b6l73tp1.apps.googleusercontent.com"
     s3_endpoint_url: str = ""
     s3_bucket: str = ""
     s3_access_key_id: str = ""

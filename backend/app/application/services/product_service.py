@@ -528,7 +528,7 @@ async def update_product(product_id: UUID, payload: ProductPayload, session: Asy
 async def duplicate_product(product_id: UUID, session: AsyncSession | None = None) -> dict:
     source = await product_repo.get_product_source_for_duplicate(session, product_id)
     if not source:
-        raise HTTPException(status_code=404, detail="Kh?ng t?m th?y s?n ph?m.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
 
     new_id = uuid4()
     suffix = new_id.hex[:6]
@@ -540,7 +540,7 @@ async def duplicate_product(product_id: UUID, session: AsyncSession | None = Non
         slug=f"{slugify(str(source['name']))}-copy-{suffix}",
     )
     if not inserted:
-        raise HTTPException(status_code=404, detail="Kh?ng t?m th?y s?n ph?m.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
 
     await product_repo.duplicate_product_variants(session, new_id=new_id, source_id=product_id, suffix=suffix)
     await product_repo.duplicate_product_bundles(session, new_id=new_id, source_id=product_id)

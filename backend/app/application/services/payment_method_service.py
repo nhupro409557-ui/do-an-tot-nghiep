@@ -80,6 +80,6 @@ async def update_payment_method(session: AsyncSession, method_id: UUID, payload:
 
     updated = await payment_method_repo.update_payment_method(session, method_id, params)
     if updated == 0:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment method not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy phương thức thanh toán.")
     await session.commit()
     return {"ok": True}

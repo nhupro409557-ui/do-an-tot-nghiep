@@ -59,6 +59,7 @@ async def list_level_issue_candidates(
               )
               AND GREATEST(il.on_hand_quantity - il.reserved_quantity, 0) > 0
               AND COALESCE(loc.status, 'ACTIVE') = 'ACTIVE'
+              AND COALESCE(loc.purpose, 'STORAGE') IN ('STORAGE', 'VIRTUAL')
             ORDER BY "oldestReceivedAt" ASC NULLS LAST, il.updated_at ASC, loc.code ASC
             """
         ),
@@ -88,6 +89,12 @@ async def list_inventory_outbound_documents(
                 d.status,
                 d.reason AS "receiptReasonCode",
                 o.order_code AS "orderCode",
+                CASE
+                    WHEN d.return_request_id IS NOT NULL THEN 'RETURN'
+                    WHEN d.warranty_request_id IS NOT NULL THEN 'WARRANTY'
+                    ELSE NULL
+                END AS "afterSalesType",
+                COALESCE(rr.request_code, wr.request_code) AS "afterSalesRequestCode",
                 o.recipient_name AS "recipientName",
                 o.recipient_phone AS "recipientPhone",
                 source.code AS "locationCode",
@@ -125,6 +132,7 @@ async def list_inventory_outbound_documents(
                         'tracksImei', COALESCE((l.metadata->>'tracksImei')::boolean, FALSE),
                         'tracksSerialNumber', COALESCE((l.metadata->>'tracksSerialNumber')::boolean, FALSE),
                         'imeis', COALESCE(l.metadata->'imeis', '[]'::jsonb),
+                        'secondaryImeis', COALESCE(l.metadata->'secondaryImeis', '[]'::jsonb),
                         'serialNumbers', COALESCE(l.metadata->'serialNumbers', '[]'::jsonb),
                         'imeiCount', jsonb_array_length(COALESCE(l.metadata->'imeis', '[]'::jsonb)),
                         'serialNumberCount', jsonb_array_length(COALESCE(l.metadata->'serialNumbers', '[]'::jsonb)),
@@ -142,6 +150,8 @@ async def list_inventory_outbound_documents(
             LEFT JOIN product_variants pv ON pv.id = l.variant_id
             LEFT JOIN inventory_locations source ON source.id = d.source_location_id
             LEFT JOIN orders o ON o.id = d.order_id
+            LEFT JOIN return_requests rr ON rr.id = d.return_request_id
+            LEFT JOIN warranty_requests wr ON wr.id = d.warranty_request_id
             LEFT JOIN users created_user ON created_user.id = d.created_by
             LEFT JOIN users approved_user ON approved_user.id = d.approved_by
             LEFT JOIN users posted_user ON posted_user.id = d.posted_by
@@ -156,12 +166,15 @@ async def list_inventory_outbound_documents(
                 OR LOWER(COALESCE(o.order_code, '')) LIKE LOWER(:pattern)
                 OR LOWER(COALESCE(o.recipient_name, '')) LIKE LOWER(:pattern)
                 OR LOWER(COALESCE(o.recipient_phone, '')) LIKE LOWER(:pattern)
+                OR LOWER(COALESCE(rr.request_code, '')) LIKE LOWER(:pattern)
+                OR LOWER(COALESCE(wr.request_code, '')) LIKE LOWER(:pattern)
                 OR LOWER(COALESCE(d.status, '')) LIKE LOWER(:pattern)
                 OR LOWER(p.name) LIKE LOWER(:pattern)
                 OR LOWER(COALESCE(p.sku, '')) LIKE LOWER(:pattern)
                 OR LOWER(COALESCE(pv.sku, '')) LIKE LOWER(:pattern)
               )
-            GROUP BY d.id, source.code, source.name, o.order_code, o.recipient_name, o.recipient_phone
+            GROUP BY d.id, source.code, source.name, o.order_code, o.recipient_name,
+                     o.recipient_phone, rr.request_code, wr.request_code
             ORDER BY d.created_at DESC
             """
         ),
@@ -188,6 +201,8 @@ async def get_inventory_outbound_document(session: AsyncSession, document_no: st
                 d.note,
                 d.source_location_id,
                 d.order_id,
+                d.return_request_id,
+                d.warranty_request_id,
                 d.created_at,
                 d.created_by,
                 d.approved_at,
@@ -198,12 +213,20 @@ async def get_inventory_outbound_document(session: AsyncSession, document_no: st
                 source.code AS "locationCode",
                 source.name AS "locationName",
                 o.order_code AS "orderCode",
+                CASE
+                    WHEN d.return_request_id IS NOT NULL THEN 'RETURN'
+                    WHEN d.warranty_request_id IS NOT NULL THEN 'WARRANTY'
+                    ELSE NULL
+                END AS "afterSalesType",
+                COALESCE(rr.request_code, wr.request_code) AS "afterSalesRequestCode",
                 o.recipient_name AS "recipientName",
                 o.recipient_phone AS "recipientPhone",
                 o.shipping_address AS "shippingAddress"
             FROM inventory_documents d
             LEFT JOIN inventory_locations source ON source.id = d.source_location_id
             LEFT JOIN orders o ON o.id = d.order_id
+            LEFT JOIN return_requests rr ON rr.id = d.return_request_id
+            LEFT JOIN warranty_requests wr ON wr.id = d.warranty_request_id
             WHERE d.document_no = :document_no AND d.document_type = 'OUTBOUND'
             """
         ),
@@ -232,6 +255,7 @@ async def list_inventory_outbound_lines(session: AsyncSession, document_id: UUID
                 pv.color_name AS "variantColor",
                 pv.configuration AS "variantConfiguration",
                 COALESCE(l.metadata->'imeis', '[]'::jsonb) AS imeis,
+                COALESCE(l.metadata->'secondaryImeis', '[]'::jsonb) AS "secondaryImeis",
                 COALESCE(l.metadata->'serialNumbers', '[]'::jsonb) AS "serialNumbers",
                 COALESCE((l.metadata->>'tracksImei')::boolean, FALSE) AS "tracksImei",
                 COALESCE((l.metadata->>'tracksSerialNumber')::boolean, FALSE) AS "tracksSerialNumber",
@@ -287,6 +311,146 @@ async def insert_inventory_outbound_document(
             "created_by": created_by,
         },
     )
+
+
+async def insert_after_sales_replacement_outbound(
+    session: AsyncSession,
+    *,
+    kind: str,
+    request_id: UUID,
+    request_code: str,
+    order_id: UUID,
+    lines: list[dict],
+    actor_id: UUID,
+) -> UUID:
+    request_column = "return_request_id" if kind == "RETURN" else "warranty_request_id"
+    existing_id = await session.scalar(
+        text(
+            f"""
+            SELECT id
+            FROM inventory_documents
+            WHERE {request_column} = :request_id
+              AND document_type = 'OUTBOUND'
+              AND status <> 'CANCELLED'
+            """
+        ),
+        {"request_id": request_id},
+    )
+    if existing_id:
+        return existing_id
+
+    document_id = uuid4()
+    document_no = f"AS-{request_code}"
+    location_ids = {line["location_id"] for line in lines}
+    source_location_id = next(iter(location_ids)) if len(location_ids) == 1 else None
+    replacement_imeis = [
+        imei
+        for line in lines
+        for imei in line.get("imeis", [])
+    ]
+    replacement_secondary_imeis = [
+        imei
+        for line in lines
+        for imei in line.get("secondary_imeis", [])
+        if imei
+    ]
+    replacement_serial_numbers = [
+        serial_number
+        for line in lines
+        for serial_number in line.get("serial_numbers", [])
+    ]
+    document_metadata = json.dumps(
+        {
+            "afterSalesType": kind,
+            "afterSalesRequestId": str(request_id),
+            "requestCode": request_code,
+            "replacementImei": replacement_imeis[0] if replacement_imeis else None,
+            "replacementImeis": replacement_imeis,
+            "replacementSecondaryImeis": replacement_secondary_imeis,
+            "replacementSerialNumbers": replacement_serial_numbers,
+            "stockMutationSkipped": True,
+        },
+        ensure_ascii=False,
+    )
+    await session.execute(
+        text(
+            f"""
+            INSERT INTO inventory_documents (
+                id, document_no, document_type, status, source_location_id,
+                order_id, {request_column}, reference_code, reason, note,
+                costing_method, created_by, approved_by, posted_by,
+                approved_at, posted_at, metadata
+            )
+            VALUES (
+                :id, :document_no, 'OUTBOUND', 'COMPLETED', :location_id,
+                :order_id, :request_id, :request_code, 'AFTER_SALES_REPLACEMENT',
+                :note, 'FIFO', :actor_id, :actor_id, :actor_id,
+                NOW(), NOW(), CAST(:metadata AS jsonb)
+            )
+            """
+        ),
+        {
+            "id": document_id,
+            "document_no": document_no,
+            "location_id": source_location_id,
+            "order_id": order_id,
+            "request_id": request_id,
+            "request_code": request_code,
+            "note": f"Xuất thiết bị thay thế cho hồ sơ hậu mãi {request_code}.",
+            "actor_id": actor_id,
+            "metadata": document_metadata,
+        },
+    )
+    for line in lines:
+        imeis = line.get("imeis", [])
+        secondary_imeis = line.get("secondary_imeis", [])
+        serial_numbers = line.get("serial_numbers", [])
+        line_metadata = json.dumps(
+            {
+                "tracksImei": bool(imeis),
+                "imeis": imeis,
+                "secondaryImeis": secondary_imeis,
+                "tracksSerialNumber": bool(serial_numbers),
+                "serialNumbers": serial_numbers,
+                "stockMutationSkipped": True,
+            },
+            ensure_ascii=False,
+        )
+        identifier_note = ", ".join(
+            [
+                *[f"IMEI: {value}" for value in imeis],
+                *[f"IMEI2: {value}" for value in secondary_imeis],
+                *[f"Serial: {value}" for value in serial_numbers],
+            ]
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO inventory_document_lines (
+                    id, document_id, product_id, variant_id, location_id,
+                    requested_quantity, expected_quantity, approved_quantity,
+                    unit_cost, note, metadata
+                )
+                VALUES (
+                    :id, :document_id, :product_id, :variant_id, :location_id,
+                    :quantity, :quantity, :quantity,
+                    :unit_cost, :note, CAST(:metadata AS jsonb)
+                )
+                """
+            ),
+            {
+                "id": uuid4(),
+                "document_id": document_id,
+                "product_id": line["product_id"],
+                "variant_id": line.get("variant_id"),
+                "location_id": line["location_id"],
+                "quantity": line["quantity"],
+                "unit_cost": line.get("unit_cost", 0),
+                "note": identifier_note or "Thiết bị thay thế không có mã định danh.",
+                "metadata": line_metadata,
+            },
+        )
+    return document_id
 
 
 async def insert_inventory_outbound_line(
@@ -353,12 +517,14 @@ async def update_inventory_outbound_status(
         text(
             """
             UPDATE inventory_documents
-            SET status = :status\:\:varchar,
+            SET status = CAST(:status AS varchar),
                 note = COALESCE(:note, note),
-                approved_at = CASE WHEN :status\:\:varchar = 'COMPLETED' THEN NOW() ELSE approved_at END,
-                approved_by = CASE WHEN :status\:\:varchar = 'COMPLETED' THEN :actor_id ELSE approved_by END,
-                posted_at = CASE WHEN :status\:\:varchar = 'COMPLETED' THEN NOW() ELSE posted_at END,
-                posted_by = CASE WHEN :status\:\:varchar = 'COMPLETED' THEN :actor_id ELSE posted_by END
+                approved_at = CASE WHEN CAST(:status AS varchar) = 'COMPLETED' THEN NOW() ELSE approved_at END,
+                approved_by = CASE WHEN CAST(:status AS varchar) = 'COMPLETED' THEN :actor_id ELSE approved_by END,
+                posted_at = CASE WHEN CAST(:status AS varchar) = 'COMPLETED' THEN NOW() ELSE posted_at END,
+                posted_by = CASE WHEN CAST(:status AS varchar) = 'COMPLETED' THEN :actor_id ELSE posted_by END,
+                cancelled_at = CASE WHEN CAST(:status AS varchar) = 'CANCELLED' THEN NOW() ELSE cancelled_at END,
+                cancelled_by = CASE WHEN CAST(:status AS varchar) = 'CANCELLED' THEN :actor_id ELSE cancelled_by END
             WHERE id = :document_id
             """
         ),

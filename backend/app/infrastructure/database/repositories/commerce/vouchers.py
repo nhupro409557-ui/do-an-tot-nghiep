@@ -132,7 +132,7 @@ async def count_user_orders(session: AsyncSession, user_id: UUID) -> int:
 
 async def count_user_voucher_usage(session: AsyncSession, *, user_id: UUID, code: str) -> int:
     result = await session.execute(
-        text("SELECT COUNT(*) FROM orders WHERE user_id = :user_id AND voucher_code = :code"),
+        text("SELECT COUNT(*) FROM orders WHERE user_id = :user_id AND voucher_code = :code AND status NOT IN ('CANCELLED', 'PAYMENT_FAILED', 'REFUNDED')"),
         {"user_id": user_id, "code": code.upper()},
     )
     return int(result.scalar() or 0)
@@ -142,7 +142,7 @@ async def count_voucher_usage_by_identity(session: AsyncSession, *, column: str,
     if column not in {"voucher_device_id", "voucher_ip_address"}:
         return 0
     result = await session.execute(
-        text(f"SELECT COUNT(*) FROM orders WHERE voucher_code = :code AND {column} = :value"),
+        text(f"SELECT COUNT(*) FROM orders WHERE voucher_code = :code AND {column} = :value AND status NOT IN ('CANCELLED', 'PAYMENT_FAILED', 'REFUNDED')"),
         {"code": code.upper(), "value": value},
     )
     return int(result.scalar() or 0)

@@ -2,6 +2,16 @@
 
 This note tracks the current admin authentication design and the rationale behind recent changes so later edits have a stable reference point.
 
+### Cập nhật 2026-07-05 - Khóa lỗ hổng mạo danh user và xác minh auth ngoài hệ thống
+
+- `get_current_user_id` không còn tin header `X-User-Id`; các route protected chỉ lấy user từ JWT Bearer hợp lệ.
+- Bổ sung `get_optional_current_user_id` cho các luồng public có thể nhận JWT, ví dụ checkout guest hoặc AI chat, nhưng nếu có token sai thì trả `401`.
+- Google Login không còn nhận email/tên/avatar do frontend tự gửi. Frontend chỉ gửi Google access token, backend tự gọi Google tokeninfo/userinfo và kiểm tra `GOOGLE_CLIENT_ID` trước khi tạo/cập nhật user.
+- API đăng ký/quên mật khẩu không còn trả `verificationToken` trong response. Token link vẫn được gửi qua email nội bộ để user bấm từ hộp thư.
+- Endpoint public `/api/auth/send-verification-email` đã tắt bằng `410 Gone` để tránh bị dùng làm mail relay.
+- AI chat không còn dùng `X-User-Id`; nếu có phiên đăng nhập thì frontend gửi Bearer token, backend tự resolve user.
+- Verification: `compileall backend/app backend/tests` pass, frontend `npm run lint` pass, full backend `58 passed`.
+
 ### Current flow
 
 1. Admin enters email and password at `/admin/login`.

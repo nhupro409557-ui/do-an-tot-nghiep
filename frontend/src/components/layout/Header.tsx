@@ -11,6 +11,7 @@ import {
   Trophy,
   User as UserIcon,
   Video,
+  Recycle,
 } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
@@ -105,6 +106,16 @@ export const Header = () => {
           >
             <Trophy className="h-5 w-5" />
             <span className="hidden whitespace-nowrap xl:inline">Xếp hạng</span>
+          </Link>
+
+          <Link
+            to="/used-products"
+            title="Hàng cũ"
+            aria-label="Điện thoại cũ"
+            className="hidden h-10 items-center gap-2 rounded-md px-2 text-sm font-semibold transition hover:bg-white/10 xl:flex xl:px-3"
+          >
+            <Recycle className="h-5 w-5" />
+            <span className="whitespace-nowrap">Hàng cũ</span>
           </Link>
 
           <SearchBar />

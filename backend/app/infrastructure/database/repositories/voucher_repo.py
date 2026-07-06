@@ -81,6 +81,11 @@ async def list_public_vouchers(session: AsyncSession) -> list[dict]:
                 status,
                 status = 'ACTIVE' AS "isActive"
             FROM vouchers
+            WHERE status = 'ACTIVE'
+              AND hidden_code = FALSE
+              AND audience_type = 'PUBLIC'
+              AND (starts_at IS NULL OR starts_at <= NOW())
+              AND (ends_at IS NULL OR ends_at > NOW())
             ORDER BY created_at DESC
             """
         )
@@ -116,52 +121,25 @@ async def insert_voucher(session: AsyncSession, params: dict) -> None:
     )
 
 
-async def update_voucher(session: AsyncSession, params: dict) -> int:
+async def update_voucher(session: AsyncSession, voucher_id: UUID, params: dict) -> int:
+    if not params:
+        return 0
+    set_clauses = []
+    query_params = {"id": voucher_id}
+    for col, val in params.items():
+        set_clauses.append(f"{col} = :{col}")
+        query_params[col] = val
+
+    set_str = ", ".join(set_clauses)
     result = await session.execute(
         text(
-            """
+            f"""
             UPDATE vouchers
-            SET code = :code,
-                discount_type = :discount_type,
-                discount_value = :discount_value,
-                min_order_value = :min_order_value,
-                max_discount = :max_discount,
-                usage_limit = :usage_limit,
-                total_budget_cap = :total_budget_cap,
-                per_user_limit = :per_user_limit,
-                per_device_limit = :per_device_limit,
-                per_ip_limit = :per_ip_limit,
-                campaign_type = :campaign_type,
-                audience_type = :audience_type,
-                display_title = :display_title,
-                display_description = :display_description,
-                public_terms = :public_terms,
-                applicable_channels = CAST(:applicable_channels AS jsonb),
-                applicable_payment_methods = CAST(:applicable_payment_methods AS jsonb),
-                eligible_tiers = CAST(:eligible_tiers AS jsonb),
-                eligible_user_registered_after = :eligible_user_registered_after,
-                assigned_user_id = :assigned_user_id,
-                include_product_ids = CAST(:include_product_ids AS jsonb),
-                exclude_product_ids = CAST(:exclude_product_ids AS jsonb),
-                include_category_ids = CAST(:include_category_ids AS jsonb),
-                exclude_category_ids = CAST(:exclude_category_ids AS jsonb),
-                include_brand_ids = CAST(:include_brand_ids AS jsonb),
-                exclude_brand_ids = CAST(:exclude_brand_ids AS jsonb),
-                first_order_only = :first_order_only,
-                hidden_code = :hidden_code,
-                abandoned_cart_only = :abandoned_cart_only,
-                validity_days_after_claim = :validity_days_after_claim,
-                stackable = :stackable,
-                refund_policy = :refund_policy,
-                starts_at = :starts_at,
-                ends_at = :ends_at,
-                internal_note = :internal_note,
-                status = :status,
-                updated_at = NOW()
+            SET {set_str}, updated_at = NOW()
             WHERE id = :id
             """
         ),
-        params,
+        query_params,
     )
     return int(result.rowcount or 0)
 

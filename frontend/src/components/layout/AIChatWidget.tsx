@@ -3,6 +3,7 @@ import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
 import { X, Send, Sparkles, ShoppingCart, Minus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
+import { getAccessToken } from '../../services/authDb';
 import robotAvatar from '../../assets/chatbot-robot.png';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001/api';
@@ -134,11 +135,12 @@ export const AIChatWidget = () => {
   });
 
   const requestBackendAnswer = async (text: string) => {
+    const token = getAccessToken();
     const response = await fetch(`${API_BASE_URL}/ai-assistant/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(user?.uid ? { 'X-User-Id': user.uid } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
         conversation_id: conversationId,

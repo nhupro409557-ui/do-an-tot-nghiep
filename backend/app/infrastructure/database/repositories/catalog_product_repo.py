@@ -44,6 +44,8 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
                 fs.discount_value AS "flashSaleDiscountValue",
                 fs.starts_at AS "flashSaleStartsAt",
                 fs.ends_at AS "flashSaleEndsAt",
+                fs.quantity_limit AS "flashSaleQuantityLimit",
+                fs.sold_quantity AS "flashSaleSoldQuantity",
                 p.sales_config AS "salesConfig",
                 COALESCE(
                     jsonb_agg(
@@ -65,6 +67,8 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
                             'flashSaleDiscountValue', vfs.discount_value,
                             'flashSaleStartsAt', vfs.starts_at,
                             'flashSaleEndsAt', vfs.ends_at,
+                            'flashSaleQuantityLimit', vfs.quantity_limit,
+                            'flashSaleSoldQuantity', vfs.sold_quantity,
                             'stockQuantity', pv.stock_quantity,
                             'stockState', CASE WHEN pv.stock_quantity > 0 THEN 'IN_STOCK' ELSE 'OUT_OF_STOCK' END
                         )
@@ -76,24 +80,26 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
             LEFT JOIN categories sc ON sc.id = p.subcategory_id
             LEFT JOIN product_variants pv ON pv.product_id = p.id AND pv.is_active = TRUE AND pv.deleted_at IS NULL
             LEFT JOIN LATERAL (
-                SELECT id, discount_type, discount_value, starts_at, ends_at
+                SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
                 FROM flash_sales
                 WHERE product_id = p.id
                   AND variant_id = pv.id
                   AND status = 'ACTIVE'
                   AND (starts_at IS NULL OR starts_at <= NOW())
                   AND (ends_at IS NULL OR ends_at >= NOW())
+                  AND (quantity_limit IS NULL OR sold_quantity < quantity_limit)
                 ORDER BY updated_at DESC
                 LIMIT 1
             ) vfs ON TRUE
             LEFT JOIN LATERAL (
-                SELECT id, discount_type, discount_value, starts_at, ends_at
+                SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
                 FROM flash_sales
                 WHERE product_id = p.id
                   AND variant_id IS NULL
                   AND status = 'ACTIVE'
                   AND (starts_at IS NULL OR starts_at <= NOW())
                   AND (ends_at IS NULL OR ends_at >= NOW())
+                  AND (quantity_limit IS NULL OR sold_quantity < quantity_limit)
                 ORDER BY updated_at DESC
                 LIMIT 1
             ) fs ON TRUE
@@ -117,7 +123,8 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
             ) favorite_counts ON favorite_counts.product_id = p.id
             WHERE p.status IN ('ACTIVE', 'DISCONTINUED') AND (p.id::text = :product_id OR p.slug = :product_id)
             GROUP BY p.id, c.id, sc.id, os.sold_count, review_stats.rating, review_stats.review_count,
-                favorite_counts.favorite_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at
+                favorite_counts.favorite_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at,
+                fs.quantity_limit, fs.sold_quantity
             """
         ),
         {"product_id": product_id},
@@ -163,7 +170,10 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
             p.is_featured AS "isFeatured", p.is_flash_sale AS "isFlashSale",
             fs.id::text AS "flashSaleId", fs.discount_type AS "flashSaleDiscountType",
             fs.discount_value AS "flashSaleDiscountValue", fs.starts_at AS "flashSaleStartsAt",
-            fs.ends_at AS "flashSaleEndsAt", p.sales_config AS "salesConfig",
+            fs.ends_at AS "flashSaleEndsAt",
+            fs.quantity_limit AS "flashSaleQuantityLimit",
+            fs.sold_quantity AS "flashSaleSoldQuantity",
+            p.sales_config AS "salesConfig",
             COALESCE(
                 jsonb_agg(
                     DISTINCT jsonb_build_object(
@@ -173,6 +183,8 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
                         'flashSaleId', vfs.id::text, 'flashSaleDiscountType', vfs.discount_type,
                         'flashSaleDiscountValue', vfs.discount_value, 'flashSaleStartsAt', vfs.starts_at,
                         'flashSaleEndsAt', vfs.ends_at,
+                        'flashSaleQuantityLimit', vfs.quantity_limit,
+                        'flashSaleSoldQuantity', vfs.sold_quantity,
                         'stockQuantity', pv.stock_quantity, 'stockState', CASE WHEN pv.stock_quantity > 0 THEN 'IN_STOCK' ELSE 'OUT_OF_STOCK' END
                     )
                 ) FILTER (WHERE pv.id IS NOT NULL),
@@ -184,24 +196,26 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
         LEFT JOIN brands b ON b.id = p.brand_id
         LEFT JOIN product_variants pv ON pv.product_id = p.id AND pv.is_active = TRUE AND pv.deleted_at IS NULL
         LEFT JOIN LATERAL (
-            SELECT id, discount_type, discount_value, starts_at, ends_at
+            SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
             FROM flash_sales
             WHERE product_id = p.id
               AND variant_id = pv.id
               AND status = 'ACTIVE'
               AND (starts_at IS NULL OR starts_at <= NOW())
               AND (ends_at IS NULL OR ends_at >= NOW())
+              AND (quantity_limit IS NULL OR sold_quantity < quantity_limit)
             ORDER BY updated_at DESC
             LIMIT 1
         ) vfs ON TRUE
         LEFT JOIN LATERAL (
-            SELECT id, discount_type, discount_value, starts_at, ends_at
+            SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
             FROM flash_sales
             WHERE product_id = p.id
               AND variant_id IS NULL
               AND status = 'ACTIVE'
               AND (starts_at IS NULL OR starts_at <= NOW())
               AND (ends_at IS NULL OR ends_at >= NOW())
+              AND (quantity_limit IS NULL OR sold_quantity < quantity_limit)
             ORDER BY updated_at DESC
             LIMIT 1
         ) fs ON TRUE
@@ -226,7 +240,8 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
         ) favorite_counts ON favorite_counts.product_id = p.id
         WHERE {where_sql}
         GROUP BY p.id, c.id, sc.id, os.sold_count, review_stats.rating, review_stats.review_count,
-            favorite_counts.favorite_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at
+            favorite_counts.favorite_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at,
+            fs.quantity_limit, fs.sold_quantity
     """
     result = await session.execute(text(sql), params)
     return result.all()
@@ -260,7 +275,9 @@ async def list_active_accessories(session: AsyncSession, accessory_ids: list[UUI
                 fs.discount_type AS "flashSaleDiscountType",
                 fs.discount_value AS "flashSaleDiscountValue",
                 fs.starts_at AS "flashSaleStartsAt",
-                fs.ends_at AS "flashSaleEndsAt"
+                fs.ends_at AS "flashSaleEndsAt",
+                fs.quantity_limit AS "flashSaleQuantityLimit",
+                fs.sold_quantity AS "flashSaleSoldQuantity"
             FROM products p
             LEFT JOIN (
                 SELECT product_id, SUM(stock_quantity) AS variant_stock
@@ -302,13 +319,14 @@ async def list_active_accessories(session: AsyncSession, accessory_ids: list[UUI
                 GROUP BY product_id
             ) inv ON inv.product_id = p.id
             LEFT JOIN LATERAL (
-                SELECT id, discount_type, discount_value, starts_at, ends_at
+                SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
                 FROM flash_sales
                 WHERE product_id = p.id
                   AND variant_id IS NULL
                   AND status = 'ACTIVE'
                   AND (starts_at IS NULL OR starts_at <= NOW())
                   AND (ends_at IS NULL OR ends_at >= NOW())
+                  AND (quantity_limit IS NULL OR sold_quantity < quantity_limit)
                 ORDER BY updated_at DESC
                 LIMIT 1
             ) fs ON TRUE

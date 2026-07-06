@@ -1,5 +1,11 @@
 # Quản lý khách hàng và phân quyền
 
+## Cập nhật 2026-07-04 - Chuẩn hóa thông báo lỗi phân quyền
+
+- Chuẩn hóa thông báo lỗi quyền không hợp lệ, không tìm thấy tài khoản/vai trò và hạn chế thao tác với Super Admin/Staff Admin sang tiếng Việt có dấu.
+- Giữ nguyên role code và permission code trong payload/API để không ảnh hưởng kiểm tra quyền hiện tại.
+- Verification: `py_compile` và test phân quyền admin liên quan pass.
+
 ## Cập nhật 2026-06-29 - Bổ sung test staff và phân quyền admin
 
 - Bổ sung test API cho danh sách permissions/roles, tạo tài khoản `STAFF_ADMIN`, xem/cập nhật quyền riêng theo tài khoản và chuyển staff về `CUSTOMER`.

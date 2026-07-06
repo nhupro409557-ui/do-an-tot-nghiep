@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class FlashSalePayload(BaseModel):
@@ -11,6 +11,7 @@ class FlashSalePayload(BaseModel):
     discountValue: float = Field(gt=0)
     startsAt: datetime | None = None
     endsAt: datetime | None = None
+    quantityLimit: int | None = Field(default=None, ge=1)
     status: str = Field(default="ACTIVE")
 
     @model_validator(mode="after")

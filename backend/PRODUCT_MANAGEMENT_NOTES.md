@@ -1,5 +1,61 @@
 # Product Management Notes
 
+## Cập nhật 2026-07-06 - Ràng buộc đệ quy danh mục cha của sản phẩm và chặn xóa biến thể có phát sinh nghiệp vụ
+
+- Cập nhật `product_visibility_blocker` đệ quy kiểm tra tất cả các danh mục tổ tiên của sản phẩm bằng toán tử LTREE (`c.path @> tc.path`). Nếu có bất kỳ danh mục cha nào bị ẩn, chặn không cho kích hoạt sản phẩm.
+- Bổ sung kiểm tra liên kết tồn kho/đơn hàng trước khi xóa biến thể sản phẩm trong `upsert_product_variants` và `delete_product_variant`. Nếu có ràng buộc nghiệp vụ, trả lỗi `409` yêu cầu admin ẩn biến thể thay vì xóa mềm.
+- Verification: pytest full backend test 74 passed.
+
+## Cập nhật 2026-07-05 - Siết giá sản phẩm và tổ hợp biến thể
+
+- Payload quản trị sản phẩm và biến thể không còn chấp nhận `price = 0`; giá bán phải lớn hơn 0 để tránh tạo đơn miễn phí ngoài ý muốn.
+- Backend chặn trùng tổ hợp thuộc tính biến thể đang hoạt động, kể cả khi SKU khác nhau; ưu tiên so sánh `attributes`, fallback theo màu/dung lượng/RAM/cấu hình.
+- Thay đổi nằm ở tầng schema/service trước khi ghi database, giúp admin nhận lỗi nghiệp vụ rõ ràng thay vì để dữ liệu trùng lọt vào catalog.
+
+## Cập nhật 2026-07-05 - Ràng buộc bảo mật checkout/POS và catalog public
+
+- Endpoint public `POST /api/catalog/products` không còn cho anonymous tạo sản phẩm; route này yêu cầu permission `product:create`, đồng bộ với `/api/admin/products`.
+- Checkout online không còn tin `user_id` do client tự truyền. Nếu có JWT, backend ép `payload.user_id` về user hiện tại; nếu không có JWT thì chỉ cho đơn guest không dùng tài khoản/điểm thưởng.
+- POS offline (`is_offline=true`) bắt buộc user hiện tại là `STAFF_ADMIN` hoặc `SUPER_ADMIN`; chỉ luồng nhân viên mới được gán khách hàng khác và dùng giá POS.
+- `Idempotency-Key` của đơn hàng được scope theo actor (`user`, `staff`, hoặc `guest`) trước khi lưu, tránh người khác đoán/trùng key để đọc lại response đơn không thuộc mình.
+- Verification: `compileall backend/app backend/tests` pass, frontend `npm run lint` pass, full backend `58 passed`.
+
+## Cập nhật 2026-07-04 - Checkout catalog dùng giá và trạng thái sản phẩm từ database
+
+- Đơn online với sản phẩm mới phải tham chiếu `product_id` hoặc `variant_id` hợp lệ; backend kiểm tra sản phẩm active, không bị ẩn bởi danh mục/thương hiệu và biến thể còn active trước khi giữ tồn.
+- Giá tính tiền của checkout online lấy từ `products/product_variants` và trả `409` nếu giá client đã cũ hoặc bị sửa.
+- POS offline vẫn cần `product_id` thật nhưng được giữ giá đã tính tại quầy để không phá các ưu đãi/dịch vụ nội bộ.
+- Sửa chuỗi lỗi bị mojibake trong luồng nhân bản sản phẩm sang tiếng Việt UTF-8 đúng dấu.
+- Verification: nhóm test checkout/order/outbound/after-sales/used-products pass.
+
+## Cập nhật 2026-07-03 - Nhận diện hàng cũ trong đơn hàng
+
+- Chi tiết đơn hàng admin hiển thị badge `Hàng cũ đã thẩm định` cho dòng có `order_items.used_device_id`.
+- Dòng hàng cũ trong đơn dùng giá bán đã duyệt theo từng thiết bị và không đại diện cho tồn kho SKU hàng mới.
+
+## Cập nhật 2026-07-03 - Checkout hàng cũ theo từng thiết bị
+
+- Trang chi tiết hàng cũ có thể thêm đúng thiết bị vào giỏ bằng `usedDeviceId`, không dùng SKU/biến thể giả và không tăng số lượng quá 1.
+- Checkout gửi dòng hàng cũ bằng `used_device_id`; backend kiểm tra lại giá bán đã duyệt từ database thay vì tin giá client.
+- Dòng hàng cũ trong đơn có thể không có `product_id` vì đơn đang bán đúng thiết bị đã thẩm định, còn thông tin so sánh sản phẩm gốc vẫn nằm ở snapshot của thiết bị.
+- Verification: full backend pass 48 test; frontend `npm run lint` và `npm run build` pass.
+
+## Cập nhật 2026-07-03 - Storefront điện thoại cũ theo từng thiết bị
+
+- Bổ sung bài đăng riêng cho `used_devices`, dùng ảnh thực tế và snapshot sản phẩm/biến thể gốc thay vì tạo thêm sản phẩm catalog hoặc biến thể giả.
+- Chỉ bài đã duyệt và thiết bị ở trạng thái sẵn sàng bán mới xuất hiện trên storefront.
+- Trang danh sách/chi tiết hàng cũ hiển thị giá máy mới tham chiếu, giá hàng cũ, mức tiết kiệm, hạng, điểm tình trạng, pin, bảo hành, checklist QC và thông số gốc.
+- IMEI đầy đủ không được trả ra API công khai; storefront chỉ nhận IMEI đã che.
+- Checkout hàng cũ chưa được nối trong lát cắt này; không thay đổi contract giỏ hàng hoặc FIFO hàng mới.
+
+## Cập nhật 2026-07-03 - Nền tảng quản lý thiết bị cũ theo sản phẩm gốc
+
+- Bổ sung module hàng cũ độc lập theo từng IMEI, không tạo mỗi máy cũ thành một biến thể và không cộng thiết bị cũ vào tồn bán được của sản phẩm mới.
+- Mỗi thiết bị cũ tham chiếu sản phẩm/biến thể gốc và lưu snapshot tên, SKU, màu, RAM, dung lượng, thông số, giá niêm yết và giá máy mới tại thời điểm xác nhận thu mua.
+- API admin hỗ trợ tạo hồ sơ tiếp nhận, chuyển trạng thái, lưu kết quả thẩm định, xác nhận thu mua và đọc danh sách thiết bị trong kho hàng cũ.
+- Màn admin `Hàng cũ` hiển thị giá máy mới, giá hàng cũ và số tiền tiết kiệm theo đúng từng thiết bị.
+- Verification: migration chạy thành công trong database test cô lập; toàn bộ backend pass 48 test; backend import pass; frontend `npm run lint` và `npm run build` pass.
+
 ## Cập nhật 2026-07-01 - Nâng cấp hiển thị card sản phẩm storefront
 
 - `ProductCard` trên storefront dùng icon `Star` từ Lucide cho đánh giá thay vì ký tự sao, đồng bộ ngôn ngữ icon với các thao tác yêu thích/so sánh.
@@ -1277,3 +1333,21 @@
 - Káº¿t quáº£ kiá»ƒm tra:
   - CSDL thá»±c táº¿ Ä‘Æ°á»£c cáº­p nháº­t Ä‘áº§y Ä‘á»§ vÃ  chÃ­nh xÃ¡c thÃ´ng qua ká»‹ch báº£n `update_ipad_a16_variants.py`.
   - Cháº¡y thá»­ nghiá»‡m thÃ nh cÃ´ng, cÃ¡c tÃ¹y chá»n mÃ u vÃ  phiÃªn báº£n hiá»ƒn thá»‹ khá»›p vá»›i hÃ¬nh áº£nh.
+
+## Update 2026-07-05 flash sale quantity limit
+
+- Bổ sung quota cho flash sale qua `flash_sales.quantity_limit`, `sold_quantity`, `quota_exhausted_at`; `quantity_limit = NULL` nghĩa là không giới hạn số lượng sale.
+- Checkout web chỉ áp dụng giá flash sale khi quota còn đủ cho số lượng mua. Khi giữ hết quota, backend tự chuyển flash sale sang `INACTIVE` và catalog/ranking/search không còn trả giá sale cho sản phẩm đó.
+- `order_items` lưu `flash_sale_id`, `flash_sale_quantity`, `flash_sale_released_at` để biết đơn nào đã tiêu quota flash sale và tránh hoàn trả quota trùng lặp.
+- Khi đơn chưa giao bị hủy, hoàn, hoặc thanh toán thất bại, hệ thống hoàn lại quota flash sale; nếu flash sale trước đó bị tắt do hết quota và vẫn còn trong thời gian hiệu lực, backend tự bật lại.
+- Storefront trả thêm `quantityLimit`, `soldQuantity`, `remainingQuantity`, `isLimited` trong `flashSale`; frontend hiển thị số suất sale còn lại trên card và trang chi tiết.
+- Giỏ hàng storefront lưu thêm `variantId` và checkout gửi `variant_id`, tránh trường hợp chọn biến thể có flash sale nhưng backend lại xử lý như sản phẩm cha.
+- Admin flash sale có thêm ô `Số lượng sale`; để trống là không giới hạn. Danh sách admin hiển thị số lượng còn lại/đã bán sale và trạng thái `Đã hết suất`.
+- Kiểm tra đã chạy: `python -m compileall -q backend\app backend\tests`, targeted `pytest` cho order/flash-sale/voucher và overlap khi hoàn quota, full `pytest backend\tests` 61/61, và `npm run lint` frontend.
+
+## Update 2026-07-05 warranty snapshot at sale time
+
+- `products.warranty_period` vẫn là cấu hình hiện tại của sản phẩm, nhưng quyền bảo hành của đơn đã bán được snapshot vào `order_items.warranty_months_snapshot`.
+- Checkout online/POS ghi snapshot này khi tạo dòng đơn, tránh việc admin đổi thời hạn bảo hành sản phẩm sau này làm sai quyền lợi của khách cũ.
+- Hậu mãi warranty ưu tiên đọc snapshot trên order item; chỉ fallback sang `products.warranty_period` cho dữ liệu cũ/manual chưa có snapshot.
+- Migration `052_order_item_warranty_snapshot.sql` backfill các order item cũ theo warranty hiện tại của sản phẩm để giảm dữ liệu trống.

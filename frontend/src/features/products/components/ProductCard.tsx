@@ -53,6 +53,16 @@ function FlashSaleDiscountLabel({ flashSale }: { flashSale: any }) {
   );
 }
 
+function FlashSaleStockLabel({ flashSale }: { flashSale: any }) {
+  if (!flashSale || flashSale.remainingQuantity === null || flashSale.remainingQuantity === undefined) return null;
+  const remaining = Math.max(Number(flashSale.remainingQuantity || 0), 0);
+  return (
+    <div className="mb-2 rounded-lg border border-orange-100 bg-orange-50 px-2.5 py-1.5 text-[11px] font-bold text-orange-700">
+      Còn {remaining.toLocaleString('vi-VN')} suất sale
+    </div>
+  );
+}
+
 const getUniqueProductImages = (product: any) => {
   const imageUrls: string[] = [];
   if (product.imageUrl) imageUrls.push(product.imageUrl);
@@ -141,6 +151,7 @@ export const ProductCard = ({ p, index = 0 }: { p: any; index?: number }) => {
 
       <div className="mt-1 flex flex-col justify-end pt-1">
         {p.flashSale?.endsAt && !isDiscontinued && <ProductFlashSaleTimer endsAt={p.flashSale.endsAt} />}
+        {p.flashSale && !isDiscontinued && <FlashSaleStockLabel flashSale={p.flashSale} />}
         <Link to={productHref} className="mb-2 flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
           {isDiscontinued ? (
             <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-black uppercase text-slate-700">Ngừng kinh doanh</span>

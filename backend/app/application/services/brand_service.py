@@ -48,7 +48,7 @@ async def sync_brand_categories(session: AsyncSession, brand_id: UUID, category_
     if category_ids:
         valid_count = await brand_repo.count_existing_categories(session, category_ids)
         if valid_count != len(set(category_ids)):
-            raise HTTPException(status_code=400, detail="One or more categories do not exist.")
+            raise HTTPException(status_code=400, detail="Một hoặc nhiều danh mục không tồn tại.")
     await brand_repo.delete_brand_categories(session, brand_id)
     for category_id in category_ids:
         await brand_repo.insert_brand_category(session, brand_id=brand_id, category_id=category_id)
@@ -134,7 +134,7 @@ async def update_brand(
     ensure_not_data_url(payload.logoUrl, "logoUrl")
     old_brand = await brand_repo.get_brand_slug(session, brand_id)
     if not old_brand:
-        raise HTTPException(status_code=404, detail="Brand not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy thương hiệu.")
     code = payload.code.strip()
     slug = slugify(payload.slug or payload.name)
     await ensure_brand_code_available(session, code, brand_id)
@@ -179,7 +179,7 @@ async def import_brands(
     current_user_id: UUID,
 ) -> dict:
     if mode not in {"skip", "upsert"}:
-        raise HTTPException(status_code=400, detail="Mode must be skip or upsert.")
+        raise HTTPException(status_code=400, detail="Chế độ import phải là skip hoặc upsert.")
     filename = file.filename or "brands.csv"
     if not filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file CSV.")
@@ -239,7 +239,7 @@ async def get_brand_import_job(
 
     row = await brand_repo.get_brand_import_job(session, job_id)
     if not row:
-        raise HTTPException(status_code=404, detail="Import job not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy tiến trình import.")
     return row
 
 async def update_brand_status(
@@ -252,10 +252,10 @@ async def update_brand_status(
 ) -> dict:
     brand = await brand_repo.get_brand_slug(session, brand_id)
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy thương hiệu.")
     updated = await brand_repo.update_brand_status(session, brand_id=brand_id, is_active=payload.isActive)
     if updated == 0:
-        raise HTTPException(status_code=404, detail="Brand not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy thương hiệu.")
     job_id = None
     if not payload.isActive:
         job_id = uuid4()
@@ -286,7 +286,7 @@ async def update_brands_status(
 ) -> dict:
     rows = await brand_repo.list_brands_by_ids(session, payload.ids)
     found_ids = {row["id"] for row in rows}
-    failed = [{"id": str(brand_id), "reason": "Brand not found."} for brand_id in payload.ids if brand_id not in found_ids]
+    failed = [{"id": str(brand_id), "reason": "Không tìm thấy thương hiệu."} for brand_id in payload.ids if brand_id not in found_ids]
     if rows:
         await brand_repo.update_brands_status(session, brand_ids=[row["id"] for row in rows], is_active=payload.isActive)
         for row in rows:
@@ -318,14 +318,14 @@ async def deactivate_brand(
 ) -> dict:
     brand = await brand_repo.get_brand_for_delete(session, brand_id)
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy thương hiệu.")
     product_count = await brand_repo.count_products_for_brand_delete(session, brand_id)
     if product_count > 0:
         raise HTTPException(status_code=409, detail="Không thể xóa thương hiệu đang có sản phẩm. Hãy ẩn thương hiệu nếu cần.")
 
     deleted = await brand_repo.delete_brand(session, brand_id)
     if deleted == 0:
-        raise HTTPException(status_code=404, detail="Brand not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy thương hiệu.")
     await brand_repo.audit_brand_hard_deleted(session, user_id=current_user_id, brand=brand)
     await session.commit()
     await invalidate_brand_cache(redis, brand["slug"])

@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, Header
+from uuid import UUID
+
+from fastapi import APIRouter, Depends
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import get_optional_current_user_id
 from app.application.ai.schemas import AIAssistantRequest, AIAssistantResponse
 from app.application.ai.use_cases import AIAssistantUseCase
 from app.infrastructure.cache import get_redis
@@ -22,10 +25,9 @@ router = APIRouter(prefix="/ai-assistant", tags=["AI Assistant"])
 )
 async def chat_with_ai_assistant(
     payload: AIAssistantRequest,
-    x_user_id: str | None = Header(default=None),
+    current_user_id: UUID | None = Depends(get_optional_current_user_id),
     session: AsyncSession = Depends(get_session),
     redis: Redis = Depends(get_redis),
 ) -> AIAssistantResponse:
     use_case = AIAssistantUseCase(session=session, redis=redis)
-    return await use_case.execute(user_id=x_user_id, request=payload)
-
+    return await use_case.execute(user_id=str(current_user_id) if current_user_id else None, request=payload)

@@ -79,6 +79,9 @@ export function ProductPurchaseActions({
       </div>
     );
   }
+  const flashSaleRemainingText = activeFlashSale?.remainingQuantity !== null && activeFlashSale?.remainingQuantity !== undefined
+    ? ` · Còn ${Math.max(Number(activeFlashSale.remainingQuantity || 0), 0).toLocaleString('vi-VN')} suất sale`
+    : '';
 
   return (
     <div className="space-y-4">
@@ -92,6 +95,7 @@ export function ProductPurchaseActions({
             <div className="text-xs font-semibold">
               Giảm {activeFlashSale.discountType === 'PERCENT' ? `${activeFlashSale.discountValue}%` : formatPrice(displayOriginalPrice ? displayOriginalPrice - displayPrice : 0)}
               {activeFlashSale.endsAt ? ` · Kết thúc ${new Date(activeFlashSale.endsAt).toLocaleString('vi-VN')}` : ' · Không có thời hạn'}
+              {flashSaleRemainingText}
             </div>
           </div>
         )}

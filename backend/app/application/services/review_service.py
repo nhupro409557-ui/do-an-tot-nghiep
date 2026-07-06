@@ -42,7 +42,7 @@ def build_review_update(payload: ReviewStatusPayload) -> tuple[list[str], dict[s
         params["spam_reason"] = sanitize_review_text(payload.spamReason).strip() or None
 
     if not updates:
-        raise HTTPException(status_code=400, detail="No review fields supplied for update.")
+        raise HTTPException(status_code=400, detail="Chưa có trường đánh giá nào để cập nhật.")
 
     updates.append("updated_at = NOW()")
     return updates, params
@@ -67,12 +67,12 @@ async def update_review_status(
 ) -> dict:
     review_row = await review_repo.get_review_for_admin_update(session, review_id)
     if not review_row:
-        raise HTTPException(status_code=404, detail="Review not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đánh giá.")
 
     updates, params = build_review_update(payload)
     updated_count = await review_repo.update_review_fields(session, review_id, updates, params)
     if updated_count == 0:
-        raise HTTPException(status_code=404, detail="Review not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đánh giá.")
 
     next_status = payload.status
     if (
@@ -96,11 +96,11 @@ async def update_review_status(
 async def delete_review(session: AsyncSession, review_id: UUID) -> dict:
     product_id = await review_repo.get_review_product_id(session, review_id)
     if not product_id:
-        raise HTTPException(status_code=404, detail="Review not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đánh giá.")
 
     deleted_count = await review_repo.delete_review(session, review_id)
     if deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Review not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy đánh giá.")
 
     await sync_product_review_stats(session=session, product_id=product_id)
     await session.commit()

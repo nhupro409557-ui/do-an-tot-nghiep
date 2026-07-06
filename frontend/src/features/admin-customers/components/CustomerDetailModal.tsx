@@ -1,4 +1,6 @@
+import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
+import { adminVouchersApi } from '../../admin-vouchers/services/adminVouchersApi';
 
 const userStatusLabels: Record<string, string> = {
   ACTIVE: 'Hoạt động',
@@ -9,7 +11,6 @@ const userStatusLabels: Record<string, string> = {
 
 const walletStatusLabels: Record<string, string> = {
   ACTIVE: 'Hoạt động',
-  SUSPENDED: 'Tạm khóa',
   CLOSED: 'Đã đóng',
 };
 
@@ -35,7 +36,7 @@ const paymentStatusLabels: Record<string, string> = {
   PENDING_PAYMENT: 'Chờ thanh toán',
 };
 
-type CustomerSection = 'summary' | 'orders' | 'loyalty' | 'notes' | 'audit';
+type CustomerSection = 'summary' | 'orders' | 'loyalty' | 'notes' | 'audit' | 'vouchers';
 
 type CustomerDetailModalProps = {
   customer: any | null;
@@ -59,6 +60,18 @@ type CustomerDetailModalProps = {
   onSectionChange: (section: CustomerSection) => void;
   onClose: () => void;
   currency: Intl.NumberFormat;
+  tagDraft: string;
+  onTagDraftChange: (value: string) => void;
+  onSaveTags: () => void;
+  noteDraft: string;
+  onNoteDraftChange: (value: string) => void;
+  onAddNote: () => void;
+  voucherId: string;
+  voucherNote: string;
+  onVoucherIdChange: (value: string) => void;
+  onVoucherNoteChange: (value: string) => void;
+  onIssueVoucher: () => void;
+  canIssueVoucher: boolean;
 };
 
 function formatDate(value: unknown) {
@@ -109,8 +122,57 @@ export default function CustomerDetailModal(props: CustomerDetailModalProps) {
     onSectionChange,
     onClose,
     currency,
+    tagDraft,
+    onTagDraftChange,
+    onSaveTags,
+    noteDraft,
+    onNoteDraftChange,
+    onAddNote,
+    voucherId,
+    voucherNote,
+    onVoucherIdChange,
+    onVoucherNoteChange,
+    onIssueVoucher,
+    canIssueVoucher,
   } = props;
-  const tabs: [CustomerSection, string][] = [['summary', 'Tổng quan'], ['orders', 'Đơn hàng'], ['loyalty', 'Điểm thưởng'], ['notes', 'Ghi chú CSKH'], ['audit', 'Nhật ký']];
+  const tabs: [CustomerSection, string][] = [
+    ['summary', 'Tổng quan'],
+    ['orders', 'Đơn hàng'],
+    ['loyalty', 'Điểm thưởng'],
+    ['vouchers', 'Khuyến mãi / Voucher'],
+    ['notes', 'Ghi chú CSKH'],
+    ['audit', 'Nhật ký']
+  ];
+
+  const [availableVouchers, setAvailableVouchers] = useState<any[]>([]);
+  const [userVouchers, setUserVouchers] = useState<any[]>([]);
+
+  const refreshUserVouchers = () => {
+    if (!customer?.id) return;
+    adminVouchersApi.listUserVouchers(customer.id)
+      .then(setUserVouchers)
+      .catch(() => setUserVouchers([]));
+  };
+
+  useEffect(() => {
+    if (activeSection === 'vouchers') {
+      adminVouchersApi.adminListVouchers()
+        .then(data => setAvailableVouchers((data || []).filter((v: any) => v.status === 'ACTIVE')))
+        .catch(() => setAvailableVouchers([]));
+    }
+  }, [activeSection]);
+
+  useEffect(() => {
+    if (activeSection === 'vouchers' && customer?.id) {
+      refreshUserVouchers();
+    }
+  }, [activeSection, customer?.id]);
+
+  function handleIssueVoucher() {
+    onIssueVoucher();
+    window.setTimeout(refreshUserVouchers, 600);
+  }
+
   const deltaValue = Number(pointDelta || 0);
   const currentPoints = Number(customer?.points || 0);
   const balanceAfter = currentPoints + (Number.isFinite(deltaValue) ? deltaValue : 0);
@@ -170,13 +232,17 @@ export default function CustomerDetailModal(props: CustomerDetailModalProps) {
                       </label>
                       <label className="block">
                         <span className="text-xs font-bold uppercase text-slate-500">Hạng thành viên</span>
-                        <input disabled={!canUpdateProfile} value={profileDraft.tier} onChange={(event) => onProfileDraftChange({ ...profileDraft, tier: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-500 disabled:bg-slate-100" />
+                        <select disabled={!canUpdateProfile} value={profileDraft.tier} onChange={(event) => onProfileDraftChange({ ...profileDraft, tier: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-500 disabled:bg-slate-100">
+                          <option value="MEMBER">MEMBER</option>
+                          <option value="SILVER">SILVER</option>
+                          <option value="GOLD">GOLD</option>
+                          <option value="DIAMOND">DIAMOND</option>
+                        </select>
                       </label>
                       <label className="block">
                         <span className="text-xs font-bold uppercase text-slate-500">Trạng thái ví điểm</span>
                         <select disabled={!canUpdateProfile} value={profileDraft.walletStatus} onChange={(event) => onProfileDraftChange({ ...profileDraft, walletStatus: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-500 disabled:bg-slate-100">
                           <option value="ACTIVE">Hoạt động</option>
-                          <option value="SUSPENDED">Tạm khóa</option>
                           <option value="CLOSED">Đã đóng</option>
                         </select>
                       </label>
@@ -188,6 +254,19 @@ export default function CustomerDetailModal(props: CustomerDetailModalProps) {
                   <section className="rounded-lg border border-slate-200 p-4 lg:col-span-2">
                     <h4 className="text-sm font-bold text-slate-900">Phân nhóm chăm sóc khách hàng</h4>
                     <div className="mt-3 flex flex-wrap gap-2">{Array.isArray(customer.tags) && customer.tags.length ? customer.tags.map((tag: string) => <span key={tag} className="rounded-full bg-sky-50 px-3 py-1 text-xs font-bold text-sky-700">{tag}</span>) : <span className="text-sm text-slate-500">Chưa có tag khách hàng.</span>}</div>
+
+                    {canUpdateProfile && (
+                      <div className="mt-4 border-t border-slate-100 pt-4">
+                        <label className="block">
+                          <span className="text-xs font-bold uppercase text-slate-500">Chỉnh sửa tag (Phân tách bằng dấu phẩy)</span>
+                          <div className="mt-1 flex gap-2">
+                            <input value={tagDraft} onChange={(event) => onTagDraftChange(event.target.value)} placeholder="Ví dụ: VIP, Tiềm năng" className="h-10 flex-1 rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-slate-500" />
+                            <button type="button" onClick={onSaveTags} className="rounded-md bg-slate-950 px-4 h-10 text-sm font-bold text-white transition hover:bg-slate-800">Lưu tag</button>
+                          </div>
+                        </label>
+                      </div>
+                    )}
+
                     <div className="mt-5 text-xs font-bold uppercase text-slate-400">Ghi chú gần nhất</div>
                     <div className="mt-1 text-sm font-semibold text-slate-700">{formatDate(customer.lastNoteAt)}</div>
                   </section>
@@ -233,7 +312,104 @@ export default function CustomerDetailModal(props: CustomerDetailModalProps) {
                 </div>
               )}
 
-              {activeSection === 'notes' && <div className="space-y-3">{notes.length === 0 ? <div className="rounded-lg border border-slate-200 p-8 text-center text-sm text-slate-500">Chưa có ghi chú CSKH.</div> : notes.map((note) => <div key={note.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4"><div className="flex justify-between gap-3 text-xs text-slate-500"><strong>{note.authorName || 'Quản trị viên'}</strong><span>{formatDate(note.createdAt)}</span></div><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{note.content}</p></div>)}</div>}
+              {activeSection === 'vouchers' && (
+                <div className="space-y-4">
+                  {canIssueVoucher && (
+                    <section className="rounded-lg border border-red-200 bg-red-50/40 p-4">
+                      <h4 className="text-sm font-bold text-red-950">Cấp phát Voucher cho khách hàng</h4>
+                      <p className="mt-1 text-xs leading-5 text-red-800">Chọn một voucher hoạt động để cấp phát trực tiếp vào ví của khách hàng này.</p>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                        <label className="block">
+                          <span className="text-xs font-bold uppercase text-red-900">Voucher hoạt động</span>
+                          <select
+                            value={voucherId}
+                            onChange={(event) => onVoucherIdChange(event.target.value)}
+                            className="mt-1 h-10 w-full rounded-md border border-red-200 bg-white px-3 text-sm outline-none focus:border-red-500"
+                          >
+                            <option value="">-- Chọn voucher --</option>
+                            {availableVouchers.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {v.code} - {v.discountType === 'PERCENT' ? `${v.discountAmount}%` : `${currency.format(Number(v.discountAmount))}đ`} (Lượt: {v.usedCount || 0}/{v.usageLimit || '∞'})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="block">
+                          <span className="text-xs font-bold uppercase text-red-900">Ghi chú</span>
+                          <input
+                            value={voucherNote}
+                            onChange={(event) => onVoucherNoteChange(event.target.value)}
+                            placeholder="Nhập ghi chú lý do cấp..."
+                            className="mt-1 h-10 w-full rounded-md border border-red-200 bg-white px-3 text-sm outline-none focus:border-red-500"
+                          />
+                        </label>
+
+                        <div className="flex items-end">
+                          <button
+                            type="button"
+                            disabled={!voucherId}
+                            onClick={handleIssueVoucher}
+                            className="inline-flex h-10 items-center justify-center rounded-md bg-red-600 px-4 text-sm font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                          >
+                            Cấp phát
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  <h4 className="text-sm font-bold text-slate-900">Ví Voucher của khách hàng ({userVouchers.length})</h4>
+                  <Table headers={['Mã voucher', 'Giá trị', 'Đơn tối thiểu', 'Trạng thái', 'Hạn sử dụng', 'Thời gian nhận']}>
+                    {userVouchers.length === 0 ? (
+                      <EmptyRow colSpan={6} text="Khách hàng chưa sở hữu voucher nào." />
+                    ) : (
+                      userVouchers.map((uv) => {
+                        const expiry = uv.expires_at || uv.expiresAt;
+                        const claimed = uv.claimed_at || uv.claimedAt;
+                        return (
+                          <tr key={uv.id}>
+                            <td className="px-4 py-3 font-mono font-bold text-slate-900">{uv.code}</td>
+                            <td className="px-4 py-3 font-semibold text-slate-800">
+                              {uv.discount_type === 'PERCENT' ? `${uv.discount_amount}%` : `${currency.format(Number(uv.discount_amount))}đ`}
+                            </td>
+                            <td className="px-4 py-3">{currency.format(Number(uv.min_order_value || 0))}đ</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                                uv.status === 'AVAILABLE' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                                uv.status === 'USED' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
+                                'bg-slate-100 text-slate-500 border border-slate-200'
+                              }`}>
+                                {uv.status === 'AVAILABLE' ? 'Khả dụng' : uv.status === 'USED' ? 'Đã dùng' : uv.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">{expiry ? formatDate(expiry) : 'Không hết hạn'}</td>
+                            <td className="px-4 py-3 text-slate-500">{formatDate(claimed)}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </Table>
+                </div>
+              )}
+
+              {activeSection === 'notes' && (
+                <div className="space-y-4">
+                  {canUpdateProfile && (
+                    <section className="rounded-lg border border-slate-200 p-4 bg-slate-50">
+                      <h4 className="text-sm font-bold text-slate-900">Thêm ghi chú chăm sóc khách hàng</h4>
+                      <div className="mt-3">
+                        <textarea rows={3} value={noteDraft} onChange={(event) => onNoteDraftChange(event.target.value)} placeholder="Nhập nội dung ghi chú chăm sóc khách hàng..." className="w-full rounded-md border border-slate-200 p-3 text-sm outline-none focus:border-slate-500 bg-white resize-none" />
+                        <button type="button" disabled={!noteDraft.trim()} onClick={onAddNote} className="mt-3 rounded-md bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300">Thêm ghi chú</button>
+                      </div>
+                    </section>
+                  )}
+                  <div className="space-y-3">
+                    {notes.length === 0 ? <div className="rounded-lg border border-slate-200 p-8 text-center text-sm text-slate-500">Chưa có ghi chú CSKH.</div> : notes.map((note) => <div key={note.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4"><div className="flex justify-between gap-3 text-xs text-slate-500"><strong>{note.authorName || 'Quản trị viên'}</strong><span>{formatDate(note.createdAt)}</span></div><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{note.content}</p></div>)}
+                  </div>
+                </div>
+              )}
 
               {activeSection === 'audit' && <div className="space-y-3">{auditLogs.length === 0 ? <div className="rounded-lg border border-slate-200 p-8 text-center text-sm text-slate-500">Chưa có nhật ký liên quan.</div> : auditLogs.map((log) => <div key={log.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4"><div className="flex justify-between gap-3"><strong className="text-sm text-slate-900">{log.eventType}</strong><span className="text-xs text-slate-500">{formatDate(log.createdAt)}</span></div><pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-slate-600">{JSON.stringify(log.metadata || {}, null, 2)}</pre></div>)}</div>}
             </div>

@@ -3,7 +3,7 @@ from .common import *
 async def get_product_inventory(session: AsyncSession, product_id: UUID) -> dict:
     product_data = await inventory_repo.get_product_inventory_summary(session, product_id)
     if not product_data:
-        raise HTTPException(status_code=404, detail="Product not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
     variants = await inventory_repo.list_product_inventory_variants(session, product_id)
     logs = await inventory_repo.list_inventory_adjustment_logs(session, product_id)
     sales_config = product_data.get("salesConfig") if isinstance(product_data.get("salesConfig"), dict) else {}
@@ -25,7 +25,7 @@ async def update_product_inventory_settings(
 ) -> dict:
     row = await inventory_repo.get_product_sales_config_for_update(session, product_id)
     if not row:
-        raise HTTPException(status_code=404, detail="Product not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
     sales_config = row.get("sales_config") if isinstance(row.get("sales_config"), dict) else {}
     merged = persisted_sales_config(
         {
@@ -194,12 +194,12 @@ async def list_inventory_locations(
     normalized_aisle = str(aisle or "").strip().upper()
     normalized_shelf = str(shelf or "").strip()
     normalized_bin = str(bin or "").strip()
-    if normalized_purpose and normalized_purpose not in {"STORAGE", "WARRANTY", "QC", "DAMAGED", "RETURN", "VIRTUAL"}:
+    if normalized_purpose and normalized_purpose not in {"STORAGE", "WARRANTY", "QC", "DAMAGED", "RETURN", "USED", "VIRTUAL"}:
         raise HTTPException(status_code=400, detail="Loại kệ hàng không hợp lệ.")
     if normalized_status and normalized_status not in {"ACTIVE", "INACTIVE"}:
         raise HTTPException(status_code=400, detail="Trạng thái kệ hàng không hợp lệ.")
-    if normalized_aisle and not re.fullmatch(r"[A-Z]", normalized_aisle):
-        raise HTTPException(status_code=400, detail="Dãy kệ không hợp lệ.")
+    if normalized_aisle and not re.fullmatch(r"[A-Z]{1,4}", normalized_aisle):
+        raise HTTPException(status_code=400, detail="Khu/dãy kệ không hợp lệ.")
     if normalized_shelf and not re.fullmatch(r"\d{1,2}", normalized_shelf):
         raise HTTPException(status_code=400, detail="Số kệ không hợp lệ.")
     if normalized_bin and not re.fullmatch(r"\d{1,2}", normalized_bin):
@@ -258,6 +258,25 @@ async def update_inventory_location(session: AsyncSession, location_id: UUID, pa
     existing = await inventory_repo.get_inventory_location_by_code(session, code)
     if existing and str(existing["id"]) != str(location_id):
         raise HTTPException(status_code=409, detail="Mã kệ hàng đã tồn tại.")
+
+    has_stock = await inventory_repo.inventory_location_has_stock(session, location_id)
+    if str(current.get("purpose")).upper() != purpose and has_stock:
+        raise HTTPException(
+            status_code=400,
+            detail="Kệ còn tồn kho, không thể thay đổi mục đích kệ (vui lòng dọn kệ trước).",
+        )
+    if has_stock:
+        usage = await inventory_repo.get_inventory_location_capacity_usage(session, location_id)
+        if usage:
+            used_vol = float(usage.get("usedVolumeCm3") or 0)
+            if used_vol > 0:
+                new_usable_vol = float(payload.lengthCm or 0) * float(payload.widthCm or 0) * float(payload.heightCm or 0) * float(payload.usableRatio or 0)
+                if new_usable_vol < used_vol:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Dung lượng mới ({new_usable_vol:,.0f} cm³) nhỏ hơn dung lượng đang sử dụng ({used_vol:,.0f} cm³).",
+                    )
+
     location = await inventory_repo.update_inventory_location(
         session,
         location_id=location_id,
@@ -366,6 +385,41 @@ async def get_inventory_aging_report(session: AsyncSession, search: str = "", bu
     }
 
 
+async def get_inventory_reconciliation_report(session: AsyncSession, search: str = "", issue_type: str = "") -> dict:
+    issue_type = issue_type.strip().upper()
+    valid_issue_types = {
+        "",
+        "LEVEL_GT_IDENTIFIERS",
+        "IDENTIFIER_IN_STOCK_WITHOUT_LOCATION",
+        "IDENTIFIER_LOCATION_WITHOUT_LEVEL",
+        "TERMINAL_IDENTIFIER_WITH_LOCATION",
+    }
+    if issue_type not in valid_issue_types:
+        raise HTTPException(status_code=400, detail="Loại sai lệch tồn kho không hợp lệ.")
+
+    rows = await inventory_repo.list_inventory_reconciliation_rows(session, search.strip(), issue_type)
+    issue_labels = {
+        "LEVEL_GT_IDENTIFIERS": "Tồn kệ lớn hơn số mã",
+        "IDENTIFIER_IN_STOCK_WITHOUT_LOCATION": "Mã còn tồn nhưng chưa có kệ",
+        "IDENTIFIER_LOCATION_WITHOUT_LEVEL": "Mã có kệ nhưng kệ không có tồn",
+        "TERMINAL_IDENTIFIER_WITH_LOCATION": "Mã đã rời kho nhưng còn gắn kệ",
+    }
+    summary = {
+        key: {"issueType": key, "label": label, "count": 0}
+        for key, label in issue_labels.items()
+    }
+    for row in rows:
+        key = row.get("issueType")
+        if key in summary:
+            summary[key]["count"] += 1
+    return {
+        "asOf": datetime.utcnow().isoformat() + "Z",
+        "summary": list(summary.values()),
+        "totalIssues": sum(item["count"] for item in summary.values()),
+        "items": rows,
+    }
+
+
 async def list_inventory_ledger(
     session: AsyncSession,
     search: str = "",
@@ -389,8 +443,8 @@ async def list_inventory_ledger(
     if transaction_type and transaction_type not in {"RECEIPT", "ADJUSTMENT", "SALE", "RETURN", "REVERSAL"}:
         raise HTTPException(status_code=400, detail="Loại giao dịch sổ kho không hợp lệ.")
     reason = reason.strip().upper()
-    if reason and reason not in {"RTV_COMPLETED", "LIQUIDATED", "SCRAP", "OUT_OF_SYSTEM"}:
-        raise HTTPException(status_code=400, detail="Lý do định đoạt hàng lỗi không hợp lệ.")
+    if reason and reason not in {"RTV_COMPLETED", "LIQUIDATED", "SCRAP", "OUT_OF_SYSTEM", "COST_ADJUSTMENT"}:
+        raise HTTPException(status_code=400, detail="Lý do sổ kho không hợp lệ.")
     rows = await inventory_repo.list_inventory_ledger_rows(
         session,
         search=search.strip(),

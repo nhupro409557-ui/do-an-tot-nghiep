@@ -79,7 +79,10 @@ const receiptReasonLocationPurposes: Record<string, string[]> = {
   NK_KHAC: ['STORAGE', 'QC', 'WARRANTY', 'DAMAGED', 'RETURN', 'VIRTUAL'],
 };
 
-function getAllowedLocationPurposes(receiptReasonCode: string) {
+const quarantineLocationPurposes = ['QC', 'RETURN', 'DAMAGED', 'WARRANTY'];
+
+function getAllowedLocationPurposes(receiptReasonCode: string, quarantine = false) {
+  if (quarantine) return quarantineLocationPurposes;
   const normalized = String(receiptReasonCode || 'NK_MUA').toUpperCase();
   return receiptReasonLocationPurposes[normalized] || receiptReasonLocationPurposes.NK_MUA;
 }
@@ -88,6 +91,11 @@ const qualityStatusOptions: [string, string][] = [
   ['PENDING', 'Chờ kiểm tra'],
   ['PASSED', 'Đạt'],
   ['FAILED', 'Không đạt'],
+];
+
+const paymentModeOptions: [string, string][] = [
+  ['DEBT', 'Ghi công nợ'],
+  ['PAID', 'Đã thanh toán khi nhập'],
 ];
 
 const attachmentTypeOptions: [string, string][] = [
@@ -170,7 +178,7 @@ export default function InventoryDialog(props: InventoryDialogProps) {
   const filteredPickerProducts = products.filter((product: any) => productMatchesReceiptFilters(product));
   const pickerProduct = resolveProduct(inventoryDraft.selectedProductId);
   const pickerVariants = pickerProduct?.variants || [];
-  const allowedLocationPurposes = getAllowedLocationPurposes(inventoryDraft.receiptReasonCode || 'NK_MUA');
+  const allowedLocationPurposes = getAllowedLocationPurposes(inventoryDraft.receiptReasonCode || 'NK_MUA', Boolean(inventoryDraft.quarantine));
   const activeLocations = (inventoryLocations || []).filter((location: any) => String(location.status || 'ACTIVE') === 'ACTIVE');
   const reasonMatchedLocations = activeLocations.filter((location: any) => allowedLocationPurposes.includes(String(location.purpose || 'STORAGE').toUpperCase()));
   const receiptReasonLocations = reasonMatchedLocations.length > 0 ? reasonMatchedLocations : activeLocations;
@@ -196,17 +204,15 @@ export default function InventoryDialog(props: InventoryDialogProps) {
     setInventoryDraft({ ...inventoryDraft, supplierId, supplierName: supplier?.name || '' });
   }
 
-  function handleReceiptReasonChange(receiptReasonCode: string) {
-    const nextAllowedPurposes = getAllowedLocationPurposes(receiptReasonCode);
+  function resetLinesOutsidePurposes(nextDraft: any, nextAllowedPurposes: string[]) {
     const nextAllowedLocationIds = new Set(
       activeLocations
         .filter((location: any) => nextAllowedPurposes.includes(String(location.purpose || 'STORAGE').toUpperCase()))
         .map((location: any) => String(location.id)),
     );
-    setInventoryDraft({
-      ...inventoryDraft,
-      receiptReasonCode,
-      lines: inventoryDraft.lines.map((line: any) => {
+    return {
+      ...nextDraft,
+      lines: nextDraft.lines.map((line: any) => {
         if (!line.warehouseLocationId || nextAllowedLocationIds.has(String(line.warehouseLocationId))) return line;
         return {
           ...line,
@@ -215,6 +221,25 @@ export default function InventoryDialog(props: InventoryDialogProps) {
           storageLocationName: '',
         };
       }),
+    };
+  }
+
+  function handleReceiptReasonChange(receiptReasonCode: string) {
+    const nextDraft = { ...inventoryDraft, receiptReasonCode };
+    const nextAllowedPurposes = getAllowedLocationPurposes(receiptReasonCode, Boolean(inventoryDraft.quarantine));
+    setInventoryDraft(resetLinesOutsidePurposes(nextDraft, nextAllowedPurposes));
+  }
+
+  function handleQuarantineChange(quarantine: boolean) {
+    const nextDraft = {
+      ...inventoryDraft,
+      quarantine,
+      quarantineLocation: quarantine ? (inventoryDraft.quarantineLocation || 'Kệ QC') : '',
+      qualityStatus: quarantine && inventoryDraft.qualityStatus === 'PASSED' ? 'PENDING' : inventoryDraft.qualityStatus,
+    };
+    const nextAllowedPurposes = getAllowedLocationPurposes(nextDraft.receiptReasonCode || 'NK_MUA', quarantine);
+    setInventoryDraft({
+      ...resetLinesOutsidePurposes(nextDraft, nextAllowedPurposes),
     });
   }
 
@@ -324,6 +349,18 @@ export default function InventoryDialog(props: InventoryDialogProps) {
             <Input label="Ghi chú chung" value={inventoryDraft.note} onChange={(value) => setInventoryDraft({ ...inventoryDraft, note: value })} />
           </div>
 
+          <div className="grid gap-3 rounded-lg border border-amber-100 bg-amber-50/40 p-3 md:grid-cols-4">
+            <Input label="Số hóa đơn NCC" value={inventoryDraft.invoiceNumber || ''} onChange={(value) => setInventoryDraft({ ...inventoryDraft, invoiceNumber: value })} />
+            <Input label="Ngày hóa đơn" type="date" value={inventoryDraft.invoiceDate || ''} onChange={(value) => setInventoryDraft({ ...inventoryDraft, invoiceDate: value })} />
+            <Select label="Thanh toán NCC" value={inventoryDraft.paymentMode || 'DEBT'} onChange={(value) => setInventoryDraft({ ...inventoryDraft, paymentMode: value })} options={paymentModeOptions} />
+            <Input label="Số ngày được nợ" type="number" value={inventoryDraft.paymentTermDays || 0} onChange={(value) => setInventoryDraft({ ...inventoryDraft, paymentTermDays: Math.max(0, Number(value || 0)) })} />
+            <Input label="Ngày đến hạn" type="date" value={inventoryDraft.dueDate || ''} onChange={(value) => setInventoryDraft({ ...inventoryDraft, dueDate: value })} />
+            <Input label="Đã trả trước" type="number" value={inventoryDraft.paidAmount || 0} onChange={(value) => setInventoryDraft({ ...inventoryDraft, paidAmount: Math.max(0, Number(value || 0)) })} />
+            <div className="md:col-span-2">
+              <Input label="Ghi chú công nợ" value={inventoryDraft.payableNote || ''} onChange={(value) => setInventoryDraft({ ...inventoryDraft, payableNote: value })} />
+            </div>
+          </div>
+
           <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 lg:grid-cols-[220px_minmax(240px,1fr)_220px]">
             <Select label="Kiểm tra chất lượng" value={inventoryDraft.qualityStatus || 'PENDING'} onChange={(value) => setInventoryDraft({ ...inventoryDraft, qualityStatus: value })} options={qualityStatusOptions} />
             <Input label="Ghi chú QC" value={inventoryDraft.qualityNote || ''} placeholder="Ví dụ: đủ phụ kiện, tem seal nguyên vẹn" onChange={(value) => setInventoryDraft({ ...inventoryDraft, qualityNote: value })} />
@@ -332,7 +369,7 @@ export default function InventoryDialog(props: InventoryDialogProps) {
                 <input
                   type="checkbox"
                   checked={Boolean(inventoryDraft.quarantine)}
-                  onChange={(event) => setInventoryDraft({ ...inventoryDraft, quarantine: event.target.checked })}
+                  onChange={(event) => handleQuarantineChange(event.target.checked)}
                   className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
                 />
                 Cách ly hàng

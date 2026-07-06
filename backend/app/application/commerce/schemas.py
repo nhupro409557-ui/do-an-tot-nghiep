@@ -1,18 +1,37 @@
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+class AttachedServiceInput(BaseModel):
+    service_id: UUID
+    code: str
+    name: str
+    price: Decimal
 
 
 class CheckoutItem(BaseModel):
     product_id: UUID | None = None
     variant_id: UUID | None = None
+    used_device_id: UUID | None = None
     product_name: str = Field(min_length=1, max_length=255)
     quantity: int = Field(gt=0, le=99)
     unit_price: Decimal = Field(ge=0)
     category_id: UUID | None = None
     imeis: list[str] = Field(default_factory=list, max_length=99)
     serial_numbers: list[str] = Field(default_factory=list, max_length=99)
+    attached_services: list[AttachedServiceInput] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_sellable_target(self) -> "CheckoutItem":
+        is_used_device = self.used_device_id is not None
+        is_catalog_item = self.product_id is not None
+        if is_used_device == is_catalog_item:
+            raise ValueError("Mỗi dòng hàng phải là một sản phẩm catalog hoặc một thiết bị cũ hợp lệ.")
+        if is_used_device and self.variant_id is not None:
+            raise ValueError("Dòng thiết bị cũ không được gửi kèm biến thể catalog.")
+        return self
 
 
 class ShippingInfo(BaseModel):

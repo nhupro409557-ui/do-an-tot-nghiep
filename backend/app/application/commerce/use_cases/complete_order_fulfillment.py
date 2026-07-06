@@ -1,4 +1,6 @@
 from .common import *
+from app.infrastructure.database.repositories import flash_sale_repo, used_product_repo
+from app.application.services.product_helper_service import sync_parent_price_from_variants
 
 
 def _clean_identifier_values(values: list | None) -> list[str]:
@@ -16,6 +18,21 @@ def _clean_identifier_values(values: list | None) -> list[str]:
 
 
 class CompleteOrderFulfillmentMixin:
+    async def _has_managed_return_request(self, order_id: UUID) -> bool:
+        return bool(await self._session.scalar(
+            text(
+                """
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM return_requests
+                    WHERE order_id = :order_id
+                      AND status NOT IN ('CANCELLED', 'REJECTED', 'CLOSED_EXPIRED')
+                )
+                """
+            ),
+            {"order_id": order_id},
+        ))
+
     async def expire_pending_orders(self, *, online_timeout_minutes: int = 15, cod_timeout_hours: int = 24) -> int:
         order_ids = await commerce_repo.list_pending_order_ids_to_expire(
             self._session,
@@ -73,6 +90,12 @@ class CompleteOrderFulfillmentMixin:
             order_id=order.id,
             status=reservation_status,
         )
+        await flash_sale_repo.release_order_flash_sale_quantities(self._session, order.id)
+        await used_product_repo.release_order_device_reservations(
+            self._session,
+            order_id=order.id,
+            order_code=order.order_code,
+        )
 
     async def _ship_order_items(self, order: Order, *, issue_allocations: list | None = None) -> None:
         if await commerce_repo.order_has_inventory_adjustment_reason(
@@ -90,6 +113,11 @@ class CompleteOrderFulfillmentMixin:
                 self._session,
                 order_id=order.id,
                 status="CONSUMED",
+            )
+            await used_product_repo.mark_order_devices_sold(
+                self._session,
+                order_id=order.id,
+                order_code=order.order_code,
             )
             return
 
@@ -120,6 +148,8 @@ class CompleteOrderFulfillmentMixin:
             )
 
         for item in await commerce_repo.list_restock_items(self._session, order_id=order.id, order_code=order.order_code):
+            if item.get("used_device_id"):
+                continue
             quantity = int(item["quantity"] or 0)
             variant_id = item["order_variant_id"] or item["variant_id"]
             manual_allocations = allocations_by_item_id.get(str(item["id"]), [])
@@ -175,6 +205,7 @@ class CompleteOrderFulfillmentMixin:
                 if new_quantity < 0:
                     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Not enough stock for {item['product_name']}.")
                 await commerce_repo.update_variant_stock(self._session, variant_id=variant_id, quantity=new_quantity)
+                await sync_parent_price_from_variants(self._session, inventory_row["product_id"])
                 try:
                     if manual_allocations:
                         allocations = await commerce_repo.deduct_inventory_levels_from_locations(
@@ -327,6 +358,11 @@ class CompleteOrderFulfillmentMixin:
             self._session,
             order_id=order.id,
             status="CONSUMED",
+        )
+        await used_product_repo.mark_order_devices_sold(
+            self._session,
+            order_id=order.id,
+            order_code=order.order_code,
         )
 
     async def _resolve_identifier_allocations(
@@ -483,7 +519,11 @@ class CompleteOrderFulfillmentMixin:
                 text(
                     """
                     UPDATE product_imeis
-                    SET status = 'SOLD', sold_at = NOW(), sold_order_id = :order_id, updated_at = NOW()
+                    SET status = 'SOLD',
+                        location_id = NULL,
+                        sold_at = NOW(),
+                        sold_order_id = :order_id,
+                        updated_at = NOW()
                     WHERE product_id = :product_id
                       AND variant_id IS NOT DISTINCT FROM :variant_id
                       AND location_id = :location_id
@@ -507,6 +547,7 @@ class CompleteOrderFulfillmentMixin:
                     """
                     UPDATE product_serial_numbers
                     SET status = 'SOLD',
+                        location_id = NULL,
                         sold_at = NOW(),
                         service_payload = COALESCE(service_payload, '{}'::jsonb)
                             || jsonb_build_object('soldOrderId', CAST(:order_id AS TEXT)),
@@ -542,7 +583,11 @@ class CompleteOrderFulfillmentMixin:
             text(
                 """
                 UPDATE product_imeis
-                SET status = 'SOLD', sold_at = NOW(), sold_order_id = :order_id, updated_at = NOW()
+                SET status = 'SOLD',
+                    location_id = NULL,
+                    sold_at = NOW(),
+                    sold_order_id = :order_id,
+                    updated_at = NOW()
                 WHERE id IN (
                     SELECT id FROM product_imeis
                     WHERE product_id = :product_id
@@ -568,6 +613,7 @@ class CompleteOrderFulfillmentMixin:
                 """
                 UPDATE product_serial_numbers
                 SET status = 'SOLD',
+                    location_id = NULL,
                     sold_at = NOW(),
                     service_payload = COALESCE(service_payload, '{}'::jsonb)
                         || jsonb_build_object('soldOrderId', CAST(:order_id AS TEXT)),
@@ -595,6 +641,8 @@ class CompleteOrderFulfillmentMixin:
 
     async def _restock_order_items(self, order: Order) -> None:
         for item in await commerce_repo.list_restock_items(self._session, order_id=order.id, order_code=order.order_code):
+            if item.get("used_device_id"):
+                continue
             quantity = int(item["quantity"] or 0)
             variant_id = item["order_variant_id"] or item["variant_id"]
             if variant_id:
@@ -604,6 +652,7 @@ class CompleteOrderFulfillmentMixin:
                 old_quantity = int(inventory_row["stock_quantity"] or 0)
                 new_quantity = old_quantity + quantity
                 await commerce_repo.update_variant_stock(self._session, variant_id=variant_id, quantity=new_quantity)
+                await sync_parent_price_from_variants(self._session, inventory_row["product_id"])
                 await commerce_repo.insert_inventory_adjustment(
                     self._session,
                     product_id=inventory_row["product_id"],
@@ -648,6 +697,16 @@ class CompleteOrderFulfillmentMixin:
                 """
             ),
             {"order_id": order.id},
+        )
+        await used_product_repo.release_order_device_reservations(
+            self._session,
+            order_id=order.id,
+            order_code=order.order_code,
+        )
+        await used_product_repo.mark_order_devices_returned_qc(
+            self._session,
+            order_id=order.id,
+            order_code=order.order_code,
         )
 
     def _send_order_status_email(self, *, order: Order, user: User | None) -> None:

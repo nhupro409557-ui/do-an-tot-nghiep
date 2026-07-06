@@ -8,18 +8,29 @@ from app.api.schemas.admin import (
     InventoryAdjustmentPayload,
     InventoryAdjustmentRequestPayload,
     InventoryAdjustmentRequestStatusPayload,
+    InventoryCostAdjustmentPayload,
+    InventoryCostAdjustmentStatusPayload,
+    InventoryDisposalPayload,
+    InventoryDisposalStatusPayload,
     InventoryIdentifierEditDecisionPayload,
     InventoryIdentifierEditRequestPayload,
+    InventoryIdentifierLocationRequestPayload,
+    InventoryInternalHoldPayload,
+    InventoryInternalHoldStatusPayload,
     InventoryLocationPayload,
     InventoryLocationStatusPayload,
+    InventoryReceiptAttachmentDecisionPayload,
+    InventoryReceiptAttachmentsPayload,
     InventoryReceiptImeiPayload,
     InventoryReceiptPayload,
     InventoryReceiptQualityPayload,
     InventoryReceiptReversePayload,
-    InventoryReceiptStatusPayload,
+    InventoryReceiptStatusPayload, InventoryOutboundStatusPayload,
     InventorySettingsPayload,
     InventoryStockCountPayload,
     InventoryStockCountStatusPayload,
+    InventoryTransferPayload,
+    InventoryTransferStatusPayload,
     VariantInventoryPayload,
     InventoryPutawaySuggestion,
 )
@@ -123,6 +134,15 @@ async def get_inventory_aging_report(
     return await inventory_service.get_inventory_aging_report(session, search, bucket)
 
 
+@router.get("/inventory/reports/reconciliation", dependencies=[Depends(require_permission("inventory:read"))])
+async def get_inventory_reconciliation_report(
+    search: str = Query(default=""),
+    issue_type: str = Query(default="", alias="issueType"),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await inventory_service.get_inventory_reconciliation_report(session, search, issue_type)
+
+
 @router.get("/inventory/ledger", dependencies=[Depends(require_permission("inventory:read"))])
 async def list_inventory_ledger(
     search: str = Query(default=""),
@@ -192,6 +212,19 @@ async def list_inventory_identifier_edit_requests(
     return await inventory_service.list_inventory_identifier_edit_requests(session, status_filter)
 
 
+@router.get("/inventory/stock-counts/due", dependencies=[Depends(require_permission("inventory:read"))])
+async def list_products_due_for_cycle_count(
+    due_only: bool = Query(default=False, alias="dueOnly"),
+    search: str = Query(default=""),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await inventory_service.list_products_due_for_cycle_count(
+        session,
+        due_only=due_only,
+        search=search,
+    )
+
+
 @router.get("/inventory/stock-counts", dependencies=[Depends(require_permission("inventory:read"))])
 async def list_inventory_stock_counts(
     search: str = Query(default=""),
@@ -246,6 +279,114 @@ async def update_inventory_adjustment_status(
     return await inventory_service.update_inventory_adjustment_status(session, reference_code, payload, current_user_id)
 
 
+@router.get("/inventory/transfers", dependencies=[Depends(require_permission("inventory:read"))])
+async def list_inventory_transfers(
+    search: str = Query(default=""),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await inventory_service.list_inventory_transfers(session, search)
+
+
+@router.post("/inventory/transfers", dependencies=[Depends(require_permission("inventory:adjust"))])
+async def create_inventory_transfer_request(
+    payload: InventoryTransferPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.create_inventory_transfer_request(session, payload, current_user_id)
+
+
+@router.patch("/inventory/transfers/{reference_code}/status", dependencies=[Depends(require_super_admin)])
+async def update_inventory_transfer_status(
+    reference_code: str,
+    payload: InventoryTransferStatusPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.update_inventory_transfer_status(session, reference_code, payload, current_user_id)
+
+
+@router.get("/inventory/internal-holds", dependencies=[Depends(require_permission("inventory:read"))])
+async def list_inventory_internal_holds(
+    search: str = Query(default=""),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await inventory_service.list_inventory_internal_holds(session, search)
+
+
+@router.post("/inventory/internal-holds", dependencies=[Depends(require_permission("inventory:reserve"))])
+async def create_inventory_internal_hold(
+    payload: InventoryInternalHoldPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.create_inventory_internal_hold(session, payload, current_user_id)
+
+
+@router.patch("/inventory/internal-holds/{reference_code}/status", dependencies=[Depends(require_super_admin)])
+async def update_inventory_internal_hold_status(
+    reference_code: str,
+    payload: InventoryInternalHoldStatusPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.update_inventory_internal_hold_status(session, reference_code, payload, current_user_id)
+
+
+@router.get("/inventory/disposals", dependencies=[Depends(require_permission("inventory:read"))])
+async def list_inventory_disposals(
+    search: str = Query(default=""),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await inventory_service.list_inventory_disposals(session, search)
+
+
+@router.post("/inventory/disposals", dependencies=[Depends(require_permission("inventory:adjust"))])
+async def create_inventory_disposal(
+    payload: InventoryDisposalPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.create_inventory_disposal(session, payload, current_user_id)
+
+
+@router.patch("/inventory/disposals/{reference_code}/status", dependencies=[Depends(require_super_admin)])
+async def update_inventory_disposal_status(
+    reference_code: str,
+    payload: InventoryDisposalStatusPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.update_inventory_disposal_status(session, reference_code, payload, current_user_id)
+
+
+@router.get("/inventory/cost-adjustments", dependencies=[Depends(require_permission("inventory:read"))])
+async def list_inventory_cost_adjustments(
+    search: str = Query(default=""),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await inventory_service.list_inventory_cost_adjustments(session, search)
+
+
+@router.post("/inventory/cost-adjustments", dependencies=[Depends(require_permission("inventory:adjust"))])
+async def create_inventory_cost_adjustment(
+    payload: InventoryCostAdjustmentPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.create_inventory_cost_adjustment(session, payload, current_user_id)
+
+
+@router.patch("/inventory/cost-adjustments/{reference_code}/status", dependencies=[Depends(require_super_admin)])
+async def update_inventory_cost_adjustment_status(
+    reference_code: str,
+    payload: InventoryCostAdjustmentStatusPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.update_inventory_cost_adjustment_status(session, reference_code, payload, current_user_id)
+
+
 @router.post("/inventory/identifier-edit-requests", dependencies=[Depends(require_permission("inventory:adjust"))])
 async def create_inventory_identifier_edit_request(
     payload: InventoryIdentifierEditRequestPayload,
@@ -263,6 +404,33 @@ async def decide_inventory_identifier_edit_request(
     current_user_id: UUID = Depends(get_current_user_id),
 ) -> dict:
     return await inventory_service.decide_inventory_identifier_edit_request(session, request_id, payload, current_user_id)
+
+
+@router.get("/inventory/identifier-location-requests", dependencies=[Depends(require_permission("inventory:read"))])
+async def list_inventory_identifier_location_requests(
+    status: str = Query(default="PENDING"),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await inventory_service.list_inventory_identifier_location_requests(session, status)
+
+
+@router.post("/inventory/identifier-location-requests", dependencies=[Depends(require_permission("inventory:adjust"))])
+async def create_inventory_identifier_location_request(
+    payload: InventoryIdentifierLocationRequestPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.create_inventory_identifier_location_request(session, payload, current_user_id)
+
+
+@router.patch("/inventory/identifier-location-requests/{request_id}", dependencies=[Depends(require_super_admin)])
+async def decide_inventory_identifier_location_request(
+    request_id: UUID,
+    payload: InventoryIdentifierEditDecisionPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.decide_inventory_identifier_location_request(session, request_id, payload, current_user_id)
 
 
 # Receipts
@@ -334,6 +502,26 @@ async def update_inventory_receipt_quality(
     current_user_id: UUID = Depends(get_current_user_id),
 ) -> dict:
     return await inventory_service.update_inventory_receipt_quality(session, reference_code, payload, current_user_id)
+
+
+@router.patch("/inventory/receipts/{reference_code}/attachments", dependencies=[Depends(require_permission("inventory:adjust"))])
+async def update_inventory_receipt_attachments(
+    reference_code: str,
+    payload: InventoryReceiptAttachmentsPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.update_inventory_receipt_attachments(session, reference_code, payload, current_user_id)
+
+
+@router.patch("/inventory/receipts/{reference_code}/attachments/decision", dependencies=[Depends(require_super_admin)])
+async def decide_inventory_receipt_attachments(
+    reference_code: str,
+    payload: InventoryReceiptAttachmentDecisionPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.decide_inventory_receipt_attachments(session, reference_code, payload, current_user_id)
 
 
 @router.delete("/inventory/receipts/{reference_code}", dependencies=[Depends(require_permission("inventory:adjust"))])
@@ -468,16 +656,18 @@ async def update_inventory_outbound(
 @router.patch("/inventory/outbounds/{document_no}/status", dependencies=[Depends(require_permission("inventory:adjust"))])
 async def update_inventory_outbound_status(
     document_no: str,
-    payload: InventoryReceiptStatusPayload,
+    payload: InventoryOutboundStatusPayload,
     session: AsyncSession = Depends(get_session),
     current_user_id: UUID = Depends(get_current_user_id),
     current_role_code: str = Depends(get_current_role_code),
 ) -> dict:
-    return await inventory_service.post_outbound_document(
+    return await inventory_service.update_outbound_document_status(
         session,
         document_no,
-        current_user_id,
-        current_role_code,
+        status_value=payload.status,
+        cancel_reason=payload.cancelReason,
+        current_user_id=current_user_id,
+        current_role_code=current_role_code,
     )
 
 

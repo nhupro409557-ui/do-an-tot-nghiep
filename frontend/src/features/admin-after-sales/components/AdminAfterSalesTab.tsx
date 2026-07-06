@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { adminAfterSalesApi } from '../services/adminAfterSalesApi';
+import { API_BASE_URL } from '../../../services/apiClient';
 
 const statusLabel: Record<string, string> = {
   SUBMITTED: 'Đã gửi yêu cầu',
@@ -82,6 +83,25 @@ const statusStyles: Record<string, { bg: string; text: string; border: string }>
   CLOSED_EXPIRED: { bg: 'bg-slate-100', text: 'text-slate-500', border: 'border-slate-200' },
 };
 
+const uploadBaseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
+
+const resolveAttachmentUrl = (url: string | undefined) => {
+  if (!url) return '#';
+  if (/^https?:\/\//i.test(url)) return url;
+  const normalized = url.startsWith('/') ? url : `/${url}`;
+  return `${uploadBaseUrl}${normalized}`;
+};
+
+const isImageAttachment = (contentType: string | undefined) => String(contentType || '').startsWith('image/');
+const isVideoAttachment = (contentType: string | undefined) => String(contentType || '').startsWith('video/');
+
+const formatAttachmentSize = (value: unknown) => {
+  const bytes = Number(value || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return '';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024)).toLocaleString('vi-VN')} KB`;
+  return `${(bytes / (1024 * 1024)).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} MB`;
+};
+
 const returnActions: Record<string, string[]> = {
   SUBMITTED: ['RECEIVED', 'REJECTED'],
   RECEIVED: ['QC_IN_PROGRESS', 'REJECTED'],
@@ -104,6 +124,45 @@ const warrantyActions: Record<string, string[]> = {
   READY_TO_RETURN: ['COMPLETED'],
 };
 
+type ReplacementIdentifierDraft = {
+  imeis: string;
+  serialNumbers: string;
+};
+
+const splitIdentifierValues = (value: string) => (
+  value
+    .split(/[\s,;]+/)
+    .map(item => item.trim())
+    .filter(Boolean)
+);
+
+const needsReplacementIdentifiers = (
+  section: 'returns' | 'warranties' | 'defective',
+  request: any,
+  targetStatus: string,
+) => {
+  const requestItems = request?.items || [];
+  const alreadyAssigned = requestItems.length > 0 && requestItems.every((item: any) => (
+    (item?.replacementImeis || []).length > 0
+    || (item?.replacementSerialNumbers || []).length > 0
+    || String(item?.replacementImei || '').trim()
+  ));
+  if (alreadyAssigned) return false;
+  if (section === 'returns') {
+    return request?.status === 'EXCHANGE_PROCESSING' && targetStatus === 'COMPLETED';
+  }
+  if (section === 'warranties') {
+    return (
+      request?.status === 'REPLACEMENT_PROCESSING' && ['READY_TO_RETURN', 'COMPLETED'].includes(targetStatus)
+    ) || (
+      request?.status === 'READY_TO_RETURN'
+      && targetStatus === 'COMPLETED'
+      && request?.resolutionType === 'REPLACEMENT'
+    );
+  }
+  return false;
+};
+
 export default function AdminAfterSalesTab() {
   const [section, setSection] = useState<'returns' | 'warranties' | 'defective'>('returns');
   const [returns, setReturns] = useState<any[]>([]);
@@ -117,13 +176,18 @@ export default function AdminAfterSalesTab() {
   const [modalRequest, setModalRequest] = useState<any>(null);
   const [modalTargetStatus, setModalTargetStatus] = useState('');
   const [note, setNote] = useState('');
-  const [replacementImei, setReplacementImei] = useState('');
+  const [replacementIdentifiers, setReplacementIdentifiers] = useState<Record<string, ReplacementIdentifierDraft>>({});
   const [depreciationFee, setDepreciationFee] = useState('');
+  const [refundTransactionRef, setRefundTransactionRef] = useState('');
+  const [refundProofUrl, setRefundProofUrl] = useState('');
+  const [refundNote, setRefundNote] = useState('');
   const [repairDiagnosis, setRepairDiagnosis] = useState('');
   const [repairAction, setRepairAction] = useState('');
   const [repairParts, setRepairParts] = useState('');
   const [repairCost, setRepairCost] = useState('');
   const [busy, setBusy] = useState(false);
+  const [qcResult, setQcResult] = useState('');
+  const [customerFault, setCustomerFault] = useState(false);
 
   // States dành cho Modal xem chi tiết
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -173,12 +237,25 @@ export default function AdminAfterSalesTab() {
     setModalRequest(item);
     setModalTargetStatus(status);
     setNote('');
-    setReplacementImei('');
+    setReplacementIdentifiers(Object.fromEntries(
+      (item.items || []).map((requestItem: any) => [
+        requestItem.id,
+        {
+          imeis: (requestItem.replacementImeis || [requestItem.replacementImei].filter(Boolean)).join('\n'),
+          serialNumbers: (requestItem.replacementSerialNumbers || []).join('\n'),
+        },
+      ]),
+    ));
     setDepreciationFee(String(item.depreciationFee || ''));
+    setRefundTransactionRef('');
+    setRefundProofUrl('');
+    setRefundNote('');
     setRepairDiagnosis(String(item.repairSummary?.diagnosis || ''));
     setRepairAction(String(item.repairSummary?.action || ''));
     setRepairParts(String(item.repairSummary?.parts || ''));
     setRepairCost(item.repairSummary?.cost ? String(item.repairSummary.cost) : '');
+    setQcResult(item.status === 'QC_IN_PROGRESS' ? (section === 'returns' ? 'APPROVE_EXCHANGE' : 'ACCEPT_REPAIR') : '');
+    setCustomerFault(false);
     setShowAdvanceModal(true);
   };
 
@@ -187,13 +264,87 @@ export default function AdminAfterSalesTab() {
     e.preventDefault();
     if (!modalRequest) return;
 
-    // Validate IMEI thay thế nếu hoàn tất đổi máy
-    const needsImei = modalTargetStatus === 'COMPLETED' && ['EXCHANGE_PROCESSING', 'REPLACEMENT_PROCESSING'].includes(modalRequest.status);
-    if (needsImei && !replacementImei.trim()) {
-      alert('Vui lòng nhập số IMEI của máy mới thay thế.');
+    if (modalRequest.status === 'QC_IN_PROGRESS') {
+      if (note.trim().length < 10) {
+        alert('Vui lòng nhập đánh giá QC chi tiết (tối thiểu 10 ký tự).');
+        return;
+      }
+      setBusy(true);
+      try {
+        const api = section === 'returns' ? adminAfterSalesApi.inspectReturn : adminAfterSalesApi.inspectWarranty;
+        await api(modalRequest.id, {
+          result: qcResult,
+          qc_note: note.trim(),
+          customer_fault: customerFault,
+          depreciation_fee: section === 'returns' ? Number(depreciationFee || 0) : 0,
+        });
+        setShowAdvanceModal(false);
+        await load();
+        if (detailRequest && detailRequest.id === modalRequest.id) {
+          const list = section === 'returns' ? returns : warranties;
+          const updated = list.find(r => r.id === modalRequest.id);
+          if (updated) setDetailRequest(updated);
+        }
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Không thể ghi nhận kết quả QC.');
+      } finally {
+        setBusy(false);
+      }
       return;
     }
 
+    const needsIdentifiers = needsReplacementIdentifiers(section, modalRequest, modalTargetStatus);
+    const replacementItems = (modalRequest.items || []).map((requestItem: any) => {
+      const draft = replacementIdentifiers[requestItem.id] || { imeis: '', serialNumbers: '' };
+      return {
+        request_item_id: requestItem.id,
+        imeis: splitIdentifierValues(draft.imeis),
+        serial_numbers: splitIdentifierValues(draft.serialNumbers),
+      };
+    });
+    if (needsIdentifiers) {
+      for (let index = 0; index < replacementItems.length; index += 1) {
+        const replacementItem = replacementItems[index];
+        const requestItem = modalRequest.items[index];
+        const quantity = Number(requestItem.quantity || 1);
+        if (!replacementItem.imeis.length && !replacementItem.serial_numbers.length) {
+          alert(`Vui lòng nhập IMEI hoặc serial thay thế cho ${requestItem.productName}.`);
+          return;
+        }
+        if (replacementItem.imeis.length && replacementItem.imeis.length !== quantity) {
+          alert(`Số IMEI thay thế của ${requestItem.productName} phải bằng số lượng ${quantity}.`);
+          return;
+        }
+        if (replacementItem.serial_numbers.length && replacementItem.serial_numbers.length !== quantity) {
+          alert(`Số serial thay thế của ${requestItem.productName} phải bằng số lượng ${quantity}.`);
+          return;
+        }
+      }
+    }
+
+    const needsRefundProof = section === 'returns' && modalTargetStatus === 'COMPLETED' && modalRequest.status === 'REFUND_PROCESSING';
+    if (needsRefundProof) {
+      if (!refundTransactionRef.trim()) {
+        alert('Vui lòng nhập mã giao dịch hoặc chứng từ hoàn tiền.');
+        return;
+      }
+      if (!refundProofUrl.trim()) {
+        alert('Vui lòng cung cấp link hình ảnh/chứng từ hoàn tiền (proof URL).');
+        return;
+      }
+    }
+
+    const needsRepairDetails = section === 'warranties' && ['READY_TO_RETURN', 'COMPLETED'].includes(modalTargetStatus) && modalRequest.resolutionType === 'REPAIR';
+    if (needsRepairDetails) {
+      if (!repairDiagnosis.trim()) {
+        alert('Vui lòng nhập chẩn đoán lỗi.');
+        return;
+      }
+      if (!repairAction.trim()) {
+        alert('Vui lòng nhập hướng xử lý.');
+        return;
+      }
+    }
     setBusy(true);
     try {
       const resolutionType = modalTargetStatus === 'QC_APPROVED' ? 'EXCHANGE' :
@@ -205,7 +356,10 @@ export default function AdminAfterSalesTab() {
         status: modalTargetStatus,
         resolution_type: resolutionType,
         note: note.trim() || undefined,
-        replacement_imei: replacementImei.trim() || undefined,
+        replacement_items: needsIdentifiers ? replacementItems : undefined,
+        refund_transaction_ref: needsRefundProof ? refundTransactionRef.trim() : undefined,
+        refund_proof_url: needsRefundProof ? refundProofUrl.trim() || undefined : undefined,
+        refund_note: needsRefundProof ? refundNote.trim() || undefined : undefined,
         depreciation_fee: section === 'returns' ? Number(depreciationFee || 0) : 0,
         repair_diagnosis: section === 'warranties' ? repairDiagnosis.trim() || undefined : undefined,
         repair_action: section === 'warranties' ? repairAction.trim() || undefined : undefined,
@@ -522,17 +676,26 @@ export default function AdminAfterSalesTab() {
                         Chi tiết
                       </button>
                       <div className="inline-flex gap-1.5">
-                        {(actions[item.status] || []).map(status => (
+                        {item.status === 'QC_IN_PROGRESS' ? (
                           <button
-                            key={status}
-                            onClick={() => handleOpenAdvanceModal(item, status)}
-                            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
-                              actionStyles[status] || 'bg-slate-800 text-white hover:bg-slate-750'
-                            }`}
+                            onClick={() => handleOpenAdvanceModal(item, 'QC_IN_PROGRESS')}
+                            className="rounded-lg px-3 py-1.5 text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition-all"
                           >
-                            {actionLabel[status] || status}
+                            Đánh giá QC
                           </button>
-                        ))}
+                        ) : (
+                          (actions[item.status] || []).map(status => (
+                            <button
+                              key={status}
+                              onClick={() => handleOpenAdvanceModal(item, status)}
+                              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
+                                actionStyles[status] || 'bg-slate-800 text-white hover:bg-slate-750'
+                              }`}
+                            >
+                              {actionLabel[status] || status}
+                            </button>
+                          ))
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -754,7 +917,7 @@ export default function AdminAfterSalesTab() {
                             {latest.partnerName && <div>{latest.partnerName}</div>}
                             {recoveryValue > 0 && <div className="font-bold text-emerald-700">{recoveryValue.toLocaleString('vi-VN')}đ</div>}
                           </div>
-                        ) : '-'}
+) : '-'}
                       </td>
                       <td className="p-4 text-right">
                         <button
@@ -783,104 +946,259 @@ export default function AdminAfterSalesTab() {
       {/* ================= MODAL CẬP NHẬT TRẠNG THÁI (ADVANCE STATUS) ================= */}
       {showAdvanceModal && modalRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-          <div className="relative w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+          <div className="relative max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
             <h3 className="text-base font-extrabold text-slate-900">
               Cập nhật hồ sơ {modalRequest.requestCode}
             </h3>
             <p className="mt-1.5 text-xs text-slate-400 font-medium">
-              Chuyển trạng thái từ <span className="underline">{statusLabel[modalRequest.status]}</span> sang <span className="font-bold text-slate-900">{actionLabel[modalTargetStatus]}</span>.
+              Trạng thái hiện tại: <span className="underline font-bold text-slate-700">{statusLabel[modalRequest.status]}</span>
+              {modalRequest.status !== 'QC_IN_PROGRESS' && (
+                <>
+                  {' '}| Chuyển sang: <span className="font-bold text-slate-900">{actionLabel[modalTargetStatus]}</span>
+                </>
+              )}
             </p>
 
             <form onSubmit={handleConfirmAdvance} className="mt-5 space-y-4">
-              {/* Nếu là trạng thái đổi máy, yêu cầu nhập IMEI mới */}
-              {modalTargetStatus === 'COMPLETED' && ['EXCHANGE_PROCESSING', 'REPLACEMENT_PROCESSING'].includes(modalRequest.status) && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">IMEI Thiết bị Thay thế *</label>
-                  <input
-                    type="text"
-                    value={replacementImei}
-                    onChange={e => setReplacementImei(e.target.value)}
-                    placeholder="Nhập mã IMEI của máy mới cấp"
-                    className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
-                    required
-                  />
-                  <span className="text-[10px] text-slate-400">Thiết bị thay thế phải có sẵn trong kho hàng.</span>
-                </div>
-              )}
+              {modalRequest.status === 'QC_IN_PROGRESS' ? (
+                <div className="space-y-4 rounded-xl border border-blue-100 bg-blue-50/20 p-4">
+                  <div className="text-xs font-bold uppercase tracking-wider text-blue-800 mb-2">Đánh giá QC Chuyên dụng</div>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Kết quả QC *</span>
+                    <select
+                      value={qcResult}
+                      onChange={e => setQcResult(e.target.value)}
+                      className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none bg-white"
+                    >
+                      {section === 'returns' ? (
+                        <>
+                          <option value="APPROVE_EXCHANGE">Đồng ý Đổi máy mới (EXCHANGE)</option>
+                          <option value="APPROVE_REFUND">Đồng ý Hoàn tiền (REFUND)</option>
+                          <option value="REJECT">Từ chối / Trả lại thiết bị cũ</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="ACCEPT_REPAIR">Đồng ý Nhận sửa chữa (REPAIR)</option>
+                          <option value="APPROVE_REPLACEMENT">Đồng ý Đổi máy mới (REPLACEMENT)</option>
+                          <option value="REJECT">Từ chối / Không bảo hành</option>
+                        </>
+                      )}
+                    </select>
+                  </label>
 
-              {/* Ghi chú xử lý */}
-              {section === 'returns' && (modalTargetStatus === 'REFUND_PROCESSING' || (modalTargetStatus === 'COMPLETED' && modalRequest.status === 'REFUND_PROCESSING')) && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Phí khấu hao / nhập lại</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={depreciationFee}
-                    onChange={(event) => setDepreciationFee(event.target.value)}
-                    placeholder="0"
-                    className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
-                  />
-                  <span className="text-[10px] text-slate-400">Khoản phí này sẽ được trừ khỏi số tiền hoàn thực tế.</span>
-                </div>
-              )}
+                  <label className="flex items-center gap-2 py-1 select-none">
+                    <input
+                      type="checkbox"
+                      checked={customerFault}
+                      onChange={e => setCustomerFault(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                    />
+                    <span className="text-sm font-semibold text-slate-700">Lỗi do khách hàng (Customer Fault)</span>
+                  </label>
 
-              {section === 'warranties' && ['WARRANTY_ACCEPTED', 'REPAIRING', 'READY_TO_RETURN', 'COMPLETED'].includes(modalTargetStatus) && (
-                <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3">
-                  <div className="mb-3 text-xs font-bold uppercase tracking-wider text-amber-800">Chi tiết sửa chữa / bảo hành</div>
-                  <div className="space-y-3">
+                  {section === 'returns' && (
                     <label className="flex flex-col gap-1.5">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Chẩn đoán lỗi</span>
-                      <textarea
-                        value={repairDiagnosis}
-                        onChange={e => setRepairDiagnosis(e.target.value)}
-                        placeholder="Ví dụ: lỗi main, mất nguồn, pin chai, lỗi màn hình..."
-                        className="min-h-16 rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Phí khấu hao / nhập lại</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={depreciationFee}
+                        onChange={e => setDepreciationFee(e.target.value)}
+                        placeholder="0"
+                        className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
                       />
+                      <span className="text-[10px] text-slate-400">Trừ trực tiếp vào số tiền hoàn lại nếu có khấu hao ngoại quan/phụ kiện.</span>
                     </label>
-                    <label className="flex flex-col gap-1.5">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Hướng xử lý</span>
-                      <textarea
-                        value={repairAction}
-                        onChange={e => setRepairAction(e.target.value)}
-                        placeholder="Sửa chữa, thay linh kiện, vệ sinh, cập nhật phần mềm, trả máy..."
-                        className="min-h-16 rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
-                      />
-                    </label>
-                    <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
-                      <label className="flex flex-col gap-1.5">
-                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Linh kiện / vật tư</span>
-                        <input
-                          value={repairParts}
-                          onChange={e => setRepairParts(e.target.value)}
-                          placeholder="Pin, màn hình, cáp sạc..."
-                          className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1.5">
-                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Chi phí</span>
-                        <input
-                          type="number"
-                          min={0}
-                          value={repairCost}
-                          onChange={e => setRepairCost(e.target.value)}
-                          placeholder="0"
-                          className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
-                        />
-                      </label>
+                  )}
+
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Đánh giá chất lượng / Chi tiết QC *</span>
+                    <textarea
+                      value={note}
+                      onChange={e => setNote(e.target.value)}
+                      placeholder="Nhập chẩn đoán tình trạng ngoại quan, linh kiện, khóa tài khoản... (Tối thiểu 10 ký tự)"
+                      className="min-h-24 rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                      required
+                    />
+                  </label>
+                </div>
+              ) : (
+                <>
+                  {needsReplacementIdentifiers(section, modalRequest, modalTargetStatus) && (
+                    <div className="space-y-3 rounded-xl border border-cyan-100 bg-cyan-50/30 p-4">
+                      <div>
+                        <div className="text-xs font-bold uppercase tracking-wider text-cyan-800">
+                          Mã định danh thiết bị thay thế
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Mỗi dòng phải có IMEI hoặc serial. Nếu sản phẩm quản lý cả hai, có thể nhập một mã để hệ thống tự đối chiếu cặp.
+                        </p>
+                      </div>
+                      {(modalRequest.items || []).map((requestItem: any) => {
+                        const draft = replacementIdentifiers[requestItem.id] || { imeis: '', serialNumbers: '' };
+                        return (
+                          <div key={requestItem.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-sm font-bold text-slate-900">{requestItem.productName}</div>
+                              <span className="text-xs font-semibold text-slate-500">Số lượng: {requestItem.quantity}</span>
+                            </div>
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <label className="flex flex-col gap-1.5">
+                                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">IMEI thay thế</span>
+                                <textarea
+                                  value={draft.imeis}
+                                  onChange={(event) => setReplacementIdentifiers(current => ({
+                                    ...current,
+                                    [requestItem.id]: {
+                                      ...(current[requestItem.id] || draft),
+                                      imeis: event.target.value,
+                                    },
+                                  }))}
+                                  rows={3}
+                                  placeholder="Mỗi IMEI một dòng"
+                                  className="rounded-xl border border-slate-200 p-3 font-mono text-sm focus:border-slate-900 focus:outline-none"
+                                />
+                              </label>
+                              <label className="flex flex-col gap-1.5">
+                                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Serial thay thế</span>
+                                <textarea
+                                  value={draft.serialNumbers}
+                                  onChange={(event) => setReplacementIdentifiers(current => ({
+                                    ...current,
+                                    [requestItem.id]: {
+                                      ...(current[requestItem.id] || draft),
+                                      serialNumbers: event.target.value,
+                                    },
+                                  }))}
+                                  rows={3}
+                                  placeholder="Mỗi serial một dòng"
+                                  className="rounded-xl border border-slate-200 p-3 font-mono text-sm focus:border-slate-900 focus:outline-none"
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <span className="block text-[10px] text-slate-400">
+                        Các mã phải đang ở trạng thái sẵn sàng và nằm tại cùng vị trí kho của từng thiết bị.
+                      </span>
                     </div>
-                  </div>
-                </div>
-              )}
+                  )}
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ghi chú Xử lý (Nội bộ)</label>
-                <textarea
-                  value={note}
-                  onChange={e => setNote(e.target.value)}
-                  placeholder="Điền thông tin ghi chú cho hành động này (tùy chọn)"
-                  className="min-h-24 rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
-                />
-              </div>
+                  {/* Ghi chú xử lý */}
+                  {section === 'returns' && (modalTargetStatus === 'REFUND_PROCESSING' || (modalTargetStatus === 'COMPLETED' && modalRequest.status === 'REFUND_PROCESSING')) && (
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Phí khấu hao / nhập lại</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={depreciationFee}
+                        onChange={(event) => setDepreciationFee(event.target.value)}
+                        placeholder="0"
+                        className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                      />
+                      <span className="text-[10px] text-slate-400">Khoản phí này sẽ được trừ khỏi số tiền hoàn thực tế.</span>
+                    </div>
+                  )}
+
+                  {section === 'returns' && modalTargetStatus === 'COMPLETED' && modalRequest.status === 'REFUND_PROCESSING' && (
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
+                      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-800">Chứng từ hoàn tiền</div>
+                      <div className="space-y-3">
+                        <label className="flex flex-col gap-1.5">
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mã giao dịch / chứng từ *</span>
+                          <input
+                            value={refundTransactionRef}
+                            onChange={e => setRefundTransactionRef(e.target.value)}
+                            placeholder="Ví dụ: REF-20260705-001, UNC ngân hàng..."
+                            className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                            required
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Link chứng từ *</span>
+                          <input
+                            value={refundProofUrl}
+                            onChange={e => setRefundProofUrl(e.target.value)}
+                            placeholder="URL ảnh/PDF chứng từ"
+                            className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                            required
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ghi chú hoàn tiền</span>
+                          <textarea
+                            value={refundNote}
+                            onChange={e => setRefundNote(e.target.value)}
+                            placeholder="Ghi chú đối soát hoặc kênh hoàn tiền"
+                            className="min-h-16 rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {section === 'warranties' && ['WARRANTY_ACCEPTED', 'REPAIRING', 'READY_TO_RETURN', 'COMPLETED'].includes(modalTargetStatus) && (
+                    <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3">
+                      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-amber-800">Chi tiết sửa chữa / bảo hành</div>
+                      <div className="space-y-3">
+                        <label className="flex flex-col gap-1.5">
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Chẩn đoán lỗi *</span>
+                          <textarea
+                            value={repairDiagnosis}
+                            onChange={e => setRepairDiagnosis(e.target.value)}
+                            placeholder="Ví dụ: lỗi main, mất nguồn, pin chai, lỗi màn hình..."
+                            className="min-h-16 rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                            required={modalRequest.resolutionType === 'REPAIR'}
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Hướng xử lý *</span>
+                          <textarea
+                            value={repairAction}
+                            onChange={e => setRepairAction(e.target.value)}
+                            placeholder="Sửa chữa, thay linh kiện, vệ sinh, cập nhật phần mềm, trả máy..."
+                            className="min-h-16 rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                            required={modalRequest.resolutionType === 'REPAIR'}
+                          />
+                        </label>
+                        <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+                          <label className="flex flex-col gap-1.5">
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Linh kiện / vật tư</span>
+                            <input
+                              value={repairParts}
+                              onChange={e => setRepairParts(e.target.value)}
+                              placeholder="Pin, màn hình, cáp sạc..."
+                              className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Chi phí</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={repairCost}
+                              onChange={e => setRepairCost(e.target.value)}
+                              placeholder="0"
+                              className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ghi chú Xử lý (Nội bộ)</label>
+                    <textarea
+                      value={note}
+                      onChange={e => setNote(e.target.value)}
+                      placeholder="Điền thông tin ghi chú cho hành động này (tùy chọn)"
+                      className="min-h-24 rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Action buttons */}
               <div className="mt-6 flex justify-end gap-3.5 border-t border-slate-50 pt-4">
@@ -896,7 +1214,7 @@ export default function AdminAfterSalesTab() {
                   disabled={busy}
                   className="rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
                 >
-                  {busy ? 'Đang cập nhật...' : 'Xác nhận Chuyển'}
+                  {busy ? 'Đang cập nhật...' : (modalRequest.status === 'QC_IN_PROGRESS' ? 'Xác nhận Kết quả QC' : 'Xác nhận Chuyển')}
                 </button>
               </div>
             </form>
@@ -963,11 +1281,24 @@ export default function AdminAfterSalesTab() {
                     <div key={line.id} className="py-3 flex justify-between items-center text-xs">
                       <div>
                         <p className="font-bold text-slate-800">{line.productName}</p>
-                        <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-slate-400">
-                          {line.imei && <span>IMEI: <strong>{line.imei}</strong></span>}
-                          {line.serialNumber && <span>Serial: <strong>{line.serialNumber}</strong></span>}
-                        </div>
-                      </div>
+                         <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-slate-400">
+                           {line.imei && <span>IMEI: <strong>{line.imei}</strong></span>}
+                           {line.serialNumber && <span>Serial: <strong>{line.serialNumber}</strong></span>}
+                         </div>
+                         {((line.replacementImeis || []).length > 0 || (line.replacementSerialNumbers || []).length > 0) && (
+                           <div className="mt-2 rounded-lg bg-emerald-50 px-2 py-1.5 text-[10px] text-emerald-800">
+                             {(line.replacementImeis || []).length > 0 && (
+                               <div>IMEI thay thế: <strong>{line.replacementImeis.join(', ')}</strong></div>
+                             )}
+                             {(line.replacementSecondaryImeis || []).length > 0 && (
+                               <div>IMEI2 thay thế: <strong>{line.replacementSecondaryImeis.join(', ')}</strong></div>
+                             )}
+                             {(line.replacementSerialNumbers || []).length > 0 && (
+                               <div>Serial thay thế: <strong>{line.replacementSerialNumbers.join(', ')}</strong></div>
+                             )}
+                           </div>
+                         )}
+                       </div>
                       <div className="text-right font-semibold text-slate-500">
                         Số lượng: {line.quantity}
                       </div>
@@ -1072,29 +1403,57 @@ export default function AdminAfterSalesTab() {
               <div>
                 <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Tệp đính kèm / Minh chứng</h4>
 
-                {/* Giả lập xem các file hình ảnh/video minh họa vì DB chưa lưu liên kết trực tiếp */}
-                <div className="grid grid-cols-3 gap-3">
-                  {/* Trình bày mẫu Demo để nhân viên QC kiểm thử giao diện minh chứng */}
-                  <div className="relative group rounded-xl overflow-hidden border border-slate-200 aspect-video flex flex-col bg-slate-50 items-center justify-center p-2 text-center">
-                    <svg className="h-6 w-6 text-slate-400 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <span className="text-[9px] text-slate-400">Minh chứng lỗi màn hình.jpg</span>
-                    <a href="#" onClick={(e) => { e.preventDefault(); alert('Xem hình ảnh chi tiết lỗi đính kèm.'); }} className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[10px] font-bold text-white">Xem ảnh</a>
-                  </div>
+                {(detailRequest.attachments || []).length > 0 ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {(detailRequest.attachments || []).map((attachment: any) => {
+                      const url = resolveAttachmentUrl(attachment.url);
+                      const name = attachment.originalName || attachment.name || 'Tệp minh chứng';
+                      const size = formatAttachmentSize(attachment.sizeBytes);
 
-                  <div className="relative group rounded-xl overflow-hidden border border-slate-200 aspect-video flex flex-col bg-slate-50 items-center justify-center p-2 text-center">
-                    <svg className="h-6 w-6 text-slate-400 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                    <span className="text-[9px] text-slate-400">Video quay chi tiết lỗi.mp4</span>
-                    <a href="#" onClick={(e) => { e.preventDefault(); alert('Phát video quay lỗi của sản phẩm.'); }} className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[10px] font-bold text-white">Phát video</a>
+                      return (
+                        <a
+                          key={attachment.id || attachment.url}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="group overflow-hidden rounded-xl border border-slate-200 bg-white text-left shadow-sm transition hover:border-slate-300 hover:shadow-md"
+                        >
+                          <div className="flex aspect-video items-center justify-center bg-slate-50">
+                            {isImageAttachment(attachment.contentType) ? (
+                              <img src={url} alt={name} className="h-full w-full object-cover" />
+                            ) : isVideoAttachment(attachment.contentType) ? (
+                              <div className="flex flex-col items-center gap-2 text-slate-500">
+                                <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                                <span className="text-[11px] font-bold">Video minh chứng</span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-center gap-2 text-slate-500">
+                                <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                                <span className="text-[11px] font-bold">Tệp đính kèm</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-3">
+                            <div className="truncate text-xs font-bold text-slate-800" title={name}>{name}</div>
+                            <div className="mt-1 flex items-center justify-between gap-2 text-[10px] font-semibold text-slate-400">
+                              <span>{attachment.contentType || 'Không rõ định dạng'}</span>
+                              {size && <span>{size}</span>}
+                            </div>
+                            <div className="mt-2 text-[10px] font-bold text-slate-500 group-hover:text-slate-900">Mở tệp minh chứng</div>
+                          </div>
+                        </a>
+                      );
+                    })}
                   </div>
-
-                  <div className="rounded-xl border border-slate-100 border-dashed flex flex-col items-center justify-center text-center p-2">
-                    <span className="text-[9px] text-slate-350 italic">Không còn tệp đính kèm nào khác</span>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-center text-xs font-medium text-slate-400">
+                    Khách hàng chưa gửi tệp minh chứng cho hồ sơ này.
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Lịch sử nhật ký xử lý của admin */}
@@ -1111,19 +1470,30 @@ export default function AdminAfterSalesTab() {
             {/* Footer buttons */}
             <div className="mt-5 border-t border-slate-100 pt-4 flex justify-between items-center shrink-0">
               <div className="flex gap-1">
-                {(actions[detailRequest.status] || []).map(status => (
+                {detailRequest.status === 'QC_IN_PROGRESS' ? (
                   <button
-                    key={status}
                     onClick={() => {
-                      handleOpenAdvanceModal(detailRequest, status);
+                      handleOpenAdvanceModal(detailRequest, 'QC_IN_PROGRESS');
                     }}
-                    className={`rounded-xl px-3 py-2 text-xs font-bold transition-all ${
-                      actionStyles[status] || 'bg-slate-800 text-white'
-                    }`}
+                    className="rounded-xl px-3 py-2 text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition-all"
                   >
-                    {actionLabel[status]}
+                    Đánh giá QC
                   </button>
-                ))}
+                ) : (
+                  (actions[detailRequest.status] || []).map(status => (
+                    <button
+                      key={status}
+                      onClick={() => {
+                        handleOpenAdvanceModal(detailRequest, status);
+                      }}
+                      className={`rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+                        actionStyles[status] || 'bg-slate-800 text-white'
+                      }`}
+                    >
+                      {actionLabel[status]}
+                    </button>
+                  ))
+                )}
               </div>
               <button
                 type="button"

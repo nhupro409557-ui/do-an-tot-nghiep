@@ -9,7 +9,7 @@ async def restore_category(
 ) -> dict:
     affected_root_ids = await find_root_ids_for_categories(session, [category_id])
     if await category_repo.restore_category(session, category_id) == 0:
-        raise HTTPException(status_code=404, detail="Category not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục.")
     await category_repo.restore_hidden_children(session, category_id)
     await category_repo.restore_products_hidden_by_category(session, category_id)
     await audit_category_event(session, category_id, "CATEGORY_RESTORED", new_value={"status": "ACTIVE"}, actor_id=actor_id)
@@ -30,10 +30,10 @@ async def deactivate_category(
     await ensure_categories_not_migrating(session, [category_id])
     delete_blockers = await category_repo.get_category_delete_blockers(session, category_id)
     if not delete_blockers.get("exists"):
-        raise HTTPException(status_code=404, detail="Category not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy danh mục.")
     if delete_blockers.get("can_hard_delete"):
         if await category_repo.hard_delete_category(session, category_id) == 0:
-            raise HTTPException(status_code=404, detail="Category not found.")
+            raise HTTPException(status_code=404, detail="Không tìm thấy danh mục.")
         await enqueue_sitemap_refresh(session, "category", category_id, "CATEGORY_HARD_DELETED")
         await session.commit()
         enqueue_category_cache_refresh(background_tasks, redis, affected_root_ids=affected_root_ids, removed_root_ids=affected_root_ids)

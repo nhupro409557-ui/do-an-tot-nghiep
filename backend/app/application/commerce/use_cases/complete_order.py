@@ -24,10 +24,17 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
         changed_by: str | None = None,
         issue_allocations: list | None = None,
     ) -> None:
-        async with self._session.begin():
+        class AsyncNullContext:
+            async def __aenter__(self):
+                return None
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+        ctx = self._session.begin() if not self._session.in_transaction() else AsyncNullContext()
+        async with ctx:
             order = await commerce_repo.get_order_for_update(self._session, order_id)
             if order is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
 
             previous_status = order.status
             now = datetime.now(timezone.utc)
@@ -46,13 +53,13 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                 if status_value not in allowed_transitions:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
-                        detail=f"Cannot move order from {previous_status} to {status_value}.",
+                        detail=f"Không thể chuyển đơn hàng từ {previous_status} sang {status_value}.",
                     )
 
                 if status_value == "CANCELLED" and not (cancellation_reason or order.cancellation_reason):
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Cancellation reason is required when cancelling an order.",
+                        detail="Cần nhập lý do khi hủy đơn hàng.",
                     )
 
                 order.status = status_value
@@ -109,7 +116,7 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                         text(
                             """
                             UPDATE inventory_documents
-                            SET status = 'CANCELLED', updated_at = NOW(), updated_by = :actor_id
+                            SET status = 'CANCELLED', cancelled_at = NOW(), cancelled_by = :actor_id
                             WHERE order_id = :order_id AND document_type = 'OUTBOUND' AND status != 'COMPLETED'
                             """
                         ),
@@ -127,7 +134,8 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                     order.payment_status = "FAILED"
                     await self._release_or_restock_unshipped_order(order, reservation_status="EXPIRED")
                 if status_value == "RETURNED":
-                    await self._restock_order_items(order)
+                    if not await self._has_managed_return_request(order.id):
+                        await self._restock_order_items(order)
 
             if cancellation_reason is not None and order.status == "CANCELLED":
                 order.cancellation_reason = cancellation_reason.strip() or None

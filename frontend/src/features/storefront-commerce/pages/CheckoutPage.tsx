@@ -97,6 +97,7 @@ export default function CheckoutPage() {
   const [discount, setDiscount] = useState(0);
   const [voucherError, setVoucherError] = useState('');
   const [voucherHint, setVoucherHint] = useState('');
+  const [isValidatingVoucher, setIsValidatingVoucher] = useState(false);
   const [shippingQuote, setShippingQuote] = useState({ fee: 0, note: '' });
   const shippingQuoteRequestIdRef = useRef(0);
   const voucherValidationIdRef = useRef(0);
@@ -202,7 +203,7 @@ export default function CheckoutPage() {
   }, [addresses, checkedItems, selectedAddressId, shippingDetails.address, totalPrice]);
 
   const voucherProductKey = checkedItems
-    .map((item) => `${item.productId}:${item.quantity}:${item.price}`)
+    .map((item) => `${item.usedDeviceId || item.productId}:${item.quantity}:${item.price}`)
     .join('|');
 
   const voucherContext = (code: string, method: typeof paymentMethod) => [
@@ -220,6 +221,7 @@ export default function CheckoutPage() {
   ) => {
     const normalizedCode = code.trim().toUpperCase();
     if (!normalizedCode) return;
+    setIsValidatingVoucher(true);
     const validationId = voucherValidationIdRef.current + 1;
     voucherValidationIdRef.current = validationId;
     const context = voucherContext(normalizedCode, method);
@@ -256,6 +258,10 @@ export default function CheckoutPage() {
       setVoucherError('Không thể kiểm tra mã ưu đãi. Vui lòng thử lại.');
       setVoucherHint('');
       setDiscount(0);
+    } finally {
+      if (voucherValidationIdRef.current === validationId) {
+        setIsValidatingVoucher(false);
+      }
     }
   };
   const applyVoucherRef = useRef(applyVoucher);
@@ -276,6 +282,16 @@ export default function CheckoutPage() {
     setVoucherHint('');
   };
 
+  const removeVoucher = () => {
+    voucherValidationIdRef.current += 1;
+    validatedVoucherContextRef.current = '';
+    setVoucherCode('');
+    setAppliedVoucherCode('');
+    setDiscount(0);
+    setVoucherError('');
+    setVoucherHint('');
+  };
+
   const appliedVoucherContext = appliedVoucherCode
     ? voucherContext(appliedVoucherCode, paymentMethod)
     : '';
@@ -285,6 +301,16 @@ export default function CheckoutPage() {
     if (validatedVoucherContextRef.current === appliedVoucherContext) return;
     void applyVoucherRef.current(paymentMethod, appliedVoucherCode);
   }, [appliedVoucherCode, appliedVoucherContext, paymentMethod]);
+
+  useEffect(() => {
+    if (totalPrice <= 0) return;
+    const savedVoucher = localStorage.getItem('selectedVoucherCode');
+    if (savedVoucher) {
+      localStorage.removeItem('selectedVoucherCode');
+      setVoucherCode(savedVoucher.toUpperCase());
+      void applyVoucherRef.current(paymentMethod, savedVoucher);
+    }
+  }, [totalPrice, paymentMethod]);
 
   const selectSavedAddress = (address: AccountAddress) => {
     setSelectedAddressId(address.id);
@@ -383,10 +409,18 @@ export default function CheckoutPage() {
             price = item.price + item.attachedServices.reduce((sum, s) => sum + s.price, 0);
           }
           return {
-            product_id: item.productId.replace('-accessory', '').replace('-normal', ''),
+            product_id: item.isUsedDevice ? null : item.productId.replace('-accessory', '').replace('-normal', ''),
+            variant_id: item.isUsedDevice ? null : item.variantId || null,
+            used_device_id: item.usedDeviceId || null,
             product_name: name,
-            quantity: item.quantity,
+            quantity: item.isUsedDevice ? 1 : item.quantity,
             unit_price: price,
+            attached_services: (item.attachedServices || []).map((s: any) => ({
+              service_id: s.serviceId || s.service_id || s.id,
+              code: s.code,
+              name: s.name,
+              price: s.price,
+            })),
           };
         }),
         shipping: {
@@ -697,24 +731,35 @@ export default function CheckoutPage() {
                   aria-label="Mã giảm giá"
                   type="text"
                   placeholder="Nhập mã giảm giá"
-                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm uppercase outline-none transition focus:border-[#d70018]"
+                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm uppercase outline-none transition focus:border-[#d70018] disabled:bg-slate-50"
                   value={voucherCode}
+                  disabled={isValidatingVoucher}
                   onChange={(event) => changeVoucherCode(event.target.value)}
                 />
                 <button
                   type="button"
+                  disabled={isValidatingVoucher || !voucherCode.trim()}
                   onClick={() => applyVoucher()}
-                  className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-slate-800"
+                  className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-slate-800 disabled:opacity-50"
                 >
-                  Áp dụng
+                  {isValidatingVoucher ? 'Đang áp dụng...' : 'Áp dụng'}
                 </button>
               </div>
               {voucherError && <p className="mt-2 text-sm font-semibold text-red-600">{voucherError}</p>}
               {voucherHint && <p className="mt-2 text-sm font-semibold text-amber-600">{voucherHint}</p>}
               {discount > 0 && (
-                <p className="mt-2 text-sm font-semibold text-emerald-600">
-                  Đã áp dụng mã. Giảm {formatCurrency(discount)}.
-                </p>
+                <div className="mt-2 flex items-center justify-between rounded-lg bg-emerald-50 p-2.5">
+                  <p className="text-sm font-semibold text-emerald-700">
+                    Đã áp dụng mã. Giảm {formatCurrency(discount)}.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={removeVoucher}
+                    className="text-xs font-bold text-red-600 hover:text-red-800 transition"
+                  >
+                    Hủy áp dụng
+                  </button>
+                </div>
               )}
             </section>
           </div>
@@ -748,6 +793,13 @@ export default function CheckoutPage() {
                       <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-600">
                         <span className="rounded bg-emerald-50 px-1.5 py-0.2 border border-emerald-100">
                           🎁 Mua kèm giảm giá
+                        </span>
+                      </div>
+                    )}
+                    {item.isUsedDevice && (
+                      <div className="mt-1 flex items-center gap-1 text-[10px] font-bold text-emerald-700">
+                        <span className="rounded bg-emerald-50 px-1.5 py-0.5">
+                          Hàng cũ đã thẩm định
                         </span>
                       </div>
                     )}

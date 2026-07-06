@@ -61,6 +61,13 @@ export const adminInventoryApi = {
     const query = params.toString();
     return request<any>(`/admin/inventory/reports/aging${query ? `?${query}` : ''}`);
   },
+  adminGetInventoryReconciliationReport: (search = '', issueType = '') => {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (issueType) params.set('issueType', issueType);
+    const query = params.toString();
+    return request<any>(`/admin/inventory/reports/reconciliation${query ? `?${query}` : ''}`);
+  },
   adminListInventoryLedger: (params: any = {}) => {
     const query = new URLSearchParams();
     if (params.search) query.set('search', params.search);
@@ -92,6 +99,42 @@ export const adminInventoryApi = {
     method: 'PATCH',
     body: JSON.stringify(data),
   }),
+  adminListTransfers: (search = '') => request<any[]>(`/admin/inventory/transfers${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  adminCreateTransfer: (data: any) => request<any>('/admin/inventory/transfers', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  adminUpdateTransferStatus: (referenceCode: string, data: any) => request<any>(`/admin/inventory/transfers/${encodeURIComponent(referenceCode)}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  adminListInternalHolds: (search = '') => request<any[]>(`/admin/inventory/internal-holds${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  adminCreateInternalHold: (data: any) => request<any>('/admin/inventory/internal-holds', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  adminUpdateInternalHoldStatus: (referenceCode: string, data: any) => request<any>(`/admin/inventory/internal-holds/${encodeURIComponent(referenceCode)}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  adminListDisposals: (search = '') => request<any[]>(`/admin/inventory/disposals${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  adminCreateDisposal: (data: any) => request<any>('/admin/inventory/disposals', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  adminUpdateDisposalStatus: (referenceCode: string, data: any) => request<any>(`/admin/inventory/disposals/${encodeURIComponent(referenceCode)}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  adminListCostAdjustments: (search = '') => request<any[]>(`/admin/inventory/cost-adjustments${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  adminCreateCostAdjustment: (data: any) => request<any>('/admin/inventory/cost-adjustments', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  adminUpdateCostAdjustmentStatus: (referenceCode: string, data: any) => request<any>(`/admin/inventory/cost-adjustments/${encodeURIComponent(referenceCode)}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
   adminListIdentifiers: (productId: string, variantId?: string | null) => request<any>(`/admin/inventory/identifiers?productId=${encodeURIComponent(productId)}${variantId ? `&variantId=${encodeURIComponent(variantId)}` : ''}`),
   adminListIssueSuggestions: (productId: string, variantId?: string | null, quantity = 1) => request<any[]>(`/admin/inventory/issue-suggestions?productId=${encodeURIComponent(productId)}${variantId ? `&variantId=${encodeURIComponent(variantId)}` : ''}&quantity=${encodeURIComponent(String(quantity))}`),
   adminListIdentifierEditRequests: (status = 'PENDING') => request<any[]>(`/admin/inventory/identifier-edit-requests?status=${encodeURIComponent(status)}`),
@@ -100,6 +143,15 @@ export const adminInventoryApi = {
     body: JSON.stringify(data),
   }),
   adminDecideIdentifierEditRequest: (requestId: string, data: any) => request<any>(`/admin/inventory/identifier-edit-requests/${encodeURIComponent(requestId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  adminListIdentifierLocationRequests: (status = 'PENDING') => request<any[]>(`/admin/inventory/identifier-location-requests?status=${encodeURIComponent(status)}`),
+  adminCreateIdentifierLocationRequest: (data: any) => request<any>('/admin/inventory/identifier-location-requests', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  adminDecideIdentifierLocationRequest: (requestId: string, data: any) => request<any>(`/admin/inventory/identifier-location-requests/${encodeURIComponent(requestId)}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   }),
@@ -121,6 +173,14 @@ export const adminInventoryApi = {
     body: JSON.stringify(data),
   }),
   adminUpdateReceiptQuality: (referenceCode: string, data: any) => request<any>(`/admin/inventory/receipts/${encodeURIComponent(referenceCode)}/quality`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  adminUpdateReceiptAttachments: (referenceCode: string, data: any) => request<any>(`/admin/inventory/receipts/${encodeURIComponent(referenceCode)}/attachments`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  adminDecideReceiptAttachments: (referenceCode: string, data: any) => request<any>(`/admin/inventory/receipts/${encodeURIComponent(referenceCode)}/attachments/decision`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   }),
@@ -170,9 +230,9 @@ export const adminInventoryApi = {
     method: 'PUT',
     body: JSON.stringify(lines),
   }),
-  adminUpdateOutboundStatus: (documentNo: string, status: string) => request<any>(`/admin/inventory/outbounds/${encodeURIComponent(documentNo)}/status`, {
+  adminUpdateOutboundStatus: (documentNo: string, status: string, cancelReason?: string) => request<any>(`/admin/inventory/outbounds/${encodeURIComponent(documentNo)}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, cancelReason }),
   }),
   adminAutoSuggestOutbound: (documentNo: string) => request<any>(`/admin/inventory/outbounds/${encodeURIComponent(documentNo)}/auto-suggest`, {
     method: 'POST',

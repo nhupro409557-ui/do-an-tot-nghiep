@@ -11,6 +11,9 @@ export function Input({
   disabled = false,
   placeholder,
   noLabel = false,
+  error,
+  min,
+  max,
 }: {
   label: string;
   value: string | number;
@@ -21,6 +24,9 @@ export function Input({
   disabled?: boolean;
   placeholder?: string;
   noLabel?: boolean;
+  error?: string;
+  min?: string | number;
+  max?: string | number;
 }) {
   return (
     <label className="block w-full sm:w-auto">
@@ -32,9 +38,14 @@ export function Input({
         value={value}
         placeholder={placeholder || (noLabel ? label : undefined)}
         onBlur={onBlur}
+        min={min}
+        max={max}
         onChange={(event) => onChange(event.target.value)}
-        className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        className={`h-10 w-full rounded-xl border ${
+          error ? 'border-red-500 focus:border-red-500 focus:ring-red-100' : 'border-slate-200 focus:border-indigo-500 focus:ring-indigo-100'
+        } bg-white px-3 text-sm text-slate-800 outline-none transition disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`}
       />
+      {error && <span className="mt-1 block text-xs font-semibold text-red-600">{error}</span>}
     </label>
   );
 }

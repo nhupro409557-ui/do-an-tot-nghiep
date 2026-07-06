@@ -41,7 +41,7 @@ async def safe_redis_setex(redis: Redis, key: str, seconds: int, value: str) -> 
     if not redis_is_available():
         return False
     try:
-        await redis.setex(key, seconds, value)
+        await redis.set(key, value, ex=seconds)
         return True
     except Exception:
         mark_redis_unavailable()

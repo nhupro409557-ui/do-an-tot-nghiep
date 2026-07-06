@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import * as XLSX from 'xlsx';
 import { AdminBadge, AdminPanel, AdminTable, SearchBox } from '../../admin-shell/components/AdminDashboardParts';
 import { CheckCircle2, Download, Eye, FileSpreadsheet, FileText, PackageCheck, Pencil, Plus, Printer, RotateCcw, ScanLine, Trash2, XCircle } from 'lucide-react';
 import { compactId, currency } from '../../admin-shell/components/AdminDashboardConfig';
@@ -40,6 +39,13 @@ const qualityStatusTone: Record<string, any> = {
   PASSED: 'green',
   FAILED: 'red',
 };
+
+const attachmentTypeOptions = [
+  ['INVOICE', 'Hóa đơn'],
+  ['DELIVERY_NOTE', 'Phiếu giao hàng'],
+  ['GOODS_PHOTO', 'Ảnh hàng hóa'],
+  ['OTHER', 'Khác'],
+];
 
 const receiptReasonLabel: Record<string, string> = {
   NK_MUA: 'Nhập mua từ nhà cung cấp',
@@ -407,11 +413,36 @@ function PrintableReceipt({ receipt, lineSummaries, isOfficialReceipt }: { recei
   );
 }
 
-function ReceiptDetailModal({ receipt, onClose }: { receipt: any; onClose: () => void }) {
+function ReceiptDetailModal({
+  receipt,
+  onClose,
+  uploadFiles,
+  onAttachmentsUpdated,
+  isSuperAdmin,
+}: {
+  receipt: any;
+  onClose: () => void;
+  uploadFiles?: (files: FileList | null | File[], folder?: string) => Promise<string[]>;
+  onAttachmentsUpdated?: (patch: any) => void | Promise<void>;
+  isSuperAdmin?: boolean;
+}) {
   const lines = receipt?.lines || [];
   const status = receipt?.status || 'COMPLETED';
   const [activeTab, setActiveTab] = useState<'info' | 'identifiers'>('info');
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
+  const [attachmentDrafts, setAttachmentDrafts] = useState<any[]>(() => {
+    const pending = Array.isArray(receipt?.pendingAttachments) ? receipt.pendingAttachments : [];
+    return pending.length > 0 ? pending : Array.isArray(receipt?.attachments) ? receipt.attachments : [];
+  });
+  const [isEditingAttachments, setIsEditingAttachments] = useState(false);
+  const [isSavingAttachments, setIsSavingAttachments] = useState(false);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+
+  useEffect(() => {
+    const pending = Array.isArray(receipt?.pendingAttachments) ? receipt.pendingAttachments : [];
+    setAttachmentDrafts(pending.length > 0 ? pending : Array.isArray(receipt?.attachments) ? receipt.attachments : []);
+    setIsEditingAttachments(false);
+  }, [receipt]);
 
   function normalizeIdentifierList(value: any): string[] {
     if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -435,6 +466,7 @@ function ReceiptDetailModal({ receipt, onClose }: { receipt: any; onClose: () =>
   const lineSummaries = lines.map((line: any) => {
     const planned = Number(line.plannedQuantity || line.quantity || 0);
     const imeis = normalizeIdentifierList(line.imeis);
+    const secondaryImeis = normalizeIdentifierList(line.secondaryImeis);
     const serialNumbers = normalizeIdentifierList(line.serialNumbers);
     const tracksImei = Boolean(line.tracksImei);
     const tracksSerialNumber = Boolean(line.tracksSerialNumber);
@@ -449,13 +481,14 @@ function ReceiptDetailModal({ receipt, onClose }: { receipt: any; onClose: () =>
       tracksImei ? buildIdentifierStatus('IMEI', imeis.length, planned) : null,
       tracksSerialNumber ? buildIdentifierStatus('Serial', serialNumbers.length, planned) : null,
     ].filter(Boolean).join(' / ') || 'Không quản lý mã định danh';
-    return { line, planned, received, missing, unitCost, imeis, serialNumbers, tracksImei, tracksSerialNumber, tracksIdentifier, identifierStatus };
+    return { line, planned, received, missing, unitCost, imeis, secondaryImeis, serialNumbers, tracksImei, tracksSerialNumber, tracksIdentifier, identifierStatus };
   });
   const needsIdentifier = lineSummaries.some((item: any) => item.tracksIdentifier);
   const hasMissingIdentifier = lineSummaries.some((item: any) => item.tracksIdentifier && item.missing > 0);
   const isOfficialReceipt = status === 'COMPLETED' && (!needsIdentifier || !hasMissingIdentifier);
-  const identifierRows = lineSummaries.flatMap(({ line, imeis, serialNumbers }: any) => [
+  const identifierRows = lineSummaries.flatMap(({ line, imeis, secondaryImeis, serialNumbers }: any) => [
     ...imeis.map((value: string) => ({ line, lineId: String(line.id || `${line.productId}-${line.variantId || 'product'}`), type: 'IMEI', value })),
+    ...secondaryImeis.map((value: string) => ({ line, lineId: String(line.id || `${line.productId}-${line.variantId || 'product'}`), type: 'IMEI2', value })),
     ...serialNumbers.map((value: string) => ({ line, lineId: String(line.id || `${line.productId}-${line.variantId || 'product'}`), type: 'Serial', value })),
   ]);
   const selectedLine = selectedLineId
@@ -464,10 +497,96 @@ function ReceiptDetailModal({ receipt, onClose }: { receipt: any; onClose: () =>
   const visibleIdentifierRows = selectedLineId
     ? identifierRows.filter((item: any) => item.lineId === selectedLineId)
     : identifierRows;
+  const pendingAttachments = Array.isArray(receipt?.pendingAttachments) ? receipt.pendingAttachments : [];
+  const hasPendingAttachments = pendingAttachments.length > 0;
 
   function openIdentifierTab(summary: any) {
     setSelectedLineId(String(summary.line.id || `${summary.line.productId}-${summary.line.variantId || 'product'}`));
     setActiveTab('identifiers');
+  }
+
+  function updateAttachmentDraft(index: number, patch: any) {
+    setAttachmentDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  }
+
+  function addAttachmentDraft() {
+    setAttachmentDrafts((current) => [...current, { type: 'INVOICE', name: '', url: '', note: '' }]);
+    setIsEditingAttachments(true);
+  }
+
+  function removeAttachmentDraft(index: number) {
+    setAttachmentDrafts((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setIsEditingAttachments(true);
+  }
+
+  async function handleAttachmentUpload(files: FileList | null) {
+    if (!files || files.length === 0 || typeof uploadFiles !== 'function') return;
+    setIsUploadingAttachment(true);
+    try {
+      const urls = await uploadFiles(files, 'inventory');
+      if (urls.length > 0) {
+        setAttachmentDrafts((current) => [
+          ...current,
+          ...urls.map((url: string, index: number) => ({
+            type: files[index]?.type?.startsWith('image/') ? 'GOODS_PHOTO' : 'OTHER',
+            name: files[index]?.name || 'Chứng từ nhập hàng',
+            url,
+            note: '',
+          })),
+        ]);
+        setIsEditingAttachments(true);
+      }
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  }
+
+  async function saveAttachmentDrafts() {
+    const attachments = attachmentDrafts
+      .filter((item: any) => String(item.name || '').trim() || String(item.url || '').trim())
+      .map((item: any) => ({
+        type: item.type || 'OTHER',
+        name: String(item.name || '').trim(),
+        url: String(item.url || '').trim(),
+        note: String(item.note || '').trim() || null,
+      }));
+    if (attachments.some((item: any) => !item.name || !item.url)) {
+      window.alert('Mỗi chứng từ cần có tên và đường dẫn file.');
+      return;
+    }
+    setIsSavingAttachments(true);
+    try {
+      const result = await adminInventoryApi.adminUpdateReceiptAttachments(receipt.referenceCode, { attachments });
+      setAttachmentDrafts(result.pendingAttachments || attachments);
+      setIsEditingAttachments(false);
+      await onAttachmentsUpdated?.({
+        attachments: result.attachments || receipt.attachments || [],
+        pendingAttachments: result.pendingAttachments || attachments,
+        attachmentApprovalStatus: result.attachmentApprovalStatus || 'PENDING',
+        attachmentApprovalNote: result.attachmentApprovalNote || null,
+      });
+    } finally {
+      setIsSavingAttachments(false);
+    }
+  }
+
+  async function decideAttachmentDrafts(approve: boolean) {
+    const note = approve ? null : window.prompt('Nhập lý do từ chối chứng từ:')?.trim() || null;
+    if (!approve && !note) return;
+    setIsSavingAttachments(true);
+    try {
+      const result = await adminInventoryApi.adminDecideReceiptAttachments(receipt.referenceCode, { approve, note });
+      setAttachmentDrafts(result.attachments || []);
+      setIsEditingAttachments(false);
+      await onAttachmentsUpdated?.({
+        attachments: result.attachments || [],
+        pendingAttachments: result.pendingAttachments || [],
+        attachmentApprovalStatus: result.attachmentApprovalStatus,
+        attachmentApprovalNote: result.attachmentApprovalNote || null,
+      });
+    } finally {
+      setIsSavingAttachments(false);
+    }
   }
 
   return (
@@ -550,6 +669,83 @@ function ReceiptDetailModal({ receipt, onClose }: { receipt: any; onClose: () =>
 
           <section className="mt-5 grid gap-3 lg:grid-cols-2">
             <div className="rounded-md border border-slate-200 bg-white p-3">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-bold uppercase text-slate-700">Bổ sung chứng từ</span>
+                <button type="button" onClick={() => setIsEditingAttachments((value) => !value)} className="inline-flex h-8 items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100">
+                  <Plus className="h-3.5 w-3.5" /> {isEditingAttachments ? 'Ẩn form' : 'Bổ sung'}
+                </button>
+              </div>
+              {isEditingAttachments && (
+                <div className="mb-4 space-y-2 rounded-md border border-indigo-100 bg-indigo-50/40 p-2">
+                  <div className="flex flex-wrap gap-2">
+                    <label className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-md border border-indigo-200 bg-white px-2.5 text-xs font-bold text-indigo-700">
+                      {isUploadingAttachment ? 'Đang tải...' : 'Tải file'}
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                        disabled={isUploadingAttachment}
+                        onChange={(event) => {
+                          void handleAttachmentUpload(event.target.files);
+                          event.currentTarget.value = '';
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                    <button type="button" onClick={addAttachmentDraft} className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700">
+                      <Plus className="h-3.5 w-3.5" /> Thêm link
+                    </button>
+                  </div>
+                  {attachmentDrafts.length === 0 && <div className="rounded-md bg-white px-3 py-2 text-xs font-semibold text-slate-500">Chưa có chứng từ.</div>}
+                  {attachmentDrafts.map((item: any, index: number) => (
+                    <div key={index} className="grid gap-2 rounded-md border border-slate-100 bg-white p-2 md:grid-cols-[140px_1fr_1fr_36px]">
+                      <select value={item.type || 'OTHER'} onChange={(event) => updateAttachmentDraft(index, { type: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-2 text-sm font-semibold text-slate-700 outline-none">
+                        {attachmentTypeOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                      <input value={item.name || ''} placeholder="Tên chứng từ" onChange={(event) => updateAttachmentDraft(index, { name: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-2 text-sm font-semibold text-slate-700 outline-none" />
+                      <input value={item.url || ''} placeholder="https://... hoặc /uploads/..." onChange={(event) => updateAttachmentDraft(index, { url: event.target.value })} className="h-10 rounded-md border border-slate-200 bg-white px-2 text-sm font-semibold text-slate-700 outline-none" />
+                      <button type="button" onClick={() => removeAttachmentDraft(index)} title="Xóa chứng từ" className="inline-flex h-10 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-red-50 hover:text-red-700">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap justify-end gap-2 pt-1">
+                    <button type="button" onClick={() => { setAttachmentDrafts(Array.isArray(receipt?.attachments) ? receipt.attachments : []); setIsEditingAttachments(false); }} className="h-8 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 hover:bg-slate-50">
+                      Hủy
+                    </button>
+                    <button type="button" disabled={isSavingAttachments || isUploadingAttachment} onClick={() => void saveAttachmentDrafts()} className="h-8 rounded-md border border-emerald-200 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60">
+                      {isSavingAttachments ? 'Đang gửi...' : 'Gửi duyệt'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {hasPendingAttachments && (
+                <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-bold text-amber-900">Chứng từ đang chờ duyệt</div>
+                      <div className="text-xs font-semibold text-amber-700">Danh sách này chưa được ghi vào chứng từ chính thức.</div>
+                    </div>
+                    {isSuperAdmin && (
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" disabled={isSavingAttachments} onClick={() => void decideAttachmentDrafts(true)} className="h-8 rounded-md border border-emerald-200 bg-white px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60">
+                          Duyệt
+                        </button>
+                        <button type="button" disabled={isSavingAttachments} onClick={() => void decideAttachmentDrafts(false)} className="h-8 rounded-md border border-red-200 bg-white px-3 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-60">
+                          Từ chối
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {pendingAttachments.map((item: any, index: number) => (
+                      <a key={`${item.url || index}`} href={item.url} target="_blank" rel="noreferrer" className="block rounded-md border border-amber-100 bg-white px-3 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-50">
+                        {item.name || 'Chứng từ'} <span className="text-xs text-slate-500">({item.type || 'OTHER'})</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
               <h4 className="mb-3 text-sm font-bold uppercase text-slate-700">Chứng từ đính kèm</h4>
               {Array.isArray(receipt?.attachments) && receipt.attachments.length > 0 ? (
                 <div className="space-y-2">
@@ -741,14 +937,30 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
 
   async function handleFile(lineId: string, file: File | null, target: 'imei' | 'imei2' | 'serial') {
     if (!file) return;
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: 'array' });
-    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<any[]>(firstSheet, { header: 1, raw: false });
-    const values = rows.flat().map((cell) => String(cell || '').trim()).filter(Boolean).join('\n');
-    if (target === 'serial') setSerialInputs((current) => ({ ...current, [lineId]: values }));
-    else if (target === 'imei2') setSecondaryImeiInputs((current) => ({ ...current, [lineId]: values }));
-    else setInputs((current) => ({ ...current, [lineId]: values }));
+    setSubmitError('');
+    try {
+      const XLSX = await import('xlsx');
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const firstSheet = firstSheetName ? workbook.Sheets[firstSheetName] : null;
+      if (!firstSheet) throw new Error('File không có trang dữ liệu.');
+      const rows = XLSX.utils.sheet_to_json<any[]>(firstSheet, { header: 1, raw: false });
+      const values = rows.flat().map((cell) => String(cell || '').trim()).filter(Boolean).join('\n');
+      if (!values) throw new Error('File không chứa mã định danh.');
+      if (target === 'serial') setSerialInputs((current) => ({ ...current, [lineId]: values }));
+      else if (target === 'imei2') setSecondaryImeiInputs((current) => ({ ...current, [lineId]: values }));
+      else setInputs((current) => ({ ...current, [lineId]: values }));
+    } catch {
+      const targetLabel = target === 'serial' ? 'serial number' : target.toUpperCase();
+      setSubmitError(`Không thể đọc danh sách ${targetLabel} từ file. Hãy chọn file Excel, CSV hoặc TXT có ít nhất một mã.`);
+    }
+  }
+
+  function handleFileInput(event: React.ChangeEvent<HTMLInputElement>, lineId: string, target: 'imei' | 'imei2' | 'serial') {
+    const file = event.currentTarget.files?.[0] || null;
+    event.currentTarget.value = '';
+    void handleFile(lineId, file, target);
   }
 
   function appendScannedCode(line: any) {
@@ -928,12 +1140,12 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
                   <div className="mt-3">
                     <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
                       <FileSpreadsheet className="h-4 w-4" /> Import IMEI1
-                      <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFile(line.id, event.target.files?.[0] || null, 'imei')} />
+                      <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFileInput(event, line.id, 'imei')} />
                     </label>
                     <textarea className="mt-2 min-h-28 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500" placeholder="Dán danh sách IMEI1, mỗi máy một dòng" value={inputs[line.id] || ''} onChange={(event) => setInputs((current) => ({ ...current, [line.id]: event.target.value }))} />
                     <label className="mt-3 inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
                       <FileSpreadsheet className="h-4 w-4" /> Import IMEI2 tùy chọn
-                      <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFile(line.id, event.target.files?.[0] || null, 'imei2')} />
+                      <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFileInput(event, line.id, 'imei2')} />
                     </label>
                     <textarea className="mt-2 min-h-24 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500" placeholder="Dán danh sách IMEI2 nếu có, cùng thứ tự với IMEI1" value={secondaryImeiInputs[line.id] || ''} onChange={(event) => setSecondaryImeiInputs((current) => ({ ...current, [line.id]: event.target.value }))} />
                   </div>
@@ -942,7 +1154,7 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
                   <div className="mt-3">
                     <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
                       <FileSpreadsheet className="h-4 w-4" /> Import serial
-                      <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFile(line.id, event.target.files?.[0] || null, 'serial')} />
+                      <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFileInput(event, line.id, 'serial')} />
                     </label>
                     <textarea className="mt-2 min-h-28 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-cyan-500" placeholder="Dán danh sách serial number" value={serialInputs[line.id] || ''} onChange={(event) => setSerialInputs((current) => ({ ...current, [line.id]: event.target.value }))} />
                   </div>
@@ -1024,6 +1236,7 @@ export default function AdminInventoryReceiptsTab(props: AdminInventoryReceiptsT
     isSuperAdmin,
     inventoryLocations,
     setTab,
+    uploadFiles,
   } = props;
   const [viewReceipt, setViewReceipt] = useState<any | null>(null);
   const visibleReceipts = inventoryReceipts || [];
@@ -1165,11 +1378,13 @@ export default function AdminInventoryReceiptsTab(props: AdminInventoryReceiptsT
             const canManageReceipt = Boolean(isSuperAdmin);
             const canEditReceipt = ['DRAFT', 'PROCESSING_IMEI'].includes(status)
               || (canManageReceipt && ['PENDING_APPROVAL', 'PENDING_SHORTAGE_APPROVAL', 'APPROVED'].includes(status));
+            const hasPendingAttachments = Array.isArray(receipt.pendingAttachments) && receipt.pendingAttachments.length > 0;
             return (
               <tr key={receipt.referenceCode}>
                 <td className="px-4 py-3 font-mono text-xs font-bold text-slate-800">{receipt.referenceCode || '-'}</td>
                 <td className="px-4 py-3">
                   <AdminBadge tone={receiptStatusTone[status] || 'slate'}>{receiptStatusLabel[status] || status}</AdminBadge>
+                  {hasPendingAttachments && <div className="mt-1"><AdminBadge tone="amber">Chờ duyệt chứng từ</AdminBadge></div>}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-col gap-1">
@@ -1297,6 +1512,12 @@ export default function AdminInventoryReceiptsTab(props: AdminInventoryReceiptsT
         <ReceiptDetailModal
           receipt={viewReceipt}
           onClose={() => setViewReceipt(null)}
+          uploadFiles={uploadFiles}
+          isSuperAdmin={Boolean(isSuperAdmin)}
+          onAttachmentsUpdated={async (patch) => {
+            setViewReceipt((current: any) => current ? { ...current, ...patch } : current);
+            await loadInventoryReceipts();
+          }}
         />
       )}
     </>

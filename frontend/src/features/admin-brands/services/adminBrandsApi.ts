@@ -94,7 +94,7 @@ export const adminBrandsApi = {
       const products = await listProductsFallback();
       const brands = deriveBrandsFromProducts(products);
       const fallback = deriveBrandLanding(slug, products, brands, params);
-      if (!fallback) throw new Error('Khong tim thay thuong hieu.');
+      if (!fallback) throw new Error('Không tìm thấy thương hiệu.');
       return fallback;
     }
   },

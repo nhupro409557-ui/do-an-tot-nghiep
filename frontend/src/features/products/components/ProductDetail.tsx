@@ -349,6 +349,7 @@ const ProductDetailContent = ({
     // Thêm sản phẩm chính kèm dịch vụ đi kèm
     addToCart({
       productId: product.id,
+      variantId: activeVariant?.id ? String(activeVariant.id) : undefined,
       name: [displayProductName, selectedColor].filter(Boolean).join(' - '),
       price: displayPrice,
       imageUrl: cartImage,

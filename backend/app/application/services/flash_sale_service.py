@@ -1,4 +1,4 @@
-﻿from uuid import UUID, uuid4
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
@@ -25,6 +25,24 @@ async def validate_flash_sale_price(session: AsyncSession, payload: FlashSalePay
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Giá flash sale phải lớn hơn 0 và nhỏ hơn giá bán hiện tại của sản phẩm.",
+        )
+
+
+async def validate_flash_sale_quantity(
+    session: AsyncSession,
+    payload: FlashSalePayload,
+    *,
+    sale_id: UUID | None = None,
+) -> None:
+    if payload.quantityLimit is None or sale_id is None or payload.status != "ACTIVE":
+        return
+    sold_quantity = await flash_sale_repo.get_flash_sale_sold_quantity(session, sale_id)
+    if sold_quantity is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy flash sale.")
+    if sold_quantity >= payload.quantityLimit:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Số lượng sale phải lớn hơn số lượng đã giữ nếu muốn bật flash sale.",
         )
 
 
@@ -75,6 +93,12 @@ def flash_sale_row(row) -> dict:
     item = dict(row._mapping)
     current_price = float(item.get("currentPrice") or 0)
     final_price = sale_price(current_price, item.get("discountType") or "PERCENT", float(item.get("discountValue") or 0))
+    quantity_limit = item.get("quantityLimit")
+    sold_quantity = int(item.get("soldQuantity") or 0)
+    remaining_quantity = None
+    if quantity_limit is not None:
+        remaining_quantity = max(int(quantity_limit or 0) - sold_quantity, 0)
+    quota_exhausted_at = item.get("quotaExhaustedAt")
     return {
         "id": item["id"],
         "productId": item["productId"],
@@ -90,6 +114,12 @@ def flash_sale_row(row) -> dict:
         "discountValue": float(item.get("discountValue") or 0),
         "startsAt": item.get("startsAt").isoformat() if item.get("startsAt") else None,
         "endsAt": item.get("endsAt").isoformat() if item.get("endsAt") else None,
+        "quantityLimit": int(quantity_limit) if quantity_limit is not None else None,
+        "soldQuantity": sold_quantity,
+        "remainingQuantity": remaining_quantity,
+        "isLimited": quantity_limit is not None,
+        "isExhausted": remaining_quantity == 0 if quantity_limit is not None else False,
+        "quotaExhaustedAt": quota_exhausted_at.isoformat() if quota_exhausted_at else None,
         "status": item.get("status"),
         "isRunning": bool(item.get("isRunning")),
     }
@@ -109,6 +139,7 @@ def flash_sale_params(sale_id: UUID, payload: FlashSalePayload) -> dict:
         "discount_value": payload.discountValue,
         "starts_at": payload.startsAt,
         "ends_at": payload.endsAt,
+        "quantity_limit": payload.quantityLimit,
         "status": payload.status,
     }
 
@@ -128,6 +159,7 @@ async def create_flash_sale(session: AsyncSession, payload: FlashSalePayload) ->
 
 async def update_flash_sale(session: AsyncSession, sale_id: UUID, payload: FlashSalePayload) -> dict:
     await validate_flash_sale_price(session, payload)
+    await validate_flash_sale_quantity(session, payload, sale_id=sale_id)
     await validate_flash_sale_overlap(session, payload, exclude_id=sale_id)
     try:
         updated = await flash_sale_repo.update_flash_sale(session, flash_sale_params(sale_id, payload))

@@ -37,8 +37,15 @@ async def list_pending_order_ids_to_expire(
             FROM orders
             WHERE status = 'PENDING'
               AND (
-                payment_method = 'COD'
-                AND created_at < NOW() - make_interval(hours => :cod_timeout_hours)
+                (
+                  payment_method = 'COD'
+                  AND created_at < NOW() - make_interval(hours => :cod_timeout_hours)
+                )
+                OR (
+                  payment_method <> 'COD'
+                  AND payment_status = 'PENDING'
+                  AND created_at < NOW() - make_interval(mins => :online_timeout_minutes)
+                )
               )
             ORDER BY created_at ASC
             """
@@ -63,6 +70,7 @@ async def list_restock_items(session: AsyncSession, *, order_id: UUID, order_cod
                 oi.id,
                 oi.product_id,
                 oi.variant_id AS order_variant_id,
+                oi.used_device_id,
                 oi.product_name,
                 oi.quantity,
                 logs.variant_id

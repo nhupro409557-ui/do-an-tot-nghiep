@@ -17,7 +17,7 @@ class DeleteAccountRequest(BaseModel):
     @classmethod
     def confirmation_must_match(cls, value: str) -> str:
         if value != DeleteAccountConfirmation.DELETE_ACCOUNT:
-            raise ValueError("Confirmation must be DELETE_ACCOUNT.")
+            raise ValueError("Xác nhận phải là DELETE_ACCOUNT.")
         return value
 
 
@@ -26,4 +26,3 @@ class DeleteAccountResponse(BaseModel):
     status: UserStatus
     loyalty_wallet_status: LoyaltyWalletStatus
     revoked_points: int = Field(ge=0)
-

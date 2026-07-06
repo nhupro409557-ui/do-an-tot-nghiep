@@ -1,5 +1,11 @@
 # Voucher Management Notes
 
+## Cập nhật 2026-07-04 - Chuẩn hóa thông báo validate voucher
+
+- Chuẩn hóa thông báo lỗi CRUD voucher admin và toàn bộ message validate voucher checkout sang tiếng Việt có dấu.
+- Giữ nguyên `error_code`, metadata keys và trạng thái ví voucher để frontend không phải đổi logic xử lý.
+- Verification: `py_compile` và test voucher/checkout liên quan pass.
+
 ## Cập nhật 2026-06-29 - Bổ sung test CRUD voucher admin
 
 - Bổ sung test API admin cho voucher: customer bị chặn khi tạo voucher, payload giảm giá âm trả `422`, admin tạo/list/update/deactivate voucher trên database test.

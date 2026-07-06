@@ -218,16 +218,23 @@ async def restore_hidden_children(session: AsyncSession, category_id: UUID) -> N
     await session.execute(
         text(
             """
+            WITH branch AS (
+                SELECT path
+                FROM categories
+                WHERE id = :id
+            )
             UPDATE categories
             SET is_active = TRUE,
                 status = 'ACTIVE',
                 previous_status = NULL,
                 hidden_by_parent = FALSE,
                 updated_at = NOW()
-            WHERE parent_id = :id
-              AND hidden_by_parent = TRUE
-              AND previous_status = 'ACTIVE'
-              AND COALESCE(is_deleted, FALSE) = FALSE
+            FROM branch
+            WHERE categories.path <@ branch.path
+              AND categories.id != :id
+              AND categories.hidden_by_parent = TRUE
+              AND categories.previous_status = 'ACTIVE'
+              AND COALESCE(categories.is_deleted, FALSE) = FALSE
             """
         ),
         {"id": category_id},
@@ -294,20 +301,26 @@ async def hard_delete_category(session: AsyncSession, category_id: UUID) -> int:
     )
     return int(result.rowcount or 0)
 
-
 async def hide_active_child_categories(session: AsyncSession, category_id: UUID) -> None:
     await session.execute(
         text(
             """
+            WITH branch AS (
+                SELECT path
+                FROM categories
+                WHERE id = :id
+            )
             UPDATE categories
             SET previous_status = status,
                 is_active = FALSE,
                 status = 'INACTIVE',
                 hidden_by_parent = TRUE,
                 updated_at = NOW()
-            WHERE parent_id = :id
-              AND is_active = TRUE
-              AND COALESCE(is_deleted, FALSE) = FALSE
+            FROM branch
+            WHERE categories.path <@ branch.path
+              AND categories.id != :id
+              AND categories.is_active = TRUE
+              AND COALESCE(categories.is_deleted, FALSE) = FALSE
             """
         ),
         {"id": category_id},

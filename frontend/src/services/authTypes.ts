@@ -9,14 +9,12 @@ export interface MockUser {
 }
 
 export type PendingRegistration = {
-  token: string;
   email: string;
   displayName: string;
   expiresAt: number;
 };
 
 export type PendingPasswordReset = {
-  token: string;
   email: string;
   expiresAt: number;
 };

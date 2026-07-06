@@ -160,7 +160,7 @@ export function AdminEnterpriseShell({
               <div className="min-w-0 text-xs font-semibold text-slate-500">
                 <span>Admin</span>
                 <span className="mx-2 text-slate-300">/</span>
-                <span>Dashboard</span>
+                <span>Bảng điều khiển</span>
                 <span className="mx-2 text-slate-300">/</span>
                 <span className="text-slate-800">{title}</span>
               </div>

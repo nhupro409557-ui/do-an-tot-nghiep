@@ -70,9 +70,9 @@ async def list_categories(session: AsyncSession = Depends(get_session), redis: R
         try:
             payload = json.dumps(categories, ensure_ascii=False, default=str)
             versioned_key = "catalog:categories:tree:fallback"
-            await redis.setex(versioned_key, 30 * 60, payload)
+            await redis.set(versioned_key, payload, ex=30 * 60)
             await redis.set("catalog:categories:tree:active", versioned_key)
-            await redis.setex("catalog:categories:tree:stale", 24 * 60 * 60, payload)
+            await redis.set("catalog:categories:tree:stale", payload, ex=24 * 60 * 60)
             await redis.lpush("metrics:catalog_categories:latency_ms", int((time.perf_counter() - started) * 1000))
             await redis.ltrim("metrics:catalog_categories:latency_ms", 0, 499)
         except Exception:
@@ -84,5 +84,5 @@ async def list_categories(session: AsyncSession = Depends(get_session), redis: R
 async def get_category_redirect(old_slug: str, session: AsyncSession = Depends(get_session)) -> dict:
     row = await catalog_category_repo.get_category_redirect(session, old_slug)
     if not row:
-        raise HTTPException(status_code=404, detail="Redirect not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy redirect.")
     return row

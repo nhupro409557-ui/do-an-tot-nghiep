@@ -33,6 +33,7 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
     supplierTotal,
     viewSupplier,
     usePermission,
+    formErrors = {},
   } = props;
   const canCreateSupplier = usePermission('supplier:create');
   const canUpdateSupplier = usePermission('supplier:update');
@@ -70,11 +71,11 @@ export default function AdminSuppliersTab(props: AdminSuppliersTabProps) {
             </div>
             <form onSubmit={supplierViewOnly ? (event) => event.preventDefault() : handleSupplierSubmit} className="grid gap-3 p-5 md:grid-cols-6">
               <fieldset disabled={Boolean(supplierViewOnly)} className="contents">
-              <Input label="Tên nhà cung cấp" value={supplierForm.name} required onChange={(value) => setSupplierForm({ ...supplierForm, name: value })} />
-              <Input label="Mã nhà cung cấp" value={supplierForm.code} required onBlur={checkSupplierCodeOnBlur} onChange={(value) => { setSupplierCodeStatus('idle'); setSupplierForm({ ...supplierForm, code: value }); }} />
+              <Input label="Tên nhà cung cấp" value={supplierForm.name} required error={formErrors.name} onChange={(value) => setSupplierForm({ ...supplierForm, name: value })} />
+              <Input label="Mã nhà cung cấp" value={supplierForm.code} required error={formErrors.code} onBlur={checkSupplierCodeOnBlur} onChange={(value) => { setSupplierCodeStatus('idle'); setSupplierForm({ ...supplierForm, code: value }); }} />
               <Input label="Người liên hệ" value={supplierForm.contactName} onChange={(value) => setSupplierForm({ ...supplierForm, contactName: value })} />
-              <Input label="Số điện thoại" value={supplierForm.phone} onChange={(value) => setSupplierForm({ ...supplierForm, phone: value })} />
-              <Input label="Email" type="email" value={supplierForm.email} onChange={(value) => setSupplierForm({ ...supplierForm, email: value })} />
+              <Input label="Số điện thoại" value={supplierForm.phone} error={formErrors.phone} onChange={(value) => setSupplierForm({ ...supplierForm, phone: value })} />
+              <Input label="Email" type="email" value={supplierForm.email} error={formErrors.email} onChange={(value) => setSupplierForm({ ...supplierForm, email: value })} />
               <Input label="Mã số thuế" value={supplierForm.taxCode} onChange={(value) => setSupplierForm({ ...supplierForm, taxCode: value })} />
               <Input label="Website" value={supplierForm.website} onChange={(value) => setSupplierForm({ ...supplierForm, website: value })} />
               <Input label="Địa chỉ" value={supplierForm.address} onChange={(value) => setSupplierForm({ ...supplierForm, address: value })} />

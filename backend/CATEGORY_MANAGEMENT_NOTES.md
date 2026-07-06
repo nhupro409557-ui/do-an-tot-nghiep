@@ -1,5 +1,29 @@
 # Category Management Notes
 
+## Cập nhật 2026-07-06 - Đồng bộ ẩn/khôi phục đệ quy nhánh danh mục con cháu
+
+- Nâng cấp hàm `hide_active_child_categories` và `restore_hidden_children` sử dụng toán tử LTREE (`path <@ branch.path`) để ẩn đệ quy toàn bộ danh mục con cháu và khôi phục đồng bộ thay vì chỉ áp dụng ở cấp con trực tiếp.
+- Giúp loại bỏ mâu thuẫn trạng thái trong cây danh mục (danh mục con active nằm dưới danh mục cha bị ẩn).
+- Verification: pytest full backend test 74 passed.
+
+## Cập nhật 2026-07-04 - Chuẩn hóa lỗi danh mục còn lại
+
+- Chuẩn hóa lỗi không tìm thấy danh mục/danh mục cha, lỗi cây danh mục quá sâu và lỗi concurrent update sang tiếng Việt có dấu.
+- Không đổi logic kiểm tra vòng lặp, độ sâu cây, version hoặc migration mã định danh.
+- Verification: `py_compile` và test category/catalog liên quan pass.
+
+## Cập nhật 2026-07-04 - Sửa chuỗi lỗi tiếng Việt trong category service
+
+- Chuẩn hóa các thông báo lỗi vòng lặp danh mục và kiểm tra slug bị mojibake sang tiếng Việt UTF-8 đúng dấu.
+- Không thay đổi logic tạo/sửa/xóa danh mục hoặc contract API.
+- Verification: `py_compile` pass cho category service files; nhóm test backend liên quan checkout/order/outbound/after-sales/used-products pass.
+
+## Cập nhật 2026-07-02 - Đồng bộ lọc danh mục và thương hiệu
+
+- Bộ lọc sản phẩm và tồn kho dùng chung quy tắc danh mục cha bao gồm cả sản phẩm/thương hiệu thuộc danh mục con trực tiếp.
+- Khi đổi danh mục ở cấp lớn, bộ lọc thương hiệu ở cấp nhỏ được reset nếu không còn hợp lệ với danh mục mới.
+- Verification: frontend `npm run lint` pass.
+
 ## Cập nhật 2026-06-28 - Giảm cảnh báo React Doctor cho cây danh mục
 
 - Tối ưu các phép duyệt danh mục ở frontend: dựng cây danh mục đã lọc, gom trường thông số và tách danh sách mã định danh bằng vòng lặp một lượt thay vì chuỗi `filter().map()` hoặc `map().filter(Boolean)`.

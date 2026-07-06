@@ -69,7 +69,7 @@ async def start_registration(
     )
     await session.commit()
     send_auth_email(email, display_name, code, f"{settings.frontend_url}/verify-email?token={token}", "registration")
-    return StartVerificationResponse(ok=True, email=email, verificationToken=token)
+    return StartVerificationResponse(ok=True, email=email)
 
 
 @router.post("/register/resend", response_model=StartVerificationResponse)
@@ -103,7 +103,7 @@ async def resend_registration(
     )
     await session.commit()
     send_auth_email(email, pending["display_name"], code, f"{settings.frontend_url}/verify-email?token={token}", "registration")
-    return StartVerificationResponse(ok=True, email=email, verificationToken=token)
+    return StartVerificationResponse(ok=True, email=email)
 
 
 @router.post("/register/verify", response_model=AuthResponse)
@@ -178,7 +178,7 @@ async def forgot_password(
     )
     await session.commit()
     send_auth_email(email, user.full_name or email, code, f"{settings.frontend_url}/reset-password?verify={verification_token}", "password_reset")
-    return ForgotPasswordResponse(ok=True, email=email, verificationToken=verification_token)
+    return ForgotPasswordResponse(ok=True, email=email)
 
 
 @router.post("/forgot-password/resend", response_model=ForgotPasswordResponse)
@@ -212,7 +212,7 @@ async def resend_password_reset(
     )
     await session.commit()
     send_auth_email(email, user.full_name or email, code, f"{settings.frontend_url}/reset-password?verify={verification_token}", "password_reset")
-    return ForgotPasswordResponse(ok=True, email=email, verificationToken=verification_token)
+    return ForgotPasswordResponse(ok=True, email=email)
 
 
 @router.post("/forgot-password/verify", response_model=VerifyPasswordResetResponse)

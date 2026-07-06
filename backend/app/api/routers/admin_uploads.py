@@ -11,7 +11,7 @@ from app.config import settings
 
 router = APIRouter(prefix="/uploads")
 
-ALLOWED_UPLOAD_FOLDERS = {"products", "brands", "categories", "content", "inventory"}
+ALLOWED_UPLOAD_FOLDERS = {"products", "brands", "categories", "content", "inventory", "used-products"}
 ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
 ALLOWED_VIDEO_TYPES = {"video/mp4": ".mp4", "video/webm": ".webm"}
 ALLOWED_DOCUMENT_TYPES = {
@@ -30,6 +30,7 @@ UPLOAD_FOLDER_PERMISSIONS = {
     "categories": "category:create",
     "content": "content:create",
     "inventory": "inventory:adjust",
+    "used-products": "used_product:manage",
 }
 
 

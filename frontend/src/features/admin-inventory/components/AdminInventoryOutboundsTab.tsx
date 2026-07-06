@@ -28,7 +28,7 @@ const outboundStatusTone: Record<string, any> = {
 
 export default function AdminInventoryOutboundsTab(props: AdminInventoryOutboundsTabProps) {
   const { isSuperAdmin } = props;
-  
+
   // List state
   const [outbounds, setOutbounds] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -40,10 +40,12 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
   // Detail state
   const [selectedOutbound, setSelectedOutbound] = useState<any | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  
+
   // Auxiliary state
   const [scannedInputs, setScannedInputs] = useState<Record<string, string>>({});
-  
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancelReasonInput, setCancelReasonInput] = useState('');
+
   // Feedback messages
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -89,7 +91,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
     setSuccessMsg(null);
     try {
       const data = await adminInventoryApi.adminGetOutboundDetail(documentNo);
-      
+
       const initialInputs: Record<string, string> = {};
       if (data && Array.isArray(data.lines)) {
         data.lines = data.lines.map((line: any) => {
@@ -99,18 +101,19 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                 locationId: line.locationId || '',
                 quantity: line.approvedQuantity ?? line.quantity,
                 imeis: line.imeis || [],
+                secondaryImeis: line.secondaryImeis || [],
                 serialNumbers: line.serialNumbers || []
               }];
-          
+
           allocations.forEach((_: any, idx: number) => {
             initialInputs[`${line.id}_${idx}_imei`] = '';
             initialInputs[`${line.id}_${idx}_serial`] = '';
           });
-          
+
           return { ...line, allocations };
         });
       }
-      
+
       setSelectedOutbound(data);
       setScannedInputs(initialInputs);
     } catch (err) {
@@ -132,7 +135,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
           imeis: [],
           serialNumbers: []
         });
-        
+
         // Khởi tạo scanned inputs mới cho allocation mới thêm
         const idx = currentAllocations.length - 1;
         setScannedInputs(prev => ({
@@ -411,6 +414,34 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
     }
   };
 
+  const handleCancelOutboundClick = () => {
+    setCancelReasonInput('');
+    setCancelModalOpen(true);
+  };
+
+  const confirmCancelOutbound = async () => {
+    if (!selectedOutbound) return;
+    const reason = cancelReasonInput.trim();
+    if (!reason) return;
+
+    setActionLoading(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setCancelModalOpen(false);
+
+    try {
+      await adminInventoryApi.adminUpdateOutboundStatus(selectedOutbound.document_no, 'CANCELLED', reason);
+      setSuccessMsg('Đã hủy phiếu xuất kho thành công.');
+      await loadDetail(selectedOutbound.document_no);
+      void fetchOutbounds();
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || 'Lỗi khi hủy phiếu xuất kho.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleAutoSuggest = async () => {
     if (!selectedOutbound) return;
     setActionLoading(true);
@@ -477,7 +508,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
           >
             <ArrowLeft className="h-4 w-4" /> Quay lại danh sách phiếu
           </button>
-          
+
           <div className="flex gap-2">
             {!isCompleted && (
               <>
@@ -489,7 +520,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                 >
                   <Wand2 className="h-4 w-4" /> Gợi ý kệ xuất
                 </button>
-                
+
                 <button
                   type="button"
                   onClick={handleSaveDraft}
@@ -498,7 +529,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                 >
                   <Save className="h-4 w-4" /> Cập nhật
                 </button>
-                
+
                 <button
                   type="button"
                   onClick={handleComplete}
@@ -515,6 +546,15 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                   }
                 >
                   <CheckCircle2 className="h-4 w-4" /> Xác nhận xuất kho
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelOutboundClick}
+                  disabled={actionLoading}
+                  className="inline-flex items-center gap-2 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                >
+                  <X className="h-4 w-4" /> Hủy phiếu
                 </button>
               </>
             )}
@@ -543,6 +583,14 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                 <span className="block text-xs font-bold uppercase text-slate-500">Mã đơn hàng liên kết</span>
                 <span className="font-mono text-sm font-bold text-slate-900">{selectedOutbound.orderCode || '-'}</span>
               </div>
+              {selectedOutbound.afterSalesRequestCode && (
+                <div>
+                  <span className="block text-xs font-bold uppercase text-slate-500">Hồ sơ hậu mãi liên kết</span>
+                  <span className="font-mono text-sm font-bold text-slate-900">
+                    {selectedOutbound.afterSalesRequestCode}
+                  </span>
+                </div>
+              )}
               <div>
                 <span className="block text-xs font-bold uppercase text-slate-500">Trạng thái phiếu</span>
                 <div className="mt-1">
@@ -637,7 +685,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                           const imeiInputKey = `${line.id}_${allocIdx}_imei`;
                           const serialInputKey = `${line.id}_${allocIdx}_serial`;
                           const availableLocations = getLineAvailableLocations(line, alloc);
-                          
+
                           return (
                             <div key={allocIdx} className="rounded-md border border-slate-100 bg-slate-50/30 p-3 space-y-2">
                               <div className="flex flex-wrap items-center gap-3">
@@ -661,7 +709,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                                     </select>
                                   )}
                                 </div>
-                                
+
                                 <div className="w-24">
                                   {isCompleted ? (
                                     <span className="text-xs font-bold text-slate-800">SL: {alloc.quantity} cái</span>
@@ -718,7 +766,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                                           </button>
                                         </div>
                                       )}
-                                      
+
                                       {line.tracksSerialNumber && (
                                         <div className="flex-1 min-w-[150px] flex gap-1">
                                           <input
@@ -762,6 +810,11 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                                         )}
                                       </span>
                                     ))}
+                                    {(alloc.secondaryImeis || []).map((imei: string, i: number) => (
+                                      <span key={`imei2-${i}`} className="inline-flex items-center gap-1 rounded bg-cyan-50 px-2 py-0.5 text-[10px] font-semibold text-cyan-700 border border-cyan-100">
+                                        IMEI2: {imei}
+                                      </span>
+                                    ))}
                                     {(alloc.serialNumbers || []).map((serial: string, i: number) => (
                                       <span key={`serial-${i}`} className="inline-flex items-center gap-1 rounded bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 border border-purple-100">
                                         SN: {serial}
@@ -783,7 +836,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
 
                                   <div className="text-[10px] text-slate-500 font-semibold">
                                     Đã quét: {
-                                      (line.tracksImei ? (alloc.imeis || []).length : 0) + 
+                                      (line.tracksImei ? (alloc.imeis || []).length : 0) +
                                       (line.tracksSerialNumber ? (alloc.serialNumbers || []).length : 0)
                                     } / {alloc.quantity}
                                   </div>
@@ -836,7 +889,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
             </div>
           </div>
-          
+
           <div>
             <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">Trạng thái phiếu</label>
             <select
@@ -922,7 +975,12 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                 </AdminBadge>
               </td>
               <td className="px-4 py-3.5 font-mono text-xs font-semibold text-slate-700">
-                {item.orderCode || '-'}
+                <div>{item.orderCode || '-'}</div>
+                {item.afterSalesRequestCode && (
+                  <div className="mt-1 text-[11px] font-bold text-cyan-700">
+                    Hậu mãi: {item.afterSalesRequestCode}
+                  </div>
+                )}
               </td>
               <td className="px-4 py-3.5">
                 <div className="text-sm font-bold text-slate-900">{item.recipientName || '-'}</div>
@@ -951,6 +1009,55 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
             </tr>
           ))}
         </AdminTable>
+      )}
+
+      {/* Modal Popup để nhập lý do hủy phiếu */}
+      {cancelModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-900">Yêu cầu lý do hủy phiếu</h3>
+              <button
+                type="button"
+                onClick={() => setCancelModalOpen(false)}
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="cancel-reason-textarea" className="text-xs font-bold text-slate-700 block">
+                Lý do hủy (bảt buộc)
+              </label>
+              <textarea
+                id="cancel-reason-textarea"
+                value={cancelReasonInput}
+                onChange={(e) => setCancelReasonInput(e.target.value)}
+                placeholder="Nhập lý do chi tiết..."
+                className="w-full rounded-md border border-slate-200 p-2 text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 min-h-[100px]"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setCancelModalOpen(false)}
+                className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={confirmCancelOutbound}
+                disabled={!cancelReasonInput.trim()}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Xác nhận hủy
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

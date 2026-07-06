@@ -25,7 +25,7 @@ from app.infrastructure.database.repositories import catalog_product_repo
 async def get_product(product_id: str, session: AsyncSession) -> dict:
     row = await catalog_product_repo.get_active_product_detail(session, product_id)
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy sản phẩm.")
 
     p_dict = product_row(row)
     sales_config = p_dict.get("salesConfig") or {}
@@ -112,7 +112,7 @@ async def record_product_view_heartbeat(
 ) -> dict:
     product_uuid = await catalog_product_repo.get_active_product_uuid(session, product_id)
     if product_uuid is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy sản phẩm.")
 
     identity = product_view_identity(payload, request)
     valid_key = f"product_view:valid:{product_uuid}:{identity}"

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def list_admin_suppliers(session: AsyncSession, *, page: int, limit: int, search: str | None, status_filter: str) -> dict:
-    where_clauses = []
+    where_clauses = ["is_deleted = FALSE"]
     params: dict = {"limit": limit, "offset": (page - 1) * limit}
     if search:
         where_clauses.append("(name ILIKE :search OR code ILIKE :search OR contact_name ILIKE :search OR phone ILIKE :search OR email ILIKE :search OR tax_code ILIKE :search)")
@@ -58,6 +58,7 @@ async def is_supplier_code_available(session: AsyncSession, *, code: str, exclud
                 SELECT 1
                 FROM suppliers
                 WHERE lower(code) = lower(:code)
+                  AND is_deleted = FALSE
                   {exclude_clause}
                 """
             ),
@@ -67,8 +68,66 @@ async def is_supplier_code_available(session: AsyncSession, *, code: str, exclud
     return row is None
 
 
+async def find_supplier_profile_conflict(
+    session: AsyncSession,
+    *,
+    name: str,
+    email: str | None,
+    tax_code: str | None,
+    exclude_id: UUID | None = None,
+) -> str | None:
+    params: dict = {
+        "name": name.strip(),
+        "email": email.strip() if email else None,
+        "tax_code": tax_code.strip() if tax_code else None,
+    }
+    exclude_clause = ""
+    if exclude_id is not None:
+        exclude_clause = "AND id != :exclude_id"
+        params["exclude_id"] = exclude_id
+    row = (
+        await session.execute(
+            text(
+                f"""
+                SELECT
+                    CASE
+                        WHEN lower(name) = lower(:name) THEN 'name'
+                        WHEN CAST(:email AS VARCHAR) IS NOT NULL
+                            AND email IS NOT NULL
+                            AND lower(email) = lower(CAST(:email AS VARCHAR))
+                            THEN 'email'
+                        WHEN CAST(:tax_code AS VARCHAR) IS NOT NULL
+                            AND tax_code IS NOT NULL
+                            AND lower(tax_code) = lower(CAST(:tax_code AS VARCHAR))
+                            THEN 'tax_code'
+                    END AS field
+                FROM suppliers
+                WHERE is_deleted = FALSE AND (
+                    lower(name) = lower(:name)
+                    OR (
+                        CAST(:email AS VARCHAR) IS NOT NULL
+                        AND email IS NOT NULL
+                        AND lower(email) = lower(CAST(:email AS VARCHAR))
+                    )
+                    OR (
+                        CAST(:tax_code AS VARCHAR) IS NOT NULL
+                        AND tax_code IS NOT NULL
+                        AND lower(tax_code) = lower(CAST(:tax_code AS VARCHAR))
+                    )
+                )
+                  {exclude_clause}
+                LIMIT 1
+                """
+            ),
+            params,
+        )
+    ).first()
+    field = row._mapping["field"] if row else None
+    return str(field) if field else None
+
+
 async def supplier_exists(session: AsyncSession, supplier_id: UUID) -> bool:
-    row = (await session.execute(text("SELECT 1 FROM suppliers WHERE id = :id"), {"id": supplier_id})).first()
+    row = (await session.execute(text("SELECT 1 FROM suppliers WHERE id = :id AND is_deleted = FALSE"), {"id": supplier_id})).first()
     return row is not None
 
 
@@ -175,7 +234,7 @@ async def update_supplier_status(session: AsyncSession, *, supplier_id: UUID, is
 async def list_suppliers_by_ids(session: AsyncSession, supplier_ids: list[UUID]) -> list[dict]:
     rows = (
         await session.execute(
-            text("SELECT id, code, name FROM suppliers WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)),
+            text("SELECT id, code, name FROM suppliers WHERE id IN :ids AND is_deleted = FALSE").bindparams(bindparam("ids", expanding=True)),
             {"ids": supplier_ids},
         )
     ).mappings().all()
@@ -190,8 +249,32 @@ async def update_suppliers_status(session: AsyncSession, *, supplier_ids: list[U
 
 
 async def delete_supplier(session: AsyncSession, supplier_id: UUID) -> int:
-    result = await session.execute(text("DELETE FROM suppliers WHERE id = :id"), {"id": supplier_id})
+    result = await session.execute(
+        text("UPDATE suppliers SET is_deleted = TRUE, updated_at = NOW() WHERE id = :id AND is_deleted = FALSE"),
+        {"id": supplier_id}
+    )
     return int(result.rowcount or 0)
+
+
+async def count_supplier_business_references(session: AsyncSession, supplier_id: UUID) -> int:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM account_payables WHERE supplier_id = :id)
+                    + (SELECT COUNT(*) FROM supplier_payments WHERE supplier_id = :id)
+                    + (
+                        SELECT COUNT(*)
+                        FROM inventory_documents
+                        WHERE metadata->>'supplierId' = CAST(:id AS text)
+                    ) AS total
+                """
+            ),
+            {"id": supplier_id},
+        )
+    ).first()
+    return int(row._mapping["total"] or 0) if row else 0
 
 
 async def audit_supplier_event(session: AsyncSession, *, event_type: str, metadata: dict, user_id: UUID | None = None) -> None:

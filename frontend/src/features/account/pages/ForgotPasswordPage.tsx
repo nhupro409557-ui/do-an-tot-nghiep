@@ -1,4 +1,4 @@
-import React, { useMemo, useReducer } from 'react';
+import React, { useReducer } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   confirmPasswordResetByCode,
@@ -38,18 +38,13 @@ export default function ForgotPasswordPage() {
   );
   const navigate = useNavigate();
 
-  const verificationLink = useMemo(() => {
-    if (!pendingReset) return '';
-    return `/reset-password?verify=${pendingReset.token}`;
-  }, [pendingReset]);
-
   const handleSendCode = async (event: React.FormEvent) => {
     event.preventDefault();
     setFormState({ error: '', message: '', verificationCode: '', loading: true });
 
     try {
       const reset = await sendPasswordResetEmail(email.trim());
-      const pending = createPendingPasswordReset(reset.email, reset.verificationToken);
+      const pending = createPendingPasswordReset(reset.email);
       setFormState({ pendingReset: pending, message: 'Đã gửi mã xác nhận 6 số và liên kết đặt lại mật khẩu vào email của bạn.' });
     } catch (err: any) {
       setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể gửi mã xác nhận đặt lại mật khẩu.') });
@@ -76,7 +71,7 @@ export default function ForgotPasswordPage() {
     setFormState({ error: '', message: '', verificationCode: '', loading: true });
     try {
       const reset = await resendPasswordResetEmail(pendingReset.email);
-      const pending = createPendingPasswordReset(reset.email, reset.verificationToken);
+      const pending = createPendingPasswordReset(reset.email);
       setFormState({ pendingReset: pending, message: 'Đã gửi lại mã xác nhận mới. Mã cũ đã hết hiệu lực.' });
     } catch (err: any) {
       setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể gửi lại mã xác nhận.') });
@@ -144,10 +139,6 @@ export default function ForgotPasswordPage() {
             >
               Xác nhận mã
             </button>
-
-            <Link to={verificationLink} className="block text-center text-sm font-bold text-blue-600 hover:underline">
-              Mở link xác nhận trên trình duyệt này
-            </Link>
 
             <button type="button" onClick={handleResendCode} disabled={loading} className="w-full text-sm font-semibold text-gray-500 hover:text-primary disabled:opacity-60">
               Gửi lại mã xác nhận

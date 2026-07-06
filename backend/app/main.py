@@ -21,6 +21,7 @@ from app.api.routers.after_sales import router as after_sales_router
 from app.api.routers.loyalty import router as loyalty_router
 from app.api.routers.storefront import router as storefront_router
 from app.api.routers.users import router as users_router
+from app.api.routers.used_products import router as used_products_router
 from app.application.commerce.use_cases import CompleteOrderUseCase
 from app.application.after_sales import service as after_sales_service
 from app.application.services import order_service
@@ -167,7 +168,6 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "*",
         "https://do-an-tot-nghiep-rho.vercel.app"
     ],
     allow_credentials=True,
@@ -192,3 +192,4 @@ app.include_router(catalog_router, prefix="/api")
 app.include_router(content_router, prefix="/api")
 app.include_router(after_sales_router, prefix="/api")
 app.include_router(storefront_router, prefix="/api")
+app.include_router(used_products_router, prefix="/api")

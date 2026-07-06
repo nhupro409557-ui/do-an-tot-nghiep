@@ -337,7 +337,10 @@ async def list_rankings(
             p.is_featured AS "isFeatured", p.is_flash_sale AS "isFlashSale",
             fs.id::text AS "flashSaleId", fs.discount_type AS "flashSaleDiscountType",
             fs.discount_value AS "flashSaleDiscountValue", fs.starts_at AS "flashSaleStartsAt",
-            fs.ends_at AS "flashSaleEndsAt", p.sales_config AS "salesConfig",
+            fs.ends_at AS "flashSaleEndsAt",
+            fs.quantity_limit AS "flashSaleQuantityLimit",
+            fs.sold_quantity AS "flashSaleSoldQuantity",
+            p.sales_config AS "salesConfig",
             COALESCE(
                 jsonb_agg(
                     DISTINCT jsonb_build_object(
@@ -347,6 +350,8 @@ async def list_rankings(
                         'flashSaleId', vfs.id::text, 'flashSaleDiscountType', vfs.discount_type,
                         'flashSaleDiscountValue', vfs.discount_value, 'flashSaleStartsAt', vfs.starts_at,
                         'flashSaleEndsAt', vfs.ends_at,
+                        'flashSaleQuantityLimit', vfs.quantity_limit,
+                        'flashSaleSoldQuantity', vfs.sold_quantity,
                         'stockQuantity', pv.stock_quantity, 'stockState', CASE WHEN pv.stock_quantity > 0 THEN 'IN_STOCK' ELSE 'OUT_OF_STOCK' END
                     )
                 ) FILTER (WHERE pv.id IS NOT NULL),
@@ -399,24 +404,26 @@ async def list_rankings(
         LEFT JOIN categories sc ON sc.id = p.subcategory_id
         LEFT JOIN product_variants pv ON pv.product_id = p.id AND pv.is_active = TRUE AND pv.deleted_at IS NULL
         LEFT JOIN LATERAL (
-            SELECT id, discount_type, discount_value, starts_at, ends_at
+            SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
             FROM flash_sales
             WHERE product_id = p.id
               AND variant_id = pv.id
               AND status = 'ACTIVE'
               AND (starts_at IS NULL OR starts_at <= NOW())
               AND (ends_at IS NULL OR ends_at >= NOW())
+              AND (quantity_limit IS NULL OR sold_quantity < quantity_limit)
             ORDER BY updated_at DESC
             LIMIT 1
         ) vfs ON TRUE
         LEFT JOIN LATERAL (
-            SELECT id, discount_type, discount_value, starts_at, ends_at
+            SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
             FROM flash_sales
             WHERE product_id = p.id
               AND variant_id IS NULL
               AND status = 'ACTIVE'
               AND (starts_at IS NULL OR starts_at <= NOW())
               AND (ends_at IS NULL OR ends_at >= NOW())
+              AND (quantity_limit IS NULL OR sold_quantity < quantity_limit)
             ORDER BY updated_at DESC
             LIMIT 1
         ) fs ON TRUE
@@ -478,6 +485,7 @@ async def list_rankings(
         WHERE p.status = 'ACTIVE' AND p.deleted_at IS NULL {category_filter_sql}
         GROUP BY p.id, c.id, sc.id, os.sold_count, review_stats.rating, review_stats.review_count,
             favorite_counts.favorite_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at,
+            fs.quantity_limit, fs.sold_quantity,
             pv_stats.view_count, ps_stats.search_count, pso_stats.sold_count, pso_stats.revenue, pl_stats.like_count, pr_stats.review_count,
             prev_pv.view_count, prev_ps.search_count, prev_pso.sold_count, prev_pl.like_count, prev_pr.review_count,
             v24.view_count, s24.search_count, sl24.sold_count, l24.like_count, r24.review_count, r24.avg_rating,
@@ -580,7 +588,7 @@ async def resolve_product_image(
                     "relatedProducts": related,
                 }
 
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found.")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy hình ảnh.")
 
 @router.post("/search-intent", response_model=ProductSearchIntentResponse)
 async def parse_search_intent(payload: ProductSearchIntentRequest) -> ProductSearchIntentResponse:

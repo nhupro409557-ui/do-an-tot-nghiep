@@ -90,7 +90,7 @@ async def main() -> None:
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
             )
-            ON CONFLICT (code) DO UPDATE
+            ON CONFLICT (code) WHERE is_deleted = FALSE DO UPDATE
             SET name = EXCLUDED.name,
                 contact_name = EXCLUDED.contact_name,
                 phone = EXCLUDED.phone,

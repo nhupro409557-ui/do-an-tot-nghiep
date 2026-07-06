@@ -112,19 +112,19 @@ async def ensure_no_category_cycle(session: AsyncSession, category_id: UUID | No
     if not category_id or not parent_id:
         return
     if category_id == parent_id:
-        raise HTTPException(status_code=422, detail="Danh m?c kh?ng th? l? cha c?a ch?nh n?.")
+        raise HTTPException(status_code=422, detail="Danh mục không thể là cha của chính nó.")
     if await category_repo.category_descendant_contains(session, category_id=category_id, parent_id=parent_id):
-        raise HTTPException(status_code=422, detail="Kh?ng th? ch?n danh m?c con l?m danh m?c cha v? s? t?o v?ng l?p.")
+        raise HTTPException(status_code=422, detail="Không thể chọn danh mục con làm danh mục cha vì sẽ tạo vòng lặp.")
 
 async def ensure_category_depth(session: AsyncSession, category_id: UUID | None, parent_id: UUID | None, max_depth: int = 5) -> None:
     parent_depth = 0
     if parent_id:
         parent_depth = await category_repo.get_category_path_depth(session, parent_id)
         if parent_depth == 0:
-            raise HTTPException(status_code=422, detail="Parent category not found.")
+            raise HTTPException(status_code=422, detail="Không tìm thấy danh mục cha.")
     subtree_depth = await category_repo.get_category_subtree_depth(session, category_id) if category_id else 1
     if parent_depth + subtree_depth > max_depth:
-        raise HTTPException(status_code=422, detail=f"Category tree cannot exceed {max_depth} levels.")
+        raise HTTPException(status_code=422, detail=f"Cây danh mục không được vượt quá {max_depth} cấp.")
 
 async def ensure_spec_inheritance_safe(session: AsyncSession, category_id: UUID | None, parent_id: UUID | None, own_fields: list[dict]) -> None:
     own_keys = spec_keys(own_fields)
@@ -204,15 +204,15 @@ async def rebuild_category_branch_cache(
     removed_root_ids: list[UUID] | None = None,
 ) -> None:
     visible_root_ids = await list_visible_root_category_ids(session)
-    await redis.setex(
+    await redis.set(
         CATEGORY_CACHE_ROOT_ORDER_KEY,
-        30 * 60,
         json.dumps([str(root_id) for root_id in visible_root_ids], ensure_ascii=False),
+        ex=30 * 60,
     )
-    await redis.setex(
+    await redis.set(
         CATEGORY_CACHE_ROOT_ORDER_STALE_KEY,
-        24 * 60 * 60,
         json.dumps([str(root_id) for root_id in visible_root_ids], ensure_ascii=False),
+        ex=24 * 60 * 60,
     )
 
     target_root_ids = visible_root_ids if affected_root_ids is None else [root_id for root_id in visible_root_ids if root_id in affected_root_ids]
@@ -222,8 +222,8 @@ async def rebuild_category_branch_cache(
             await redis.delete(category_branch_cache_key(root_id), category_branch_cache_key(root_id, stale=True))
             continue
         payload = json.dumps(branch, ensure_ascii=False, default=str)
-        await redis.setex(category_branch_cache_key(root_id), 30 * 60, payload)
-        await redis.setex(category_branch_cache_key(root_id, stale=True), 24 * 60 * 60, payload)
+        await redis.set(category_branch_cache_key(root_id), payload, ex=30 * 60)
+        await redis.set(category_branch_cache_key(root_id, stale=True), payload, ex=24 * 60 * 60)
 
     for root_id in removed_root_ids or []:
         await redis.delete(category_branch_cache_key(root_id), category_branch_cache_key(root_id, stale=True))
@@ -236,11 +236,11 @@ async def rebuild_category_branch_cache(
             if branch is None:
                 continue
             cached = json.dumps(branch, ensure_ascii=False, default=str)
-            await redis.setex(category_branch_cache_key(root_id), 30 * 60, cached)
-            await redis.setex(category_branch_cache_key(root_id, stale=True), 24 * 60 * 60, cached)
+            await redis.set(category_branch_cache_key(root_id), cached, ex=30 * 60)
+            await redis.set(category_branch_cache_key(root_id, stale=True), cached, ex=24 * 60 * 60)
         branches.append(json.loads(cached))
     await redis.set("catalog:categories:tree:active", "catalog:categories:tree:branch-cache")
-    await redis.setex("catalog:categories:tree:stale", 24 * 60 * 60, json.dumps(branches, ensure_ascii=False, default=str))
+    await redis.set("catalog:categories:tree:stale", json.dumps(branches, ensure_ascii=False, default=str), ex=24 * 60 * 60)
 
 
 async def deactivate_products_in_category_branch(session: AsyncSession, category_id: UUID) -> int:

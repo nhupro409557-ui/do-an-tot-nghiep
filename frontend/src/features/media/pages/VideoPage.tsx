@@ -115,12 +115,6 @@ function clampRatio(ratio: number) {
   return Math.max(0.72, Math.min(ratio, 1.85));
 }
 
-function rowSpanForRatio(ratio: number, wide: boolean) {
-  const columnWidth = wide ? 568 : 276;
-  const visualHeight = Math.round(columnWidth / ratio);
-  return Math.max(12, Math.min(30, Math.round((visualHeight + 16) / 24)));
-}
-
 function shortDescription(video: any) {
   return video.shortDescription || video.description || 'Xem nhanh điểm nổi bật, trải nghiệm thực tế và thông tin cần biết trước khi chọn mua.';
 }
@@ -154,8 +148,6 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isActive = hovered || touched;
   const resolvedRatio = clampRatio(videoRatio ?? posterRatio ?? fallbackRatioForTile(index));
-  const tileColumnSpan = 'span 1';
-  const tileRowSpan = `span ${rowSpanForRatio(resolvedRatio, false)}`;
   const imageMediaClassName = 'relative z-10 h-full w-full object-contain transition-opacity duration-300';
   const videoMediaClassName = 'relative z-10 h-full w-full object-contain transition-opacity duration-300';
 
@@ -209,8 +201,8 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
 
   return (
     <article
-      style={{ aspectRatio: resolvedRatio, gridColumn: tileColumnSpan, gridRowEnd: tileRowSpan } as React.CSSProperties}
-      className="group relative min-h-60 w-full min-w-0 cursor-pointer overflow-hidden rounded-2xl border border-white/70 bg-slate-950 shadow-[0_10px_28px_rgba(15,23,42,0.10)] ring-1 ring-slate-900/5 transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-0.5 hover:border-red-200 hover:shadow-[0_18px_36px_rgba(15,23,42,0.18)] lg:h-full lg:min-h-0 lg:hover:translate-y-0"
+      style={{ aspectRatio: resolvedRatio }}
+      className="group relative mb-4 inline-block w-full min-w-0 break-inside-avoid cursor-pointer overflow-hidden rounded-2xl border border-white/70 bg-slate-950 align-top shadow-[0_10px_28px_rgba(15,23,42,0.10)] ring-1 ring-slate-900/5 transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-0.5 hover:border-red-200 hover:shadow-[0_18px_36px_rgba(15,23,42,0.18)] motion-reduce:transform-none motion-reduce:transition-none"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       role="group"
@@ -295,11 +287,11 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
         <div className="flex flex-col gap-1 px-2 pb-2 pt-10 sm:gap-1.5 sm:px-3 sm:pb-3" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.35) 55%, transparent 100%)' }}>
           <div className="flex items-start justify-between gap-2">
             <h3 className="line-clamp-2 flex-1 text-[11px] font-bold leading-tight text-white sm:text-sm sm:font-medium sm:leading-snug">{video.title || 'Video sản phẩm'}</h3>
-            <div className="flex shrink-0 gap-1.5 pt-0.5 sm:gap-2">
+            <div className="flex shrink-0 gap-1 pt-0.5 sm:gap-1.5">
               <button
                 type="button"
                 onClick={(event) => { event.stopPropagation(); onLike(); }}
-                className={`transition-colors ${liked ? 'text-red-400' : 'text-gray-300 hover:text-white'}`}
+                className={`relative z-30 flex h-11 w-11 items-center justify-center transition-colors sm:h-8 sm:w-8 ${liked ? 'text-red-400' : 'text-gray-300 hover:text-white'}`}
                 aria-label={liked ? 'Bỏ thích video' : 'Thích video'}
                 aria-pressed={liked}
               >
@@ -308,7 +300,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
               <button
                 type="button"
                 onClick={(event) => { event.stopPropagation(); onShare(); }}
-                className="text-gray-300 transition-colors hover:text-white"
+                className="relative z-30 flex h-11 w-11 items-center justify-center text-gray-300 transition-colors hover:text-white sm:h-8 sm:w-8"
                 aria-label="Chia sẻ video"
               >
                 <Share2 className="h-[18px] w-[18px]" />
@@ -326,7 +318,7 @@ function VideoTile({ video, index, liked, onOpen, onLike, onShare }: VideoTilePr
             <Link
               to={`/product/${video.product.id}`}
               onClick={(event) => event.stopPropagation()}
-              className="mt-1 hidden w-max max-w-full items-center gap-2 rounded-full border border-white/15 bg-white/10 px-2 py-1.5 backdrop-blur-md transition-colors hover:bg-white/20 sm:flex"
+              className="relative z-30 mt-1 hidden w-max max-w-full items-center gap-2 rounded-full border border-white/15 bg-white/10 px-2 py-1.5 backdrop-blur-md transition-colors hover:bg-white/20 sm:flex"
             >
               {video.product.imageUrl ? (
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white">
@@ -361,7 +353,7 @@ function MasonryGrid({ videos, likedIds, onOpen, onLike, onShare }: MasonryGridP
   const indexedVideos = useMemo(() => videos.map((v, i) => ({ ...v, _origIndex: i })), [videos]);
 
   return (
-    <div className="grid grid-flow-dense grid-cols-1 gap-[clamp(0.5rem,2.2vw,1rem)] sm:grid-cols-2 lg:auto-rows-[8px] lg:grid-cols-4 lg:gap-4">
+    <div className="min-w-0 columns-1 gap-4 sm:columns-2 lg:columns-3">
       {indexedVideos.map((video: any) => (
         <VideoTile
           key={video.id}
@@ -384,6 +376,7 @@ export default function VideoPage() {
   const [sort, setSort] = useState<SortMode>('newest');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [modalPlaylist, setModalPlaylist] = useState<any[]>([]);
   const [videos, setVideos] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -394,6 +387,7 @@ export default function VideoPage() {
   const dismissedWatchRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const loadMoreInFlightRef = useRef(false);
+  const tabsRef = useRef<HTMLDivElement | null>(null);
   const likeRequestVersionsRef = useRef<Map<string, number> | null>(null);
   if (!likeRequestVersionsRef.current) likeRequestVersionsRef.current = new Map<string, number>();
   const likeRequestVersions = likeRequestVersionsRef.current;
@@ -470,12 +464,19 @@ export default function VideoPage() {
     if (watchId === dismissedWatchRef.current || loading || displayVideos.length === 0) return;
     const idx = displayVideos.findIndex((v: any) => v.id === watchId);
     if (idx >= 0 && !isModalOpen) {
+      setModalPlaylist(displayVideos);
       setActiveIndex(idx);
       setIsModalOpen(true);
     }
   }, [searchParams, loading, displayVideos, isModalOpen]);
 
+  useEffect(() => {
+    if (!isModalOpen || modalPlaylist.length === 0) return;
+    setModalPlaylist((current) => current.map((video) => displayVideos.find((item: any) => item.id === video.id) || video));
+  }, [displayVideos, isModalOpen, modalPlaylist.length]);
+
   function openVideo(index: number) {
+    setModalPlaylist(displayVideos);
     setActiveIndex(index);
     setIsModalOpen(true);
   }
@@ -560,50 +561,59 @@ export default function VideoPage() {
     }
   }
 
+  const scrollTabs = useCallback((direction: -1 | 1) => {
+    tabsRef.current?.scrollBy({ left: direction * 280, behavior: 'smooth' });
+  }, []);
+
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-7xl px-2.5 py-4 sm:px-5 sm:py-6 lg:px-8">
-        <div className="mb-4 rounded-xl border border-red-100 bg-white px-3 py-4 shadow-sm sm:px-4 lg:mb-5 lg:rounded-lg">
+    <div className="min-h-screen overflow-x-hidden bg-background">
+      <div className="mx-auto w-full max-w-7xl px-3 py-4 sm:px-5 sm:py-6 lg:px-8">
+        <section className="mb-4 rounded-lg border border-red-100 bg-white px-4 py-4 shadow-sm sm:px-5 lg:mb-5">
           <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <div className="flex items-center gap-2 border-b-2 border-primary pb-2.5 text-xl font-black text-primary sm:pb-3 sm:text-2xl">
+              <h1 className="flex items-center gap-2 border-b-2 border-primary pb-2.5 text-xl font-black text-primary sm:pb-3 sm:text-2xl">
                 <Video className="h-5 w-5 sm:h-6 sm:w-6" />
                 Video
-              </div>
+              </h1>
               <p className="mt-2 text-xs font-medium text-slate-500 sm:mt-3 sm:text-sm">Kho video sản phẩm, mẹo chọn mua và hướng dẫn dịch vụ từ Echophone.</p>
             </div>
 
             <div className="grid gap-2 sm:grid-cols-[minmax(0,320px)_150px]">
               <label className="relative block">
+                <span className="sr-only">Tìm video</span>
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="Tìm video, chủ đề..."
-                  className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-red-100 sm:h-10 sm:rounded-md lg:shadow-none"
+                  className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-base shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-red-100 sm:h-10 sm:text-sm lg:shadow-none"
                 />
               </label>
-              <select value={sort} onChange={(event) => setSort(event.target.value as SortMode)} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-sm outline-none focus:border-primary sm:h-10 sm:rounded-md sm:font-semibold lg:shadow-none">
-                <option value="newest">Mới nhất</option>
-                <option value="views">Xem nhiều</option>
-                <option value="likes">Thích nhiều</option>
-                <option value="liked">Đã thích</option>
-                <option value="title">Tên A-Z</option>
-              </select>
+              <label>
+                <span className="sr-only">Sắp xếp video</span>
+                <select value={sort} onChange={(event) => setSort(event.target.value as SortMode)} className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-sm outline-none focus:border-primary sm:h-10 sm:font-semibold lg:shadow-none">
+                  <option value="newest">Mới nhất</option>
+                  <option value="views">Xem nhiều</option>
+                  <option value="likes">Thích nhiều</option>
+                  <option value="liked">Đã thích</option>
+                  <option value="title">Tên A-Z</option>
+                </select>
+              </label>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 rounded-xl border border-slate-100 bg-white/95 px-2.5 py-2.5 shadow-sm backdrop-blur sm:mb-5 sm:px-3 sm:py-3 lg:rounded-lg">
-          <button type="button" className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-50 text-slate-700 ring-1 ring-slate-100 sm:flex" aria-label="Cuộn trái">
+        <div className="sticky top-0 z-10 mb-4 flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white/95 px-2.5 py-2.5 shadow-sm backdrop-blur sm:mb-5 sm:px-3 sm:py-3">
+          <button type="button" onClick={() => scrollTabs(-1)} className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-50 text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-100 sm:flex" aria-label="Cuộn chủ đề sang trái">
             <ChevronLeft className="h-5 w-5" />
           </button>
-          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div ref={tabsRef} className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {availableTabs.map((category) => (
               <button type="button"
                 key={category}
                 onClick={() => setActiveTab(category)}
-                className={`h-9 shrink-0 whitespace-nowrap rounded-lg px-3 text-xs font-bold transition-colors sm:rounded-md sm:px-4 sm:text-sm ${
+                aria-pressed={activeTab === category}
+                className={`h-10 shrink-0 whitespace-nowrap rounded-md px-3 text-xs font-bold transition-colors sm:px-4 sm:text-sm ${
                   activeTab === category ? 'bg-primary text-white shadow-sm shadow-red-100' : 'bg-slate-50 text-slate-700 ring-1 ring-slate-100 hover:bg-slate-100'
                 }`}
               >
@@ -611,7 +621,7 @@ export default function VideoPage() {
               </button>
             ))}
           </div>
-          <button type="button" className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-50 text-slate-700 ring-1 ring-slate-100 sm:flex" aria-label="Cuộn phải">
+          <button type="button" onClick={() => scrollTabs(1)} className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-50 text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-100 sm:flex" aria-label="Cuộn chủ đề sang phải">
             <ChevronRight className="h-5 w-5" />
           </button>
         </div>
@@ -648,7 +658,7 @@ export default function VideoPage() {
 
         <ReelsModal
           isOpen={isModalOpen}
-          playlist={displayVideos}
+          playlist={modalPlaylist}
           initialIndex={activeIndex}
           onClose={closeVideoModal}
           likedIds={likedIds}

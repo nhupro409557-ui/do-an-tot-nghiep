@@ -93,11 +93,11 @@ async def _seed_stocked_variant(api_client, db_session, admin_headers, approver_
     return product_id, variant_id, sku
 
 
-async def _create_cod_order(api_client, customer_user, product_id, variant_id, sku):
+async def _create_cod_order(api_client, customer_headers, customer_user, product_id, variant_id, sku):
     idempotency_key = f"admin-outbound-order-{uuid4().hex}"
     created = await api_client.post(
         "/api/orders",
-        headers={"Idempotency-Key": idempotency_key},
+        headers={**customer_headers, "Idempotency-Key": idempotency_key},
         json={
             "user_id": customer_user["id"],
             "items": [
@@ -138,7 +138,7 @@ async def test_admin_outbound_picking_completion_decrements_stock_and_ships_orde
         admin_headers,
         approver_headers,
     )
-    order_id = await _create_cod_order(api_client, customer_user, product_id, variant_id, sku)
+    order_id = await _create_cod_order(api_client, customer_headers, customer_user, product_id, variant_id, sku)
 
     forbidden_list = await api_client.get(
         "/api/admin/inventory/outbounds",
@@ -182,6 +182,26 @@ async def test_admin_outbound_picking_completion_decrements_stock_and_ships_orde
     )
     assert suggested.status_code == 200, suggested.text
 
+    suggestion = (
+        await db_session.execute(
+            text(
+                """
+                SELECT l.location_id, l.metadata
+                FROM inventory_document_lines l
+                JOIN inventory_documents d ON d.id = l.document_id
+                WHERE d.document_no = :document_no
+                """
+            ),
+            {"document_no": document_no},
+        )
+    ).mappings().one()
+    assert suggestion["location_id"] is not None
+    assert suggestion["metadata"]["allocations"]
+    assert suggestion["metadata"]["imeis"] == []
+    assert suggestion["metadata"]["serialNumbers"] == []
+    assert all(allocation["imeis"] == [] for allocation in suggestion["metadata"]["allocations"])
+    assert all(allocation["serialNumbers"] == [] for allocation in suggestion["metadata"]["allocations"])
+
     picked_status = await db_session.scalar(
         text("SELECT status FROM inventory_documents WHERE document_no = :document_no"),
         {"document_no": document_no},
@@ -217,7 +237,7 @@ async def test_admin_outbound_picking_completion_decrements_stock_and_ships_orde
     ).mappings().one()
     assert row["document_status"] == "COMPLETED"
     assert row["order_status"] == "SHIPPED"
-    assert row["product_stock"] == 5
+    assert row["product_stock"] == 3
     assert row["variant_stock"] == 3
 
     level_quantity = await db_session.scalar(
@@ -238,3 +258,85 @@ async def test_admin_outbound_picking_completion_decrements_stock_and_ships_orde
         json={"status": "COMPLETED"},
     )
     assert repeated.status_code == 400, repeated.text
+
+
+@pytest.mark.workflow
+async def test_admin_can_cancel_draft_outbound_without_posting_stock(
+    api_client,
+    db_session,
+    admin_headers,
+    approver_headers,
+    customer_headers,
+    customer_user,
+):
+    product_id, variant_id, sku = await _seed_stocked_variant(
+        api_client,
+        db_session,
+        admin_headers,
+        approver_headers,
+    )
+    order_id = await _create_cod_order(api_client, customer_headers, customer_user, product_id, variant_id, sku)
+
+    processing = await api_client.patch(
+        f"/api/orders/{order_id}/admin",
+        headers=admin_headers,
+        json={"status": "PROCESSING", "changed_by": "Admin kiểm thử outbound"},
+    )
+    assert processing.status_code == 204, processing.text
+
+    document = (
+        await db_session.execute(
+            text(
+                """
+                SELECT document_no, status
+                FROM inventory_documents
+                WHERE order_id = :order_id AND document_type = 'OUTBOUND'
+                """
+            ),
+            {"order_id": order_id},
+        )
+    ).mappings().one()
+    document_no = document["document_no"]
+    assert document["status"] == "DRAFT"
+
+    cancelled = await api_client.patch(
+        f"/api/admin/inventory/outbounds/{document_no}/status",
+        headers=admin_headers,
+        json={"status": "CANCELLED", "cancelReason": "Lập lại phiếu xuất để kiểm thử."},
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "CANCELLED"
+
+    row = (
+        await db_session.execute(
+            text(
+                """
+                SELECT d.status, d.note, d.cancelled_at, pv.stock_quantity AS variant_stock
+                FROM inventory_documents d
+                JOIN product_variants pv ON pv.id = :variant_id
+                WHERE d.document_no = :document_no
+                """
+            ),
+            {"document_no": document_no, "variant_id": variant_id},
+        )
+    ).mappings().one()
+    assert row["status"] == "CANCELLED"
+    assert row["note"] == "Lập lại phiếu xuất để kiểm thử."
+    assert row["cancelled_at"] is not None
+    assert row["variant_stock"] == 5
+
+    # Thử phát hành lại phiếu xuất đã hủy (chuyển về DRAFT)
+    reissue = await api_client.patch(
+        f"/api/admin/inventory/outbounds/{document_no}/status",
+        headers=admin_headers,
+        json={"status": "DRAFT"},
+    )
+    assert reissue.status_code == 200, reissue.text
+    assert reissue.json()["status"] == "DRAFT"
+
+    # Xác minh lại trong db
+    status_db = await db_session.scalar(
+        text("SELECT status FROM inventory_documents WHERE document_no = :document_no"),
+        {"document_no": document_no},
+    )
+    assert status_db == "DRAFT"

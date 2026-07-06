@@ -394,32 +394,42 @@ export default function CartPage() {
             🎁 Gợi ý mua thêm cho bạn
           </h2>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            {suggestedProducts.map((product) => (
-              <div
-                key={product.id}
-                className="group relative flex flex-col rounded-lg border border-slate-100 p-3 transition hover:border-[#d70018] hover:shadow-md bg-white"
-              >
-                <div className="aspect-square w-full overflow-hidden rounded-md bg-slate-50 flex items-center justify-center p-2">
-                  <img
-                    src={product.imageUrl || product.images?.[0] || ''}
-                    alt={product.name}
-                    className="max-h-full max-w-full object-contain transition-transform duration-300 group-hover:scale-105"
-                  />
-                </div>
-                <div className="mt-3 flex flex-1 flex-col justify-between">
-                  <div>
-                    <h3 className="line-clamp-2 text-xs font-bold text-slate-800 leading-5 group-hover:text-[#d70018]">
-                      {product.name}
-                    </h3>
-                    <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
-                      <span className="text-sm font-extrabold text-[#d70018]">
-                        {formatCurrency(product.price || product.salePrice)}
-                      </span>
-                      {product.originalPrice && product.originalPrice > (product.price || product.salePrice) && (
-                        <del className="text-xs text-slate-400">{formatCurrency(product.originalPrice)}</del>
-                      )}
+            {suggestedProducts.map((product) => {
+              const productHref = `/product/${product.id}`;
+
+              return (
+                <div
+                  key={product.id}
+                  className="group relative flex flex-col rounded-lg border border-slate-100 p-3 transition hover:border-[#d70018] hover:shadow-md bg-white"
+                >
+                  <Link
+                    to={productHref}
+                    className="flex flex-1 flex-col rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#d70018] focus-visible:ring-offset-2"
+                    aria-label={`Xem chi tiết sản phẩm ${product.name}`}
+                  >
+                    <div className="aspect-square w-full overflow-hidden rounded-md bg-slate-50 flex items-center justify-center p-2">
+                      <img
+                        src={product.imageUrl || product.images?.[0] || ''}
+                        alt={product.name}
+                        className="max-h-full max-w-full object-contain transition-transform duration-300 group-hover:scale-105"
+                      />
                     </div>
-                  </div>
+                    <div className="mt-3 flex flex-1 flex-col justify-between">
+                      <div>
+                        <h3 className="line-clamp-2 text-xs font-bold text-slate-800 leading-5 group-hover:text-[#d70018]">
+                          {product.name}
+                        </h3>
+                        <div className="mt-2 flex items-baseline gap-1.5 flex-wrap">
+                          <span className="text-sm font-extrabold text-[#d70018]">
+                            {formatCurrency(product.price || product.salePrice)}
+                          </span>
+                          {product.originalPrice && product.originalPrice > (product.price || product.salePrice) && (
+                            <del className="text-xs text-slate-400">{formatCurrency(product.originalPrice)}</del>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
                   <button
                     type="button"
                     onClick={() => handleAddSuggestionToCart(product)}
@@ -428,8 +438,8 @@ export default function CartPage() {
                     Thêm vào giỏ
                   </button>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

@@ -39,6 +39,8 @@ async def list_orders(session: AsyncSession, user_id: UUID | None = None) -> lis
                         jsonb_build_object(
                             'id', oi.id::text,
                             'productId', oi.product_id::text,
+                            'usedDeviceId', oi.used_device_id::text,
+                            'warrantyMonthsSnapshot', oi.warranty_months_snapshot,
                             'productName', oi.product_name,
                             'quantity', oi.quantity,
                             'price', oi.unit_price,
@@ -106,6 +108,8 @@ async def get_order_detail(session: AsyncSession, order_id: UUID) -> dict | None
                         DISTINCT jsonb_build_object(
                             'id', oi.id::text,
                             'productId', oi.product_id::text,
+                            'usedDeviceId', oi.used_device_id::text,
+                            'warrantyMonthsSnapshot', oi.warranty_months_snapshot,
                             'productName', oi.product_name,
                             'quantity', oi.quantity,
                             'price', oi.unit_price,

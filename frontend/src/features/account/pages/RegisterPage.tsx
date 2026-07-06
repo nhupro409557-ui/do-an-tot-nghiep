@@ -1,4 +1,4 @@
-import React, { useMemo, useReducer } from 'react';
+import React, { useReducer } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   confirmRegistrationByCode,
@@ -46,11 +46,6 @@ export default function RegisterPage() {
     initialRegisterState,
   );
   const navigate = useNavigate();
-
-  const verificationLink = useMemo(() => {
-    if (!pendingRegistration) return '';
-    return `${window.location.origin}/verify-email?token=${pendingRegistration.token}`;
-  }, [pendingRegistration]);
 
   const handleRegister = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -193,9 +188,6 @@ export default function RegisterPage() {
             <button type="submit" disabled={loading || verificationCode.length !== 6} className="w-full rounded-lg bg-[#d70018] py-3 font-bold text-white hover:bg-[#c00015] disabled:bg-red-400">
               {loading ? 'Đang xác nhận...' : 'Xác nhận tài khoản'}
             </button>
-            <Link to={verificationLink} className="block text-center text-sm font-bold text-blue-600 hover:underline">
-              Mở link xác nhận trên trình duyệt này
-            </Link>
             <button type="button" onClick={handleResendCode} disabled={loading} className="w-full text-sm font-semibold text-gray-500 hover:text-[#d70018] disabled:opacity-60">
               Gửi lại mã xác nhận
             </button>

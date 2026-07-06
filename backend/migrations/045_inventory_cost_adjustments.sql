@@ -1,0 +1,23 @@
+ALTER TABLE inventory_documents
+    DROP CONSTRAINT IF EXISTS inventory_documents_document_type_check;
+
+ALTER TABLE inventory_documents
+    ADD CONSTRAINT inventory_documents_document_type_check
+    CHECK (
+        document_type IN (
+            'INBOUND',
+            'OUTBOUND',
+            'ADJUSTMENT',
+            'COUNT',
+            'REVERSAL',
+            'TRANSFER',
+            'RESERVATION_RELEASE',
+            'INTERNAL_HOLD',
+            'DISPOSAL',
+            'COST_ADJUSTMENT'
+        )
+    );
+
+CREATE INDEX IF NOT EXISTS idx_inventory_documents_cost_adjustment_status_created
+    ON inventory_documents(status, created_at DESC)
+    WHERE document_type = 'COST_ADJUSTMENT';

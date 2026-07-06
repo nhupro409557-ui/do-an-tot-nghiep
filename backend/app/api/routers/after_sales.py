@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.dependencies import get_current_user_id
 from app.application.after_sales import service
 from app.application.after_sales.schemas import CreateAfterSalesRequest
+from app.application.services import order_service
 from app.application.commerce.use_cases import VoucherService
 from app.infrastructure.database.repositories import after_sales_repo
 from app.infrastructure.database.session import get_session
@@ -103,6 +104,14 @@ async def upload_warranty_attachments(
     return await service.add_attachments(
         session, kind="WARRANTY", request_id=request_id, user_id=user_id, files=files,
     )
+
+
+@router.get("/orders")
+async def list_my_orders(
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await order_service.list_orders(session, user_id)
 
 
 @router.get("/orders/{order_id}/shipment")

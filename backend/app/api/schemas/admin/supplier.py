@@ -1,6 +1,6 @@
 from uuid import UUID
+from pydantic import BaseModel, Field
 
-from pydantic import BaseModel, EmailStr, Field
 
 
 class SupplierPayload(BaseModel):
@@ -8,7 +8,7 @@ class SupplierPayload(BaseModel):
     code: str = Field(min_length=1, max_length=80)
     contactName: str | None = Field(default=None, max_length=255)
     phone: str | None = Field(default=None, max_length=40)
-    email: EmailStr | None = None
+    email: str | None = None
     address: str | None = None
     taxCode: str | None = Field(default=None, max_length=80)
     website: str | None = Field(default=None, max_length=255)

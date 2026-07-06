@@ -7,11 +7,13 @@ type AnyPermissionReader = (permissions: string[]) => boolean;
 export function useAdminAccessControls(
   usePermission: PermissionReader,
   useAnyPermission: AnyPermissionReader,
+  isSuperAdmin: boolean,
 ) {
   const canManageCustomerAccess = usePermission('sys:manage_users');
   const canManageCustomerProfile = useAnyPermission(['customer:update', 'customer:loyalty_adjust', 'customer:issue_voucher', 'sys:manage_users']);
   const canReadOverview = useAnyPermission(['overview:read']);
   const canReadProducts = useAnyPermission(['product:read']);
+  const canReadUsedProducts = useAnyPermission(['used_product:read']);
   const canManageProducts = useAnyPermission(['product:create', 'product:update', 'product:delete']);
   const canReadCategories = useAnyPermission(['category:read']);
   const canReadBrands = useAnyPermission(['brand:read']);
@@ -36,6 +38,7 @@ export function useAdminAccessControls(
   const tabAccess = useMemo<Record<AdminTab, boolean>>(() => ({
     overview: canReadOverview,
     products: canReadProducts,
+    usedProducts: canReadUsedProducts,
     categories: canReadCategories,
     brands: canReadBrands,
     suppliers: canReadSuppliers,
@@ -46,6 +49,7 @@ export function useAdminAccessControls(
     flashSales: canManageProducts || canManageVouchers,
     customers: canReadCustomers,
     inventoryReceipts: canManageInventory,
+    accountPayables: canReadInventory,
     inventory: canReadInventory,
     inventoryOutbounds: canReadInventory,
     reviews: canReadReviews,
@@ -53,6 +57,7 @@ export function useAdminAccessControls(
     content: canReadContent,
     banners: canManageContent,
     audit: canReadAudit,
+    aiCatalogIndex: isSuperAdmin,
     permissions: canManageRoles,
     paymentMethods: canReadPaymentMethods,
     storeInfo: canReadOverview,
@@ -67,6 +72,7 @@ export function useAdminAccessControls(
     canReadOrders,
     canReadOverview,
     canReadProducts,
+    canReadUsedProducts,
     canReadReviews,
     canReadSuppliers,
     canReadVouchers,
@@ -76,6 +82,7 @@ export function useAdminAccessControls(
     canManageReviews,
     canManageVouchers,
     canReadPaymentMethods,
+    isSuperAdmin,
   ]);
 
   return {

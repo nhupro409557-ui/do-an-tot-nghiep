@@ -2,6 +2,7 @@ import type React from 'react';
 import {
   BadgePercent,
   Boxes,
+  Bot,
   Building2,
   ClipboardList,
   CreditCard,
@@ -20,10 +21,11 @@ import {
   Users,
   Zap,
   Store,
+  Recycle,
 } from 'lucide-react';
 
-export type AdminTab = 'overview' | 'products' | 'flashSales' | 'categories' | 'brands' | 'suppliers' | 'services' | 'orders' | 'afterSales' | 'vouchers' | 'customers' | 'inventoryReceipts' | 'inventory' | 'inventoryOutbounds' | 'reviews' | 'interactions' | 'content' | 'banners' | 'audit' | 'permissions' | 'paymentMethods' | 'storeInfo';
-export type AdminTabGroup = 'Tổng quan' | 'Kinh doanh' | 'Catalog' | 'Vận hành' | 'Khách hàng' | 'Hệ thống';
+export type AdminTab = 'overview' | 'products' | 'usedProducts' | 'flashSales' | 'categories' | 'brands' | 'suppliers' | 'services' | 'orders' | 'afterSales' | 'vouchers' | 'customers' | 'inventoryReceipts' | 'accountPayables' | 'inventory' | 'inventoryOutbounds' | 'reviews' | 'interactions' | 'content' | 'banners' | 'audit' | 'aiCatalogIndex' | 'permissions' | 'paymentMethods' | 'storeInfo';
+export type AdminTabGroup = 'Tổng quan' | 'Kinh doanh' | 'Danh mục hàng' | 'Vận hành' | 'Khách hàng' | 'Hệ thống';
 export type SpecField = { key: string; label: string; group?: string; type: string; required: boolean; variant: boolean; isFilterable?: boolean; filterType?: string; filterEnabled?: boolean };
 export type CategoryFilterField = { key: string; label: string; type: string; enabled: boolean; source?: string };
 export type VariantForm = {
@@ -186,6 +188,7 @@ export function categoryWarrantyPolicy(category: any, parent?: any): WarrantyPol
 export const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Tổng quan', icon: LayoutDashboard },
   { id: 'products', label: 'Sản phẩm', icon: Package },
+  { id: 'usedProducts', label: 'Hàng cũ', icon: Recycle },
   { id: 'flashSales', label: 'Flash sale', icon: Zap },
   { id: 'categories', label: 'Danh mục', icon: FolderTree },
   { id: 'brands', label: 'Thương hiệu', icon: Building2 },
@@ -196,6 +199,7 @@ export const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = 
   { id: 'vouchers', label: 'Voucher', icon: BadgePercent },
   { id: 'customers', label: 'Khách hàng', icon: Users },
   { id: 'inventoryReceipts', label: 'Nhập kho', icon: ShoppingCart },
+  { id: 'accountPayables', label: 'Công nợ NCC', icon: CreditCard },
   { id: 'inventory', label: 'Tồn kho', icon: Boxes },
   { id: 'inventoryOutbounds', label: 'Xuất đơn hàng', icon: ClipboardList },
   { id: 'reviews', label: 'Đánh giá', icon: Star },
@@ -203,6 +207,7 @@ export const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = 
   { id: 'content', label: 'Video & nội dung', icon: Megaphone },
   { id: 'banners', label: 'Banner', icon: Image },
   { id: 'audit', label: 'Nhật ký', icon: ScrollText },
+  { id: 'aiCatalogIndex', label: 'AI catalog', icon: Bot },
   { id: 'permissions', label: 'Phân quyền', icon: KeyRound },
   { id: 'paymentMethods', label: 'PT Thanh toán', icon: CreditCard },
   { id: 'storeInfo', label: 'Cấu hình cửa hàng', icon: Store },
@@ -214,7 +219,7 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
     item: 'border-red-100 bg-red-50/70 text-red-950 hover:bg-red-100/80',
     icon: 'bg-red-100 text-red-600 ring-red-200',
     surface: 'border-red-100 bg-red-50 text-red-900',
-    label: 'Dashboard',
+    label: 'Bảng điều khiển',
     title: 'Tổng quan điều hành',
     description: 'Khu vực đọc số liệu nhanh, theo dõi doanh thu, đơn hàng và cảnh báo vận hành.',
   },
@@ -226,6 +231,15 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
     label: 'Quản lý',
     title: 'Quản lý sản phẩm',
     description: 'Khu vực cập nhật dữ liệu sản phẩm, media, biến thể và giá bán.',
+  },
+  usedProducts: {
+    active: 'bg-emerald-700 text-white shadow-sm shadow-emerald-200',
+    item: 'border-emerald-100 bg-emerald-50/75 text-emerald-950 hover:bg-emerald-100/80',
+    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    surface: 'border-emerald-100 bg-emerald-50/80 text-emerald-900',
+    label: 'Kinh doanh',
+    title: 'Quản lý hàng cũ',
+    description: 'Tiếp nhận, thẩm định, định giá và quản lý tồn kho thiết bị cũ theo từng IMEI.',
   },
   flashSales: {
     active: 'bg-red-600 text-white shadow-sm shadow-red-200',
@@ -268,7 +282,7 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
     item: 'border-emerald-100 bg-emerald-50/75 text-slate-700 hover:bg-emerald-100/80',
     icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
     surface: 'border-emerald-100 bg-emerald-50/80 text-emerald-900',
-    label: 'Catalog',
+    label: 'Danh mục hàng',
     title: 'Quản lý dịch vụ',
     description: 'Quản lý bảo hành mở rộng, lắp đặt, vệ sinh và các dịch vụ đi kèm sản phẩm.',
   },
@@ -316,6 +330,15 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
     label: 'Vận hành',
     title: 'Quản lý nhập kho',
     description: 'Khu vực tạo phiếu nhập và theo dõi danh sách nhập kho theo nhà cung cấp, sản phẩm và biến thể.',
+  },
+  accountPayables: {
+    active: 'bg-amber-600 text-white shadow-sm shadow-amber-200',
+    item: 'border-orange-100 bg-orange-50/75 text-orange-950 hover:bg-orange-100/80',
+    icon: 'bg-amber-50 text-amber-700 ring-amber-100',
+    surface: 'border-amber-100 bg-amber-50/80 text-amber-900',
+    label: 'Vận hành',
+    title: 'Công nợ nhà cung cấp',
+    description: 'Theo dõi khoản phải trả phát sinh từ phiếu nhập kho, hạn thanh toán và lịch sử trả tiền nhà cung cấp.',
   },
   inventory: {
     active: 'bg-amber-600 text-white shadow-sm shadow-amber-200',
@@ -380,6 +403,15 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
     title: 'Nhật ký quản trị',
     description: 'Khu vực truy vết đăng nhập, thay đổi dữ liệu và thao tác nhạy cảm trong Admin.',
   },
+  aiCatalogIndex: {
+    active: 'bg-slate-700 text-white shadow-sm shadow-slate-200',
+    item: 'border-slate-200 bg-slate-100/80 text-slate-950 hover:bg-slate-200/70',
+    icon: 'bg-slate-100 text-slate-700 ring-slate-200',
+    surface: 'border-slate-200 bg-slate-100/80 text-slate-900',
+    label: 'Hệ thống',
+    title: 'AI catalog index',
+    description: 'Theo dõi trạng thái CocoIndex, embedding catalog và lịch sử job refresh cho trợ lý AI.',
+  },
   permissions: {
     active: 'bg-slate-700 text-white shadow-sm shadow-slate-200',
     item: 'border-slate-200 bg-slate-100/80 text-slate-950 hover:bg-slate-200/70',
@@ -415,12 +447,14 @@ export const adminTabs: { id: AdminTab; label: string; group: AdminTabGroup; ico
   { id: 'afterSales', label: 'Đổi trả & bảo hành', group: 'Vận hành', icon: ShieldCheck },
   { id: 'vouchers', label: 'Voucher', group: 'Kinh doanh', icon: BadgePercent },
   { id: 'flashSales', label: 'Flash sale', group: 'Kinh doanh', icon: Zap },
-  { id: 'products', label: 'Sản phẩm', group: 'Catalog', icon: Package },
-  { id: 'categories', label: 'Danh mục', group: 'Catalog', icon: FolderTree },
-  { id: 'brands', label: 'Thương hiệu', group: 'Catalog', icon: Building2 },
-  { id: 'suppliers', label: 'Nhà cung cấp', group: 'Catalog', icon: Truck },
-  { id: 'services', label: 'Dịch vụ', group: 'Catalog', icon: ShieldCheck },
+  { id: 'products', label: 'Sản phẩm', group: 'Danh mục hàng', icon: Package },
+  { id: 'usedProducts', label: 'Hàng cũ', group: 'Kinh doanh', icon: Recycle },
+  { id: 'categories', label: 'Danh mục', group: 'Danh mục hàng', icon: FolderTree },
+  { id: 'brands', label: 'Thương hiệu', group: 'Danh mục hàng', icon: Building2 },
+  { id: 'suppliers', label: 'Nhà cung cấp', group: 'Danh mục hàng', icon: Truck },
+  { id: 'services', label: 'Dịch vụ', group: 'Danh mục hàng', icon: ShieldCheck },
   { id: 'inventoryReceipts', label: 'Nhập kho', group: 'Vận hành', icon: ShoppingCart },
+  { id: 'accountPayables', label: 'Công nợ NCC', group: 'Vận hành', icon: CreditCard },
   { id: 'inventory', label: 'Tồn kho', group: 'Vận hành', icon: Boxes },
   { id: 'inventoryOutbounds', label: 'Xuất đơn hàng', group: 'Vận hành', icon: ClipboardList },
   { id: 'content', label: 'Video & nội dung', group: 'Vận hành', icon: Megaphone },
@@ -429,6 +463,7 @@ export const adminTabs: { id: AdminTab; label: string; group: AdminTabGroup; ico
   { id: 'reviews', label: 'Đánh giá', group: 'Khách hàng', icon: Star },
   { id: 'interactions', label: 'Bình luận & hỏi đáp', group: 'Khách hàng', icon: MessagesSquare },
   { id: 'audit', label: 'Nhật ký', group: 'Hệ thống', icon: ScrollText },
+  { id: 'aiCatalogIndex', label: 'AI catalog', group: 'Hệ thống', icon: Bot },
   { id: 'permissions', label: 'Phân quyền', group: 'Hệ thống', icon: KeyRound },
   { id: 'paymentMethods', label: 'PT Thanh toán', group: 'Hệ thống', icon: CreditCard },
   { id: 'storeInfo', label: 'Cấu hình cửa hàng', group: 'Hệ thống', icon: Store },
@@ -441,7 +476,7 @@ export const adminTabTone: Partial<Record<AdminTab, { active: string; item: stri
     item: 'border-rose-100 bg-rose-50 text-slate-700 hover:bg-rose-100/80',
     icon: 'bg-rose-100 text-rose-600 ring-rose-200',
     surface: 'border-rose-100 bg-rose-50 text-rose-900',
-    label: 'Dashboard',
+    label: 'Bảng điều khiển',
     title: 'Tổng quan điều hành',
     description: 'Khu vực đọc số liệu nhanh, theo dõi doanh thu, đơn hàng và cảnh báo vận hành.',
   },
@@ -453,6 +488,15 @@ export const adminTabTone: Partial<Record<AdminTab, { active: string; item: stri
     label: 'Quản lý',
     title: 'Quản lý sản phẩm',
     description: 'Khu vực cập nhật dữ liệu sản phẩm, media, biến thể và giá bán.',
+  },
+  usedProducts: {
+    active: 'border-emerald-200 bg-emerald-100 text-slate-800 shadow-sm shadow-emerald-50',
+    item: 'border-emerald-100 bg-emerald-50/75 text-slate-700 hover:bg-emerald-100/80',
+    icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    surface: 'border-emerald-100 bg-emerald-50/80 text-emerald-900',
+    label: 'Kinh doanh',
+    title: 'Quản lý hàng cũ',
+    description: 'Tiếp nhận, thẩm định, định giá và quản lý tồn kho thiết bị cũ theo từng IMEI.',
   },
   flashSales: {
     active: 'border-red-200 bg-red-100 text-slate-800 shadow-sm shadow-red-50',
@@ -495,7 +539,7 @@ export const adminTabTone: Partial<Record<AdminTab, { active: string; item: stri
     item: 'border-emerald-100 bg-emerald-50/75 text-slate-700 hover:bg-emerald-100/80',
     icon: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
     surface: 'border-emerald-100 bg-emerald-50/80 text-emerald-900',
-    label: 'Catalog',
+    label: 'Danh mục hàng',
     title: 'Quản lý dịch vụ',
     description: 'Quản lý bảo hành mở rộng, lắp đặt, vệ sinh và các dịch vụ đi kèm sản phẩm.',
   },
@@ -589,6 +633,15 @@ export const adminTabTone: Partial<Record<AdminTab, { active: string; item: stri
     title: 'Nhật ký quản trị',
     description: 'Khu vực truy vết đăng nhập, thay đổi dữ liệu và thao tác nhạy cảm trong Admin.',
   },
+  aiCatalogIndex: {
+    active: 'border-slate-200 bg-slate-100 text-slate-800 shadow-sm shadow-slate-50',
+    item: 'border-slate-200 bg-slate-100/80 text-slate-700 hover:bg-slate-200/70',
+    icon: 'bg-slate-100 text-slate-700 ring-slate-200',
+    surface: 'border-slate-200 bg-slate-100/80 text-slate-900',
+    label: 'Hệ thống',
+    title: 'AI catalog index',
+    description: 'Theo dõi trạng thái CocoIndex, embedding catalog và lịch sử job refresh cho trợ lý AI.',
+  },
   permissions: {
     active: 'border-slate-200 bg-slate-100 text-slate-800 shadow-sm shadow-slate-50',
     item: 'border-slate-200 bg-slate-100/80 text-slate-700 hover:bg-slate-200/70',
@@ -621,6 +674,7 @@ export const adminTabTone: Partial<Record<AdminTab, { active: string; item: stri
 export const searchPlaceholderByTab: Record<AdminTab, string> = {
   overview: 'Tìm số liệu, cảnh báo hoặc khu vực cần theo dõi',
   products: 'Tìm sản phẩm, SKU, thương hiệu',
+  usedProducts: 'Tìm hồ sơ, thiết bị hoặc IMEI hàng cũ',
   flashSales: 'Tìm sản phẩm đang flash sale',
   categories: 'Tìm danh mục, slug, danh mục cha',
   brands: 'Tìm thương hiệu, mã hoặc SEO',
@@ -631,6 +685,7 @@ export const searchPlaceholderByTab: Record<AdminTab, string> = {
   vouchers: 'Tìm voucher, code, chiến dịch',
   customers: 'Tìm khách hàng, số điện thoại, email',
   inventoryReceipts: 'Tìm phiếu nhập kho, nhà cung cấp',
+  accountPayables: 'Tìm phiếu nhập, hóa đơn hoặc nhà cung cấp',
   inventory: 'Tìm tồn kho sản phẩm, vị trí kệ',
   inventoryOutbounds: 'Tìm phiếu xuất kho, mã đơn hàng',
   reviews: 'Tìm đánh giá, số sao, sản phẩm',
@@ -638,6 +693,7 @@ export const searchPlaceholderByTab: Record<AdminTab, string> = {
   content: 'Tìm video, bài viết',
   banners: 'Tìm banner, vị trí hiển thị',
   audit: 'Tìm nhật ký quản trị',
+  aiCatalogIndex: 'Tìm job, trạng thái hoặc bước refresh',
   permissions: 'Tìm vai trò, quyền hạn',
   paymentMethods: 'Tìm phương thức thanh toán',
   storeInfo: 'Tìm cấu hình cửa hàng',
@@ -712,7 +768,7 @@ export const contentTypeOptions: [string, string][] = [
   ['MARKETING_PAGE', 'Trang marketing'],
 ];
 export const videoSourceOptions: [string, string][] = [
-  ['UPLOAD', 'Upload file'],
+  ['UPLOAD', 'Tải file lên'],
   ['YOUTUBE', 'Link YouTube'],
 ];
 export const videoCategoryOptions: [string, string][] = [

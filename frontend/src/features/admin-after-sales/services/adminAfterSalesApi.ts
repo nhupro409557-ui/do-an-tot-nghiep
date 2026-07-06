@@ -23,4 +23,10 @@ export const adminAfterSalesApi = {
   updateDisposition: (id: string, data: any) => request<any>(`/admin/after-sales/defective-identifiers/${encodeURIComponent(id)}/disposition`, {
     method: 'PATCH', body: JSON.stringify(data),
   }),
+  inspectReturn: (id: string, data: any) => request<any>(`/admin/after-sales/returns/${encodeURIComponent(id)}/inspection`, {
+    method: 'POST', body: JSON.stringify(data),
+  }),
+  inspectWarranty: (id: string, data: any) => request<any>(`/admin/after-sales/warranties/${encodeURIComponent(id)}/inspection`, {
+    method: 'POST', body: JSON.stringify(data),
+  }),
 };

@@ -25,10 +25,10 @@ class DeleteAccountUseCase:
         async with self._session.begin():
             user = await self._user_repository.get_deletable_user_for_update(user_id)
             if user is None:
-                raise UserNotFoundError("User not found or already deleted.")
+                raise UserNotFoundError("Không tìm thấy tài khoản hoặc tài khoản đã bị xóa.")
 
             if user.loyalty_wallet_status == LoyaltyWalletStatus.CLOSED:
-                raise LoyaltyWalletClosedError("Loyalty wallet is already closed.")
+                raise LoyaltyWalletClosedError("Ví điểm thưởng đã được đóng.")
 
             balance_before = int(user.loyalty_points_balance)
             revoked_points = balance_before
@@ -38,7 +38,7 @@ class DeleteAccountUseCase:
                     user_id=user.id,
                     points=revoked_points,
                     balance_before=balance_before,
-                    reason="Account deletion: revoke all remaining loyalty points.",
+                    reason="Xóa tài khoản: thu hồi toàn bộ điểm thưởng còn lại.",
                 )
 
             user.loyalty_points_balance = 0
@@ -54,4 +54,3 @@ class DeleteAccountUseCase:
             loyalty_wallet_status=LoyaltyWalletStatus.CLOSED,
             revoked_points=revoked_points,
         )
-

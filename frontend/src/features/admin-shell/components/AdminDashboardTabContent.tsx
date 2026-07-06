@@ -15,6 +15,7 @@ const AdminContentTab = React.lazy(() => import('../../admin-content/components/
 const AdminCustomersTab = React.lazy(() => import('../../admin-customers/components/AdminCustomersTab'));
 const AdminFlashSalesTab = React.lazy(() => import('../../admin-flash-sales/components/AdminFlashSalesTab'));
 const AdminInventoryReceiptsTab = React.lazy(() => import('../../admin-inventory/components/AdminInventoryReceiptsTab'));
+const AdminAccountPayablesTab = React.lazy(() => import('../../admin-account-payables/components/AdminAccountPayablesTab'));
 const AdminInventoryTab = React.lazy(() => import('../../admin-inventory/components/AdminInventoryTab'));
 const AdminInventoryOutboundsTab = React.lazy(() => import('../../admin-inventory/components/AdminInventoryOutboundsTab'));
 const AdminProductInteractionsTab = React.lazy(() => import('../../admin-interactions/components/AdminProductInteractionsTab'));
@@ -22,11 +23,13 @@ const AdminOrdersTab = React.lazy(() => import('../../admin-orders/components/Ad
 const AdminOverviewTab = React.lazy(() => import('../../admin-overview/components/AdminOverviewTab'));
 const AdminPermissionsTab = React.lazy(() => import('../../admin-permissions/components/AdminPermissionsTab'));
 const AdminProductsTab = React.lazy(() => import('../../admin-products/components/AdminProductsTab'));
+const AdminUsedProductsTab = React.lazy(() => import('../../admin-used-products/components/AdminUsedProductsTab'));
 const AdminReviewsTab = React.lazy(() => import('../../admin-reviews/components/AdminReviewsTab'));
 const AdminServicesTab = React.lazy(() => import('../../admin-services/components/AdminServicesTab'));
 const AdminSuppliersTab = React.lazy(() => import('../../admin-suppliers/components/AdminSuppliersTab'));
 const AdminVouchersTab = React.lazy(() => import('../../admin-vouchers/components/AdminVouchersTab'));
 const AdminAfterSalesTab = React.lazy(() => import('../../admin-after-sales/components/AdminAfterSalesTab'));
+const AdminAiCatalogIndexTab = React.lazy(() => import('../../admin-ai-catalog/components/AdminAiCatalogIndexTab'));
 const AdminPaymentMethodsTab = React.lazy(() => import('../../admin-payment-methods/components/AdminPaymentMethodsTab'));
 const AdminStoreInfoTab = React.lazy(() => import('../../admin-store-info/components/AdminStoreInfoTab'));
 
@@ -80,7 +83,7 @@ export function buildRoleDashboards(admin: any) {
   return [
     { role: 'Quản trị', metric: `${admin.availableTabs.length} phân hệ`, helper: 'Các mục đang được cấp quyền truy cập', icon: ShieldCheck },
     { role: 'Kinh doanh', metric: `${admin.orders.length} đơn`, helper: 'Theo dõi xử lý và hậu mãi', icon: ClipboardList },
-    { role: 'Catalog', metric: `${admin.products.length} sản phẩm`, helper: 'Quản lý sản phẩm, danh mục và thương hiệu', icon: Package },
+    { role: 'Danh mục hàng', metric: `${admin.products.length} sản phẩm`, helper: 'Quản lý sản phẩm, danh mục và thương hiệu', icon: Package },
   ];
 }
 
@@ -100,6 +103,8 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
       );
     case 'products':
       return <AdminProductsTab {...sharedProps} />;
+    case 'usedProducts':
+      return <AdminUsedProductsTab {...sharedProps} />;
     case 'flashSales':
       return <AdminFlashSalesTab {...sharedProps} />;
     case 'categories':
@@ -120,6 +125,8 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
       return <AdminCustomersTab {...sharedProps} />;
     case 'inventoryReceipts':
       return <AdminInventoryReceiptsTab {...sharedProps} />;
+    case 'accountPayables':
+      return <AdminAccountPayablesTab {...sharedProps} />;
     case 'inventory':
       return <AdminInventoryTab {...sharedProps} />;
     case 'inventoryOutbounds':
@@ -134,6 +141,8 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
       return <AdminBannersTab {...sharedProps} />;
     case 'audit':
       return <AdminAuditTab {...sharedProps} />;
+    case 'aiCatalogIndex':
+      return <AdminAiCatalogIndexTab {...sharedProps} />;
     case 'permissions':
       return <AdminPermissionsTab {...sharedProps} />;
     case 'paymentMethods':

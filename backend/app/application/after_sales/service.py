@@ -11,10 +11,41 @@ from app.application.after_sales.common import build_request_code, money
 from app.application.after_sales.inspection import inspect_request
 from app.application.after_sales.maintenance import run_maintenance
 from app.application.after_sales.refunds import create_refunds
-from app.application.after_sales.replacements import complete_replacement
+from app.application.after_sales.replacements import complete_replacements
 from app.application.after_sales.schemas import AfterSalesTimelineNoteRequest, CreateAfterSalesRequest, UpdateAfterSalesStatusRequest
 from app.application.after_sales.transitions import label_for, transitions_for
 from app.infrastructure.database.repositories import after_sales_repo
+
+
+async def get_return_period_days(session: AsyncSession, item: dict) -> int:
+    if item.get("used_device_id") is not None:
+        return 30
+    product_id = item.get("product_id")
+    if not product_id:
+        return 15
+    slug = await session.scalar(
+        text(
+            """
+            SELECT c.slug FROM categories c
+            JOIN products p ON p.category_id = c.id
+            WHERE p.id = :pid
+            """
+        ),
+        {"pid": product_id},
+    )
+    if not slug:
+        return 15
+    slug_lower = slug.lower()
+    slug_normalized = slug_lower.replace("-", "").replace("_", "")
+    if any(k in slug_normalized for k in ["dienthoai", "smartphone", "tablet", "maytinhbang", "laptop", "wearable", "donghothongminh"]):
+        return 30
+    elif "phukien" in slug_normalized or "accessory" in slug_normalized:
+        price = float(item.get("unit_price") or 0)
+        if price >= 1000000:
+            return 15
+        return 0
+    else:
+        return 15
 
 
 async def create_request(
@@ -28,7 +59,6 @@ async def create_request(
     if not order:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng thuộc tài khoản này.")
 
-    # Ràng buộc đơn hàng phải hoàn thành thành công mới được tạo yêu cầu
     if order.get("status") != "COMPLETED":
         raise HTTPException(
             status_code=400,
@@ -47,37 +77,55 @@ async def create_request(
     now = datetime.now(timezone.utc)
     time_diff = now - completed_at
 
-    # Ràng buộc thời hạn đổi trả (RETURN) tối đa 7 ngày
-    if kind == "RETURN":
-        if time_diff.days > 7:
-            raise HTTPException(
-                status_code=400,
-                detail="Đã quá thời hạn hỗ trợ đổi trả của đơn hàng này (tối đa 7 ngày kể từ lúc nhận hàng)."
-            )
-
     request_id = uuid4()
     request_code = build_request_code(kind)
     subtotal = money(order["subtotal_amount"])
     paid_items_total = max(money(order["total_amount"]) - money(order.get("shipping_fee", 0)), Decimal("0"))
     prepared: list[dict] = []
+
+    if kind == "RETURN":
+        if not (payload.has_accessories and payload.good_appearance and payload.account_unlocked and payload.has_vat_invoice):
+            raise HTTPException(
+                status_code=400,
+                detail="Yêu cầu đổi trả chỉ được chấp nhận khi thiết bị có đầy đủ phụ kiện, ngoại quan nguyên vẹn, đã mở khóa tài khoản và có hóa đơn VAT đi kèm."
+            )
+
+    payload_item_totals: dict[UUID, int] = {}
     for source in payload.items:
+        payload_item_totals[source.order_item_id] = payload_item_totals.get(source.order_item_id, 0) + source.quantity
+
+    seen_items = set()
+    for source in payload.items:
+        # Check duplicate items in payload
+        key = (source.order_item_id, source.imei, source.serial_number)
+        if key in seen_items:
+            raise HTTPException(
+                status_code=400,
+                detail="Mỗi sản phẩm hoặc IMEI/serial chỉ được khai báo một lần trong yêu cầu."
+            )
+        seen_items.add(key)
+
         item = await after_sales_repo.get_order_item(session, payload.order_id, source.order_item_id)
         if not item:
             raise HTTPException(status_code=400, detail="Sản phẩm không thuộc đơn hàng đã chọn.")
 
-        # Ràng buộc thời hạn bảo hành (WARRANTY) cho từng sản phẩm
-        prod_res = await session.execute(
-            text("SELECT warranty_period, name FROM products WHERE id = :id"),
-            {"id": item["product_id"]}
-        )
-        prod_row = prod_res.first()
-        if not prod_row:
-            raise HTTPException(status_code=404, detail="Không tìm thấy thông tin sản phẩm.")
-
-        warranty_months = prod_row[0]
-        prod_name = prod_row[1]
+        # Ràng buộc thời hạn đổi trả
+        return_days = await get_return_period_days(session, item)
+        if kind == "RETURN":
+            if return_days <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Sản phẩm {item['product_name']} không hỗ trợ chính sách đổi trả."
+                )
+            if time_diff.days > return_days:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Sản phẩm {item['product_name']} đã quá thời hạn hỗ trợ đổi trả (Thời hạn đổi trả cho nhóm hàng này: {return_days} ngày)."
+                )
 
         if kind == "WARRANTY":
+            warranty_months = int(item.get("warrantyMonths") or 0)
+            prod_name = item.get("product_name") or item.get("currentProductName") or "sản phẩm"
             if warranty_months <= 0:
                 raise HTTPException(
                     status_code=400,
@@ -88,11 +136,38 @@ async def create_request(
                     status_code=400,
                     detail=f"Sản phẩm {prod_name} đã hết thời hạn bảo hành chính hãng (Thời hạn bảo hành: {warranty_months} tháng)."
                 )
-        if source.quantity > item["quantity"]:
+
+        # Ràng buộc số lượng và mã định danh
+        if (source.imei or source.serial_number) and source.quantity != 1:
             raise HTTPException(
                 status_code=400,
-                detail=f"Số lượng yêu cầu của {item['product_name']} vượt số lượng đã mua.",
+                detail=f"Sản phẩm có mã định danh (IMEI hoặc Serial) bắt buộc phải có số lượng yêu cầu là 1."
             )
+
+        if source.imei or source.serial_number:
+            if await after_sales_repo.has_completed_return_for_identifier(session, imei=source.imei, serial_number=source.serial_number):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Thiết bị có IMEI/serial này đã được trả hàng/hoàn tiền thành công trước đó."
+                )
+
+        # Ràng buộc số lượng tích lũy
+        total_returned = await after_sales_repo.get_total_returned_quantity(session, source.order_item_id)
+        payload_qty = payload_item_totals[source.order_item_id]
+        if kind == "RETURN":
+            if total_returned + payload_qty > item["quantity"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Tổng số lượng đổi trả đã xử lý và đang yêu cầu ({total_returned + payload_qty}) vượt số lượng đã mua ({item['quantity']}) của sản phẩm {item['product_name']}."
+                )
+        elif kind == "WARRANTY":
+            active_warranties = await after_sales_repo.get_active_warranty_quantity(session, source.order_item_id)
+            if active_warranties + total_returned + payload_qty > item["quantity"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Tổng số lượng bảo hành và đổi trả ({active_warranties + total_returned + payload_qty}) vượt số lượng đã mua ({item['quantity']}) của sản phẩm {item['product_name']}."
+                )
+
         if not await after_sales_repo.identifier_belongs_to_item(
             session,
             order_id=payload.order_id,
@@ -135,6 +210,10 @@ async def create_request(
         user_id=user_id,
         order_id=payload.order_id,
         reason=payload.reason.strip(),
+        has_accessories=payload.has_accessories,
+        good_appearance=payload.good_appearance,
+        account_unlocked=payload.account_unlocked,
+        has_vat_invoice=payload.has_vat_invoice,
     )
     for item in prepared:
         await after_sales_repo.insert_item(session, kind=kind, values=item)
@@ -251,9 +330,37 @@ async def admin_update_status(
             status_code=409,
             detail=f"Không thể chuyển từ {request['status']} sang {target}.",
         )
+    if request["status"] == "QC_IN_PROGRESS":
+        raise HTTPException(
+            status_code=400,
+            detail="Hồ sơ đang ở trạng thái kiểm tra chất lượng (QC_IN_PROGRESS). Vui lòng sử dụng tính năng Đánh giá QC chuyên dụng để chuyển bước."
+        )
+    if target in {"QC_APPROVED", "WARRANTY_ACCEPTED"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Không thể chuyển trực tiếp sang trạng thái duyệt QC. Vui lòng sử dụng Đánh giá QC chuyên dụng."
+        )
+    if target == "REJECTED" and not (payload.note or "").strip():
+        raise HTTPException(status_code=400, detail="Cần nhập lý do khi từ chối yêu cầu hậu mãi.")
+    if kind == "WARRANTY" and target in {"READY_TO_RETURN", "COMPLETED"} and request.get("resolution_type") == "REPAIR":
+        if not (payload.repair_diagnosis or "").strip() or not (payload.repair_action or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Luồng sửa chữa bảo hành bắt buộc phải nhập chẩn đoán lỗi và hướng xử lý."
+            )
+    if target == "COMPLETED" and kind == "RETURN" and request.get("resolution_type") == "REFUND":
+        refund_proof_url = (payload.refund_proof_url or "").strip()
+        if not refund_proof_url:
+            raise HTTPException(
+                status_code=400,
+                detail="Cần cung cấp link hình ảnh/chứng từ hoàn tiền (proof URL) trước khi hoàn tất hồ sơ.",
+            )
 
     items = await after_sales_repo.get_request_items(session, kind=kind, request_id=request_id)
-    allocation_trigger = target == ("QC_APPROVED" if kind == "RETURN" else "REPLACEMENT_APPROVED")
+    allocation_trigger = (
+        (kind == "RETURN" and target == "EXCHANGE_PROCESSING")
+        or (kind == "WARRANTY" and target == "REPLACEMENT_APPROVED")
+    )
     if allocation_trigger:
         locked = await after_sales_repo.create_allocations(
             session,
@@ -264,32 +371,99 @@ async def admin_update_status(
         if not locked:
             target = "WAITING_FOR_STOCK"
 
-    if target == "COMPLETED":
-        if kind == "RETURN" and request.get("resolution_type") == "REFUND":
-            depreciation_fee = payload.depreciation_fee or float(request.get("depreciation_fee") or 0)
-            await create_refunds(session, request, items, payload.shipping_deduction, depreciation_fee)
-        elif payload.replacement_imei:
-            await complete_replacement(
-                session,
-                kind=kind,
-                request=request,
-                request_id=request_id,
-                items=items,
-                replacement_imei=payload.replacement_imei,
-                actor_id=actor_id,
+    if kind == "RETURN" and target == "REFUND_PROCESSING":
+        await after_sales_repo.release_allocations(session, kind=kind, request_id=request_id)
+
+    replacement_imei = (payload.replacement_imei or "").strip()
+    replacement_already_assigned = bool(items) and all(
+        bool(item.get("replacement_imeis"))
+        or bool(item.get("replacement_serial_numbers"))
+        or bool((item.get("replacement_imei") or "").strip())
+        for item in items
+    )
+    replacement_items = [item.model_dump() for item in payload.replacement_items]
+    if not replacement_items and replacement_imei and len(items) == 1:
+        replacement_items = [
+            {
+                "request_item_id": items[0]["id"],
+                "imeis": [replacement_imei],
+                "serial_numbers": [],
+            }
+        ]
+    assigns_replacement = (
+        kind == "RETURN"
+        and request["status"] == "EXCHANGE_PROCESSING"
+        and target == "COMPLETED"
+    ) or (
+        kind == "WARRANTY"
+        and (
+            (
+                request["status"] == "REPLACEMENT_PROCESSING"
+                and target in {"READY_TO_RETURN", "COMPLETED"}
             )
+            or (
+                request["status"] == "READY_TO_RETURN"
+                and target == "COMPLETED"
+                and request.get("resolution_type") == "REPLACEMENT"
+            )
+        )
+    )
+    if assigns_replacement and not replacement_already_assigned and not replacement_items:
+        raise HTTPException(
+            status_code=400,
+            detail="Cần nhập IMEI hoặc serial của từng thiết bị thay thế trước khi chuyển bước xử lý.",
+        )
+
+    if target == "COMPLETED" and kind == "RETURN" and request.get("resolution_type") == "REFUND":
+        refund_transaction_ref = (payload.refund_transaction_ref or "").strip()
+        if not refund_transaction_ref:
+            raise HTTPException(
+                status_code=400,
+                detail="Cần nhập mã giao dịch hoặc chứng từ hoàn tiền trước khi hoàn tất hồ sơ.",
+            )
+        await after_sales_repo.release_allocations(session, kind=kind, request_id=request_id)
+        depreciation_fee = payload.depreciation_fee or float(request.get("depreciation_fee") or 0)
+        await create_refunds(
+            session,
+            request,
+            items,
+            payload.shipping_deduction,
+            depreciation_fee,
+            status_value="COMPLETED",
+            transaction_ref=refund_transaction_ref,
+            proof_url=(payload.refund_proof_url or "").strip() or None,
+            processed_by=actor_id,
+            processed_note=(payload.refund_note or payload.note or "").strip() or None,
+        )
+    elif assigns_replacement and not replacement_already_assigned:
+        await complete_replacements(
+            session,
+            kind=kind,
+            request=request,
+            request_id=request_id,
+            items=items,
+            replacement_items=replacement_items,
+            actor_id=actor_id,
+        )
 
     depreciation_to_store = None
     if kind == "RETURN" and target in {"REFUND_PROCESSING", "COMPLETED"}:
         existing_depreciation = float(request.get("depreciation_fee") or 0)
         depreciation_to_store = payload.depreciation_fee if payload.depreciation_fee > 0 or existing_depreciation == 0 else existing_depreciation
 
+    resolution_type = payload.resolution_type
+    if kind == "RETURN" and resolution_type is None:
+        if target == "REFUND_PROCESSING":
+            resolution_type = "REFUND"
+        elif target in {"EXCHANGE_PROCESSING", "WAITING_FOR_STOCK"} and allocation_trigger:
+            resolution_type = "EXCHANGE"
+
     await after_sales_repo.update_request_status(
         session,
         kind=kind,
         request_id=request_id,
         status_value=target,
-        resolution_type=payload.resolution_type,
+        resolution_type=resolution_type,
         note=payload.note,
         customer_fault=payload.customer_fault,
         depreciation_fee=depreciation_to_store,
@@ -309,7 +483,20 @@ async def admin_update_status(
     )
     if kind == "WARRANTY":
         await sync_warranty_imei_status(session, items=items, target=target, replacement_imei=payload.replacement_imei)
-
+    if target == "REPAIRING" and kind == "WARRANTY":
+        for item in items:
+            if item.get("used_device_id"):
+                await session.execute(
+                    text("UPDATE used_devices SET status = 'REPAIRING', updated_at = NOW() WHERE id = :uid"),
+                    {"uid": item["used_device_id"]},
+                )
+    if target == "COMPLETED" and kind == "WARRANTY" and request.get("resolution_type") == "REPAIR":
+        for item in items:
+            if item.get("used_device_id"):
+                await session.execute(
+                    text("UPDATE used_devices SET status = 'SOLD', updated_at = NOW() WHERE id = :uid"),
+                    {"uid": item["used_device_id"]},
+                )
     label = label_for(kind)
     await after_sales_repo.notify(
         session,
@@ -350,7 +537,7 @@ async def sync_warranty_imei_status(
     *,
     items: list[dict],
     target: str,
-    replacement_imei: str | None,
+    replacement_imei: str | None = None,
 ) -> None:
     if not items:
         return
@@ -365,11 +552,11 @@ async def sync_warranty_imei_status(
             )
         elif target == "COMPLETED" and not replacement_imei:
             await session.execute(
-                text("UPDATE product_imeis SET status='SOLD', updated_at=NOW() WHERE imei=:imei AND status='WARRANTY'"),
+                text("UPDATE product_imeis SET status='SOLD', location_id=NULL, updated_at=NOW() WHERE imei=:imei AND status='WARRANTY'"),
                 {"imei": imei_val},
             )
         elif target in {"REJECTED", "CANCELLED"}:
             await session.execute(
-                text("UPDATE product_imeis SET status='SOLD', updated_at=NOW() WHERE imei=:imei AND status='WARRANTY'"),
+                text("UPDATE product_imeis SET status='SOLD', location_id=NULL, updated_at=NOW() WHERE imei=:imei AND status='WARRANTY'"),
                 {"imei": imei_val},
             )

@@ -13,12 +13,11 @@ from app.infrastructure.database.repositories import auth_repo
 from app.infrastructure.database.session import get_session
 
 
-async def get_current_user_id(
+async def _decode_bearer_user_id(
     request: Request,
-    authorization: str | None = Header(default=None),
-    x_user_id: str | None = Header(default=None),
+    authorization: str | None,
     session: AsyncSession = Depends(get_session),
-) -> UUID:
+) -> UUID | None:
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1]
         try:
@@ -45,19 +44,29 @@ async def get_current_user_id(
                 detail="Invalid authenticated user context.",
             ) from exc
 
-    if not x_user_id:
+    return None
+
+
+async def get_optional_current_user_id(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+) -> UUID | None:
+    return await _decode_bearer_user_id(request, authorization, session)
+
+
+async def get_current_user_id(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+) -> UUID:
+    user_id = await _decode_bearer_user_id(request, authorization, session)
+    if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing authenticated user context.",
         )
-
-    try:
-        return UUID(x_user_id)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authenticated user context.",
-        ) from exc
+    return user_id
 
 
 async def get_current_role_code(
@@ -102,7 +111,7 @@ async def get_user_permissions(
 
     permissions = set(await auth_repo.list_permissions_for_user(session, current_user_id))
     try:
-        await redis.setex(cache_key, 15 * 60, json.dumps(sorted(permissions)))
+        await redis.set(cache_key, json.dumps(sorted(permissions)), ex=15 * 60)
     except Exception:
         pass
     return permissions

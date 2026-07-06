@@ -79,7 +79,7 @@ def normalize_content_comments(comments: list[ContentCommentPayload]) -> list[di
 def normalize_video_source(value: str | None) -> str:
     normalized = (value or "UPLOAD").strip().upper()
     if normalized not in {"UPLOAD", "YOUTUBE"}:
-        raise HTTPException(status_code=422, detail="videoSource must be UPLOAD or YOUTUBE.")
+        raise HTTPException(status_code=422, detail="Nguồn video phải là UPLOAD hoặc YOUTUBE.")
     return normalized
 
 
@@ -87,7 +87,7 @@ def normalize_video_category(value: str | None) -> str:
     normalized = (value or "PRODUCT").strip().upper()
     allowed = {"PRODUCT", "NEWS", "TIPS", "SERVICE", "REVIEW", "OTHER"}
     if normalized not in allowed:
-        raise HTTPException(status_code=422, detail="Invalid videoCategory.")
+        raise HTTPException(status_code=422, detail="Danh mục video không hợp lệ.")
     return normalized
 
 
@@ -113,15 +113,15 @@ def validate_content_payload(payload: ContentPayload) -> dict:
     published_at = parse_optional_datetime(payload.publishedAt)
     now_utc = datetime.now(timezone.utc)
     if content_type == "VIDEO" and not video_url:
-        raise HTTPException(status_code=422, detail="Video content requires videoUrl.")
+        raise HTTPException(status_code=422, detail="Nội dung video bắt buộc có đường dẫn video.")
     if video_url and video_source == "UPLOAD" and not any(str(video_url).lower().split("?")[0].endswith(ext) for ext in (".mp4", ".webm")):
-        raise HTTPException(status_code=422, detail="videoUrl must use mp4 or webm.")
+        raise HTTPException(status_code=422, detail="Đường dẫn video tải lên phải dùng định dạng mp4 hoặc webm.")
     if video_url and video_source == "YOUTUBE" and not is_youtube_url(video_url):
-        raise HTTPException(status_code=422, detail="videoUrl must be a YouTube link.")
+        raise HTTPException(status_code=422, detail="Đường dẫn video phải là liên kết YouTube.")
     if scheduled_at and scheduled_at < now_utc + timedelta(minutes=5):
-        raise HTTPException(status_code=422, detail="scheduledAt must be at least 5 minutes in the future.")
+        raise HTTPException(status_code=422, detail="Thời điểm lên lịch phải cách hiện tại ít nhất 5 phút.")
     if scheduled_at and published_at and published_at < scheduled_at:
-        raise HTTPException(status_code=422, detail="publishedAt must not be earlier than scheduledAt.")
+        raise HTTPException(status_code=422, detail="Thời điểm xuất bản không được sớm hơn thời điểm lên lịch.")
     status_value = normalize_content_status(payload.status, scheduled_at=scheduled_at, published_at=published_at, is_active=payload.isActive)
     comments = normalize_content_comments(payload.comments)
     return {
@@ -232,7 +232,7 @@ async def update_content(
     data = validate_content_payload(payload)
     expected_version = data.get("version")
     if expected_version is None:
-        raise HTTPException(status_code=409, detail="Missing content version. Reload before saving.")
+        raise HTTPException(status_code=409, detail="Thiếu phiên bản nội dung. Vui lòng tải lại trước khi lưu.")
     
     updated_count = await admin_content_repo.update_content_record(
         session, id=content_id, updated_by=actor_id, expected_version=expected_version, data=data
@@ -240,8 +240,8 @@ async def update_content(
     if updated_count == 0:
         exists = await admin_content_repo.check_content_exists(session, content_id)
         if exists:
-            raise HTTPException(status_code=409, detail="Content was updated by another admin. Reload before saving.")
-        raise HTTPException(status_code=404, detail="Content not found.")
+            raise HTTPException(status_code=409, detail="Nội dung đã được quản trị viên khác cập nhật. Vui lòng tải lại trước khi lưu.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy nội dung.")
         
     await replace_content_product_relations(session, content_id, data["product_ids"])
     await replace_content_category_relations(session, content_id, data["category_ids"])
@@ -257,7 +257,7 @@ async def delete_content(
 ) -> dict:
     updated_count = await admin_content_repo.soft_delete_content_record(session, id=content_id, actor_id=actor_id)
     if updated_count == 0:
-        raise HTTPException(status_code=404, detail="Content not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy nội dung.")
     await admin_content_repo.audit_admin_event(session, actor_id=actor_id, event_type="content_deleted", resource="content", metadata={"contentId": str(content_id), "mode": "soft_delete"})
     await session.commit()
     await invalidate_content_storefront_cache(redis)
@@ -326,7 +326,7 @@ async def delete_admin_video(
 ) -> dict:
     updated_count = await admin_content_repo.soft_delete_admin_video_record(session, id=video_id, actor_id=actor_id)
     if updated_count == 0:
-        raise HTTPException(status_code=404, detail="Video not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy video.")
     await admin_content_repo.audit_admin_event(session, actor_id=actor_id, event_type="video_deleted", resource="content", metadata={"videoId": str(video_id), "mode": "soft_delete"})
     await session.commit()
     await invalidate_content_storefront_cache(redis)
@@ -342,7 +342,7 @@ async def reply_admin_video_comment(
 ) -> dict:
     target = await content_comment_repo.get_video_comment_for_reply(session, comment_id=comment_id, video_id=video_id)
     if not target:
-        raise HTTPException(status_code=404, detail="Comment not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy bình luận.")
     root_parent_id = target["parent_id"] or comment_id
     try:
         root_parent_uuid = UUID(str(root_parent_id))
@@ -377,7 +377,7 @@ async def update_admin_video_comment(
         session, comment_id=comment_id, video_id=video_id, is_hidden=payload.isHidden, actor_id=actor_id
     )
     if updated_count == 0:
-        raise HTTPException(status_code=404, detail="Comment not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy bình luận.")
     await admin_content_repo.audit_admin_event(session, actor_id=actor_id, event_type="video_comment_visibility_updated", resource="content", metadata={"videoId": str(video_id), "commentId": str(comment_id), "isHidden": payload.isHidden})
     await session.commit()
     return {"ok": True}
@@ -395,7 +395,7 @@ async def reply_admin_image_comment(
 ) -> dict:
     target = await content_comment_repo.get_image_comment_for_reply(session, comment_id)
     if not target:
-        raise HTTPException(status_code=404, detail="Comment not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy bình luận.")
     actor = await public_content_repo.get_user_full_name(session, actor_id) or "Admin"
     reply_id = uuid4()
     
@@ -438,7 +438,7 @@ async def update_admin_image_comment(
         session, comment_id=comment_id, is_hidden=payload.isHidden
     )
     if updated_count == 0:
-        raise HTTPException(status_code=404, detail="Comment not found.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy bình luận.")
     await admin_content_repo.audit_admin_event(session, actor_id=actor_id, event_type="image_comment_visibility_updated", resource="review", metadata={"commentId": str(comment_id), "isHidden": payload.isHidden})
     await session.commit()
     return {"ok": True}

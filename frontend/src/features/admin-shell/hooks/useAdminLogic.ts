@@ -5,9 +5,11 @@ import { categoryApi } from '../../../services/categoryApi';
 import { productApi } from '../../../services/productApi';
 import { publicApi } from '../../../services/publicApi';
 import { getAccessToken } from '../../../services/authDb';
+import { adminAiCatalogApi } from '../../admin-ai-catalog/services/adminAiCatalogApi';
 import { adminAuditApi } from '../../admin-audit/services/adminAuditApi';
 import { useAdminBrandsLogic } from '../../admin-brands/hooks/useAdminBrandsLogic';
 import { useAdminBannersLogic } from '../../admin-content/hooks/useAdminBannersLogic';
+import { useAdminAccountPayablesLogic } from '../../admin-account-payables/hooks/useAdminAccountPayablesLogic';
 import { useAdminContentLogic } from '../../admin-content/hooks/useAdminContentLogic';
 import { adminContentApi } from '../../admin-content/services/adminContentApi';
 import { useAdminCustomersLogic } from '../../admin-customers/hooks/useAdminCustomersLogic';
@@ -32,6 +34,18 @@ import { adminProductsApi } from '../../admin-products/services/adminProductsApi
 import { useAdminCategoriesLogic } from '../../admin-categories/hooks/useAdminCategoriesLogic';
 import { adminTabs, AdminTab, matchesSearch } from '../components/AdminDashboardConfig';
 import { useAdminAccessControls } from './useAdminAccessControls';
+
+function categoryContainsCategory(categories: any[], selectedCategoryId: string, categoryId: unknown) {
+  if (!selectedCategoryId) return true;
+  if (String(categoryId || '') === selectedCategoryId) return true;
+  return categories.some((category: any) => String(category.id) === String(categoryId || '') && String(category.parentId || '') === selectedCategoryId);
+}
+
+function categoryContainsProduct(categories: any[], selectedCategoryId: string, product: any) {
+  if (!selectedCategoryId) return true;
+  return categoryContainsCategory(categories, selectedCategoryId, product?.categoryId)
+    || categoryContainsCategory(categories, selectedCategoryId, product?.subcategoryId);
+}
 
 export function useAdminLogic() {
   const { canAccessAdmin, loading, usePermission, useAnyPermission, isSuperAdmin } = useAuth();
@@ -79,6 +93,8 @@ export function useAdminLogic() {
   const [contentItems, setContentItems] = useState<any[]>([]);
   const [banners, setBanners] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [aiCatalogIndexStatus, setAiCatalogIndexStatus] = useState<any | null>(null);
+  const [aiCatalogIndexJobs, setAiCatalogIndexJobs] = useState<any[]>([]);
   const [infoView, setInfoView] = useState<any | null>(null);
 
   const {
@@ -88,7 +104,7 @@ export function useAdminLogic() {
     canManageCustomerProfile,
     canUpdateContent,
     tabAccess,
-  } = useAdminAccessControls(usePermission, useAnyPermission);
+  } = useAdminAccessControls(usePermission, useAnyPermission, Boolean(isSuperAdmin));
 
   const orderLogic = useAdminOrdersLogic({ setOrders });
   const serviceLogic = useAdminServicesLogic({
@@ -120,6 +136,10 @@ export function useAdminLogic() {
     query,
     inventoryCategoryFilter,
     inventoryBrandFilter,
+    reloadCurrentTab: () => loadData(tab, { force: true }),
+  });
+  const accountPayableLogic = useAdminAccountPayablesLogic({
+    query,
     reloadCurrentTab: () => loadData(tab, { force: true }),
   });
   const reviewLogic = useAdminReviewsLogic({
@@ -282,10 +302,16 @@ export function useAdminLogic() {
   const inventoryBrandOptions = useMemo(() => {
     return [['', 'Tất cả thương hiệu'] as [string, string], ...brands.filter((b: any) => {
       if (!inventoryCategoryFilter) return true;
-      if (b.categoryIds && (b.categoryIds.includes(inventoryCategoryFilter) || categories.some((c: any) => c.parentId === inventoryCategoryFilter && b.categoryIds.includes(c.id)))) return true;
-      return products.some((p: any) => (p.brandId === b.id || p.brand === b.name) && (p.categoryId === inventoryCategoryFilter || p.subcategoryId === inventoryCategoryFilter || categories.some((c: any) => c.parentId === inventoryCategoryFilter && (p.categoryId === c.id || p.subcategoryId === c.id))));
+      if (b.categoryIds && b.categoryIds.some((categoryId: string) => categoryContainsCategory(categories, inventoryCategoryFilter, categoryId))) return true;
+      return products.some((p: any) => (p.brandId === b.id || p.brand === b.name) && categoryContainsProduct(categories, inventoryCategoryFilter, p));
     }).map((b: any) => [String(b.id), b.name] as [string, string])];
   }, [brands, inventoryCategoryFilter, categories, products]);
+
+  useEffect(() => {
+    if (inventoryBrandFilter && !inventoryBrandOptions.some(([value]) => value === inventoryBrandFilter)) {
+      setInventoryBrandFilter('');
+    }
+  }, [inventoryBrandFilter, inventoryBrandOptions]);
 
   const filteredBrands = useMemo(() => {
     return brands.filter((brand) => {
@@ -306,13 +332,8 @@ export function useAdminLogic() {
   }, [vouchers, query]);
   const filteredCustomers = customers;
   const filteredInventory = useMemo(() => {
-    return inventoryLogic.inventoryLevels.filter((row: any) => {
-      const product = products.find((item: any) => String(item.id) === String(row.productId));
-      const mc = !inventoryCategoryFilter || String(product?.categoryId) === inventoryCategoryFilter || String(product?.subcategoryId) === inventoryCategoryFilter;
-      const mb = !inventoryBrandFilter || String(product?.brandId) === inventoryBrandFilter || (product?.brand && brands.find(b => String(b.id) === inventoryBrandFilter)?.name === product.brand);
-      return mc && mb;
-    });
-  }, [inventoryLogic.inventoryLevels, products, query, inventoryCategoryFilter, inventoryBrandFilter, brands]);
+    return inventoryLogic.inventoryLevels;
+  }, [inventoryLogic.inventoryLevels]);
   const filteredReviews = useMemo(() => {
     return reviews.filter((review) => {
       const matchesQuery = matchesSearch(review, query, ['productName', 'userName', 'status', 'comment', 'moderationNote', 'shopReply', 'flaggedReason', 'spamReason', 'orderOutcome']);
@@ -339,6 +360,7 @@ export function useAdminLogic() {
   const availableTabs = useMemo(() => adminTabs.filter((item) => tabAccess[item.id]), [tabAccess]);
   const canLoadTab = (targetTab: AdminTab) => Boolean(tabAccess[targetTab]);
   const canAdjustCustomerPoints = usePermission('customer:loyalty_adjust');
+  const canRecordSupplierPayment = usePermission('inventory:adjust');
   const canUpdateCustomerProfile = useAnyPermission(['customer:update', 'sys:manage_users']);
   const permissionLogic = useAdminPermissionsLogic({
     customers,
@@ -403,6 +425,10 @@ export function useAdminLogic() {
 
   useEffect(() => {
     if (canAccessAdmin && canLoadTab('inventoryReceipts') && tab === 'inventoryReceipts') void loadData('inventoryReceipts', { force: true });
+  }, [canAccessAdmin, query, tab, tabAccess]);
+
+  useEffect(() => {
+    if (canAccessAdmin && canLoadTab('accountPayables') && tab === 'accountPayables') void loadData('accountPayables', { force: true });
   }, [canAccessAdmin, query, tab, tabAccess]);
 
   useEffect(() => {
@@ -597,6 +623,16 @@ export function useAdminLogic() {
         const auditData = await adminAuditApi.adminListAuditLogs({ limit: 100 }).catch(() => []);
         setAuditLogs(auditData);
       };
+      const loadAiCatalogIndex = async () => {
+        await runResource('ai-catalog-index', async () => {
+          const [statusData, jobsData] = await Promise.all([
+            adminAiCatalogApi.getStatus(),
+            adminAiCatalogApi.listJobs(10),
+          ]);
+          setAiCatalogIndexStatus(statusData);
+          setAiCatalogIndexJobs(jobsData.items || statusData.recent_refresh_jobs || []);
+        });
+      };
       const loadPermissions = async () => {
         const [permissionData, roleData] = await Promise.all([
           adminPermissionsApi.adminListPermissions().catch(() => []),
@@ -618,7 +654,7 @@ export function useAdminLogic() {
             .filter((key) => key.startsWith('products:') || key === 'products')
             .forEach((key) => loadedAdminResourcesRef.current.delete(key));
         }
-        if (targetTab === 'inventory' || targetTab === 'inventoryReceipts') {
+        if (targetTab === 'inventory' || targetTab === 'inventoryReceipts' || targetTab === 'accountPayables') {
           loadedAdminResourcesRef.current.delete('categories');
           loadedAdminResourcesRef.current.delete('brands:all');
           loadedAdminResourcesRef.current.delete('suppliers:all');
@@ -628,6 +664,7 @@ export function useAdminLogic() {
         if (targetTab === 'services') loadedAdminResourcesRef.current.delete('attached-services');
         if (targetTab === 'interactions') loadedAdminResourcesRef.current.delete('product-interactions');
         if (targetTab === 'banners') loadedAdminResourcesRef.current.delete('banners');
+        if (targetTab === 'aiCatalogIndex') loadedAdminResourcesRef.current.delete('ai-catalog-index');
         if (targetTab === 'flashSales') {
           loadedAdminResourcesRef.current.delete('flash-sales');
           loadedAdminResourcesRef.current.delete('categories');
@@ -703,6 +740,11 @@ export function useAdminLogic() {
           canLoadTab('suppliers') ? loadSuppliers() : Promise.resolve(),
           inventoryLogic.loadInventoryReceipts(query),
         ]);
+      } else if (targetTab === 'accountPayables') {
+        await Promise.all([
+          canLoadTab('suppliers') ? loadSuppliers() : Promise.resolve(),
+          accountPayableLogic.loadAccountPayables(query),
+        ]);
       } else if (targetTab === 'reviews') {
         await loadReviews();
       } else if (targetTab === 'interactions') {
@@ -722,6 +764,8 @@ export function useAdminLogic() {
         ]);
       } else if (targetTab === 'audit') {
         await loadAudit();
+      } else if (targetTab === 'aiCatalogIndex') {
+        await loadAiCatalogIndex();
       } else if (targetTab === 'permissions') {
         await Promise.all([loadPermissions(), loadCustomers('STAFF_ADMIN')]);
       }
@@ -845,6 +889,7 @@ export function useAdminLogic() {
     customerTotal,
     setCustomerTotal,
     canAdjustCustomerPoints,
+    canRecordSupplierPayment,
     ...customerLogic,
     reviews,
     setReviews,
@@ -864,8 +909,13 @@ export function useAdminLogic() {
     ...contentLogic,
     auditLogs,
     setAuditLogs,
+    aiCatalogIndexStatus,
+    setAiCatalogIndexStatus,
+    aiCatalogIndexJobs,
+    setAiCatalogIndexJobs,
     ...permissionLogic,
     ...inventoryLogic,
+    ...accountPayableLogic,
     ...orderLogic,
     productForm,
     setProductForm,

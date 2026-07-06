@@ -80,6 +80,10 @@ function formatDate(value?: string | null) {
   return new Date(value).toLocaleString('vi-VN');
 }
 
+function orderItemUsedDeviceId(item: any) {
+  return String(item?.usedDeviceId || item?.used_device_id || '');
+}
+
 // Icons SVGs
 const BackIcon = () => (
   <svg className="h-4 w-4 mr-1.5 transition-transform group-hover:-translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -399,24 +403,32 @@ export default function OrderDetailPage() {
                 Danh sách sản phẩm
               </h2>
               <div className="divide-y divide-slate-100">
-                {(order.items || []).map((item: any) => (
-                  <div key={item.id} className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0">
-                    <div className="flex items-center gap-3.5">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-50 border border-slate-100 shrink-0">
-                        <ProductPlaceholderIcon />
+                {(order.items || []).map((item: any) => {
+                  const usedDeviceId = orderItemUsedDeviceId(item);
+                  return (
+                    <div key={item.id || usedDeviceId || item.productName} className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0">
+                      <div className="flex items-center gap-3.5">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-50 border border-slate-100 shrink-0">
+                          <ProductPlaceholderIcon />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-800 text-sm hover:text-slate-900 cursor-default transition-colors">{item.productName}</p>
+                          {usedDeviceId ? (
+                            <div className="mt-1 inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                              Hàng cũ đã thẩm định
+                            </div>
+                          ) : null}
+                          <p className="mt-1 text-xs font-medium text-slate-400">
+                            {formatCurrency(item.price)} <span className="mx-1 text-slate-300">×</span> {item.quantity}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-semibold text-slate-800 text-sm hover:text-slate-900 cursor-default transition-colors">{item.productName}</p>
-                        <p className="mt-1 text-xs font-medium text-slate-400">
-                          {formatCurrency(item.price)} <span className="mx-1 text-slate-300">×</span> {item.quantity}
-                        </p>
+                      <div className="text-right shrink-0">
+                        <p className="font-bold text-slate-900 text-sm">{formatCurrency(item.totalPrice)}</p>
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="font-bold text-slate-900 text-sm">{formatCurrency(item.totalPrice)}</p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
 

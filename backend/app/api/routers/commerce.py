@@ -1,11 +1,13 @@
+import hashlib
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services import order_service, payment_method_service, store_info_service
-from app.infrastructure.database.repositories import order_repo, voucher_repo
-from app.api.dependencies import require_staff_or_admin
+from app.infrastructure.database.models import Order
+from app.infrastructure.database.repositories import auth_repo, commerce_repo, order_repo, voucher_repo
+from app.api.dependencies import get_current_user_id, get_optional_current_user_id, require_staff_or_admin
 
 from app.application.commerce.schemas import (
     AdminUpdateOrderRequest,
@@ -40,6 +42,95 @@ from app.infrastructure.database.session import get_session
 router = APIRouter(tags=["Commerce"])
 
 
+STAFF_ROLES = {"STAFF_ADMIN", "SUPER_ADMIN"}
+
+
+def _scoped_idempotency_key(raw_key: str, actor_scope: str) -> str:
+    digest = hashlib.sha256(f"{actor_scope}:{raw_key}".encode("utf-8")).hexdigest()
+    return f"scoped:{digest}"
+
+
+async def _is_staff_or_admin(session: AsyncSession, user_id: UUID) -> bool:
+    role = await auth_repo.get_active_user_role_code(session, user_id)
+    if role is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is not active.")
+    return role in STAFF_ROLES
+
+
+async def _assert_order_access(
+    session: AsyncSession,
+    *,
+    order_id: UUID,
+    current_user_id: UUID,
+) -> Order:
+    order = await session.get(Order, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
+    if await _is_staff_or_admin(session, current_user_id):
+        return order
+    if order.user_id and order.user_id == current_user_id:
+        return order
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền truy cập đơn hàng này.")
+
+
+async def _assert_payment_access(
+    session: AsyncSession,
+    *,
+    payment_id: UUID,
+    current_user_id: UUID,
+) -> None:
+    payment = await commerce_repo.get_payment_transaction(session, payment_id)
+    if payment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch thanh toán.")
+    await _assert_order_access(session, order_id=payment.order_id, current_user_id=current_user_id)
+
+
+async def _resolve_requested_user_id(
+    session: AsyncSession,
+    *,
+    requested_user_id: UUID | None,
+    current_user_id: UUID | None,
+) -> UUID | None:
+    if requested_user_id is None:
+        return current_user_id
+    if current_user_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Vui lòng đăng nhập để dùng thông tin tài khoản.")
+    if requested_user_id == current_user_id:
+        return current_user_id
+    if await _is_staff_or_admin(session, current_user_id):
+        return requested_user_id
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không được dùng thông tin tài khoản khác.")
+
+
+async def _enforce_create_order_identity(
+    session: AsyncSession,
+    *,
+    payload: CreateOrderRequest,
+    current_user_id: UUID | None,
+    request: Request,
+) -> None:
+    if payload.is_offline:
+        if current_user_id is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="POS cần đăng nhập nhân viên.")
+        if not await _is_staff_or_admin(session, current_user_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chỉ nhân viên được tạo đơn POS.")
+        actor_scope = f"staff:{current_user_id}"
+    else:
+        if current_user_id is None:
+            if payload.user_id is not None or payload.loyalty_points_used > 0:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Vui lòng đăng nhập để dùng tài khoản hoặc điểm thưởng.")
+            payload.user_id = None
+            actor_scope = f"guest:{request.client.host if request.client else 'unknown'}"
+        else:
+            if payload.user_id is not None and payload.user_id != current_user_id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không được tạo đơn cho tài khoản khác.")
+            payload.user_id = current_user_id
+            actor_scope = f"user:{current_user_id}"
+
+    if payload.idempotency_key:
+        payload.idempotency_key = _scoped_idempotency_key(payload.idempotency_key, actor_scope)
+
+
 @router.post("/orders/shipping-quote", response_model=ShippingQuoteResponse)
 async def quote_shipping(
     payload: ShippingQuoteRequest,
@@ -63,12 +154,21 @@ async def get_shipping_config() -> dict:
 
 
 @router.get("/orders")
-async def list_orders(user_id: UUID | None = None, session: AsyncSession = Depends(get_session)) -> list[dict]:
+async def list_orders(
+    user_id: UUID | None = None,
+    _staff_user=Depends(require_staff_or_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
     return await order_service.list_orders(session, user_id)
 
 
 @router.get("/orders/{order_id}")
-async def get_order_detail(order_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
+async def get_order_detail(
+    order_id: UUID,
+    current_user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    await _assert_order_access(session, order_id=order_id, current_user_id=current_user_id)
     return await order_service.get_order_detail(session, order_id)
 
 
@@ -86,12 +186,18 @@ async def list_vouchers(session: AsyncSession = Depends(get_session)) -> list[di
 async def validate_voucher(
     payload: VoucherValidationRequest,
     request: Request,
+    current_user_id: UUID | None = Depends(get_optional_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> VoucherValidationResponse:
+    effective_user_id = await _resolve_requested_user_id(
+        session,
+        requested_user_id=payload.user_id,
+        current_user_id=current_user_id,
+    )
     return await VoucherService(session=session).validate(
         code=payload.code,
         subtotal_amount=payload.subtotal_amount,
-        user_id=payload.user_id,
+        user_id=effective_user_id,
         user_tier=payload.user_tier,
         abandoned_cart_recovery=payload.abandoned_cart_recovery,
         device_id=payload.device_id,
@@ -108,9 +214,15 @@ async def validate_voucher(
 async def claim_voucher(
     voucher_id: UUID,
     payload: ClaimVoucherRequest,
+    current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> UserVoucherResponse:
-    response = await VoucherService(session=session).claim_voucher(user_id=payload.user_id, voucher_id=voucher_id)
+    user_id = await _resolve_requested_user_id(
+        session,
+        requested_user_id=payload.user_id,
+        current_user_id=current_user_id,
+    )
+    response = await VoucherService(session=session).claim_voucher(user_id=user_id, voucher_id=voucher_id)
     await session.commit()
     return response
 
@@ -118,8 +230,14 @@ async def claim_voucher(
 @router.get("/users/{user_id}/vouchers", response_model=list[UserVoucherResponse])
 async def list_user_vouchers(
     user_id: UUID,
+    current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> list[UserVoucherResponse]:
+    user_id = await _resolve_requested_user_id(
+        session,
+        requested_user_id=user_id,
+        current_user_id=current_user_id,
+    )
     responses = await VoucherService(session=session).list_user_vouchers(user_id=user_id)
     await session.commit()
     return responses
@@ -130,41 +248,51 @@ async def list_user_vouchers(
     response_model=CreateOrderResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
-        400: {"description": "Invalid voucher or insufficient points."},
-        404: {"description": "User not found."},
-        409: {"description": "Loyalty wallet is closed."},
+        400: {"description": "Voucher không hợp lệ hoặc không đủ điểm thưởng."},
+        404: {"description": "Không tìm thấy tài khoản."},
+        409: {"description": "Ví điểm thưởng đã đóng."},
     },
 )
 async def create_order(
     payload: CreateOrderRequest,
     request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    current_user_id: UUID | None = Depends(get_optional_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> CreateOrderResponse:
     if payload.voucher_code and not payload.voucher_ip_address and request.client:
         payload.voucher_ip_address = request.client.host
     if idempotency_key and not payload.idempotency_key:
         payload.idempotency_key = idempotency_key
+    await _enforce_create_order_identity(
+        session,
+        payload=payload,
+        current_user_id=current_user_id,
+        request=request,
+    )
     return await CreateOrderUseCase(session=session).execute(payload)
 
 
 @router.patch(
     "/orders/{order_id}/status",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses={404: {"description": "Order not found."}},
+    responses={404: {"description": "Không tìm thấy đơn hàng."}},
 )
 async def update_order_status(
     order_id: UUID,
     payload: UpdateOrderStatusRequest,
+    _staff_user=Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ) -> None:
+    if session.in_transaction():
+        await session.rollback()
     await CompleteOrderUseCase(session=session).execute(order_id=order_id, status_value=payload.status)
 
 
 @router.patch(
     "/orders/{order_id}/admin",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses={404: {"description": "Order not found."}, 409: {"description": "Invalid order transition."}},
+    responses={404: {"description": "Không tìm thấy đơn hàng."}, 409: {"description": "Chuyển trạng thái đơn hàng không hợp lệ."}},
 )
 async def admin_update_order(
     order_id: UUID,
@@ -181,8 +309,11 @@ async def admin_update_order(
 async def quote_order_carrier(
     order_id: UUID,
     payload: CarrierQuoteRequest,
+    _staff_user=Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ) -> CarrierShipmentResponse:
+    if session.in_transaction():
+        await session.rollback()
     return await CompleteOrderUseCase(session=session).quote_carrier_shipment(order_id=order_id, provider=payload.provider)
 
 
@@ -190,8 +321,11 @@ async def quote_order_carrier(
 async def create_order_carrier_shipment(
     order_id: UUID,
     payload: CarrierShipmentCreateRequest,
+    _staff_user=Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ) -> CarrierShipmentResponse:
+    if session.in_transaction():
+        await session.rollback()
     return await CompleteOrderUseCase(session=session).create_carrier_shipment(order_id=order_id, provider=payload.provider)
 
 
@@ -199,8 +333,11 @@ async def create_order_carrier_shipment(
 async def cancel_order_carrier_shipment(
     order_id: UUID,
     payload: CarrierShipmentCancelRequest,
+    _staff_user=Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ) -> CarrierShipmentResponse:
+    if session.in_transaction():
+        await session.rollback()
     return await CompleteOrderUseCase(session=session).cancel_carrier_shipment(order_id=order_id, reason=payload.reason)
 
 
@@ -208,8 +345,11 @@ async def cancel_order_carrier_shipment(
 async def update_order_carrier_event(
     order_id: UUID,
     payload: CarrierShipmentEventRequest,
+    _staff_user=Depends(require_staff_or_admin),
     session: AsyncSession = Depends(get_session),
 ) -> CarrierShipmentResponse:
+    if session.in_transaction():
+        await session.rollback()
     return await CompleteOrderUseCase(session=session).update_carrier_event(
         order_id=order_id,
         event_code=payload.event_code,
@@ -218,7 +358,12 @@ async def update_order_carrier_event(
 
 
 @router.post("/orders/maintenance/expire-pending")
-async def expire_pending_orders(session: AsyncSession = Depends(get_session)) -> dict:
+async def expire_pending_orders(
+    _staff_user=Depends(require_staff_or_admin),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    if session.in_transaction():
+        await session.rollback()
     expired = await CompleteOrderUseCase(session=session).expire_pending_orders()
     expired_payments = await order_service.expire_pending_payments(session)
     return {"expiredOrders": expired, "expiredPayments": expired_payments}
@@ -238,8 +383,7 @@ async def sepay_ipn(
 ) -> dict:
     import logging
     logger = logging.getLogger("uvicorn.error")
-    logger.info("SEPAY IPN headers: %s", dict(request.headers))
-    logger.info("SEPAY IPN query credentials: X-Secret-Key=%s, Authorization=%s", x_secret_key, authorization)
+    logger.info("SEPAY IPN received with content-type=%s", request.headers.get("content-type"))
 
     payload: dict = {}
     content_type = request.headers.get("content-type", "").lower()
@@ -273,29 +417,38 @@ async def zalopay_callback(payload: dict, session: AsyncSession = Depends(get_se
 @router.get("/payments/{payment_id}", response_model=PaymentStatusResponse)
 async def get_payment_status(
     payment_id: UUID,
+    current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> PaymentStatusResponse:
+    await _assert_payment_access(session, payment_id=payment_id, current_user_id=current_user_id)
     return await PaymentUseCase(session=session).get_status(payment_id)
 
 
 @router.post("/payments/{payment_id}/retry", response_model=PaymentStatusResponse)
 async def retry_payment(
     payment_id: UUID,
+    current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> PaymentStatusResponse:
+    await _assert_payment_access(session, payment_id=payment_id, current_user_id=current_user_id)
     return await PaymentUseCase(session=session).retry(payment_id)
 
 
 @router.post("/payments/{payment_id}/cancel", response_model=PaymentStatusResponse)
 async def cancel_payment(
     payment_id: UUID,
+    current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> PaymentStatusResponse:
+    await _assert_payment_access(session, payment_id=payment_id, current_user_id=current_user_id)
     return await PaymentUseCase(session=session).cancel(payment_id)
 
 
 @router.get("/reports/revenue", response_model=RevenueReportResponse)
-async def revenue_report(session: AsyncSession = Depends(get_session)) -> RevenueReportResponse:
+async def revenue_report(
+    _staff_user=Depends(require_staff_or_admin),
+    session: AsyncSession = Depends(get_session),
+) -> RevenueReportResponse:
     return await ReportUseCase(session=session).revenue()
 
 
@@ -307,11 +460,13 @@ async def get_store_info(session: AsyncSession = Depends(get_session)) -> dict:
 @router.get("/orders/{order_id}/invoice")
 async def export_order_invoice(
     order_id: UUID,
+    current_user_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     from app.application.services import order_service
     from app.application.services.document_export_service import render_order_invoice_pdf
 
+    await _assert_order_access(session, order_id=order_id, current_user_id=current_user_id)
     order = await order_service.get_order_detail(session, order_id)
     items = order.get("items") or []
     pdf_content, filename = render_order_invoice_pdf(order, items)

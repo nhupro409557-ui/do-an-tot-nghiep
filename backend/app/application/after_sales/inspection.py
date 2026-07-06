@@ -20,6 +20,10 @@ WARRANTY_QC_RESULTS = {
 }
 
 
+def _requires_replacement_allocation(kind: str, resolution_type: str | None) -> bool:
+    return kind == "WARRANTY" and resolution_type == "REPLACEMENT"
+
+
 async def inspect_request(
     session: AsyncSession,
     *,
@@ -41,7 +45,7 @@ async def inspect_request(
 
     target, resolution_type = result_map[result]
     items = await after_sales_repo.get_request_items(session, kind=kind, request_id=request_id)
-    if target in {"QC_APPROVED", "REPLACEMENT_APPROVED"}:
+    if _requires_replacement_allocation(kind, resolution_type):
         locked = await after_sales_repo.create_allocations(
             session,
             kind=kind,
@@ -82,6 +86,10 @@ async def inspect_request(
             "resolutionType": resolution_type,
             "customerFault": payload.customer_fault,
             "depreciationFee": payload.depreciation_fee if kind == "RETURN" else 0,
+            "hasAccessories": request.get("has_accessories"),
+            "goodAppearance": request.get("good_appearance"),
+            "accountUnlocked": request.get("account_unlocked"),
+            "hasVatInvoice": request.get("has_vat_invoice"),
         },
     )
     await after_sales_repo.notify(
@@ -95,6 +103,23 @@ async def inspect_request(
         immediate=target == "REJECTED",
         key=f"{kind}:{request_id}:QC:{target}",
     )
+    if kind == "WARRANTY":
+        from app.application.after_sales.service import sync_warranty_imei_status
+        await sync_warranty_imei_status(session, items=items, target=target)
+        if target in {"WARRANTY_ACCEPTED", "REPAIRING"}:
+            for item in items:
+                if item.get("used_device_id"):
+                    await session.execute(
+                        text("UPDATE used_devices SET status = 'REPAIRING', updated_at = NOW() WHERE id = :uid"),
+                        {"uid": item["used_device_id"]},
+                    )
+        elif target == "REJECTED":
+            for item in items:
+                if item.get("used_device_id"):
+                    await session.execute(
+                        text("UPDATE used_devices SET status = 'SOLD', updated_at = NOW() WHERE id = :uid"),
+                        {"uid": item["used_device_id"]},
+                    )
     await session.commit()
     return {"id": str(request_id), "status": target, "resolutionType": resolution_type}
 

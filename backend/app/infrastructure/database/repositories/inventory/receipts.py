@@ -172,6 +172,115 @@ async def update_inventory_receipt_quality(
     )
 
 
+async def update_inventory_receipt_line_quality(
+    session: AsyncSession,
+    *,
+    line_id: UUID,
+    passed_quantity: int,
+    failed_quantity: int,
+    notes: str | None,
+    action_type: str | None,
+    images: list[str],
+    checked_by: UUID | None,
+) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE inventory_document_lines
+            SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                    'qc', jsonb_build_object(
+                        'passedQuantity', CAST(:passed_quantity AS integer),
+                        'failedQuantity', CAST(:failed_quantity AS integer),
+                        'notes', CAST(:notes AS text),
+                        'actionType', CAST(:action_type AS text),
+                        'images', CAST(:images AS jsonb),
+                        'checkedBy', CAST(:checked_by AS text),
+                        'checkedAt', CAST(NOW() AS text)
+                    )
+                )
+            WHERE id = :line_id
+            """
+        ),
+        {
+            "line_id": line_id,
+            "passed_quantity": passed_quantity,
+            "failed_quantity": failed_quantity,
+            "notes": notes,
+            "action_type": action_type,
+            "images": json.dumps(images) if images else "[]",
+            "checked_by": str(checked_by) if checked_by else None,
+        },
+    )
+
+
+async def update_inventory_receipt_attachments(
+    session: AsyncSession,
+    *,
+    document_id: UUID,
+    attachments: list[dict],
+) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE inventory_documents
+            SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                    'pendingAttachments', CAST(:attachments AS jsonb),
+                    'attachmentApprovalStatus', 'PENDING',
+                    'attachmentApprovalNote', NULL
+                )
+            WHERE id = :document_id
+            """
+        ),
+        {
+            "document_id": document_id,
+            "attachments": json.dumps(attachments, ensure_ascii=False),
+        },
+    )
+
+
+async def decide_inventory_receipt_attachments(
+    session: AsyncSession,
+    *,
+    document_id: UUID,
+    attachments: list[dict],
+    approve: bool,
+    note: str | None,
+) -> None:
+    if approve:
+        metadata_expr = """
+            COALESCE(metadata, '{}'::jsonb)
+            || jsonb_build_object(
+                'attachments', CAST(:attachments AS jsonb),
+                'pendingAttachments', '[]'::jsonb,
+                'attachmentApprovalStatus', 'APPROVED',
+                'attachmentApprovalNote', CAST(:note AS text)
+            )
+        """
+    else:
+        metadata_expr = """
+            COALESCE(metadata, '{}'::jsonb)
+            || jsonb_build_object(
+                'pendingAttachments', '[]'::jsonb,
+                'attachmentApprovalStatus', 'REJECTED',
+                'attachmentApprovalNote', CAST(:note AS text)
+            )
+        """
+    await session.execute(
+        text(
+            f"""
+            UPDATE inventory_documents
+            SET metadata = {metadata_expr}
+            WHERE id = :document_id
+            """
+        ),
+        {
+            "document_id": document_id,
+            "attachments": json.dumps(attachments, ensure_ascii=False),
+            "note": note,
+        },
+    )
+
+
 async def insert_inventory_reversal_document(
     session: AsyncSession,
     *,
@@ -226,6 +335,7 @@ async def insert_inventory_receipt_line(
     tracks_imei: bool,
     serial_numbers: list[str],
     tracks_serial_number: bool,
+    secondary_imeis: list[str] | None = None,
     storage_location_code: str | None = None,
     storage_location_name: str | None = None,
 ) -> None:
@@ -254,6 +364,7 @@ async def insert_inventory_receipt_line(
             "metadata": json.dumps(
                 {
                     "imeis": imeis,
+                    "secondaryImeis": secondary_imeis or [],
                     "tracksImei": tracks_imei,
                     "serialNumbers": serial_numbers,
                     "tracksSerialNumber": tracks_serial_number,
@@ -281,10 +392,11 @@ async def list_inventory_receipt_lines(session: AsyncSession, document_id: UUID)
                 l.unit_cost AS "unitCost",
                 l.note,
                 COALESCE(l.metadata->'imeis', '[]'::jsonb) AS imeis,
+                COALESCE(l.metadata->'secondaryImeis', '[]'::jsonb) AS "secondaryImeis",
                 COALESCE(l.metadata->'serialNumbers', '[]'::jsonb) AS "serialNumbers",
                 COALESCE((l.metadata->>'tracksImei')::boolean, FALSE) AS "tracksImei",
                 COALESCE((l.metadata->>'tracksSerialNumber')::boolean, FALSE) AS "tracksSerialNumber",
-                COALESCE((l.metadata->>'receivedQuantity')::int, 0) AS "receivedQuantity",
+                COALESCE((l.metadata->>'receivedQuantity')::int, l.requested_quantity) AS "receivedQuantity",
                 l.metadata->>'shortageReason' AS "shortageReason",
                 l.metadata->>'storageLocationCode' AS "storageLocationCode",
                 l.metadata->>'storageLocationName' AS "storageLocationName"
@@ -319,7 +431,7 @@ async def list_imei_statuses(session: AsyncSession, imeis: list[str]) -> list[di
         await session.execute(
             text(
                 """
-                SELECT imei, status, source_reference
+                SELECT imei, status, source_reference, location_id
                 FROM product_imeis
                 WHERE imei = ANY(:imeis)
                 FOR UPDATE
@@ -338,7 +450,7 @@ async def list_serial_number_statuses(session: AsyncSession, serial_numbers: lis
         await session.execute(
             text(
                 """
-                SELECT serial_number, status, source_reference
+                SELECT serial_number, status, source_reference, location_id
                 FROM product_serial_numbers
                 WHERE serial_number = ANY(:serial_numbers)
                 FOR UPDATE
@@ -357,7 +469,7 @@ async def list_product_serial_number_statuses(session: AsyncSession, *, product_
         await session.execute(
             text(
                 """
-                SELECT serial_number, status, source_reference
+                SELECT serial_number, status, source_reference, location_id
                 FROM product_serial_numbers
                 WHERE product_id = :product_id
                   AND serial_number = ANY(:serial_numbers)
@@ -379,6 +491,7 @@ async def mark_imeis_reversed(session: AsyncSession, imeis: list[str]) -> None:
             UPDATE product_imeis
             SET status = 'REVERSED',
                 is_primary = FALSE,
+                location_id = NULL,
                 updated_at = NOW()
             WHERE imei = ANY(:imeis)
             """
@@ -396,6 +509,7 @@ async def mark_serial_numbers_reversed(session: AsyncSession, serial_numbers: li
             f"""
             UPDATE product_serial_numbers
             SET status = 'REVERSED',
+                location_id = NULL,
                 updated_at = NOW()
             WHERE serial_number = ANY(:serial_numbers)
             {product_filter}
@@ -406,6 +520,15 @@ async def mark_serial_numbers_reversed(session: AsyncSession, serial_numbers: li
 
 
 async def release_pending_inbound_identifiers(session: AsyncSession, source_reference: str) -> None:
+    await session.execute(
+        text(
+            """
+            DELETE FROM product_identifier_pairs
+            WHERE source_reference = :source_reference
+            """
+        ),
+        {"source_reference": source_reference},
+    )
     await session.execute(
         text(
             """
@@ -435,6 +558,13 @@ async def activate_pending_inbound_identifiers(session: AsyncSession, source_ref
             WITH pending AS (
                 SELECT
                     pi.id,
+                    CASE COALESCE(loc.purpose, 'STORAGE')
+                        WHEN 'DAMAGED' THEN 'DEFECTIVE_RETURNED'
+                        WHEN 'WARRANTY' THEN 'IN_WARRANTY'
+                        WHEN 'QC' THEN 'INSPECTION_PENDING'
+                        WHEN 'RETURN' THEN 'RETURNED'
+                        ELSE 'IN_STOCK'
+                    END AS target_status,
                     ROW_NUMBER() OVER (
                         PARTITION BY pi.product_id, pi.variant_id
                         ORDER BY pi.created_at, pi.imei
@@ -451,13 +581,14 @@ async def activate_pending_inbound_identifiers(session: AsyncSession, source_ref
                           AND existing.status <> 'PENDING_INBOUND'
                     ) AS has_primary
                 FROM product_imeis pi
+                LEFT JOIN inventory_locations loc ON loc.id = pi.location_id
                 WHERE pi.source_reference = :source_reference
                   AND pi.status = 'PENDING_INBOUND'
             )
             UPDATE product_imeis target
-            SET status = 'IN_STOCK',
+            SET status = pending.target_status,
                 is_primary = CASE
-                    WHEN pending.row_no = 1 AND pending.has_primary = FALSE THEN TRUE
+                    WHEN pending.target_status = 'IN_STOCK' AND pending.row_no = 1 AND pending.has_primary = FALSE THEN TRUE
                     ELSE target.is_primary
                 END,
                 received_at = COALESCE(target.received_at, NOW()),
@@ -471,12 +602,34 @@ async def activate_pending_inbound_identifiers(session: AsyncSession, source_ref
     await session.execute(
         text(
             """
+            UPDATE product_serial_numbers psn
+            SET status = CASE COALESCE(loc.purpose, 'STORAGE')
+                    WHEN 'DAMAGED' THEN 'DEFECTIVE_RETURNED'
+                    WHEN 'WARRANTY' THEN 'IN_WARRANTY'
+                    WHEN 'QC' THEN 'INSPECTION_PENDING'
+                    WHEN 'RETURN' THEN 'RETURNED'
+                    ELSE 'IN_STOCK'
+                END,
+                received_at = COALESCE(received_at, NOW()),
+                updated_at = NOW()
+            FROM inventory_locations loc
+            WHERE loc.id = psn.location_id
+              AND psn.source_reference = :source_reference
+              AND psn.status = 'PENDING_INBOUND'
+            """
+        ),
+        {"source_reference": source_reference},
+    )
+    await session.execute(
+        text(
+            """
             UPDATE product_serial_numbers
             SET status = 'IN_STOCK',
                 received_at = COALESCE(received_at, NOW()),
                 updated_at = NOW()
             WHERE source_reference = :source_reference
               AND status = 'PENDING_INBOUND'
+              AND location_id IS NULL
             """
         ),
         {"source_reference": source_reference},
@@ -523,6 +676,7 @@ async def update_inventory_receipt_line_imeis(
     *,
     line_id: UUID,
     imeis: list[str],
+    secondary_imeis: list[str],
     serial_numbers: list[str],
     received_quantity: int,
     shortage_reason: str | None,
@@ -534,6 +688,7 @@ async def update_inventory_receipt_line_imeis(
             SET metadata = metadata
                 || jsonb_build_object(
                     'imeis', CAST(:imeis AS jsonb),
+                    'secondaryImeis', CAST(:secondary_imeis AS jsonb),
                     'serialNumbers', CAST(:serial_numbers AS jsonb),
                     'receivedQuantity', CAST(:received_quantity AS INTEGER),
                     'shortageReason', CAST(:shortage_reason AS TEXT)
@@ -544,6 +699,7 @@ async def update_inventory_receipt_line_imeis(
         {
             "line_id": line_id,
             "imeis": json.dumps(imeis, ensure_ascii=False),
+            "secondary_imeis": json.dumps(secondary_imeis, ensure_ascii=False),
             "serial_numbers": json.dumps(serial_numbers, ensure_ascii=False),
             "received_quantity": received_quantity,
             "shortage_reason": shortage_reason,

@@ -27,14 +27,14 @@ class RedeemPointsUseCase:
             user = await user_repo.get_active_user_for_update(user_id)
 
             if user is None:
-                raise UserNotFoundError("Active user not found.")
+                raise UserNotFoundError("Không tìm thấy tài khoản đang hoạt động.")
 
             if user.loyalty_wallet_status != LoyaltyWalletStatus.ACTIVE:
-                raise LoyaltyWalletClosedError("Loyalty wallet is not active.")
+                raise LoyaltyWalletClosedError("Ví điểm thưởng không ở trạng thái hoạt động.")
 
             balance_before = int(user.loyalty_points_balance)
             if balance_before < points:
-                raise InsufficientPointsError("Insufficient loyalty points.")
+                raise InsufficientPointsError("Không đủ điểm thưởng.")
 
             balance_after = balance_before - points
             await loyalty_repo.add_redeem_transaction(
@@ -43,7 +43,7 @@ class RedeemPointsUseCase:
                 points=points,
                 balance_before=balance_before,
                 balance_after=balance_after,
-                reason="Redeem loyalty points for checkout.",
+                reason="Đổi điểm thưởng khi thanh toán.",
             )
             user.loyalty_points_balance = balance_after
             await user_repo.save(user)

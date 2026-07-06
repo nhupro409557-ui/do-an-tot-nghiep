@@ -136,6 +136,254 @@ async def create_inventory_lot_for_receipt(
     return lot_id
 
 
+async def transfer_inventory_lots_fifo(
+    session: AsyncSession,
+    *,
+    document_id: UUID,
+    reference_code: str,
+    product_id: UUID,
+    variant_id: UUID | None,
+    from_location_id: UUID,
+    to_location_id: UUID,
+    quantity: int,
+) -> list[dict]:
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    id,
+                    lot_code,
+                    product_id,
+                    variant_id,
+                    source_document_id,
+                    source_reference,
+                    remaining_quantity,
+                    unit_cost,
+                    received_at,
+                    metadata
+                FROM inventory_lots
+                WHERE (
+                        (CAST(:variant_id AS uuid) IS NULL AND product_id = :product_id AND variant_id IS NULL)
+                     OR (CAST(:variant_id AS uuid) IS NOT NULL AND variant_id = CAST(:variant_id AS uuid))
+                  )
+                  AND location_id = :from_location_id
+                  AND status = 'ACTIVE'
+                  AND remaining_quantity > 0
+                ORDER BY received_at ASC, created_at ASC, lot_code ASC
+                FOR UPDATE
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "from_location_id": from_location_id,
+            },
+        )
+    ).mappings().all()
+    if sum(int(row["remaining_quantity"] or 0) for row in rows) < quantity:
+        raise ValueError("Tồn theo lô tại kệ nguồn không đủ để chuyển.")
+
+    remaining = quantity
+    moved_lots: list[dict] = []
+    for row in rows:
+        if remaining <= 0:
+            break
+        moved_quantity = min(remaining, int(row["remaining_quantity"] or 0))
+        if moved_quantity <= 0:
+            continue
+        source_remaining = int(row["remaining_quantity"] or 0) - moved_quantity
+        await session.execute(
+            text(
+                """
+                UPDATE inventory_lots
+                SET remaining_quantity = :remaining_quantity,
+                    status = CASE WHEN :remaining_quantity = 0 THEN 'DEPLETED' ELSE 'ACTIVE' END,
+                    updated_at = NOW()
+                WHERE id = :lot_id
+                """
+            ),
+            {"lot_id": row["id"], "remaining_quantity": source_remaining},
+        )
+
+        target_lot_id = uuid4()
+        target_lot_code = f"LOT-TRF-{reference_code[:30]}-{str(target_lot_id)[:8]}".upper()
+        metadata = dict(row["metadata"] or {})
+        metadata.update(
+            {
+                "transferReference": reference_code,
+                "transferredFromLotId": str(row["id"]),
+                "transferredFromLotCode": row["lot_code"],
+            }
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO inventory_lots (
+                    id, lot_code, product_id, variant_id, location_id,
+                    source_document_id, source_reference,
+                    initial_quantity, remaining_quantity, unit_cost,
+                    received_at, status, metadata
+                )
+                VALUES (
+                    :id, :lot_code, :product_id, :variant_id, :location_id,
+                    :source_document_id, :source_reference,
+                    :quantity, :quantity, :unit_cost,
+                    :received_at, 'ACTIVE', CAST(:metadata AS jsonb)
+                )
+                """
+            ),
+            {
+                "id": target_lot_id,
+                "lot_code": target_lot_code,
+                "product_id": row["product_id"],
+                "variant_id": row["variant_id"],
+                "location_id": to_location_id,
+                "source_document_id": row["source_document_id"],
+                "source_reference": row["source_reference"],
+                "quantity": moved_quantity,
+                "unit_cost": row["unit_cost"],
+                "received_at": row["received_at"],
+                "metadata": json.dumps(metadata, ensure_ascii=False),
+            },
+        )
+        for lot_id, note in (
+            (row["id"], "Chuyển lô ra khỏi kệ nguồn."),
+            (target_lot_id, "Nhận lô chuyển vào kệ đích."),
+        ):
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO inventory_lot_movements (
+                        id, lot_id, movement_type, quantity,
+                        reference_code, inventory_document_id, note
+                    )
+                    VALUES (
+                        :id, :lot_id, 'ADJUSTMENT', :quantity,
+                        :reference_code, :document_id, :note
+                    )
+                    """
+                ),
+                {
+                    "id": uuid4(),
+                    "lot_id": lot_id,
+                    "quantity": moved_quantity,
+                    "reference_code": reference_code,
+                    "document_id": document_id,
+                    "note": note,
+                },
+            )
+        moved_lots.append(
+            {
+                "sourceLotId": str(row["id"]),
+                "targetLotId": str(target_lot_id),
+                "quantity": moved_quantity,
+            }
+        )
+        remaining -= moved_quantity
+    return moved_lots
+
+
+async def consume_inventory_lots_fifo(
+    session: AsyncSession,
+    *,
+    document_id: UUID,
+    reference_code: str,
+    product_id: UUID,
+    variant_id: UUID | None,
+    location_id: UUID,
+    quantity: int,
+    movement_note: str,
+) -> list[dict]:
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    id,
+                    lot_code,
+                    remaining_quantity,
+                    unit_cost,
+                    received_at
+                FROM inventory_lots
+                WHERE (
+                        (CAST(:variant_id AS uuid) IS NULL AND product_id = :product_id AND variant_id IS NULL)
+                     OR (CAST(:variant_id AS uuid) IS NOT NULL AND variant_id = CAST(:variant_id AS uuid))
+                  )
+                  AND location_id = :location_id
+                  AND status = 'ACTIVE'
+                  AND remaining_quantity > 0
+                ORDER BY received_at ASC, created_at ASC, lot_code ASC
+                FOR UPDATE
+                """
+            ),
+            {
+                "product_id": product_id,
+                "variant_id": variant_id,
+                "location_id": location_id,
+            },
+        )
+    ).mappings().all()
+    if sum(int(row["remaining_quantity"] or 0) for row in rows) < quantity:
+        raise ValueError("Tồn theo lô tại kệ không đủ để xử lý.")
+
+    remaining = quantity
+    consumed_lots: list[dict] = []
+    for row in rows:
+        if remaining <= 0:
+            break
+        consumed_quantity = min(remaining, int(row["remaining_quantity"] or 0))
+        if consumed_quantity <= 0:
+            continue
+        lot_remaining = int(row["remaining_quantity"] or 0) - consumed_quantity
+        await session.execute(
+            text(
+                """
+                UPDATE inventory_lots
+                SET remaining_quantity = :remaining_quantity,
+                    status = CASE WHEN :remaining_quantity = 0 THEN 'DEPLETED' ELSE 'ACTIVE' END,
+                    updated_at = NOW()
+                WHERE id = :lot_id
+                """
+            ),
+            {"lot_id": row["id"], "remaining_quantity": lot_remaining},
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO inventory_lot_movements (
+                    id, lot_id, movement_type, quantity,
+                    reference_code, inventory_document_id, note
+                )
+                VALUES (
+                    :id, :lot_id, 'ADJUSTMENT', :quantity,
+                    :reference_code, :document_id, :note
+                )
+                """
+            ),
+            {
+                "id": uuid4(),
+                "lot_id": row["id"],
+                "quantity": consumed_quantity,
+                "reference_code": reference_code,
+                "document_id": document_id,
+                "note": movement_note,
+            },
+        )
+        consumed_lots.append(
+            {
+                "lotId": str(row["id"]),
+                "lotCode": row["lot_code"],
+                "quantity": consumed_quantity,
+                "remainingQuantity": lot_remaining,
+                "unitCost": float(row["unit_cost"] or 0),
+                "receivedAt": row["received_at"].isoformat() if row["received_at"] else None,
+            }
+        )
+        remaining -= consumed_quantity
+    return consumed_lots
+
+
 async def reverse_inventory_lots_for_receipt(
     session: AsyncSession,
     *,
@@ -243,3 +491,85 @@ async def post_inventory_level_reversal(
             "quantity": quantity,
         },
     )
+
+
+async def create_inventory_lot_for_reconciliation(
+    session: AsyncSession,
+    *,
+    document_id: UUID,
+    reference_code: str,
+    product_id: UUID,
+    variant_id: UUID | None,
+    location_id: UUID,
+    quantity: int,
+    unit_cost: float | int | None,
+    note: str,
+) -> UUID | None:
+    if quantity <= 0:
+        return None
+
+    lot_id = uuid4()
+    lot_code = f"LOT-{reference_code[:40]}-{str(lot_id)[:8]}".upper()
+    await session.execute(
+        text(
+            """
+            INSERT INTO inventory_lots (
+                id, lot_code, product_id, variant_id, location_id,
+                source_document_id, source_reference,
+                initial_quantity, remaining_quantity, unit_cost,
+                received_at, status
+            )
+            VALUES (
+                :id, :lot_code,
+                CASE
+                    WHEN CAST(:variant_id AS UUID) IS NULL
+                    THEN CAST(:product_id AS UUID)
+                    ELSE NULL
+                END,
+                CAST(:variant_id AS UUID),
+                :location_id,
+                :document_id,
+                :reference_code,
+                :quantity,
+                :quantity,
+                CAST(:unit_cost AS NUMERIC),
+                NOW(),
+                'ACTIVE'
+            )
+            """
+        ),
+        {
+            "id": lot_id,
+            "lot_code": lot_code,
+            "product_id": product_id,
+            "variant_id": variant_id,
+            "location_id": location_id,
+            "document_id": document_id,
+            "reference_code": reference_code,
+            "quantity": quantity,
+            "unit_cost": unit_cost,
+        },
+    )
+    await session.execute(
+        text(
+            """
+            INSERT INTO inventory_lot_movements (
+                id, lot_id, movement_type, quantity,
+                reference_code, inventory_document_id, note
+            )
+            VALUES (
+                :id, :lot_id, 'ADJUSTMENT', :quantity,
+                :reference_code, :document_id, :note
+            )
+            """
+        ),
+        {
+            "id": uuid4(),
+            "lot_id": lot_id,
+            "quantity": quantity,
+            "reference_code": reference_code,
+            "document_id": document_id,
+            "note": note,
+        },
+    )
+    return lot_id

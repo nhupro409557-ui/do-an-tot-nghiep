@@ -1,5 +1,6 @@
 from .documents import adjust_product_inventory
 from .common import *
+from .common import validate_identifier_pairs
 
 async def set_variant_inventory(
     session: AsyncSession,
@@ -25,7 +26,15 @@ async def set_variant_inventory(
 async def create_outbound_document_from_order(session: AsyncSession, order_id: UUID) -> UUID | None:
     # Check if outbound document already exists
     res = await session.execute(
-        text("SELECT id FROM inventory_documents WHERE order_id = :order_id AND document_type = 'OUTBOUND'"),
+        text(
+            """
+            SELECT id
+            FROM inventory_documents
+            WHERE order_id = :order_id
+              AND document_type = 'OUTBOUND'
+              AND status != 'CANCELLED'
+            """
+        ),
         {"order_id": order_id},
     )
     row = res.first()
@@ -36,6 +45,11 @@ async def create_outbound_document_from_order(session: AsyncSession, order_id: U
     from app.infrastructure.database.repositories import commerce_repo
     order = await session.get(Order, order_id)
     if not order:
+        return None
+
+    items = await commerce_repo.list_restock_items(session, order_id=order_id, order_code=order.order_code)
+    shippable_items = [item for item in items if not item.get("used_device_id")]
+    if not shippable_items:
         return None
 
     # Get default WAREHOUSE location (code = 'MAIN')
@@ -56,8 +70,7 @@ async def create_outbound_document_from_order(session: AsyncSession, order_id: U
         order_id=order_id,
     )
 
-    items = await commerce_repo.list_restock_items(session, order_id=order_id, order_code=order.order_code)
-    for item in items:
+    for item in shippable_items:
         product_id = item["product_id"]
         variant_id = item["order_variant_id"] or item["variant_id"]
 
@@ -319,6 +332,7 @@ async def _post_inventory_outbound(
     order_id: UUID,
 ) -> None:
     document_lines = await inventory_repo.list_inventory_outbound_lines(session, document_id)
+    touched_products: set[UUID] = set()
 
     from app.infrastructure.database.models import Order
     from app.infrastructure.database.repositories import commerce_repo
@@ -374,6 +388,14 @@ async def _post_inventory_outbound(
             alloc_imeis = [str(item).strip() for item in (alloc.get("imeis") or []) if str(item).strip()]
             alloc_serials = _clean_serial_numbers(alloc.get("serialNumbers") or [])
 
+            await validate_identifier_pairs(
+                session,
+                product_id=product_id,
+                variant_id=variant_id,
+                imeis=alloc_imeis,
+                serial_numbers=alloc_serials,
+                line_index=index,
+            )
             if tracks_imei:
                 if len(alloc_imeis) != alloc_qty:
                     raise HTTPException(status_code=400, detail=f"Dòng {index}: Số IMEI quét ({len(alloc_imeis)}) tại kệ phải khớp số lượng cần xuất ({alloc_qty}).")
@@ -399,11 +421,29 @@ async def _post_inventory_outbound(
 
         if variant_id:
             await commerce_repo.update_variant_stock(session, variant_id=variant_id, quantity=new_total_quantity)
+            touched_products.add(product_id)
         else:
             await commerce_repo.update_product_stock(session, product_id=product_id, quantity=new_total_quantity)
 
         for alloc in allocations_list:
             alloc_location_id = UUID(alloc.get("locationId"))
+            loc_res = await session.execute(
+                text("SELECT name, status, purpose FROM inventory_locations WHERE id = :location_id"),
+                {"location_id": alloc_location_id}
+            )
+            loc = loc_res.mappings().first()
+            if not loc:
+                raise HTTPException(status_code=404, detail=f"Dòng {index}: Không tìm thấy thông tin kệ {alloc.get('locationId')}.")
+            if loc["status"] != "ACTIVE":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dòng {index}: Kệ {loc['name']} không hoạt động hoặc đang bị khóa.",
+                )
+            if loc["purpose"] not in {"STORAGE", "VIRTUAL"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dòng {index}: Không thể xuất kho bán hàng từ kệ {loc['name']} (mục đích: {loc['purpose']}).",
+                )
             alloc_qty = int(alloc.get("quantity") or 0)
             alloc_imeis = [str(item).strip() for item in (alloc.get("imeis") or []) if str(item).strip()]
             alloc_serials = _clean_serial_numbers(alloc.get("serialNumbers") or [])
@@ -431,7 +471,11 @@ async def _post_inventory_outbound(
                         text(
                             """
                             UPDATE product_imeis
-                            SET status = 'SOLD', sold_at = NOW(), sold_order_id = :order_id, updated_at = NOW()
+                            SET status = 'SOLD',
+                                location_id = NULL,
+                                sold_at = NOW(),
+                                sold_order_id = :order_id,
+                                updated_at = NOW()
                             WHERE id IN (
                                 SELECT id FROM product_imeis
                                 WHERE product_id = :product_id
@@ -469,7 +513,11 @@ async def _post_inventory_outbound(
                         text(
                             """
                             UPDATE product_serial_numbers
-                            SET status = 'SOLD', sold_at = NOW(), sold_order_id = :order_id, updated_at = NOW()
+                            SET status = 'SOLD',
+                                location_id = NULL,
+                                sold_at = NOW(),
+                                sold_order_id = :order_id,
+                                updated_at = NOW()
                             WHERE id IN (
                                 SELECT id FROM product_serial_numbers
                                 WHERE product_id = :product_id
@@ -503,6 +551,9 @@ async def _post_inventory_outbound(
                     location_code=allocation.get("locationCode"),
                     location_name=allocation.get("locationName"),
                 )
+
+    for product_id in touched_products:
+        await sync_parent_price_from_variants(session, product_id)
 
 
 async def post_outbound_document(
@@ -557,9 +608,6 @@ async def post_outbound_document(
         actor_id=current_user_id,
     )
 
-    # Commit the inventory outbound transaction to free locks and start a clean session
-    await session.commit()
-
     # Sync order status to SHIPPED and trigger order side effects
     from app.application.commerce.use_cases import CompleteOrderUseCase
     await CompleteOrderUseCase(session=session).execute(
@@ -568,7 +616,83 @@ async def post_outbound_document(
         changed_by="warehouse-outbound",
     )
 
+    # Commit all changes atomically (both physical inventory reduction and order status update)
+    await session.commit()
+
     return {"ok": True, "referenceCode": document_no, "status": "COMPLETED"}
+
+
+async def update_outbound_document_status(
+    session: AsyncSession,
+    document_no: str,
+    *,
+    status_value: str,
+    cancel_reason: str | None = None,
+    current_user_id: UUID | None = None,
+    current_role_code: str | None = None,
+) -> dict:
+    normalized_status = status_value.strip().upper()
+    if normalized_status == "COMPLETED":
+        return await post_outbound_document(
+            session,
+            document_no,
+            current_user_id,
+            current_role_code,
+        )
+
+    res = await session.execute(
+        text(
+            """
+            SELECT id, status
+            FROM inventory_documents
+            WHERE document_no = :document_no AND document_type = 'OUTBOUND'
+            FOR UPDATE
+            """
+        ),
+        {"document_no": document_no},
+    )
+    row = res.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiếu xuất kho.")
+    doc = dict(row)
+
+    if normalized_status == "DRAFT":
+        if doc["status"] != "CANCELLED":
+            raise HTTPException(status_code=400, detail="Chỉ phiếu xuất đã hủy mới có thể phát hành lại (chuyển về Nháp).")
+        await inventory_repo.update_inventory_outbound_status(
+            session,
+            document_id=doc["id"],
+            status="DRAFT",
+            note="Phát hành lại phiếu xuất đã hủy.",
+            actor_id=current_user_id,
+        )
+        await session.commit()
+        return {"ok": True, "referenceCode": document_no, "status": "DRAFT"}
+
+    if normalized_status != "CANCELLED":
+        raise HTTPException(
+            status_code=400,
+            detail="Phiếu xuất kho chỉ hỗ trợ chuyển trạng thái thủ công sang Hoàn tất, Đã hủy hoặc Nháp (phát hành lại).",
+        )
+    _ensure_super_admin_inventory_action(current_role_code, "hủy phiếu xuất kho")
+    reason = (cancel_reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Cần nhập lý do hủy phiếu xuất kho.")
+
+    if doc["status"] == "COMPLETED":
+        raise HTTPException(status_code=400, detail="Không thể hủy phiếu xuất kho đã hoàn tất.")
+    if doc["status"] == "CANCELLED":
+        raise HTTPException(status_code=400, detail="Phiếu xuất kho này đã được hủy trước đó.")
+
+    await inventory_repo.update_inventory_outbound_status(
+        session,
+        document_id=doc["id"],
+        status="CANCELLED",
+        note=reason,
+        actor_id=current_user_id,
+    )
+    await session.commit()
+    return {"ok": True, "referenceCode": document_no, "status": "CANCELLED"}
 
 
 async def auto_suggest_outbound_document(
@@ -587,106 +711,41 @@ async def auto_suggest_outbound_document(
         product_id = line["productId"]
         variant_id = line["variantId"]
         quantity = int(line["quantity"])
-        tracks_imei = bool(line.get("tracksImei"))
-        tracks_serial = bool(line.get("tracksSerialNumber"))
-
-        # Gợi ý kệ xuất theo FIFO/trực tiếp tồn
-        sql = """
-            SELECT location_id, on_hand_quantity FROM inventory_levels
-            WHERE on_hand_quantity >= :quantity
-              AND (
-                (CAST(:variant_id AS uuid) IS NULL AND product_id = :product_id AND variant_id IS NULL)
-                OR (CAST(:variant_id AS uuid) IS NOT NULL AND variant_id = :variant_id AND product_id IS NULL)
-              )
-            ORDER BY on_hand_quantity DESC LIMIT 1
-        """
-        res = await session.execute(text(sql), {"product_id": product_id, "variant_id": variant_id, "quantity": quantity})
-        row = res.first()
-        if not row:
-            sql = """
-                SELECT location_id, on_hand_quantity FROM inventory_levels
-                WHERE on_hand_quantity > 0
-                  AND (
-                    (CAST(:variant_id AS uuid) IS NULL AND product_id = :product_id AND variant_id IS NULL)
-                    OR (CAST(:variant_id AS uuid) IS NOT NULL AND variant_id = :variant_id AND product_id IS NULL)
-                  )
-                ORDER BY on_hand_quantity DESC LIMIT 1
-            """
-            res = await session.execute(text(sql), {"product_id": product_id, "variant_id": variant_id})
-            row = res.first()
-
-        selected_location_id = row[0] if row else None
-        if not selected_location_id:
-            loc_main = await inventory_repo.get_inventory_location_by_code(session, "MAIN")
-            selected_location_id = loc_main["id"] if loc_main else None
-
-        selected_imeis = []
-        selected_serials = []
-        if selected_location_id:
-            if tracks_imei:
-                sql_imeis = """
-                    SELECT imei FROM product_imeis
-                    WHERE product_id = :product_id
-                      AND (
-                        (CAST(:variant_id AS uuid) IS NULL AND variant_id IS NULL)
-                        OR (CAST(:variant_id AS uuid) IS NOT NULL AND variant_id = :variant_id)
-                      )
-                      AND location_id = :location_id
-                      AND status = 'IN_STOCK'
-                    ORDER BY received_at ASC
-                    LIMIT :quantity
-                """
-                res_imeis = await session.execute(
-                    text(sql_imeis),
-                    {"product_id": product_id, "variant_id": variant_id, "location_id": selected_location_id, "quantity": quantity}
-                )
-                selected_imeis = [r[0] for r in res_imeis.all()]
-
-            if tracks_serial:
-                sql_serials = """
-                    SELECT serial_number FROM product_serial_numbers
-                    WHERE product_id = :product_id
-                      AND (
-                        (CAST(:variant_id AS uuid) IS NULL AND variant_id IS NULL)
-                        OR (CAST(:variant_id AS uuid) IS NOT NULL AND variant_id = :variant_id)
-                      )
-                      AND location_id = :location_id
-                      AND status = 'IN_STOCK'
-                    ORDER BY received_at ASC
-                    LIMIT :quantity
-                """
-                res_serials = await session.execute(
-                    text(sql_serials),
-                    {"product_id": product_id, "variant_id": variant_id, "location_id": selected_location_id, "quantity": quantity}
-                )
-                selected_serials = [r[0] for r in res_serials.all()]
-
-        storage_location_code = None
-        storage_location_name = None
-        if selected_location_id:
-            loc = await inventory_repo.get_inventory_location_by_id(session, selected_location_id)
-            if loc:
-                storage_location_code = loc["code"]
-                storage_location_name = loc["name"]
-
         allocations_data = []
-        if selected_location_id:
+        remaining_quantity = quantity
+        candidates = await inventory_repo.list_level_issue_candidates(
+            session,
+            product_id=product_id,
+            variant_id=variant_id,
+        )
+        for candidate in candidates:
+            if remaining_quantity <= 0:
+                break
+            available_quantity = int(candidate.get("availableQuantity") or 0)
+            if available_quantity <= 0:
+                continue
+            suggested_quantity = min(available_quantity, remaining_quantity)
             allocations_data.append({
-                "locationId": str(selected_location_id),
-                "locationCode": storage_location_code,
-                "locationName": storage_location_name,
-                "quantity": quantity,
-                "imeis": selected_imeis,
-                "serialNumbers": selected_serials,
+                "locationId": str(candidate["locationId"]),
+                "locationCode": candidate.get("locationCode"),
+                "locationName": candidate.get("locationName"),
+                "quantity": suggested_quantity,
+                "imeis": [],
+                "serialNumbers": [],
             })
+            remaining_quantity -= suggested_quantity
+
+        selected_location_id = UUID(allocations_data[0]["locationId"]) if allocations_data else None
+        storage_location_code = allocations_data[0]["locationCode"] if allocations_data else None
+        storage_location_name = allocations_data[0]["locationName"] if allocations_data else None
 
         await inventory_repo.update_inventory_outbound_line(
             session,
             line_id=line["id"],
             location_id=selected_location_id,
-            approved_quantity=quantity,
-            imeis=selected_imeis,
-            serial_numbers=selected_serials,
+            approved_quantity=sum(item["quantity"] for item in allocations_data),
+            imeis=[],
+            serial_numbers=[],
             storage_location_code=storage_location_code,
             storage_location_name=storage_location_name,
             allocations=allocations_data,

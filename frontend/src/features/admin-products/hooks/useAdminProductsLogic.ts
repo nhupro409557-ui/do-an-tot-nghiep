@@ -1,4 +1,4 @@
-import { useState, useMemo, type FormEvent } from 'react';
+import { useState, useMemo, useEffect, type FormEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { productApi } from '../../../services/productApi';
 import { useAdminProductVariants } from './useAdminProductVariants';
@@ -19,6 +19,18 @@ import {
   sameId,
   groupSpecFields,
 } from '../../admin-shell/components/AdminDashboardConfig';
+
+function categoryContainsCategory(categories: any[], selectedCategoryId: string, categoryId: unknown) {
+  if (!selectedCategoryId) return true;
+  if (String(categoryId || '') === selectedCategoryId) return true;
+  return categories.some((category: any) => String(category.id) === String(categoryId || '') && String(category.parentId || '') === selectedCategoryId);
+}
+
+function categoryContainsProduct(categories: any[], selectedCategoryId: string, product: any) {
+  if (!selectedCategoryId) return true;
+  return categoryContainsCategory(categories, selectedCategoryId, product?.categoryId)
+    || categoryContainsCategory(categories, selectedCategoryId, product?.subcategoryId);
+}
 
 type UseAdminProductsLogicParams = {
   tab: string;
@@ -89,19 +101,25 @@ export function useAdminProductsLogic({
   const productBrandOptions = useMemo(() => {
     return [['', 'Tất cả thương hiệu'] as [string, string], ...brands.filter((b: any) => {
       if (!productCategoryFilter) return true;
-      if (b.categoryIds && (b.categoryIds.includes(productCategoryFilter) || categories.some((c: any) => c.parentId === productCategoryFilter && b.categoryIds.includes(c.id)))) return true;
-      return products.some((p: any) => (p.brandId === b.id || p.brand === b.name) && (p.categoryId === productCategoryFilter || p.subcategoryId === productCategoryFilter || categories.some((c: any) => c.parentId === productCategoryFilter && (p.categoryId === c.id || p.subcategoryId === c.id))));
+      if (b.categoryIds && b.categoryIds.some((categoryId: string) => categoryContainsCategory(categories, productCategoryFilter, categoryId))) return true;
+      return products.some((p: any) => (p.brandId === b.id || p.brand === b.name) && categoryContainsProduct(categories, productCategoryFilter, p));
     }).map((b: any) => [b.id, b.name])];
   }, [brands, productCategoryFilter, categories, products]);
+
+  useEffect(() => {
+    if (productBrandFilter && !productBrandOptions.some(([value]) => String(value) === productBrandFilter)) {
+      setProductBrandFilter('');
+    }
+  }, [productBrandFilter, productBrandOptions, setProductBrandFilter]);
 
   const filteredProducts = useMemo(() => {
     return products.filter((product) => {
       const ms = matchesSearch(product, query, ['name', 'brand', 'categoryName', 'category', 'sku', 'status']);
-      const mc = !productCategoryFilter || String(product.categoryId) === productCategoryFilter || String(product.subcategoryId) === productCategoryFilter;
+      const mc = categoryContainsProduct(categories, productCategoryFilter, product);
       const mb = !productBrandFilter || String(product.brandId) === productBrandFilter || (product.brand && brands.find(b => String(b.id) === productBrandFilter)?.name === product.brand);
       return ms && mc && mb;
     });
-  }, [products, query, productCategoryFilter, productBrandFilter, brands]);
+  }, [products, query, productCategoryFilter, productBrandFilter, brands, categories]);
 
   const {
     colorOptionName,
