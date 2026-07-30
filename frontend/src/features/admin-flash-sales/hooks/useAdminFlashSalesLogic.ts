@@ -9,6 +9,7 @@ export type FlashSaleForm = {
   discountType: 'PERCENT' | 'FIXED';
   discountValue: number;
   quantityLimit: string;
+  perUserLimit: string;
   startsAt: string;
   endsAt: string;
   status: 'ACTIVE' | 'INACTIVE';
@@ -20,6 +21,7 @@ const emptyFlashSaleForm: FlashSaleForm = {
   discountType: 'PERCENT',
   discountValue: 10,
   quantityLimit: '',
+  perUserLimit: '',
   startsAt: '',
   endsAt: '',
   status: 'ACTIVE',
@@ -97,6 +99,7 @@ export function useAdminFlashSalesLogic(params: {
       discountType: item.discountType === 'FIXED' ? 'FIXED' : 'PERCENT',
       discountValue: Number(item.discountValue || 0),
       quantityLimit: item.quantityLimit ? String(item.quantityLimit) : '',
+      perUserLimit: item.perUserLimit ? String(item.perUserLimit) : '',
       startsAt: toLocalDateTime(item.startsAt),
       endsAt: toLocalDateTime(item.endsAt),
       status: item.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE',
@@ -109,6 +112,7 @@ export function useAdminFlashSalesLogic(params: {
     discountType: flashSaleForm.discountType,
     discountValue: Number(flashSaleForm.discountValue || 0),
     quantityLimit: flashSaleForm.quantityLimit.trim() ? Number(flashSaleForm.quantityLimit) : null,
+    perUserLimit: flashSaleForm.perUserLimit.trim() ? Number(flashSaleForm.perUserLimit) : null,
     startsAt: toIsoOrNull(flashSaleForm.startsAt),
     endsAt: toIsoOrNull(flashSaleForm.endsAt),
     status: flashSaleForm.status,
@@ -124,6 +128,12 @@ export function useAdminFlashSalesLogic(params: {
     const quantityLimitNumber = Number(quantityLimitText);
     if (quantityLimitText && (!Number.isInteger(quantityLimitNumber) || quantityLimitNumber < 1)) {
       alert('Số lượng sale phải lớn hơn 0 hoặc để trống nếu không giới hạn.');
+      return false;
+    }
+    const perUserLimitText = flashSaleForm.perUserLimit.trim();
+    const perUserLimitNumber = Number(perUserLimitText);
+    if (perUserLimitText && (!Number.isInteger(perUserLimitNumber) || perUserLimitNumber < 1)) {
+      alert('Giới hạn mỗi khách phải lớn hơn 0 hoặc để trống nếu không giới hạn.');
       return false;
     }
     try {

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { customerCenterApi } from '../services/customerCenterApi';
+import { publicApi } from '../../../services/publicApi';
 
 type FilePreview = { url: string; type: string; name: string };
 
@@ -13,7 +15,7 @@ const progressSteps = [
 const qcStatuses = new Set(['RECEIVED', 'QC_IN_PROGRESS']);
 const processingStatuses = new Set([
   'QC_APPROVED', 'WARRANTY_ACCEPTED', 'REPAIRING', 'REPLACEMENT_APPROVED',
-  'WAITING_FOR_STOCK', 'EXCHANGE_PROCESSING', 'REPLACEMENT_PROCESSING',
+  'WAITING_FOR_STOCK', 'WAITING_FOR_EXCHANGE_PAYMENT', 'EXCHANGE_PROCESSING', 'REPLACEMENT_PROCESSING',
   'REFUND_PROCESSING', 'READY_TO_RETURN'
 ]);
 const closedStatuses = new Set(['REJECTED', 'CANCELLED', 'CLOSED_EXPIRED']);
@@ -81,6 +83,9 @@ const statusStyles: Record<string, { bg: string; text: string; border: string }>
   CLOSED_EXPIRED: { bg: 'bg-slate-100', text: 'text-slate-500', border: 'border-slate-250' },
 };
 
+statusLabel.WAITING_FOR_EXCHANGE_PAYMENT = 'Chờ thanh toán chênh lệch';
+statusStyles.WAITING_FOR_EXCHANGE_PAYMENT = { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' };
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 type WarrantyTone = 'emerald' | 'rose' | 'slate' | 'blue';
@@ -92,11 +97,91 @@ type WarrantyInfo = {
   tone: WarrantyTone;
 };
 
+type PurchasedIdentifier = {
+  imei?: string | null;
+  secondaryImei?: string | null;
+  serialNumber?: string | null;
+  deviceStatus?: string | null;
+};
+
+type PurchasedEligibility = {
+  eligible: boolean;
+  status: 'ACTIVE' | 'EXPIRED' | 'UNSUPPORTED' | 'UNKNOWN_END_DATE' | 'RECOVERED';
+  remainingDays: number | null;
+  endsAt: string | null;
+  tone: WarrantyTone;
+  months?: number;
+  days?: number;
+};
+
+type PurchasedItem = {
+  id: string;
+  orderId: string;
+  orderCode: string;
+  orderItemId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  completedAt?: string;
+  attachedServices?: Array<Record<string, any>>;
+  identifiers?: PurchasedIdentifier[];
+  deviceLifecycle?: 'ACTIVE' | 'RECOVERED';
+  warranty: PurchasedEligibility;
+  returnPolicy: PurchasedEligibility;
+};
+
+type ReturnDraftLine = {
+  orderItemId: string;
+  quantity: number;
+  imei: string;
+  serialNumber: string;
+};
+
 const warrantyToneStyles: Record<WarrantyTone, { bg: string; text: string; border: string }> = {
   emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   rose: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
   slate: { bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200' },
   blue: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+};
+
+const formatCurrency = (value: number | string | null | undefined) => {
+  const amount = Number(value || 0);
+  return amount.toLocaleString('vi-VN', { style: 'currency', currency: 'VND' });
+};
+
+const formatDate = (value?: string | null) => {
+  if (!value) return 'Chưa ghi nhận';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? 'Chưa ghi nhận' : parsed.toLocaleDateString('vi-VN');
+};
+
+const serviceName = (service: Record<string, any>) => (
+  service.name || service.serviceName || service.label || service.code || service.serviceCode || 'Dịch vụ mua kèm'
+);
+
+const eligibilityLabel = (policy: PurchasedEligibility, type: 'return' | 'warranty') => {
+  if (policy.status === 'UNSUPPORTED') {
+    return type === 'return' ? 'Không hỗ trợ đổi trả' : 'Không hỗ trợ bảo hành';
+  }
+  if (policy.status === 'UNKNOWN_END_DATE') {
+    return type === 'return'
+      ? `Đổi trả ${policy.days || 0} ngày`
+      : `Bảo hành ${policy.months || 0} tháng`;
+  }
+  if (policy.status === 'EXPIRED') {
+    return type === 'return' ? 'Đã hết hạn đổi trả' : 'Đã hết hạn bảo hành';
+  }
+  const remaining = Number(policy.remainingDays || 0).toLocaleString('vi-VN');
+  return type === 'return' ? `Còn ${remaining} ngày đổi trả` : `Còn ${remaining} ngày bảo hành`;
+};
+
+const primaryIdentifier = (item: PurchasedItem): PurchasedIdentifier => {
+  const recoveredStatuses = new Set(['DEFECTIVE_RETURNED', 'RETURNED', 'RETIRED', 'SCRAP']);
+  return (item.identifiers || []).find(identifier =>
+    (identifier.imei || identifier.serialNumber)
+    && !recoveredStatuses.has(String(identifier.deviceStatus || '').toUpperCase())
+  ) || {};
 };
 
 const getWarrantyStartDate = (order: any) => {
@@ -163,16 +248,28 @@ export function AfterSalesTab({ kind, orders }: Props) {
   const uploadApi = isReturn ? customerCenterApi.uploadReturnFiles : customerCenterApi.uploadWarrantyFiles;
 
   const [items, setItems] = useState<any[]>([]);
+  const [purchasedItems, setPurchasedItems] = useState<PurchasedItem[]>([]);
+  const [purchasedLoading, setPurchasedLoading] = useState(false);
+  const [requestLoadError, setRequestLoadError] = useState('');
+  const [purchasedLoadError, setPurchasedLoadError] = useState('');
   const [orderId, setOrderId] = useState('');
   const [orderItemId, setOrderItemId] = useState('');
   const [reason, setReason] = useState('');
   const [imei, setImei] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
+  const [returnDraftLines, setReturnDraftLines] = useState<ReturnDraftLine[]>([]);
+  const [exchangeProducts, setExchangeProducts] = useState<any[]>([]);
+  const [exchangeProductSearch, setExchangeProductSearch] = useState('');
+  const [exchangeProductsLoading, setExchangeProductsLoading] = useState(false);
+  const [exchangeProductsError, setExchangeProductsError] = useState('');
+  const [exchangeProductId, setExchangeProductId] = useState('');
+  const [exchangeVariantId, setExchangeVariantId] = useState('');
   const [hasAccessories, setHasAccessories] = useState(false);
   const [goodAppearance, setGoodAppearance] = useState(false);
   const [accountUnlocked, setAccountUnlocked] = useState(false);
   const [hasVatInvoice, setHasVatInvoice] = useState(false);
   const filesRef = useRef<File[]>([]);
+  const formRef = useRef<HTMLFormElement | null>(null);
   const [filePreviews, setFilePreviews] = useState<FilePreview[]>([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -190,13 +287,69 @@ export function AfterSalesTab({ kind, orders }: Props) {
     return selectedOrder?.items || [];
   }, [selectedOrder]);
 
+  const selectedPurchasedItems = useMemo(() => {
+    return purchasedItems.filter(item => String(item.orderId) === orderId);
+  }, [orderId, purchasedItems]);
+
+  const returnProductOptions = useMemo(() => {
+    if (!isReturn) return [];
+    if (selectedPurchasedItems.length > 0) return selectedPurchasedItems;
+    return selectedOrderItems.map((item: any) => ({
+      id: String(item.id),
+      orderItemId: String(item.id),
+      orderId,
+      orderCode: selectedOrder?.orderCode || '',
+      productName: item.productName,
+      quantity: Number(item.quantity || 1),
+      unitPrice: Number(item.price || item.unitPrice || 0),
+      totalPrice: Number(item.totalPrice || 0),
+      completedAt: selectedOrder?.completedAt,
+      identifiers: Array.isArray(item.identifiers) ? item.identifiers : [],
+      attachedServices: Array.isArray(item.attachedServices) ? item.attachedServices : [],
+      returnPolicy: { eligible: true, status: 'ACTIVE', remainingDays: null, endsAt: null, tone: 'blue' },
+      warranty: { eligible: true, status: 'ACTIVE', remainingDays: null, endsAt: null, tone: 'blue' },
+    } as PurchasedItem));
+  }, [isReturn, orderId, selectedOrder, selectedOrderItems, selectedPurchasedItems]);
+
   const selectedOrderItem = useMemo(() => {
+    if (isReturn) {
+      return returnProductOptions.find(item => String(item.orderItemId) === orderItemId);
+    }
     return selectedOrderItems.find((item: any) => String(item.id) === orderItemId);
-  }, [selectedOrderItems, orderItemId]);
+  }, [isReturn, orderItemId, returnProductOptions, selectedOrderItems]);
 
   const selectedWarrantyInfo = useMemo(() => {
     return selectedOrderItem ? getWarrantyInfo(selectedOrder, selectedOrderItem, isReturn) : null;
   }, [isReturn, selectedOrder, selectedOrderItem]);
+
+  const selectedOrderItemIdentifiers = useMemo(() => {
+    return Array.isArray(selectedOrderItem?.identifiers) ? selectedOrderItem.identifiers : [];
+  }, [selectedOrderItem]);
+
+  const selectedOrderHistory = useMemo(() => {
+    if (!orderId) return [];
+    return items.filter(item => String(item.orderId) === orderId);
+  }, [items, orderId]);
+
+  const selectedExchangeProduct = useMemo(() => {
+    return exchangeProducts.find(product => String(product.id) === exchangeProductId);
+  }, [exchangeProducts, exchangeProductId]);
+
+  const selectedExchangeVariants = useMemo(() => {
+    return Array.isArray(selectedExchangeProduct?.variants) ? selectedExchangeProduct.variants : [];
+  }, [selectedExchangeProduct]);
+
+  const selectedExchangeVariant = useMemo(() => {
+    return selectedExchangeVariants.find((variant: any) => String(variant.id) === exchangeVariantId);
+  }, [selectedExchangeVariants, exchangeVariantId]);
+
+  const exchangeUnitPrice = Number(
+    selectedExchangeVariant?.salePrice
+    ?? selectedExchangeVariant?.price
+    ?? selectedExchangeProduct?.salePrice
+    ?? selectedExchangeProduct?.price
+    ?? 0
+  );
 
   const hasEligibleWarrantyItem = useMemo(() => {
     if (isReturn || !selectedOrder) return true;
@@ -207,14 +360,81 @@ export function AfterSalesTab({ kind, orders }: Props) {
     try {
       const data = await api({ page: 1, limit: 50 });
       setItems(data.items || []);
+      setRequestLoadError('');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Không thể tải yêu cầu hậu mãi.');
+      setRequestLoadError(error instanceof Error ? error.message : 'Không thể tải lịch sử yêu cầu hậu mãi.');
     }
   }, [api]);
+
+  const loadPurchasedItems = useCallback(async () => {
+    setPurchasedLoading(true);
+    try {
+      const data = await customerCenterApi.listPurchasedAfterSalesItems();
+      setPurchasedItems(Array.isArray(data) ? data : []);
+      setPurchasedLoadError('');
+    } catch (error) {
+      setPurchasedLoadError(error instanceof Error ? error.message : 'Không thể tải danh sách sản phẩm đã mua.');
+    } finally {
+      setPurchasedLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void loadPurchasedItems();
+  }, [loadPurchasedItems]);
+
+  useEffect(() => {
+    if (!isReturn) return undefined;
+
+    const query = exchangeProductSearch.trim();
+    if (query.length < 2) {
+      setExchangeProducts(current => {
+        const selected = current.find(product => String(product.id) === exchangeProductId);
+        return selected ? [selected] : [];
+      });
+      setExchangeProductsLoading(false);
+      setExchangeProductsError('');
+      return undefined;
+    }
+
+    let cancelled = false;
+    setExchangeProductsLoading(true);
+    setExchangeProductsError('');
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const data = await publicApi.listProducts({ q: query, limit: 20 });
+        if (cancelled) return;
+        setExchangeProducts(current => {
+          const selected = current.find(product => String(product.id) === exchangeProductId);
+          const results = Array.isArray(data) ? data : [];
+          if (!selected || results.some(product => String(product.id) === String(selected.id))) {
+            return results;
+          }
+          return [selected, ...results];
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setExchangeProducts(current => current.filter(product => String(product.id) === exchangeProductId));
+        setExchangeProductsError(error instanceof Error ? error.message : 'Không thể tìm sản phẩm lúc này.');
+      } finally {
+        if (!cancelled) setExchangeProductsLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [exchangeProductId, exchangeProductSearch, isReturn]);
+
+  useEffect(() => {
+    setExchangeVariantId('');
+  }, [exchangeProductId]);
 
   useEffect(() => {
     return () => revokeFilePreviews(filePreviews);
@@ -241,6 +461,27 @@ export function AfterSalesTab({ kind, orders }: Props) {
 
   const removeFile = (index: number) => {
     syncFiles(filesRef.current.filter((_, i) => i !== index));
+  };
+
+  const fillFromPurchasedItem = (item: PurchasedItem) => {
+    const identifier = primaryIdentifier(item);
+    setOrderId(item.orderId);
+    setOrderItemId(item.orderItemId);
+    setImei(identifier.imei || '');
+    setSerialNumber(identifier.serialNumber || '');
+    setMessage(
+      isReturn
+        ? `Đã điền thông tin sản phẩm ${item.productName}. Vui lòng mô tả lỗi và tự xác nhận các điều kiện đổi trả.`
+        : `Đã điền thông tin sản phẩm ${item.productName}. Vui lòng mô tả lỗi trước khi gửi yêu cầu.`,
+    );
+    window.requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const selectIdentifier = (identifier: PurchasedIdentifier) => {
+    setImei(identifier.imei || '');
+    setSerialNumber(identifier.serialNumber || '');
   };
 
   async function submit(event: React.FormEvent) {
@@ -273,6 +514,9 @@ export function AfterSalesTab({ kind, orders }: Props) {
         good_appearance: isReturn ? goodAppearance : true,
         account_unlocked: isReturn ? accountUnlocked : true,
         has_vat_invoice: isReturn ? hasVatInvoice : true,
+        exchange_product_id: isReturn && exchangeProductId ? exchangeProductId : null,
+        exchange_variant_id: isReturn && exchangeVariantId ? exchangeVariantId : null,
+        exchange_quantity: 1,
       });
       if (filesRef.current.length) {
         await uploadApi(created.id, filesRef.current);
@@ -284,6 +528,8 @@ export function AfterSalesTab({ kind, orders }: Props) {
       setGoodAppearance(false);
       setAccountUnlocked(false);
       setHasVatInvoice(false);
+      setExchangeProductId('');
+      setExchangeVariantId('');
       syncFiles([]);
       setMessage(`Đã gửi thành công yêu cầu ${created.requestCode}.`);
       await load();
@@ -306,8 +552,103 @@ export function AfterSalesTab({ kind, orders }: Props) {
 
   return (
     <div className="space-y-8">
+      <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-50 pb-3">
+          <div>
+            <h3 className="text-lg font-extrabold text-slate-900">Sản phẩm đã mua của bạn</h3>
+            <p className="mt-1 text-xs font-medium text-slate-500">
+              Chọn nhanh sản phẩm để hệ thống tự điền đơn hàng, IMEI và Serial vào biểu mẫu bên dưới.
+            </p>
+          </div>
+          {purchasedLoading && (
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-500">
+              Đang tải...
+            </span>
+          )}
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          {purchasedItems.map(item => {
+            const policy = isReturn ? item.returnPolicy : item.warranty;
+            const tone = warrantyToneStyles[policy.tone] || warrantyToneStyles.slate;
+            const identifiers = item.identifiers || [];
+            const recovered = item.deviceLifecycle === 'RECOVERED';
+            const disabled = !policy.eligible || recovered;
+
+            return (
+              <article key={`${item.orderItemId}-${item.orderCode}`} className="rounded-xl border border-slate-150 p-4 shadow-sm transition-colors hover:border-slate-300">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-extrabold text-slate-900">{item.productName}</h4>
+                    <div className="mt-1 text-xs font-semibold text-slate-500">
+                      #{item.orderCode} · Nhận máy: {formatDate(item.completedAt)}
+                    </div>
+                  </div>
+                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${tone.bg} ${tone.text} ${tone.border}`}>
+                    {recovered ? 'Đã thu hồi · Đã thay thế' : eligibilityLabel(policy, isReturn ? 'return' : 'warranty')}
+                  </span>
+                </div>
+
+                <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                  <div className="rounded-lg bg-slate-50 p-2">
+                    <span className="block font-bold text-slate-500">Giá lúc mua</span>
+                    <span className="font-extrabold text-slate-900">{formatCurrency(item.unitPrice)}</span>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-2">
+                    <span className="block font-bold text-slate-500">Số lượng</span>
+                    <span className="font-extrabold text-slate-900">{Number(item.quantity || 0).toLocaleString('vi-VN')}</span>
+                  </div>
+                </div>
+
+                {identifiers.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {identifiers.map((identifier, index) => (
+                      <div key={`${identifier.imei || ''}-${identifier.serialNumber || ''}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-[11px] text-slate-700">
+                        {identifier.imei && <div>IMEI: {identifier.imei}</div>}
+                        {identifier.secondaryImei && <div>IMEI 2: {identifier.secondaryImei}</div>}
+                        {identifier.serialNumber && <div>S/N: {identifier.serialNumber}</div>}
+                        {['DEFECTIVE_RETURNED', 'RETURNED', 'RETIRED', 'SCRAP'].includes(String(identifier.deviceStatus || '').toUpperCase()) && (
+                          <div className="mt-1 font-sans font-bold text-slate-500">Đã thu hồi</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {(item.attachedServices || []).length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(item.attachedServices || []).map((service, index) => (
+                      <span key={`${serviceName(service)}-${index}`} className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">
+                        {serviceName(service)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => fillFromPurchasedItem(item)}
+                    disabled={disabled}
+                    className="rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-bold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                  >
+                    {recovered ? 'Thiết bị đã được thay thế' : (isReturn ? 'Yêu cầu đổi trả nhanh' : 'Yêu cầu bảo hành nhanh')}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+
+        {!purchasedLoading && !purchasedItems.length && (
+          <div className="py-10 text-center text-sm font-medium text-slate-400">
+            Chưa có sản phẩm đã mua trong các đơn hàng hoàn thành.
+          </div>
+        )}
+      </section>
+
       {/* Form Tạo Yêu Cầu */}
-      <form onSubmit={submit} className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+      <form ref={formRef} onSubmit={submit} className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
         <h3 className="text-lg font-extrabold text-slate-900 border-b border-slate-50 pb-3">
           Tạo yêu cầu {isReturn ? 'đổi trả hàng' : 'bảo hành thiết bị'}
         </h3>
@@ -393,6 +734,114 @@ export function AfterSalesTab({ kind, orders }: Props) {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {selectedOrderItemIdentifiers.length > 0 && (
+            <div className="md:col-span-2 rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Chọn IMEI/Serial đã bán trong đơn hàng
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {selectedOrderItemIdentifiers.map((identifier: PurchasedIdentifier, index: number) => {
+                  const active = (identifier.imei || '') === imei && (identifier.serialNumber || '') === serialNumber;
+                  const recoveredIdentifier = ['DEFECTIVE_RETURNED', 'RETURNED', 'RETIRED', 'SCRAP']
+                    .includes(String(identifier.deviceStatus || '').toUpperCase());
+                  return (
+                    <button
+                      key={`${identifier.imei || ''}-${identifier.serialNumber || ''}-${index}`}
+                      type="button"
+                      onClick={() => selectIdentifier(identifier)}
+                      disabled={recoveredIdentifier}
+                      className={`rounded-lg border px-3 py-2 text-left font-mono text-[11px] transition ${
+                        active
+                          ? 'border-slate-900 bg-slate-900 text-white'
+                          : recoveredIdentifier
+                            ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-400'
+                      }`}
+                    >
+                      {identifier.imei && <div>IMEI: {identifier.imei}</div>}
+                      {identifier.secondaryImei && <div>IMEI 2: {identifier.secondaryImei}</div>}
+                      {identifier.serialNumber && <div>S/N: {identifier.serialNumber}</div>}
+                      {recoveredIdentifier && <div className="mt-1 font-sans font-bold">Đã thu hồi · không còn bảo hành</div>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {isReturn && (
+            <div className="md:col-span-2 grid gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-4 md:grid-cols-2">
+              <div className="md:col-span-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+                Sản phẩm muốn đổi sang
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="after-sales-exchange-product-search" className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                  Tìm sản phẩm mới
+                </label>
+                <input
+                  id="after-sales-exchange-product-search"
+                  value={exchangeProductSearch}
+                  onChange={event => setExchangeProductSearch(event.target.value)}
+                  placeholder="Nhập tên sản phẩm cần đổi"
+                  autoComplete="off"
+                  className="rounded-xl border border-slate-200 bg-white p-3 text-sm focus:border-slate-900 focus:outline-none"
+                />
+                <p className="text-xs text-slate-500">
+                  Nhập ít nhất 2 ký tự. Hệ thống chỉ hiển thị tối đa 20 kết quả phù hợp.
+                </p>
+                <select
+                  aria-label="Sản phẩm mới"
+                  value={exchangeProductId}
+                  onChange={event => setExchangeProductId(event.target.value)}
+                  disabled={exchangeProductsLoading || (exchangeProductSearch.trim().length < 2 && exchangeProducts.length === 0)}
+                  className="rounded-xl border border-slate-200 bg-white p-3 text-sm focus:border-slate-900 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <option value="">-- Chưa chọn, chỉ gửi yêu cầu trả/đổi theo QC --</option>
+                  {exchangeProducts.map(product => (
+                    <option key={product.id} value={product.id}>
+                      {product.name} · {formatCurrency(product.salePrice ?? product.price)}
+                    </option>
+                  ))}
+                </select>
+                <div aria-live="polite" className="min-h-5 text-xs font-medium">
+                  {exchangeProductsLoading && <span className="text-slate-500">Đang tìm sản phẩm...</span>}
+                  {!exchangeProductsLoading && exchangeProductsError && (
+                    <span className="text-red-600">{exchangeProductsError}</span>
+                  )}
+                  {!exchangeProductsLoading
+                    && !exchangeProductsError
+                    && exchangeProductSearch.trim().length >= 2
+                    && exchangeProducts.length === 0 && (
+                      <span className="text-slate-500">Không tìm thấy sản phẩm phù hợp. Hãy thử tên hoặc từ khóa khác.</span>
+                    )}
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Biến thể</label>
+                <select
+                  value={exchangeVariantId}
+                  onChange={event => setExchangeVariantId(event.target.value)}
+                  disabled={!exchangeProductId || selectedExchangeVariants.length === 0}
+                  className="rounded-xl border border-slate-200 bg-white p-3 text-sm focus:border-slate-900 focus:outline-none disabled:opacity-60"
+                >
+                  <option value="">-- Dùng sản phẩm gốc hoặc chưa có biến thể --</option>
+                  {selectedExchangeVariants.map((variant: any) => (
+                    <option key={variant.id} value={variant.id}>
+                      {[variant.sku, variant.colorName, variant.storage, variant.ram, variant.configuration].filter(Boolean).join(' · ')}
+                      {' · '}
+                      {formatCurrency(variant.salePrice ?? variant.price)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {exchangeProductId && (
+                <div className="md:col-span-2 rounded-lg border border-orange-100 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-700">
+                  Tạm tính giá sản phẩm mới: {formatCurrency(exchangeUnitPrice)}. Phí đổi máy và chênh lệch cuối cùng sẽ được nhân viên QC chốt sau khi nhận máy cũ.
+                </div>
+              )}
             </div>
           )}
 
@@ -491,8 +940,8 @@ export function AfterSalesTab({ kind, orders }: Props) {
           <div className="mt-1 flex items-center justify-center w-full">
             <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-200 border-dashed rounded-xl cursor-pointer bg-slate-50/50 hover:bg-slate-100/50 transition-colors">
               <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                <svg className="w-8 h-8 mb-2.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                <svg className="w-8 h-8 mb-2.5 text-slate-400" fill="none" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
                 <p className="mb-1 text-sm text-slate-500 font-medium">Click để chọn ảnh hoặc video minh họa</p>
                 <p className="text-xs text-slate-400">Chấp nhận JPG, PNG, WEBP, MP4, MOV (Dưới 20MB)</p>
@@ -560,6 +1009,12 @@ export function AfterSalesTab({ kind, orders }: Props) {
         )}
       </form>
 
+      {(requestLoadError || purchasedLoadError) && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3.5 text-sm font-medium text-rose-700">
+          {[requestLoadError, purchasedLoadError].filter(Boolean).join(' ')}
+        </div>
+      )}
+
       {/* Lịch Sử Yêu Cầu */}
       <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
         <h3 className="text-lg font-extrabold text-slate-900 border-b border-slate-50 pb-3">
@@ -601,16 +1056,41 @@ export function AfterSalesTab({ kind, orders }: Props) {
                       </span>
                     ))}
                   </div>
+                  {item.status === 'WAITING_FOR_EXCHANGE_PAYMENT' && (
+                    <div className="mt-3 rounded-lg border border-orange-100 bg-orange-50 p-3 text-xs font-semibold text-orange-800">
+                      <div>Khách cần thanh toán chênh lệch: {formatCurrency(item.balanceAmount)}</div>
+                      {item.paymentDueAt && (
+                        <div className="mt-1">
+                          Hạn thanh toán: {new Date(item.paymentDueAt).toLocaleString('vi-VN')}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {item.fulfillmentOrder && (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50 p-3">
+                      <div className="text-xs text-blue-800">
+                        <div className="font-extrabold">Đơn giao máy #{item.fulfillmentOrder.orderCode}</div>
+                        <div className="mt-1 font-medium">
+                          {item.fulfillmentOrder.trackingCode
+                            ? `${item.fulfillmentOrder.shippingProvider || 'Đơn vị vận chuyển'} · ${item.fulfillmentOrder.trackingCode}`
+                            : 'Đơn đang được chuẩn bị và chưa có mã vận đơn.'}
+                        </div>
+                      </div>
+                      <Link
+                        to={`/orders/${item.fulfillmentOrder.id}`}
+                        className="inline-flex rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-800"
+                      >
+                        Theo dõi giao máy
+                      </Link>
+                    </div>
+                  )}
                 </div>
 
-                {/* Timeline Stepper rút gọn cho khách */}
+                {/* Stepper */}
                 {!progress.isSpecial && progress.steps && (
                   <div className="mt-5 border-t border-slate-50 pt-5">
                     <div className="flex items-center justify-between relative max-w-xl mx-auto">
-                      {/* Line nền */}
                       <div className="absolute top-[13px] left-[16px] right-[16px] h-0.5 bg-slate-100 z-0" />
-
-                      {/* Line tiến độ */}
                       <div
                         className="absolute top-[13px] left-[16px] h-0.5 bg-emerald-500 z-0 transition-all duration-300"
                         style={{ width: `${(progress.currentStepIndex / (progress.steps.length - 1)) * 100}%` }}
@@ -644,15 +1124,13 @@ export function AfterSalesTab({ kind, orders }: Props) {
                   </div>
                 )}
 
-                {/* Phản hồi từ chối hoặc hủy đặc biệt */}
                 {progress.isSpecial && (
                   <div className="mt-4 border-t border-slate-50 pt-4 text-xs text-slate-500">
                     Hồ sơ đã đóng với trạng thái: <strong className="text-slate-700">{progress.statusText}</strong>
                   </div>
                 )}
 
-                {/* Hủy yêu cầu (chỉ khi chưa xử lý) */}
-                {['SUBMITTED', 'WAITING_FOR_STOCK'].includes(item.status) && (
+                {['SUBMITTED', 'WAITING_FOR_STOCK', 'WAITING_FOR_EXCHANGE_PAYMENT'].includes(item.status) && (
                   <div className="mt-4 border-t border-slate-50 pt-4 flex justify-end">
                     <button
                       type="button"

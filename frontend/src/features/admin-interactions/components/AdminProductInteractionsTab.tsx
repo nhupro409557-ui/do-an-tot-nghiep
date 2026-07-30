@@ -64,7 +64,12 @@ export default function AdminProductInteractionsTab(props: AdminProductInteracti
           <tr><td colSpan={6} className="px-4 py-8 text-center text-sm font-medium text-slate-500">Không tìm thấy nội dung phù hợp.</td></tr>
         ) : rows.map((comment: any) => (
           <tr key={comment.id}>
-            <td className="px-4 py-3 font-semibold text-slate-900">{comment.productName || '-'}</td>
+            <td className="px-4 py-3">
+              <div className="font-semibold text-slate-900">{comment.productName || '-'}</div>
+              <div className="mt-1 text-xs font-medium text-slate-500">
+                SKU: {comment.productSku || '-'} · ID: {String(comment.productId || '-').slice(0, 8)}
+              </div>
+            </td>
             <td className="px-4 py-3">{comment.isRetracted ? 'Đã thu hồi' : comment.userName || 'Khách hàng'}</td>
             <td className="max-w-md px-4 py-3 text-sm text-slate-600">
               {comment.replyToUserName && <span className="mr-1 font-bold text-sky-700">@{comment.replyToUserName}</span>}

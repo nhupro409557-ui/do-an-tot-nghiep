@@ -15,7 +15,8 @@ class VoucherPayload(BaseModel):
     perUserLimit: int = Field(default=0, ge=0)
     perDeviceLimit: int = Field(default=0, ge=0)
     perIpLimit: int = Field(default=0, ge=0)
-    campaignType: Literal['CONVERSION', 'ACQUISITION', 'RETENTION', 'CUSTOMER_SERVICE'] = 'CONVERSION'
+    redemptionPoints: int = Field(default=0, ge=0)
+    campaignType: Literal['CONVERSION', 'ACQUISITION', 'RETENTION', 'CUSTOMER_SERVICE', 'LOYALTY', 'FLASH_SALE', 'ABANDONED_CART'] = 'CONVERSION'
     audienceType: Literal['PUBLIC', 'NEW_CUSTOMER', 'MEMBER_TIER', 'SPECIFIC_USER', 'HIDDEN', 'ABANDONED_CART'] = 'PUBLIC'
     displayTitle: Optional[str] = Field(default=None, max_length=120)
     displayDescription: Optional[str] = Field(default=None, max_length=500)
@@ -35,8 +36,10 @@ class VoucherPayload(BaseModel):
     firstOrderOnly: bool = False
     hiddenCode: bool = False
     abandonedCartOnly: bool = False
+    birthdayOnly: bool = False
     validityDaysAfterClaim: int = Field(default=0, ge=0)
     stackable: bool = False
+    applyOutsideScope: bool = False
     refundPolicy: Literal['NEVER', 'SHOP_FAULT_ONLY', 'ALWAYS'] = 'SHOP_FAULT_ONLY'
     startsAt: Optional[str] = None
     endsAt: Optional[str] = None
@@ -96,13 +99,14 @@ class VoucherUpdatePayload(BaseModel):
     perUserLimit: Optional[int] = Field(default=None, ge=0)
     perDeviceLimit: Optional[int] = Field(default=None, ge=0)
     perIpLimit: Optional[int] = Field(default=None, ge=0)
-    campaignType: Optional[Literal['CONVERSION', 'ACQUISITION', 'RETENTION', 'CUSTOMER_SERVICE']] = None
+    campaignType: Optional[Literal['CONVERSION', 'ACQUISITION', 'RETENTION', 'CUSTOMER_SERVICE', 'LOYALTY', 'FLASH_SALE', 'ABANDONED_CART']] = None
     audienceType: Optional[Literal['PUBLIC', 'NEW_CUSTOMER', 'MEMBER_TIER', 'SPECIFIC_USER', 'HIDDEN', 'ABANDONED_CART']] = None
     displayTitle: Optional[str] = Field(default=None, max_length=120)
     displayDescription: Optional[str] = Field(default=None, max_length=500)
     publicTerms: Optional[str] = Field(default=None, max_length=2000)
     applicableChannels: Optional[list[str]] = None
     applicablePaymentMethods: Optional[list[str]] = None
+    redemptionPoints: Optional[int] = Field(default=None, ge=0)
     eligibleTiers: Optional[list[str]] = None
     eligibleUserRegisteredAfter: Optional[str] = None
     assignedUserId: Optional[UUID] = None
@@ -116,8 +120,10 @@ class VoucherUpdatePayload(BaseModel):
     firstOrderOnly: Optional[bool] = None
     hiddenCode: Optional[bool] = None
     abandonedCartOnly: Optional[bool] = None
+    birthdayOnly: Optional[bool] = None
     validityDaysAfterClaim: Optional[int] = Field(default=None, ge=0)
     stackable: Optional[bool] = None
+    applyOutsideScope: Optional[bool] = None
     refundPolicy: Optional[Literal['NEVER', 'SHOP_FAULT_ONLY', 'ALWAYS']] = None
     startsAt: Optional[str] = None
     endsAt: Optional[str] = None

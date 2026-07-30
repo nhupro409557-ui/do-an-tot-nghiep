@@ -10,6 +10,8 @@ from app.api.schemas.admin.used_product import (
     UsedDeviceListingPayload,
     UsedDeviceListingStatusPayload,
     UsedDeviceLifecyclePayload,
+    UsedDevicePricePayload,
+    UsedDeviceRepairPayload,
     UsedDeviceStatusPayload,
 )
 from app.application.services import used_product_service
@@ -122,6 +124,25 @@ async def list_device_history(
     return await used_product_service.list_device_history(session, device_id)
 
 
+@router.post(
+    "/devices/{device_id}/repairs",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("used_product:manage"))],
+)
+async def add_device_repair(
+    device_id: UUID,
+    payload: UsedDeviceRepairPayload,
+    actor_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await used_product_service.add_device_repair(
+        session,
+        device_id=device_id,
+        payload=payload,
+        actor_id=actor_id,
+    )
+
+
 @router.put(
     "/devices/{device_id}/listing",
     dependencies=[Depends(require_permission("used_product:manage"))],
@@ -137,6 +158,21 @@ async def save_listing(
         device_id=device_id,
         payload=payload,
         actor_id=actor_id,
+    )
+
+
+@router.patch(
+    "/devices/{device_id}/price",
+    dependencies=[Depends(require_permission("used_product:manage"))],
+)
+async def update_device_sale_price(
+    device_id: UUID,
+    payload: UsedDevicePricePayload,
+    actor_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await used_product_service.update_device_sale_price(
+        session, device_id=device_id, payload=payload, actor_id=actor_id
     )
 
 

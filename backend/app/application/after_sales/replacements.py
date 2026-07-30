@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.database.repositories import after_sales_repo, inventory_repo
+from app.infrastructure.database.repositories import after_sales_repo, commerce_repo, inventory_repo, used_product_repo
 
 
 def _clean_identifier_values(values: list[str], *, label: str, max_length: int) -> list[str]:
@@ -169,13 +169,23 @@ async def _lock_replacement_unit(
     }
 
 
+def _replacement_stock_item(request: dict, item: dict) -> dict:
+    if request.get("exchange_product_id"):
+        next_item = dict(item)
+        next_item["product_id"] = request["exchange_product_id"]
+        next_item["product_variant_id"] = request.get("exchange_variant_id")
+        next_item["quantity"] = int(request.get("exchange_quantity") or item.get("quantity") or 1)
+        return next_item
+    return item
+
+
 async def _mark_original_identifiers_defective(
     session: AsyncSession,
     *,
     kind: str,
     request_id: UUID,
     item: dict,
-    actor_id: UUID,
+    actor_id: UUID | None,
 ) -> None:
     original_imei = (item.get("imei") or "").strip() or None
     original_serial = (item.get("serial_number") or "").strip() or None
@@ -209,7 +219,7 @@ async def _mark_original_identifiers_defective(
             text(
                 """
                 UPDATE product_imeis
-                SET status = 'DEFECTIVE_RETURNED', updated_at = NOW()
+            SET status = 'DEFECTIVE_RETURNED', location_id = NULL, updated_at = NOW()
                 WHERE id = :id
                 """
             ),
@@ -251,7 +261,7 @@ async def _mark_original_identifiers_defective(
                 text(
                     """
                     UPDATE product_serial_numbers
-                    SET status = 'DEFECTIVE_RETURNED', updated_at = NOW()
+                    SET status = 'DEFECTIVE_RETURNED', location_id = NULL, updated_at = NOW()
                     WHERE id = :id
                     """
                 ),
@@ -282,10 +292,17 @@ async def _mark_original_identifiers_defective(
             )
 
     if item.get("used_device_id"):
-        await session.execute(
-            text("UPDATE used_devices SET status = 'RETIRED', updated_at = NOW() WHERE id = :uid"),
-            {"uid": item["used_device_id"]},
+        transitioned = await used_product_repo.transition_after_sales_device(
+            session,
+            device_id=item["used_device_id"],
+            target_status="RETIRED",
+            allowed_statuses={"SOLD", "REPAIRING", "RETURNED_QC", "RETIRED"},
+            event_type="DEVICE_REPLACED_RETIRED",
+            note="Thiết bị cũ được ngừng kinh doanh sau khi hoàn tất đổi máy hậu mãi.",
+            metadata={"requestId": str(request_id), "kind": kind},
         )
+        if not transitioned:
+            raise HTTPException(status_code=409, detail="Trạng thái thiết bị cũ không hợp lệ để hoàn tất đổi máy.")
 
 
 async def complete_replacements(
@@ -298,6 +315,14 @@ async def complete_replacements(
     replacement_items: list[dict],
     actor_id: UUID,
 ) -> None:
+    from app.application.after_sales.fulfillment import ensure_after_sales_order
+
+    fulfillment_order_id = await ensure_after_sales_order(
+        session,
+        kind=kind,
+        request=request,
+        items=items,
+    )
     request_items_by_id = {item["id"]: item for item in items}
     payload_by_id: dict[UUID, dict] = {}
     for replacement in replacement_items:
@@ -320,6 +345,7 @@ async def complete_replacements(
     groups: dict[tuple[UUID, UUID], dict] = {}
 
     for item_id, item in request_items_by_id.items():
+        stock_item = _replacement_stock_item(request, item)
         replacement = payload_by_id[item_id]
         imeis = _clean_identifier_values(
             replacement.get("imeis", []),
@@ -352,7 +378,7 @@ async def complete_replacements(
         for index in range(quantity):
             unit = await _lock_replacement_unit(
                 session,
-                item=item,
+                item=stock_item,
                 imei=imeis[index] if imeis else None,
                 serial_number=serial_numbers[index] if serial_numbers else None,
             )
@@ -380,7 +406,7 @@ async def complete_replacements(
             group = groups.setdefault(
                 group_key,
                 {
-                    "item": item,
+                    "item": stock_item,
                     "location_id": unit["location_id"],
                     "units": [],
                 },
@@ -424,6 +450,15 @@ async def complete_replacements(
                 status_code=409,
                 detail="Tồn kho vật lý tại vị trí của thiết bị thay thế không đủ để xuất.",
             )
+        await commerce_repo.consume_inventory_lots_fifo(
+            session,
+            product_id=item["product_id"],
+            variant_id=item.get("product_variant_id"),
+            location_id=location_id,
+            quantity=quantity,
+            reference_code=request["request_code"],
+            order_id=fulfillment_order_id,
+        )
         await session.execute(
             text(
                 """
@@ -487,8 +522,9 @@ async def complete_replacements(
         )
 
     for item_id, item in request_items_by_id.items():
-        quantity = int(item["quantity"])
-        if item.get("product_variant_id"):
+        stock_item = _replacement_stock_item(request, item)
+        quantity = int(stock_item["quantity"])
+        if stock_item.get("product_variant_id"):
             await session.execute(
                 text(
                     """
@@ -498,7 +534,7 @@ async def complete_replacements(
                     WHERE id = :id
                     """
                 ),
-                {"id": item["product_variant_id"], "quantity": quantity},
+                {"id": stock_item["product_variant_id"], "quantity": quantity},
             )
         await session.execute(
             text(
@@ -509,7 +545,7 @@ async def complete_replacements(
                 WHERE id = :id
                 """
             ),
-            {"id": item["product_id"], "quantity": quantity},
+            {"id": stock_item["product_id"], "quantity": quantity},
         )
 
         units = units_by_item[item_id]
@@ -526,7 +562,7 @@ async def complete_replacements(
                     WHERE imei = :imei
                     """
                 ),
-                {"imei": imei, "order_id": request["order_id"]},
+                {"imei": imei, "order_id": fulfillment_order_id},
             )
         for serial_number in serial_numbers:
             await session.execute(
@@ -543,18 +579,7 @@ async def complete_replacements(
                     WHERE serial_number = :serial_number
                     """
                 ),
-                {"serial_number": serial_number, "order_id": request["order_id"]},
-            )
-
-        for imei in [*primary_imeis, *secondary_imeis]:
-            await session.execute(
-                text("UPDATE used_devices SET status = 'SOLD', updated_at = NOW() WHERE imei = :imei"),
-                {"imei": imei},
-            )
-        for serial_number in serial_numbers:
-            await session.execute(
-                text("UPDATE used_devices SET status = 'SOLD', updated_at = NOW() WHERE serial_number = :serial"),
-                {"serial": serial_number},
+                {"serial_number": serial_number, "order_id": fulfillment_order_id},
             )
 
         _, item_table = after_sales_repo._table(kind)
@@ -590,7 +615,7 @@ async def complete_replacements(
         kind=kind,
         request_id=request_id,
         request_code=request["request_code"],
-        order_id=request["order_id"],
+        order_id=fulfillment_order_id,
         lines=document_lines,
         actor_id=actor_id,
     )
@@ -605,4 +630,14 @@ async def complete_replacements(
             """
         ),
         {"kind": kind, "request_id": request_id},
+    )
+    await session.execute(
+        text(
+            """
+            UPDATE orders
+            SET status = 'SHIPPED', shipped_at = COALESCE(shipped_at, NOW()), updated_at = NOW()
+            WHERE id = :order_id AND status = 'PROCESSING'
+            """
+        ),
+        {"order_id": fulfillment_order_id},
     )

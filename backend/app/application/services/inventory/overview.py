@@ -393,6 +393,11 @@ async def get_inventory_reconciliation_report(session: AsyncSession, search: str
         "IDENTIFIER_IN_STOCK_WITHOUT_LOCATION",
         "IDENTIFIER_LOCATION_WITHOUT_LEVEL",
         "TERMINAL_IDENTIFIER_WITH_LOCATION",
+        "SELLABLE_STOCK_MISMATCH",
+        "LOT_QUANTITY_MISMATCH",
+        "RESERVED_QUANTITY_MISMATCH",
+        "IDENTIFIER_PAIR_MISMATCH",
+        "DOCUMENT_LEDGER_MISMATCH",
     }
     if issue_type not in valid_issue_types:
         raise HTTPException(status_code=400, detail="Loại sai lệch tồn kho không hợp lệ.")
@@ -403,6 +408,11 @@ async def get_inventory_reconciliation_report(session: AsyncSession, search: str
         "IDENTIFIER_IN_STOCK_WITHOUT_LOCATION": "Mã còn tồn nhưng chưa có kệ",
         "IDENTIFIER_LOCATION_WITHOUT_LEVEL": "Mã có kệ nhưng kệ không có tồn",
         "TERMINAL_IDENTIFIER_WITH_LOCATION": "Mã đã rời kho nhưng còn gắn kệ",
+        "SELLABLE_STOCK_MISMATCH": "Tồn bán được lệch tổng tồn kệ",
+        "LOT_QUANTITY_MISMATCH": "Tồn kệ lệch số lượng lô",
+        "RESERVED_QUANTITY_MISMATCH": "Tồn giữ lệch số mã đang giữ",
+        "IDENTIFIER_PAIR_MISMATCH": "Cặp IMEI/serial không đồng bộ",
+        "DOCUMENT_LEDGER_MISMATCH": "Chứng từ hoàn tất thiếu sổ kho",
     }
     summary = {
         key: {"issueType": key, "label": label, "count": 0}
@@ -417,6 +427,107 @@ async def get_inventory_reconciliation_report(session: AsyncSession, search: str
         "summary": list(summary.values()),
         "totalIssues": sum(item["count"] for item in summary.values()),
         "items": rows,
+    }
+
+
+async def allocate_legacy_inventory_to_location(
+    session: AsyncSession,
+    payload: InventoryLegacyPutawayPayload,
+    current_user_id: UUID | None = None,
+) -> dict:
+    if payload.variantId:
+        current = (
+            await session.execute(
+                text(
+                    """
+                    SELECT id, stock_quantity
+                    FROM product_variants
+                    WHERE id = :variant_id AND product_id = :product_id AND deleted_at IS NULL
+                    FOR UPDATE
+                    """
+                ),
+                {"variant_id": payload.variantId, "product_id": payload.productId},
+            )
+        ).mappings().first()
+    else:
+        current = (
+            await session.execute(
+                text("SELECT id, stock_quantity FROM products WHERE id = :product_id AND deleted_at IS NULL FOR UPDATE"),
+                {"product_id": payload.productId},
+            )
+        ).mappings().first()
+    if not current:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm/biến thể để phân bổ kệ.")
+
+    location = await _get_active_inventory_location(session, payload.locationId, "Kệ phân bổ")
+    if str(location.get("purpose") or "").upper() not in {"STORAGE", "VIRTUAL"}:
+        raise HTTPException(status_code=400, detail="Tồn bán được chỉ được phân bổ vào kệ lưu hàng hoặc kệ hệ thống.")
+
+    rows = await inventory_repo.list_inventory_snapshot_rows(session, "")
+    source = next(
+        (
+            row for row in rows
+            if str(row.get("productId")) == str(payload.productId)
+            and str(row.get("variantId") or "") == str(payload.variantId or "")
+        ),
+        None,
+    )
+    if not source:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dữ liệu đối soát của sản phẩm.")
+    catalog_stock = int(source.get("variantStock") if payload.variantId else source.get("productStock") or 0)
+    allocated_sellable = int(source.get("levelSellableStock") or 0)
+    unallocated_quantity = max(catalog_stock - allocated_sellable, 0)
+    if payload.quantity > unallocated_quantity:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Số lượng phân bổ vượt tồn catalog chưa có kệ. Còn có thể phân bổ {unallocated_quantity}.",
+        )
+
+    policy_row = await inventory_repo.get_product_inventory_policy(session, payload.productId)
+    await _ensure_location_has_receipt_capacity(
+        session,
+        location_id=payload.locationId,
+        line_index=1,
+        quantity=payload.quantity,
+        policy_row=policy_row,
+        requested_volume_by_location={},
+        product_id=payload.productId,
+        variant_id=payload.variantId,
+        assigned_skus_by_location={},
+    )
+    await inventory_repo.post_inventory_level_receipt(
+        session,
+        product_id=payload.productId,
+        variant_id=payload.variantId,
+        location_id=payload.locationId,
+        quantity=payload.quantity,
+        unit_cost=payload.unitCost,
+    )
+    reference_code = f"PUTAWAY-{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
+    await inventory_repo.insert_inventory_adjustment_log(
+        session,
+        log_id=uuid4(),
+        product_id=payload.productId,
+        variant_id=payload.variantId,
+        old_quantity=catalog_stock,
+        new_quantity=catalog_stock,
+        delta=0,
+        transaction_type="ADJUSTMENT",
+        reference_code=reference_code,
+        reason="LEGACY_PUTAWAY",
+        note=payload.note or f"Phân bổ {payload.quantity} tồn catalog chưa có kệ vào {location.get('code')}.",
+        supplier_name=None,
+        unit_cost=payload.unitCost,
+        location_code=location.get("code"),
+        location_name=location.get("name"),
+    )
+    await session.commit()
+    return {
+        "ok": True,
+        "referenceCode": reference_code,
+        "quantity": payload.quantity,
+        "remainingUnallocatedQuantity": unallocated_quantity - payload.quantity,
+        "locationCode": location.get("code"),
     }
 
 

@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, CreditCard, MapPin, PackageCheck, Plus, ShieldCheck, Tag } from 'lucide-react';
 import { useCart } from '../../../context/CartContext';
+import { cartItemEffectiveTotal, flashSalePriceBreakdown } from '../utils/flashSaleCartPricing';
 import { useAuth } from '../../../context/AuthContext';
 import { updateUserProfile } from '../../../services/authDb';
+import { publicApi } from '../../../services/publicApi';
 import { VietnamAddressSelector, type AddressData } from '../../shipping/components/VietnamAddressSelector';
 import type { AccountAddress } from '../../account/types/accountDashboardTypes';
 import { adminOrdersApi } from '../../admin-orders/services/adminOrdersApi';
@@ -19,6 +21,8 @@ const emptyAddressData: AddressData = {
   wardName: '',
   street: '',
 };
+
+const GUEST_ADDRESS_ID = 'guest-checkout-address';
 
 const formatCurrency = (value: number) => `${value.toLocaleString('vi-VN')}đ`;
 
@@ -84,7 +88,7 @@ const formatMaintenanceTime = (startsAtStr: string | null, endsAtStr: string | n
 };
 
 export default function CheckoutPage() {
-  const { items, totalPrice, clearCheckedItems } = useCart();
+  const { items, clearCheckedItems } = useCart();
   const checkedItems = useMemo(
     () => items.filter(item => item.checked !== false),
     [items],
@@ -98,6 +102,14 @@ export default function CheckoutPage() {
   const [voucherError, setVoucherError] = useState('');
   const [voucherHint, setVoucherHint] = useState('');
   const [isValidatingVoucher, setIsValidatingVoucher] = useState(false);
+  const [availableVouchers, setAvailableVouchers] = useState<any[]>([]);
+  const [loadingVouchers, setLoadingVouchers] = useState(true);
+  const [voucherReloadSignal, setVoucherReloadSignal] = useState(0);
+  const [redeemingVoucherId, setRedeemingVoucherId] = useState('');
+  const [redeemedPointBalance, setRedeemedPointBalance] = useState<number | null>(null);
+  const [flashSaleQuotas, setFlashSaleQuotas] = useState<Record<string, any>>({});
+  const [loadingFlashSaleQuotas, setLoadingFlashSaleQuotas] = useState(true);
+  const [flashSaleQuotaError, setFlashSaleQuotaError] = useState('');
   const [shippingQuote, setShippingQuote] = useState({ fee: 0, note: '' });
   const shippingQuoteRequestIdRef = useRef(0);
   const voucherValidationIdRef = useRef(0);
@@ -107,6 +119,7 @@ export default function CheckoutPage() {
     name: user?.displayName || '',
     phone: '',
     address: '',
+    email: user?.email || '',
   });
   const addresses = useMemo(
     () => (userData?.addresses || []) as AccountAddress[],
@@ -117,6 +130,7 @@ export default function CheckoutPage() {
   const [newAddress, setNewAddress] = useState({
     receiverName: user?.displayName || '',
     receiverPhone: '',
+    receiverEmail: user?.email || '',
     addressData: emptyAddressData,
     note: '',
   });
@@ -125,6 +139,112 @@ export default function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'vnpay' | 'momo' | 'zalopay' | 'sepay'>('cash');
   const [dbPaymentMethods, setDbPaymentMethods] = useState<PaymentMethodData[]>([]);
   const totalQuantity = checkedItems.reduce((sum, item) => sum + item.quantity, 0);
+  const hasFlashSaleItems = checkedItems.some((item) => Boolean(item.isFlashSale && item.flashSaleId));
+  const remainingFlashSaleQuota = (item: any) => item.flashSaleId
+    ? flashSaleQuotas[String(item.flashSaleId)]?.remainingQuantity
+    : undefined;
+  const totalPrice = checkedItems.reduce(
+    (sum, item) => sum + cartItemEffectiveTotal(item, remainingFlashSaleQuota(item)),
+    0,
+  );
+
+  useEffect(() => {
+    let active = true;
+    if (!user || !hasFlashSaleItems) {
+      setFlashSaleQuotas({});
+      setLoadingFlashSaleQuotas(false);
+      setFlashSaleQuotaError('');
+      return;
+    }
+    setLoadingFlashSaleQuotas(true);
+    setFlashSaleQuotaError('');
+    publicApi.listMyFlashSaleQuotas()
+      .then((rows) => {
+        if (active) setFlashSaleQuotas(Object.fromEntries(rows.map((row: any) => [String(row.flashSaleId), row])));
+      })
+      .catch(() => {
+        if (active) {
+          setFlashSaleQuotas({});
+          setFlashSaleQuotaError('Không thể kiểm tra suất Flash Sale. Vui lòng tải lại trang.');
+        }
+      })
+      .finally(() => {
+        if (active) setLoadingFlashSaleQuotas(false);
+      });
+    return () => { active = false; };
+  }, [user, hasFlashSaleItems]);
+
+  const isFlashSalePricingBlocked = Boolean(
+    user && hasFlashSaleItems && (loadingFlashSaleQuotas || flashSaleQuotaError),
+  );
+
+  useEffect(() => {
+    let active = true;
+    setLoadingVouchers(true);
+    Promise.all([
+      adminVouchersApi.listPublicVouchers().catch(() => []),
+      user?.uid ? adminVouchersApi.listUserVouchers(user.uid).catch(() => []) : Promise.resolve([]),
+    ]).then(([publicVouchers, privateVouchers]) => {
+      if (!active) return;
+      const byCode = new Map<string, any>();
+      publicVouchers.forEach((voucher: any) => {
+        byCode.set(String(voucher.code || '').toUpperCase(), { ...voucher, source: 'PUBLIC' });
+      });
+      privateVouchers
+        .filter((voucher: any) => String(voucher.status || '').toUpperCase() === 'AVAILABLE')
+        .forEach((voucher: any) => {
+          const code = String(voucher.code || '').toUpperCase();
+          byCode.set(code, {
+            ...voucher,
+            code,
+            discountType: voucher.discount_type,
+            discountAmount: voucher.discount_amount,
+            minOrderValue: voucher.min_order_value,
+            maxDiscount: voucher.max_discount,
+            displayTitle: voucher.display_title,
+            displayDescription: voucher.display_description,
+            publicTerms: voucher.public_terms,
+            applicablePaymentMethods: voucher.applicable_payment_methods || [],
+            stackable: Boolean(voucher.stackable),
+            endsAt: voucher.expires_at,
+            source: 'PRIVATE',
+          });
+        });
+      setAvailableVouchers([...byCode.values()].sort((a, b) => {
+        const aTime = a.endsAt ? new Date(a.endsAt).getTime() : Number.MAX_SAFE_INTEGER;
+        const bTime = b.endsAt ? new Date(b.endsAt).getTime() : Number.MAX_SAFE_INTEGER;
+        return aTime - bTime;
+      }));
+    }).finally(() => {
+      if (active) setLoadingVouchers(false);
+    });
+    return () => { active = false; };
+  }, [user?.uid, voucherReloadSignal]);
+
+  const currentLoyaltyPoints = redeemedPointBalance ?? Number(
+    (userData as any)?.loyaltyPointsBalance ?? (userData as any)?.loyalty_points_balance ?? (userData as any)?.loyaltyPoints ?? 0,
+  );
+
+  const redeemVoucher = async (voucher: any) => {
+    if (!user?.uid) {
+      setVoucherError('Vui lòng đăng nhập để đổi voucher bằng điểm.');
+      return;
+    }
+    const voucherId = String(voucher.id || voucher.voucher_id || '');
+    const requiredPoints = Number(voucher.redemptionPoints || 0);
+    if (!voucherId || requiredPoints <= 0) return;
+    setRedeemingVoucherId(voucherId);
+    setVoucherError('');
+    try {
+      await adminVouchersApi.claimVoucher(voucherId, user.uid);
+      setRedeemedPointBalance(Math.max(currentLoyaltyPoints - requiredPoints, 0));
+      setVoucherReloadSignal((value) => value + 1);
+    } catch (error: any) {
+      setVoucherError(error?.message || 'Không thể đổi voucher bằng điểm.');
+    } finally {
+      setRedeemingVoucherId('');
+    }
+  };
 
   useEffect(() => {
     let isActive = true;
@@ -164,6 +284,7 @@ export default function CheckoutPage() {
       name: preferredAddress.receiverName,
       phone: preferredAddress.receiverPhone,
       address: preferredAddress.addressLine,
+      email: user.email || '',
     });
   }, [addresses, selectedAddressId, user]);
 
@@ -219,6 +340,12 @@ export default function CheckoutPage() {
     method: typeof paymentMethod = paymentMethod,
     code: string = voucherCode,
   ) => {
+    if (isFlashSalePricingBlocked) {
+      setVoucherError(loadingFlashSaleQuotas
+        ? 'Vui lòng chờ hệ thống kiểm tra suất Flash Sale trước khi áp voucher.'
+        : flashSaleQuotaError);
+      return;
+    }
     const normalizedCode = code.trim().toUpperCase();
     if (!normalizedCode) return;
     setIsValidatingVoucher(true);
@@ -234,6 +361,29 @@ export default function CheckoutPage() {
         payment_method: checkoutPaymentMethod(method),
         channel: 'WEB',
         product_ids: checkedItems.map((item) => item.productId.replace('-accessory', '').replace('-normal', '')),
+        category_ids: checkedItems.map((item) => item.categoryId || item.category_id).filter(Boolean),
+        brand_ids: checkedItems.map((item) => item.brandId || item.brand_id).filter(Boolean),
+        items: checkedItems.flatMap((item) => {
+          const productId = item.productId.replace('-accessory', '').replace('-normal', '');
+          const common = {
+            productId,
+            categoryId: item.categoryId || item.category_id || null,
+            brandId: item.brandId || item.brand_id || null,
+          };
+          const isFlashSaleItem = Boolean(item.isFlashSale || item.is_flash_sale);
+          const pricing = flashSalePriceBreakdown(item, remainingFlashSaleQuota(item));
+          if (!isFlashSaleItem) {
+            return [{ ...common, price: pricing.saleUnitPrice, quantity: item.quantity, isFlashSale: false }];
+          }
+          return [
+            pricing.saleQuantity > 0
+              ? { ...common, price: pricing.saleUnitPrice, quantity: pricing.saleQuantity, isFlashSale: true }
+              : null,
+            pricing.regularQuantity > 0
+              ? { ...common, price: pricing.regularUnitPrice, quantity: pricing.regularQuantity, isFlashSale: false }
+              : null,
+          ].filter(Boolean);
+        }),
       });
       if (voucherValidationIdRef.current !== validationId) return;
       if (!voucher.valid) {
@@ -241,7 +391,9 @@ export default function CheckoutPage() {
         validatedVoucherContextRef.current = '';
         setVoucherError(voucher.message || 'Mã ưu đãi không hợp lệ hoặc đã hết hạn.');
         const shortfallAmount = Number(voucher?.metadata?.shortfall_amount || 0);
-        setVoucherHint(shortfallAmount > 0 ? `Mua thêm ${formatCurrency(shortfallAmount)} để đủ điều kiện áp mã.` : '');
+        setVoucherHint(shortfallAmount > 0
+          ? `Cần thêm ${formatCurrency(shortfallAmount)} từ sản phẩm đủ điều kiện của voucher để áp mã.`
+          : '');
         setDiscount(0);
       } else {
         setAppliedVoucherCode(normalizedCode);
@@ -321,13 +473,14 @@ export default function CheckoutPage() {
       name: address.receiverName,
       phone: address.receiverPhone,
       address: address.addressLine,
+      email: user?.email || '',
     });
   };
 
   const saveNewAddress = () => {
-    if (!user) return;
     const receiverName = newAddress.receiverName.trim();
     const receiverPhone = newAddress.receiverPhone.trim();
+    const receiverEmail = newAddress.receiverEmail.trim();
     const { addressData } = newAddress;
     const addressLine = [
       addressData.street,
@@ -344,8 +497,26 @@ export default function CheckoutPage() {
       setAddressFormError('Số điện thoại phải có ít nhất 8 ký tự.');
       return;
     }
-    if (!addressData.provinceId || !addressData.districtId || !addressData.wardId || !addressData.street.trim()) {
-      setAddressFormError('Vui lòng chọn đầy đủ tỉnh/thành phố, quận/huyện, phường/xã và nhập địa chỉ cụ thể.');
+    if (receiverEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiverEmail)) {
+      setAddressFormError('Email nhận thông tin đơn hàng không hợp lệ.');
+      return;
+    }
+    if (!addressData.provinceId || !addressData.wardId || !addressData.street.trim()) {
+      setAddressFormError('Vui lòng chọn đầy đủ tỉnh/thành phố, phường/xã và nhập địa chỉ cụ thể.');
+      return;
+    }
+
+    if (!user) {
+      setSelectedAddressId(GUEST_ADDRESS_ID);
+      setIsAddingAddress(false);
+      setAddressFormError('');
+      setShippingError('');
+      setShippingDetails({
+        name: receiverName,
+        phone: receiverPhone,
+        address: addressLine,
+        email: receiverEmail,
+      });
       return;
     }
 
@@ -364,15 +535,17 @@ export default function CheckoutPage() {
     setNewAddress({
       receiverName: user.displayName || '',
       receiverPhone: '',
+      receiverEmail: user.email || '',
       addressData: emptyAddressData,
       note: '',
     });
   };
 
   const handleCheckout = async () => {
-    if (!user) {
-      window.alert('Vui lòng đăng nhập để thanh toán!');
-      navigate('/login');
+    if (isFlashSalePricingBlocked) {
+      setShippingError(loadingFlashSaleQuotas
+        ? 'Vui lòng chờ hệ thống kiểm tra suất Flash Sale trước khi đặt hàng.'
+        : flashSaleQuotaError);
       return;
     }
     if (!shippingDetails.name || !shippingDetails.phone || !shippingDetails.address) {
@@ -397,7 +570,7 @@ export default function CheckoutPage() {
       const deviceId = getVoucherDeviceId();
       const selectedAddress = addresses.find(address => address.id === selectedAddressId);
       const order = await adminOrdersApi.createOrder({
-        user_id: user.uid,
+        user_id: user?.uid || null,
 
         idempotency_key: crypto.randomUUID(),
         items: checkedItems.map((item) => {
@@ -426,6 +599,7 @@ export default function CheckoutPage() {
         shipping: {
           recipient_name: shippingDetails.name,
           recipient_phone: shippingDetails.phone,
+          recipient_email: shippingDetails.email.trim() || null,
           shipping_address: shippingDetails.address,
           lat: selectedAddress?.lat,
           lng: selectedAddress?.lng,
@@ -442,11 +616,30 @@ export default function CheckoutPage() {
         navigate(`/payment/${paymentTransactionId}`);
         return;
       }
-      window.alert(`Đặt hàng thành công!\nĐơn hàng #${order.order_code || order.orderCode}\nBạn được cộng ${order.loyalty_points_earned || Math.floor(finalPrice / 10000)} điểm khi đơn hoàn tất.`);
-      navigate('/dashboard');
+      const orderCode = order.order_code || order.orderCode;
+      window.alert(
+        user
+          ? `Đặt hàng thành công!\nĐơn hàng #${orderCode}\nBạn được cộng ${order.loyalty_points_earned || Math.floor(finalPrice / 10000)} điểm khi đơn hoàn tất.`
+          : `Đặt hàng thành công!\nĐơn hàng #${orderCode}\nVui lòng lưu mã đơn hàng để tra cứu khi cần.`,
+      );
+      navigate(user ? '/dashboard' : '/');
     } catch (err: any) {
       console.error(err);
-      window.alert(`Đã có lỗi xảy ra: ${err.message}`);
+      let errorMessage = `Đã có lỗi xảy ra: ${err.message || 'Vui lòng thử lại sau.'}`;
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail;
+        const code = detail?.code || '';
+        const message = detail?.message || (typeof detail === 'string' ? detail : '');
+        
+        if (code === 'VOUCHER_ERR_USAGE_LIMIT' || code === 'VOUCHER_ERR_LIMIT_EXCEEDED') {
+          errorMessage = 'Voucher vừa hết lượt sử dụng, vui lòng chọn mã khác.';
+        } else if (code === 'VOUCHER_ERR_IDENTITY_LIMIT') {
+          errorMessage = 'Voucher đã đạt giới hạn sử dụng cho tài khoản/thiết bị này.';
+        } else if (message) {
+          errorMessage = message;
+        }
+      }
+      window.alert(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -512,10 +705,12 @@ export default function CheckoutPage() {
               </div>
 
               <div className="p-4 sm:p-5">
-                {addresses.length === 0 && !isAddingAddress && (
+                {addresses.length === 0 && !isAddingAddress && !selectedAddressId && (
                   <div className="text-center py-8 px-4 border border-dashed border-slate-300 rounded-xl bg-slate-50/50">
                     <p className="text-slate-600 text-sm mb-4">
-                      Bạn chưa có địa chỉ nhận hàng. Vui lòng thêm địa chỉ để tiếp tục đặt hàng.
+                      {user
+                        ? 'Bạn chưa có địa chỉ nhận hàng. Vui lòng thêm địa chỉ để tiếp tục đặt hàng.'
+                        : 'Vui lòng nhập thông tin nhận hàng để tiếp tục đặt hàng.'}
                     </p>
                     <div className="flex flex-wrap items-center justify-center gap-3">
                       <button
@@ -524,15 +719,17 @@ export default function CheckoutPage() {
                         className="inline-flex items-center gap-2 rounded-lg bg-[#d70018] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#c00015] shadow-sm"
                       >
                         <Plus className="h-4 w-4" />
-                        Thêm địa chỉ tại đây
+                        {user ? 'Thêm địa chỉ tại đây' : 'Nhập địa chỉ giao hàng'}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/dashboard?tab=addresses&action=new&redirect=/checkout')}
-                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 shadow-sm"
-                      >
-                        Đến trang cá nhân
-                      </button>
+                      {user && (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/dashboard?tab=addresses&action=new&redirect=/checkout')}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 shadow-sm"
+                        >
+                          Đến trang cá nhân
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -575,7 +772,9 @@ export default function CheckoutPage() {
                   <div className={addresses.length > 0 ? 'mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4' : ''}>
                     {addresses.length === 0 && (
                       <p className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-                        Bạn chưa có địa chỉ nhận hàng. Vui lòng thêm địa chỉ để tiếp tục.
+                        {user
+                          ? 'Bạn chưa có địa chỉ nhận hàng. Vui lòng thêm địa chỉ để tiếp tục.'
+                          : 'Thông tin này chỉ dùng để giao hàng cho đơn hiện tại.'}
                       </p>
                     )}
                     <div className="grid gap-4 md:grid-cols-2">
@@ -599,6 +798,18 @@ export default function CheckoutPage() {
                           placeholder="Số điện thoại"
                         />
                       </label>
+                      {!user && (
+                        <label className="block md:col-span-2">
+                          <span className="mb-1 block text-sm font-semibold text-slate-700">Email nhận thông tin đơn hàng</span>
+                          <input
+                            type="email"
+                            value={newAddress.receiverEmail}
+                            onChange={event => setNewAddress({ ...newAddress, receiverEmail: event.target.value })}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#d70018]"
+                            placeholder="Không bắt buộc"
+                          />
+                        </label>
+                      )}
                       <div className="md:col-span-2">
                         <span className="mb-2 block text-sm font-semibold text-slate-700">Địa chỉ</span>
                         <VietnamAddressSelector
@@ -631,7 +842,7 @@ export default function CheckoutPage() {
                         onClick={saveNewAddress}
                         className="rounded-lg bg-[#d70018] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#c00015]"
                       >
-                        Lưu địa chỉ
+                        {user ? 'Lưu địa chỉ' : 'Dùng địa chỉ này'}
                       </button>
                     </div>
                   </div>
@@ -653,9 +864,13 @@ export default function CheckoutPage() {
                 <h2 className="font-bold text-slate-950">Thanh toán</h2>
               </div>
 
+              <p className="px-4 pt-4 text-xs font-medium leading-5 text-slate-500 sm:px-5">
+                Đồ án đang chạy ở mức demo: MoMo, ZaloPay và SePay là môi trường sandbox; COD chỉ ghi nhận đơn trong hệ thống, không phát sinh thu tiền thật.
+              </p>
+
               <div className="grid gap-3 p-4 sm:p-5 md:grid-cols-2">
                 {(dbPaymentMethods.length > 0 ? dbPaymentMethods : [
-                  { id: '1', code: 'COD', name: 'Thanh toán khi nhận hàng', description: 'Khách hàng thanh toán bằng tiền mặt khi nhận hàng.', is_available: true, maintenance_message: null, maintenance_starts_at: null, maintenance_ends_at: null },
+                  { id: '1', code: 'COD', name: 'Thanh toán khi nhận hàng', description: 'Phương thức COD demo, chỉ ghi nhận đơn trong hệ thống.', is_available: true, maintenance_message: null, maintenance_starts_at: null, maintenance_ends_at: null },
                   { id: '2', code: 'MOMO', name: 'Ví MoMo Sandbox', description: 'Cổng thanh toán thử nghiệm qua ví điện tử MoMo.', is_available: true, maintenance_message: null, maintenance_starts_at: null, maintenance_ends_at: null },
                   { id: '3', code: 'ZALOPAY', name: 'Ví ZaloPay Sandbox', description: 'Cổng thanh toán thử nghiệm qua ví điện tử ZaloPay.', is_available: true, maintenance_message: null, maintenance_starts_at: null, maintenance_ends_at: null },
                   { id: '4', code: 'VNPAY', name: 'Cổng VNPAY', description: 'Cổng thanh toán điện tử VNPAY.', is_available: false, maintenance_message: 'Phương thức VNPAY tạm thời chưa được hỗ trợ.', maintenance_starts_at: null, maintenance_ends_at: null },
@@ -726,6 +941,99 @@ export default function CheckoutPage() {
                 <Tag className="h-5 w-5 text-[#d70018]" />
                 <h2 className="font-bold text-slate-950">Mã giảm giá</h2>
               </div>
+              {loadingVouchers ? (
+                <div className="rounded-lg bg-slate-50 px-3 py-4 text-sm text-slate-500">Đang tải ưu đãi phù hợp...</div>
+              ) : availableVouchers.length > 0 ? (
+                <div className="mb-4 grid gap-2">
+                  {availableVouchers.map((voucher) => {
+                    const code = String(voucher.code || '').toUpperCase();
+                    const selected = appliedVoucherCode === code;
+                    const currentPaymentCode = checkoutPaymentMethod(paymentMethod);
+                    const allowedPaymentMethods = Array.isArray(voucher.applicablePaymentMethods)
+                      ? voucher.applicablePaymentMethods.map((method: string) => String(method).toUpperCase())
+                      : [];
+                    const paymentCompatible = allowedPaymentMethods.length === 0 || allowedPaymentMethods.includes(currentPaymentCode);
+                    const eligibleSubtotal = checkedItems.reduce((sum, item) => {
+                      const isFlashSaleItem = Boolean(item.isFlashSale || item.is_flash_sale);
+                      if (!isFlashSaleItem || voucher.stackable) {
+                        return sum + cartItemEffectiveTotal(item, remainingFlashSaleQuota(item));
+                      }
+                      if (!item.flashSalePerUserLimit) return sum;
+                      const pricing = flashSalePriceBreakdown(item, remainingFlashSaleQuota(item));
+                      return sum + pricing.regularUnitPrice * pricing.regularQuantity;
+                    }, 0);
+                    const minimumOrderValue = Number(voucher.minOrderValue || 0);
+                    const cartCompatible = eligibleSubtotal > 0 && eligibleSubtotal >= minimumOrderValue;
+                    const voucherSelectable = !isFlashSalePricingBlocked && paymentCompatible && cartCompatible;
+                    const redemptionPoints = Number(voucher.redemptionPoints || 0);
+                    const requiresRedemption = voucher.source === 'PUBLIC' && redemptionPoints > 0;
+                    const canRedeem = Boolean(user?.uid) && currentLoyaltyPoints >= redemptionPoints;
+                    const discountLabel = String(voucher.discountType || '').toUpperCase() === 'PERCENT'
+                      ? `Giảm ${Number(voucher.discountAmount || 0).toLocaleString('vi-VN')}%`
+                      : `Giảm ${formatCurrency(Number(voucher.discountAmount || 0))}`;
+                    const expiryLabel = voucher.endsAt
+                      ? `Hết hạn ${new Date(voucher.endsAt).toLocaleString('vi-VN')}`
+                      : 'Không giới hạn thời gian';
+                    return (
+                      <label key={`${voucher.source}-${code}`} className={`flex gap-3 rounded-lg border p-3 transition ${!voucherSelectable ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-60' : selected ? 'cursor-pointer border-[#d70018] bg-rose-50' : 'cursor-pointer border-slate-200 hover:border-rose-200'}`}>
+                        <input
+                          type="radio"
+                          name="checkout-voucher"
+                          checked={selected}
+                          disabled={isValidatingVoucher || !voucherSelectable || requiresRedemption}
+                          onChange={() => {
+                            changeVoucherCode(code);
+                            void applyVoucher(paymentMethod, code);
+                          }}
+                          className="mt-1 h-4 w-4 text-[#d70018] focus:ring-[#d70018]"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="font-black text-slate-900">{voucher.displayTitle || code}</span>
+                            {voucher.source === 'PRIVATE' && <span className="rounded bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">Dành riêng cho bạn</span>}
+                          </span>
+                          <span className="mt-1 block text-sm font-bold text-[#d70018]">{discountLabel}</span>
+                          {Number(voucher.minOrderValue || 0) > 0 && <span className="block text-xs text-slate-500">Đơn tối thiểu {formatCurrency(Number(voucher.minOrderValue))}</span>}
+                          <span className="block text-xs font-medium text-amber-700">{expiryLabel}</span>
+                          {!paymentCompatible && <span className="block text-xs font-bold text-red-600">Không áp dụng cho phương thức thanh toán đang chọn.</span>}
+                          {isFlashSalePricingBlocked && (
+                            <span className="block text-xs font-bold text-amber-700">
+                              {loadingFlashSaleQuotas ? 'Đang kiểm tra suất Flash Sale...' : flashSaleQuotaError}
+                            </span>
+                          )}
+                          {!isFlashSalePricingBlocked && paymentCompatible && !cartCompatible && (
+                            <span className="block text-xs font-bold text-red-600">
+                              {eligibleSubtotal <= 0
+                                ? 'Không áp dụng cho các sản phẩm Flash Sale hiện có trong giỏ.'
+                                : `Cần thêm ${formatCurrency(minimumOrderValue - eligibleSubtotal)} từ sản phẩm đủ điều kiện.`}
+                            </span>
+                          )}
+                          {voucher.displayDescription && <span className="mt-1 block text-xs text-slate-500">{voucher.displayDescription}</span>}
+                          {requiresRedemption && (
+                            <button
+                              type="button"
+                              disabled={!canRedeem || redeemingVoucherId === String(voucher.id)}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                void redeemVoucher(voucher);
+                              }}
+                              className="mt-2 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-black text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-slate-300"
+                            >
+                              {redeemingVoucherId === String(voucher.id)
+                                ? 'Đang đổi...'
+                                : canRedeem
+                                  ? `Đổi bằng ${redemptionPoints.toLocaleString('vi-VN')} điểm`
+                                  : `Cần ${redemptionPoints.toLocaleString('vi-VN')} điểm`}
+                            </button>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mb-3 text-sm text-slate-500">Hiện chưa có voucher phù hợp.</p>
+              )}
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   aria-label="Mã giảm giá"
@@ -804,7 +1112,28 @@ export default function CheckoutPage() {
                       </div>
                     )}
 
-                    <p className="mt-1 text-xs text-slate-500">{formatCurrency(item.price)} x {item.quantity}</p>
+                    {item.isFlashSale && item.flashSalePerUserLimit ? (() => {
+                      if (loadingFlashSaleQuotas) {
+                        return <p className="mt-1 text-xs font-semibold text-slate-500">Đang kiểm tra suất Flash Sale...</p>;
+                      }
+                      if (flashSaleQuotaError) {
+                        return <p role="alert" className="mt-1 text-xs font-semibold text-red-600">{flashSaleQuotaError}</p>;
+                      }
+                      const pricing = flashSalePriceBreakdown(item, remainingFlashSaleQuota(item));
+                      return (
+                        <div className="mt-1 space-y-1 text-xs font-semibold text-amber-700">
+                          {pricing.saleQuantity > 0 && <div>{formatCurrency(pricing.saleUnitPrice)} × {pricing.saleQuantity} giá Flash Sale</div>}
+                          {pricing.regularQuantity > 0 && <div>{formatCurrency(pricing.regularUnitPrice)} × {pricing.regularQuantity} giá thường</div>}
+                          {pricing.regularQuantity > 0 && (
+                            <p role="status" className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 leading-5 text-amber-800">
+                              {pricing.saleQuantity === 0
+                                ? `Bạn đã dùng hết ${item.flashSalePerUserLimit} suất Flash Sale dành cho mỗi khách trong chương trình này. Toàn bộ số lượng hiện tại được tính theo giá thường.`
+                                : `${pricing.regularQuantity} sản phẩm vượt giới hạn Flash Sale dành cho mỗi khách nên được tính theo giá thường.`}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })() : <p className="mt-1 text-xs text-slate-500">{formatCurrency(item.price)} x {item.quantity}</p>}
                   </div>
                 </div>
               ))}
@@ -813,12 +1142,14 @@ export default function CheckoutPage() {
             <div className="mt-5 space-y-3 border-t border-slate-100 pt-5 text-sm">
               <div className="flex justify-between gap-3 text-slate-600">
                 <span>Tạm tính</span>
-                <span className="font-semibold text-slate-900">{formatCurrency(totalPrice)}</span>
+                <span className="font-semibold text-slate-900">
+                  {isFlashSalePricingBlocked ? (loadingFlashSaleQuotas ? 'Đang tính...' : 'Chưa thể tính') : formatCurrency(totalPrice)}
+                </span>
               </div>
               <div className="flex justify-between gap-3 text-slate-600">
                 <span>Giảm giá</span>
                 <span className={discount > 0 ? 'font-semibold text-emerald-600' : 'text-slate-500'}>
-                  {discount > 0 ? `-${formatCurrency(discount)}` : '0đ'}
+                  {discount > 0 ? `-${formatCurrency(Math.min(discount, totalPrice))}` : '0đ'}
                 </span>
               </div>
               <div className="flex justify-between gap-3 text-slate-600">
@@ -839,15 +1170,17 @@ export default function CheckoutPage() {
             <div className="mt-5 border-t border-slate-100 pt-5">
               <div className="flex items-end justify-between gap-3">
                 <span className="font-bold text-slate-950">Cần thanh toán</span>
-                <span className="text-2xl font-black text-[#d70018]">{formatCurrency(finalPrice)}</span>
+                <span className="text-2xl font-black text-[#d70018]">
+                  {isFlashSalePricingBlocked ? (loadingFlashSaleQuotas ? 'Đang tính...' : 'Chưa thể tính') : formatCurrency(finalPrice)}
+                </span>
               </div>
               <button
                 type="button"
                 onClick={handleCheckout}
-                disabled={loading}
+                disabled={loading || isFlashSalePricingBlocked}
                 className="mt-5 w-full rounded-lg bg-[#d70018] px-5 py-3.5 text-sm font-extrabold text-white shadow-sm transition hover:bg-[#c00015] disabled:bg-red-300"
               >
-                {loading ? 'Đang xử lý...' : 'Xác nhận đặt hàng'}
+                {loading ? 'Đang xử lý...' : loadingFlashSaleQuotas && hasFlashSaleItems ? 'Đang kiểm tra giá...' : 'Xác nhận đặt hàng'}
               </button>
             </div>
           </aside>

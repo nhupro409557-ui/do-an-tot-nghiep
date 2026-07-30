@@ -144,7 +144,7 @@ export default function AdminContentTab(props: AdminContentTabProps) {
                 {(item.thumbnailUrl || item.bannerImageUrl) ? (
                   <img src={item.thumbnailUrl || item.bannerImageUrl} alt="" className="h-14 w-20 rounded-md border border-slate-200 object-cover" />
                 ) : (
-                  <div className="flex h-14 w-20 items-center justify-center rounded-md border border-dashed border-slate-200 text-[10px] font-bold text-slate-400">NO MEDIA</div>
+                  <div className="flex h-14 w-20 items-center justify-center rounded-md border border-dashed border-slate-200 text-[10px] font-bold text-slate-400">CHƯA CÓ TỆP</div>
                 )}
                 {item.videoUrl && (
                   <a href={item.videoUrl} target="_blank" rel="noreferrer" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700" title="Mở video">

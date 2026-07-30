@@ -355,6 +355,7 @@ async def get_category_for_update(session: AsyncSession, category_id: UUID) -> d
                 FROM categories
                 WHERE id = :id
                   AND COALESCE(is_deleted, FALSE) = FALSE
+                FOR UPDATE
                 """
             ),
             {"id": category_id},
@@ -367,6 +368,7 @@ async def update_category(
     session: AsyncSession,
     *,
     category_id: UUID,
+    expected_version: int,
     parent_id: UUID | None,
     code: str,
     slug: str,
@@ -412,11 +414,12 @@ async def update_category(
                 END,
                 hidden_by_parent = CASE WHEN :is_active THEN FALSE ELSE hidden_by_parent END,
                 updated_at = NOW()
-            WHERE id = :id AND COALESCE(is_deleted, FALSE) = FALSE
+            WHERE id = :id AND COALESCE(is_deleted, FALSE) = FALSE AND version = :expected_version
             """
         ),
         {
             "id": category_id,
+            "expected_version": expected_version,
             "parent_id": parent_id,
             "code": code,
             "slug": slug,

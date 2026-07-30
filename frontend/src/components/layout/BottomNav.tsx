@@ -81,7 +81,7 @@ export const BottomNav = () => {
             className={`flex min-h-12 flex-1 flex-col items-center justify-center rounded-xl px-1 py-1 transition-colors ${active ? 'text-primary' : 'text-slate-500 hover:text-primary'}`}
           >
             {item.icon}
-            <span className={`max-w-full truncate text-[10px] leading-none ${active ? 'font-bold' : 'font-medium'}`}>
+            <span className={`max-w-full truncate text-[11px] leading-none ${active ? 'font-bold' : 'font-medium'}`}>
               {item.label}
             </span>
           </Link>

@@ -58,7 +58,11 @@ async def list_rankings(
     from app.api.routers.catalog_utils import RANKING_PERIODS, RANKING_ORDER_FIELDS
 
     days = RANKING_PERIODS.get(period_lower, 30)
-    order_field = RANKING_ORDER_FIELDS.get(criteria_lower, "trendScore")
+    order_field = {
+        **RANKING_ORDER_FIELDS,
+        "like": "periodLikeCount",
+        "rating": "periodRating",
+    }.get(criteria_lower, "trendScore")
     history_sql = ranking_history_sql_config(period_lower)
 
     category_filter_sql = ""
@@ -127,15 +131,15 @@ async def list_rankings(
             GROUP BY oi.product_id
         ),
         period_likes AS (
-            SELECT product_id, COUNT(*) AS like_count
+            SELECT product_id, SUM(CASE WHEN action = 'LIKE' THEN 1 ELSE -1 END) AS like_count
             FROM user_favorite_events
-            WHERE action = 'LIKE' AND created_at >= NOW() - (:days * INTERVAL '1 day')
+            WHERE action IN ('LIKE', 'UNLIKE') AND created_at >= NOW() - (:days * INTERVAL '1 day')
             GROUP BY product_id
         ),
         previous_period_likes AS (
-            SELECT product_id, COUNT(*) AS like_count
+            SELECT product_id, SUM(CASE WHEN action = 'LIKE' THEN 1 ELSE -1 END) AS like_count
             FROM user_favorite_events
-            WHERE action = 'LIKE'
+            WHERE action IN ('LIKE', 'UNLIKE')
               AND created_at >= NOW() - (2 * :days * INTERVAL '1 day')
               AND created_at < NOW() - (:days * INTERVAL '1 day')
             GROUP BY product_id
@@ -147,7 +151,7 @@ async def list_rankings(
             GROUP BY product_id
         ),
         previous_period_reviews AS (
-            SELECT product_id, COUNT(*) AS review_count
+            SELECT product_id, COUNT(*) AS review_count, AVG(rating) AS avg_rating
             FROM product_reviews
             WHERE status = 'PUBLISHED'
               AND created_at >= NOW() - (2 * :days * INTERVAL '1 day')
@@ -175,9 +179,9 @@ async def list_rankings(
             GROUP BY oi.product_id
         ),
         likes_24h AS (
-            SELECT product_id, COUNT(*) AS like_count
+            SELECT product_id, SUM(CASE WHEN action = 'LIKE' THEN 1 ELSE -1 END) AS like_count
             FROM user_favorite_events
-            WHERE action = 'LIKE' AND created_at >= NOW() - INTERVAL '24 hours'
+            WHERE action IN ('LIKE', 'UNLIKE') AND created_at >= NOW() - INTERVAL '24 hours'
             GROUP BY product_id
         ),
         reviews_24h AS (
@@ -207,9 +211,9 @@ async def list_rankings(
             GROUP BY oi.product_id
         ),
         likes_7d AS (
-            SELECT product_id, COUNT(*) AS like_count
+            SELECT product_id, SUM(CASE WHEN action = 'LIKE' THEN 1 ELSE -1 END) AS like_count
             FROM user_favorite_events
-            WHERE action = 'LIKE' AND created_at >= NOW() - INTERVAL '7 days'
+            WHERE action IN ('LIKE', 'UNLIKE') AND created_at >= NOW() - INTERVAL '7 days'
             GROUP BY product_id
         ),
         reviews_7d AS (
@@ -239,9 +243,9 @@ async def list_rankings(
             GROUP BY oi.product_id
         ),
         likes_30d AS (
-            SELECT product_id, COUNT(*) AS like_count
+            SELECT product_id, SUM(CASE WHEN action = 'LIKE' THEN 1 ELSE -1 END) AS like_count
             FROM user_favorite_events
-            WHERE action = 'LIKE' AND created_at >= NOW() - INTERVAL '30 days'
+            WHERE action IN ('LIKE', 'UNLIKE') AND created_at >= NOW() - INTERVAL '30 days'
             GROUP BY product_id
         ),
         reviews_30d AS (
@@ -271,9 +275,9 @@ async def list_rankings(
             GROUP BY oi.product_id
         ),
         likes_1y AS (
-            SELECT product_id, COUNT(*) AS like_count
+            SELECT product_id, SUM(CASE WHEN action = 'LIKE' THEN 1 ELSE -1 END) AS like_count
             FROM user_favorite_events
-            WHERE action = 'LIKE' AND created_at >= NOW() - INTERVAL '365 days'
+            WHERE action IN ('LIKE', 'UNLIKE') AND created_at >= NOW() - INTERVAL '365 days'
             GROUP BY product_id
         ),
         reviews_1y AS (
@@ -286,7 +290,7 @@ async def list_rankings(
         historical_stats AS (
             SELECT
                 p_id,
-                jsonb_agg(jsonb_build_object('date', day_date, 'views', views, 'searches', searches, 'sales', sales) ORDER BY bucket_date) AS history
+                jsonb_agg(jsonb_build_object('date', day_date, 'views', views, 'searches', searches, 'sales', sales, 'likes', likes, 'rating', rating) ORDER BY bucket_date) AS history
             FROM (
                 SELECT
                     p.id AS p_id,
@@ -294,7 +298,9 @@ async def list_rankings(
                     {history_sql["label"]} AS day_date,
                     COALESCE(v.count, 0) AS views,
                     COALESCE(s.count, 0) AS searches,
-                    COALESCE(sl.count, 0) AS sales
+                    COALESCE(sl.count, 0) AS sales,
+                    COALESCE(l.count, 0) AS likes,
+                    COALESCE(r.rating, 0) AS rating
                 FROM products p
                 CROSS JOIN (
                     SELECT {history_sql["series"]} AS bucket_date
@@ -318,6 +324,19 @@ async def list_rankings(
                     WHERE o.status = 'COMPLETED' AND o.created_at >= {history_sql["start"]}
                     GROUP BY oi.product_id, {history_sql["bucket"].replace('created_at', 'o.created_at')}
                 ) sl ON sl.product_id = p.id AND sl.bucket_date = d.bucket_date
+                LEFT JOIN (
+                    SELECT product_id, {history_sql["bucket"]} AS bucket_date,
+                           SUM(CASE WHEN action = 'LIKE' THEN 1 ELSE -1 END) AS count
+                    FROM user_favorite_events
+                    WHERE action IN ('LIKE', 'UNLIKE') AND created_at >= {history_sql["start"]}
+                    GROUP BY product_id, {history_sql["bucket"]}
+                ) l ON l.product_id = p.id AND l.bucket_date = d.bucket_date
+                LEFT JOIN (
+                    SELECT product_id, {history_sql["bucket"]} AS bucket_date, AVG(rating) AS rating
+                    FROM product_reviews
+                    WHERE status = 'PUBLISHED' AND created_at >= {history_sql["start"]}
+                    GROUP BY product_id, {history_sql["bucket"]}
+                ) r ON r.product_id = p.id AND r.bucket_date = d.bucket_date
                 ORDER BY d.bucket_date ASC
             ) daily
             GROUP BY p_id
@@ -363,12 +382,14 @@ async def list_rankings(
             COALESCE(pso_stats.revenue, 0.0) AS "periodRevenue",
             COALESCE(pl_stats.like_count, 0) AS "periodLikeCount",
             COALESCE(pr_stats.review_count, 0) AS "periodReviewCount",
+            COALESCE(pr_stats.avg_rating, 0.0) AS "periodRating",
 
             COALESCE(prev_pv.view_count, 0) AS "previousViewCount",
             COALESCE(prev_ps.search_count, 0) AS "previousSearchCount",
             COALESCE(prev_pso.sold_count, 0) AS "previousPeriodSoldCount",
             COALESCE(prev_pl.like_count, 0) AS "previousPeriodLikeCount",
             COALESCE(prev_pr.review_count, 0) AS "previousPeriodReviewCount",
+            COALESCE(prev_pr.avg_rating, 0.0) AS "previousPeriodRating",
 
             COALESCE(v24.view_count, 0) AS "view24h",
             COALESCE(s24.search_count, 0) AS "search24h",
@@ -486,8 +507,8 @@ async def list_rankings(
         GROUP BY p.id, c.id, sc.id, os.sold_count, review_stats.rating, review_stats.review_count,
             favorite_counts.favorite_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at,
             fs.quantity_limit, fs.sold_quantity,
-            pv_stats.view_count, ps_stats.search_count, pso_stats.sold_count, pso_stats.revenue, pl_stats.like_count, pr_stats.review_count,
-            prev_pv.view_count, prev_ps.search_count, prev_pso.sold_count, prev_pl.like_count, prev_pr.review_count,
+            pv_stats.view_count, ps_stats.search_count, pso_stats.sold_count, pso_stats.revenue, pl_stats.like_count, pr_stats.review_count, pr_stats.avg_rating,
+            prev_pv.view_count, prev_ps.search_count, prev_pso.sold_count, prev_pl.like_count, prev_pr.review_count, prev_pr.avg_rating,
             v24.view_count, s24.search_count, sl24.sold_count, l24.like_count, r24.review_count, r24.avg_rating,
             v7.view_count, s7.search_count, sl7.sold_count, l7.like_count, r7.review_count, r7.avg_rating,
             v30.view_count, s30.search_count, sl30.sold_count, l30.like_count, r30.review_count, r30.avg_rating,
@@ -498,8 +519,53 @@ async def list_rankings(
 
     items = [ranking_row(row) for row in rows]
 
+    period_chain = {
+        "24h": ["24h", "7d", "30d", "1y"],
+        "7d": ["7d", "30d", "1y"],
+        "30d": ["30d", "1y"],
+        "1y": ["1y"],
+    }.get(period_lower, ["30d", "1y"])
+    metric_prefix = {
+        "trending": "score",
+        "search": "search",
+        "view": "view",
+        "like": "like",
+        "sold": "sold",
+        "rating": "rating",
+    }.get(criteria_lower, "score")
+    effective_period = next(
+        (
+            candidate
+            for candidate in period_chain
+            if any(float(item.get(f"{metric_prefix}{candidate}") or 0) > 0 for item in items)
+        ),
+        period_chain[0],
+    )
+    fallback_field = f"{metric_prefix}{effective_period}"
+    for item in items:
+        fallback_value = item.get(fallback_field) or 0
+        item["rankingPeriod"] = effective_period
+        item["isPeriodFallback"] = effective_period != period_lower
+        if item["isPeriodFallback"]:
+            item["history"] = []
+        if criteria_lower == "trending":
+            item["trendScore"] = fallback_value
+        elif criteria_lower == "search":
+            item["searchCount"] = fallback_value
+        elif criteria_lower == "view":
+            item["viewCount"] = fallback_value
+        elif criteria_lower == "like":
+            item["periodLikeCount"] = fallback_value
+        elif criteria_lower == "sold":
+            item["periodSoldCount"] = fallback_value
+        elif criteria_lower == "rating":
+            item["periodRating"] = fallback_value
+
+    # A ranking should not assign positions to products with no activity for the selected metric.
+    items = [item for item in items if float(item.get(order_field) or 0) > 0]
+
     # Sort in python for complex criteria
-    if order_field in {"trendScore", "searchCount", "viewCount", "favoriteCount", "periodSoldCount", "rating"}:
+    if order_field in {"trendScore", "searchCount", "viewCount", "periodLikeCount", "periodSoldCount", "periodRating"}:
         items.sort(key=lambda item: (item.get(order_field) or 0, item.get("soldCount") or 0), reverse=True)
 
     return items[:limit]

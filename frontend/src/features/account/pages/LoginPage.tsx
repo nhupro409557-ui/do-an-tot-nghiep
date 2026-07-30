@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword, signInWithGoogleProfile, getAuthErrorMessage, ensureUserProfile } from '../../../services/authDb';
 import { requestGoogleProfile } from '../../../services/googleAuth';
 
-const brandName = 'ElectroMart VietNam';
+const brandName = 'ElectroMart Vietnam';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -57,15 +57,15 @@ export default function LoginPage() {
           <ul className="space-y-4">
             <li className="flex items-center gap-3 text-gray-700">
               <span className="text-xl">✓</span>
-              <span>Quản lý thông tin tài khoản với dữ liệu lưu trữ local.</span>
+              <span>Quản lý đơn hàng và thông tin giao nhận thuận tiện.</span>
             </li>
             <li className="flex items-center gap-3 text-gray-700">
               <span className="text-xl">✓</span>
-              <span>Đăng nhập bằng email và mật khẩu.</span>
+              <span>Đăng nhập nhanh bằng email hoặc tài khoản Google.</span>
             </li>
             <li className="flex items-center gap-3 text-gray-700">
               <span className="text-xl">✓</span>
-              <span>Tự động tạo hồ sơ thành viên khi đăng nhập lần đầu.</span>
+              <span>Tích điểm và nhận ưu đãi theo hạng thành viên.</span>
             </li>
           </ul>
         </div>

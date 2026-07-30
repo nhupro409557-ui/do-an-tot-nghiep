@@ -100,7 +100,7 @@ class RefundGateway:
         return RefundResult(
             success=True,
             provider_ref=f"sandbox-refund-{order_code}",
-            message=f"Đã hoàn tiền thành công cho khách hàng qua {provider}.",
+            message=f"Đã ghi nhận chứng từ hoàn tiền demo cho đơn {order_code} qua {provider}; hệ thống không thực hiện chuyển tiền thật.",
             mode="sandbox-manual",
         )
 
@@ -121,7 +121,7 @@ class ShippingGateway:
             provider=normalized_provider,
             tracking_code=f"{normalized_provider.replace('MOCK_', '')}-{order_code[-8:]}",
             label_url=f"/mock-carriers/{normalized_provider.lower()}/labels/{order_code}",
-            message="Vận đơn đã được khởi tạo thành công trên hệ thống của đối tác vận chuyển.",
+            message="Vận đơn demo đã được khởi tạo trong hệ thống nội bộ; không gửi sang đơn vị vận chuyển thật.",
         )
 
 
@@ -179,7 +179,7 @@ class SandboxShippingPricingService:
                 free_shipping_applied=True,
                 provider=normalized_provider,
                 service_name=str(profile["name"]),
-                note=f"{profile['name']}: Đơn hàng của bạn đã đạt điều kiện miễn phí vận chuyển.",
+                note=f"{profile['name']}: Đơn hàng đạt điều kiện miễn phí vận chuyển trong mô phỏng demo.",
             )
 
         # Trích xuất tọa độ cửa hàng từ DB
@@ -239,7 +239,7 @@ class SandboxShippingPricingService:
                 estimated_days = 4
             
             dist_type = "quãng đường di chuyển" if is_driving else "đường chim bay"
-            note_msg = f"{profile['name']}: Phí tính theo định vị thực tế ({dist_type} ~{distance:.1f} km)."
+            note_msg = f"{profile['name']}: Phí vận chuyển demo tính theo định vị ({dist_type} ~{distance:.1f} km), không tạo vận đơn thật."
 
         else:
             # Fallback tính phí theo từ khóa địa chỉ truyền thống
@@ -256,7 +256,7 @@ class SandboxShippingPricingService:
                 base_fee = Decimal(profile["far_fee"])
                 zone = "FAR_CITY"
                 estimated_days = 4
-            note_msg = f"{profile['name']}: Phí tính theo vùng địa chỉ (chưa có định vị chính xác)."
+            note_msg = f"{profile['name']}: Phí vận chuyển demo tính theo vùng địa chỉ (chưa có định vị chính xác), không tạo vận đơn thật."
 
         extra_item_fee = Decimal(max(0, item_count - 1)) * Decimal(profile["extra_item_fee"])
         return ShippingQuote(

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { adminInventoryApi } from '../services/adminInventoryApi';
 
 const DEFAULT_LOCATION_CODE = 'MAIN';
@@ -16,6 +16,7 @@ type InventoryReceiptLineDraft = {
   note: string;
   storageLocationCode: string;
   storageLocationName: string;
+  purchaseOrderLineId: string;
 };
 
 type InventoryDraft = {
@@ -25,12 +26,15 @@ type InventoryDraft = {
   receiptReasonCode: string;
   supplierId: string;
   supplierName: string;
+  purchaseOrderId: string;
   invoiceNumber: string;
   invoiceDate: string;
   paymentMode: string;
   paymentTermDays: number;
   dueDate: string;
   paidAmount: number;
+  discountAmount: number;
+  shippingFee: number;
   payableNote: string;
   note: string;
   locationCode: string;
@@ -79,6 +83,7 @@ function newReceiptLine(product?: any, variant?: any): InventoryReceiptLineDraft
     note: '',
     storageLocationCode: '',
     storageLocationName: '',
+    purchaseOrderLineId: '',
   };
 }
 
@@ -91,6 +96,7 @@ function normalizeText(value: string) {
 
 export function useAdminInventoryLogic({ products, categories, suppliers, query, inventoryCategoryFilter, inventoryBrandFilter, reloadCurrentTab }: UseAdminInventoryLogicParams) {
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraft | null>(null);
+  const receiptStatusUpdatingRef = useRef<Set<string>>(new Set());
   const [inventoryLevels, setInventoryLevels] = useState<any[]>([]);
   const [inventoryPage, setInventoryPage] = useState(1);
   const [inventoryTotal, setInventoryTotal] = useState(0);
@@ -302,12 +308,15 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
       receiptReasonCode: 'NK_MUA',
       supplierId: '',
       supplierName: '',
+      purchaseOrderId: '',
       invoiceNumber: '',
       invoiceDate: '',
       paymentMode: 'DEBT',
       paymentTermDays: 0,
       dueDate: '',
       paidAmount: 0,
+      discountAmount: 0,
+      shippingFee: 0,
       payableNote: '',
       note: '',
       locationCode: DEFAULT_LOCATION_CODE,
@@ -336,12 +345,13 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
           productId: line.productId ? String(line.productId) : '',
           variantId: line.variantId ? String(line.variantId) : '',
           quantity: Math.max(1, Number(line.quantity || line.plannedQuantity || 1)),
-          unitCost: Number(line.unitCost || 0),
+          unitCost: Number(line.quotedUnitCost ?? line.unitCost ?? 0),
           reason: line.reason || 'Nhập kho',
           note: line.note || '',
           warehouseLocationId: String(line.locationId || line.warehouseLocationId || ''),
           storageLocationCode: String(line.storageLocationCode || ''),
           storageLocationName: String(line.storageLocationName || ''),
+          purchaseOrderLineId: String(line.purchaseOrderLineId || ''),
         }))
       : [newReceiptLine()];
     setInventoryDraft({
@@ -351,12 +361,15 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
       receiptReasonCode: String(receipt?.receiptReasonCode || 'NK_MUA'),
       supplierId: supplier?.id ? String(supplier.id) : '',
       supplierName: String(receipt?.supplierName || ''),
+      purchaseOrderId: String(receipt?.purchaseOrderId || ''),
       invoiceNumber: String(receipt?.invoiceNumber || ''),
       invoiceDate: receipt?.invoiceDate ? String(receipt.invoiceDate).slice(0, 10) : '',
       paymentMode: String(receipt?.paymentMode || 'DEBT'),
       paymentTermDays: Number(receipt?.paymentTermDays || 0),
       dueDate: receipt?.dueDate ? String(receipt.dueDate).slice(0, 10) : '',
       paidAmount: Number(receipt?.paidAmount || 0),
+      discountAmount: Number(receipt?.discountAmount || 0),
+      shippingFee: Number(receipt?.shippingFee || 0),
       payableNote: String(receipt?.payableNote || ''),
       note: String(receipt?.note || ''),
       locationCode: String(receipt?.locationCode || DEFAULT_LOCATION_CODE),
@@ -399,6 +412,30 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
 
   function addReceiptLine() {
     setInventoryDraft((current) => (current ? { ...current, lines: [...current.lines, newReceiptLine()] } : current));
+  }
+
+  function addReceiptShelfAllocation(lineId: string) {
+    setInventoryDraft((current) => {
+      if (!current) return current;
+      const sourceIndex = current.lines.findIndex((line) => line.id === lineId);
+      if (sourceIndex < 0) return current;
+      const source = current.lines[sourceIndex];
+      if (source.quantity <= 1) {
+        window.alert('Dòng này chỉ có 1 sản phẩm nên không thể tách thêm kệ. Hãy tăng số lượng trước khi tách.');
+        return current;
+      }
+      const nextLines = [...current.lines];
+      nextLines[sourceIndex] = { ...source, quantity: source.quantity - 1 };
+      nextLines.splice(sourceIndex + 1, 0, {
+        ...source,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        warehouseLocationId: '',
+        storageLocationCode: '',
+        storageLocationName: '',
+        quantity: 1,
+      });
+      return { ...current, lines: nextLines };
+    });
   }
 
   function removeReceiptLine(lineId: string) {
@@ -535,6 +572,7 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
         note: line.note || null,
         storageLocationCode: line.storageLocationCode?.trim() || null,
         storageLocationName: line.storageLocationName?.trim() || null,
+        purchaseOrderLineId: line.purchaseOrderLineId || null,
       });
     }
 
@@ -543,12 +581,15 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
       receiptReasonCode: inventoryDraft.receiptReasonCode || 'NK_MUA',
       supplierId: inventoryDraft.supplierId || null,
       supplierName: inventoryDraft.supplierName.trim() || null,
+      purchaseOrderId: inventoryDraft.purchaseOrderId || null,
       invoiceNumber: inventoryDraft.invoiceNumber.trim() || null,
       invoiceDate: inventoryDraft.invoiceDate ? new Date(inventoryDraft.invoiceDate).toISOString() : null,
       paymentMode: inventoryDraft.paymentMode || 'DEBT',
       paymentTermDays: Number(inventoryDraft.paymentTermDays || 0),
       dueDate: inventoryDraft.dueDate ? new Date(inventoryDraft.dueDate).toISOString() : null,
       paidAmount: Number(inventoryDraft.paidAmount || 0),
+      discountAmount: Number(inventoryDraft.discountAmount || 0),
+      shippingFee: Number(inventoryDraft.shippingFee || 0),
       payableNote: inventoryDraft.payableNote.trim() || null,
       note: inventoryDraft.note || null,
       locationCode: inventoryDraft.locationCode || DEFAULT_LOCATION_CODE,
@@ -587,29 +628,26 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
   }
 
   async function updateReceiptStatus(receipt: any, status: string) {
+    const actionKey = `${receipt.referenceCode}:${status}`;
+    if (receiptStatusUpdatingRef.current.has(actionKey)) return;
     const cancelReason = status === 'CANCELLED'
       ? window.prompt('Nhập lý do hủy phiếu nhập kho:')?.trim()
       : undefined;
     if (status === 'CANCELLED' && !cancelReason) return;
-    await adminInventoryApi.adminUpdateReceiptStatus(receipt.referenceCode, { status, cancelReason });
-    await loadInventoryReceipts();
-    await reloadCurrentTab();
+    receiptStatusUpdatingRef.current.add(actionKey);
+    try {
+      await adminInventoryApi.adminUpdateReceiptStatus(receipt.referenceCode, { status, cancelReason });
+      await loadInventoryReceipts();
+      await reloadCurrentTab();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Không thể cập nhật trạng thái phiếu nhập kho.');
+    } finally {
+      receiptStatusUpdatingRef.current.delete(actionKey);
+    }
   }
 
-  async function updateReceiptQuality(receipt: any, qualityStatus: string) {
-    const qualityNote = window.prompt('Ghi chú kiểm tra chất lượng (không bắt buộc):', receipt.qualityNote || '')?.trim() || null;
-    const shouldQuarantine = qualityStatus === 'FAILED'
-      ? window.confirm('Đánh dấu phiếu này vào khu cách ly?')
-      : Boolean(receipt.quarantine);
-    const quarantineLocation = shouldQuarantine
-      ? window.prompt('Nhập khu cách ly:', receipt.quarantineLocation || 'Khu QC')?.trim() || 'Khu QC'
-      : null;
-    await adminInventoryApi.adminUpdateReceiptQuality(receipt.referenceCode, {
-      qualityStatus,
-      qualityNote,
-      quarantine: shouldQuarantine,
-      quarantineLocation,
-    });
+  async function submitReceiptQuality(referenceCode: string, payload: any) {
+    await adminInventoryApi.adminUpdateReceiptQuality(referenceCode, payload);
     await loadInventoryReceipts();
     await reloadCurrentTab();
   }
@@ -714,6 +752,7 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     openReceiptDialog,
     openReceiptEditDialog,
     addReceiptLine,
+    addReceiptShelfAllocation,
     removeReceiptLine,
     updateReceiptLine,
     resolveProduct,
@@ -728,7 +767,7 @@ export function useAdminInventoryLogic({ products, categories, suppliers, query,
     addSelectedVariantsToReceipt,
     submitInventoryDraft,
     updateReceiptStatus,
-    updateReceiptQuality,
+    submitReceiptQuality,
     reverseReceipt,
     deleteDraftReceipt,
     openReceiptImeiDialog,

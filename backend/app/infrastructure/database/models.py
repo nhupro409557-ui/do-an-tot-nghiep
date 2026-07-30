@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import CheckConstraint, ForeignKey, String, Table, Column, Text
 from sqlalchemy.dialects.postgresql import JSONB, NUMERIC, TIMESTAMP, UUID as PG_UUID
@@ -10,8 +11,142 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def loyalty_period_start() -> datetime:
+    now = datetime.now(ZoneInfo("Asia/Bangkok"))
+    month = 1 if now.month <= 6 else 7
+    return datetime(now.year, month, 1, tzinfo=now.tzinfo).astimezone(timezone.utc)
+
+
+def loyalty_period_end() -> datetime:
+    now = datetime.now(ZoneInfo("Asia/Bangkok"))
+    if now.month <= 6:
+        boundary = datetime(now.year, 7, 1, tzinfo=now.tzinfo)
+    else:
+        boundary = datetime(now.year + 1, 1, 1, tzinfo=now.tzinfo)
+    return boundary.astimezone(timezone.utc)
+
+
 class Base(DeclarativeBase):
     pass
+
+
+class Voucher(Base):
+    __tablename__ = "vouchers"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    discount_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    discount_value: Mapped[float] = mapped_column(NUMERIC(14, 2), nullable=False)
+    min_order_value: Mapped[float] = mapped_column(NUMERIC(14, 2), default=0, nullable=False)
+    max_discount: Mapped[float | None] = mapped_column(NUMERIC(14, 2))
+    usage_limit: Mapped[int] = mapped_column(default=0, nullable=False)
+    used_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    redemption_points: Mapped[int] = mapped_column(default=0, nullable=False)
+    total_budget_cap: Mapped[float | None] = mapped_column(NUMERIC(14, 2))
+    total_discount_used: Mapped[float] = mapped_column(NUMERIC(14, 2), default=0, nullable=False)
+    per_user_limit: Mapped[int] = mapped_column(default=0, nullable=False)
+    per_device_limit: Mapped[int] = mapped_column(default=0, nullable=False)
+    per_ip_limit: Mapped[int] = mapped_column(default=0, nullable=False)
+    campaign_type: Mapped[str] = mapped_column(String(40), default="CONVERSION", nullable=False)
+    audience_type: Mapped[str] = mapped_column(String(40), default="PUBLIC", nullable=False)
+    display_title: Mapped[str | None] = mapped_column(String(120))
+    display_description: Mapped[str | None] = mapped_column(String(500))
+    public_terms: Mapped[str | None] = mapped_column(Text)
+    applicable_channels: Mapped[dict] = mapped_column(JSONB, default=lambda: ["WEB"], nullable=False)
+    applicable_payment_methods: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
+    eligible_tiers: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
+    eligible_user_registered_after: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    assigned_user_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"))
+    include_product_ids: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
+    exclude_product_ids: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
+    include_category_ids: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
+    exclude_category_ids: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
+    include_brand_ids: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
+    exclude_brand_ids: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
+    first_order_only: Mapped[bool] = mapped_column(default=False, nullable=False)
+    hidden_code: Mapped[bool] = mapped_column(default=False, nullable=False)
+    abandoned_cart_only: Mapped[bool] = mapped_column(default=False, nullable=False)
+    birthday_only: Mapped[bool] = mapped_column(default=False, nullable=False)
+    validity_days_after_claim: Mapped[int] = mapped_column(default=0, nullable=False)
+    stackable: Mapped[bool] = mapped_column(default=False, nullable=False)
+    apply_outside_scope: Mapped[bool] = mapped_column(default=False, nullable=False)
+    refund_policy: Mapped[str] = mapped_column(String(40), default="SHOP_FAULT_ONLY", nullable=False)
+    internal_note: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(30), default="ACTIVE", nullable=False)
+    starts_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    ends_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        CheckConstraint("discount_type IN ('FIXED', 'PERCENT')"),
+        CheckConstraint("discount_value > 0"),
+        CheckConstraint("min_order_value >= 0"),
+        CheckConstraint("max_discount IS NULL OR max_discount >= 0"),
+        CheckConstraint("usage_limit >= 0"),
+        CheckConstraint("used_count >= 0"),
+        CheckConstraint("redemption_points >= 0"),
+        CheckConstraint("total_budget_cap IS NULL OR total_budget_cap >= 0"),
+        CheckConstraint("total_discount_used >= 0"),
+        CheckConstraint("per_user_limit >= 0"),
+        CheckConstraint("per_device_limit >= 0"),
+        CheckConstraint("per_ip_limit >= 0"),
+        CheckConstraint("validity_days_after_claim >= 0"),
+        CheckConstraint("status IN ('ACTIVE', 'INACTIVE', 'EXPIRED')"),
+        CheckConstraint("discount_type <> 'PERCENT' OR discount_value <= 100"),
+        CheckConstraint("usage_limit = 0 OR used_count <= usage_limit"),
+        CheckConstraint("total_budget_cap IS NULL OR total_discount_used <= total_budget_cap"),
+    )
+
+
+class UserVoucher(Base):
+    __tablename__ = "user_vouchers"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    voucher_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("vouchers.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="AVAILABLE", nullable=False)
+    claimed_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    order_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("orders.id"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('AVAILABLE', 'RESERVED', 'USED', 'EXPIRED', 'REVOKED')"),
+    )
+
+
+class VoucherUsage(Base):
+    __tablename__ = "voucher_usages"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    order_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"), nullable=False)
+    voucher_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("vouchers.id"), nullable=False)
+    user_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"))
+    discount_amount: Mapped[float] = mapped_column(NUMERIC(14, 2), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="RESERVED", nullable=False)
+    device_id: Mapped[str | None] = mapped_column(String(120))
+    ip_address: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('RESERVED', 'USED', 'RELEASED')"),
+        CheckConstraint("discount_amount >= 0"),
+    )
+
+
+class UserFavorite(Base):
+    __tablename__ = "user_favorites"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
 
 
 class Role(Base):
@@ -39,6 +174,14 @@ class User(Base):
     loyalty_points_balance: Mapped[int] = mapped_column(default=0, nullable=False)
     loyalty_tier: Mapped[str] = mapped_column(String(30), default="MEMBER", nullable=False)
     loyalty_wallet_status: Mapped[str] = mapped_column(String(30), default="ACTIVE", nullable=False)
+    loyalty_tier_period_started_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), default=loyalty_period_start, nullable=False
+    )
+    loyalty_tier_period_ends_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), default=loyalty_period_end, nullable=False
+    )
+    birth_date: Mapped[date | None] = mapped_column()
+    birth_date_locked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
@@ -112,7 +255,6 @@ class Product(Base):
     image_url: Mapped[str | None] = mapped_column(Text)
     images: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     video_url: Mapped[str | None] = mapped_column(Text)
-    images: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     colors: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     capacities: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     promotions: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
@@ -193,6 +335,19 @@ class StoreInfo(Base):
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
 
 
+class StorePolicy(Base):
+    __tablename__ = "store_policies"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(150), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    version: Mapped[int] = mapped_column(default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
+
+
 class Order(Base):
     __tablename__ = "orders"
 
@@ -204,6 +359,8 @@ class Order(Base):
     payment_status: Mapped[str] = mapped_column(String(30), default="UNPAID", nullable=False)
     subtotal_amount: Mapped[float] = mapped_column(NUMERIC(14, 2), nullable=False)
     discount_amount: Mapped[float] = mapped_column(NUMERIC(14, 2), default=0, nullable=False)
+    voucher_discount_amount: Mapped[float] = mapped_column(NUMERIC(14, 2), default=0, nullable=False)
+    loyalty_discount_amount: Mapped[float] = mapped_column(NUMERIC(14, 2), default=0, nullable=False)
     shipping_fee: Mapped[float] = mapped_column(NUMERIC(14, 2), default=0, nullable=False)
     total_amount: Mapped[float] = mapped_column(NUMERIC(14, 2), nullable=False)
     loyalty_points_earned: Mapped[int] = mapped_column(default=0, nullable=False)
@@ -222,6 +379,20 @@ class Order(Base):
     cancellation_reason: Mapped[str | None] = mapped_column(Text)
     shipping_provider: Mapped[str | None] = mapped_column(String(120))
     tracking_code: Mapped[str | None] = mapped_column(String(120))
+    order_type: Mapped[str] = mapped_column(String(30), default="ONLINE", nullable=False)
+    order_purpose: Mapped[str] = mapped_column(String(40), default="SALE", nullable=False)
+    source_order_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("orders.id"))
+    # Ràng buộc FK tồn tại ở PostgreSQL; hai bảng hậu mãi được quản lý bằng SQL repository,
+    # không khai báo ORM trong metadata này nên không gắn ForeignKey tại mapper.
+    warranty_request_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    return_request_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    payment_requirement: Mapped[str] = mapped_column(String(40), default="PAYMENT_REQUIRED", nullable=False)
+    fulfillment_method: Mapped[str] = mapped_column(String(30), default="DELIVERY", nullable=False)
+    return_source: Mapped[str | None] = mapped_column(String(30))
+    return_reason: Mapped[str | None] = mapped_column(Text)
+    return_tracking_code: Mapped[str | None] = mapped_column(String(120))
+    return_received_condition: Mapped[str | None] = mapped_column(String(30))
+    return_received_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     shipped_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     refunded_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
@@ -243,6 +414,8 @@ class LoyaltyTransaction(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    expired_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
         CheckConstraint("points > 0"),
@@ -278,6 +451,8 @@ class OrderItem(Base):
     flash_sale_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
     flash_sale_quantity: Mapped[int] = mapped_column(default=0, nullable=False)
     flash_sale_released_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    after_sales_type: Mapped[str | None] = mapped_column(String(20))
+    after_sales_request_item_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
     warranty_months_snapshot: Mapped[int | None] = mapped_column()
     attached_services: Mapped[list[dict] | None] = mapped_column(JSONB, default=list)
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -306,91 +481,6 @@ class OrderHistoryLog(Base):
     note: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
-
-
-class Voucher(Base):
-    __tablename__ = "vouchers"
-
-    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-    discount_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    discount_value: Mapped[float] = mapped_column(NUMERIC(14, 2), nullable=False)
-    min_order_value: Mapped[float] = mapped_column(NUMERIC(14, 2), default=0, nullable=False)
-    max_discount: Mapped[float | None] = mapped_column(NUMERIC(14, 2))
-    usage_limit: Mapped[int] = mapped_column(default=0, nullable=False)
-    used_count: Mapped[int] = mapped_column(default=0, nullable=False)
-    total_budget_cap: Mapped[float | None] = mapped_column(NUMERIC(14, 2))
-    total_discount_used: Mapped[float] = mapped_column(NUMERIC(14, 2), default=0, nullable=False)
-    per_user_limit: Mapped[int] = mapped_column(default=0, nullable=False)
-    per_device_limit: Mapped[int] = mapped_column(default=0, nullable=False)
-    per_ip_limit: Mapped[int] = mapped_column(default=0, nullable=False)
-    campaign_type: Mapped[str] = mapped_column(String(40), default="CONVERSION", nullable=False)
-    audience_type: Mapped[str] = mapped_column(String(40), default="PUBLIC", nullable=False)
-    eligible_tiers: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
-    eligible_user_registered_after: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    assigned_user_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"))
-    include_product_ids: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
-    exclude_product_ids: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
-    include_category_ids: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
-    exclude_category_ids: Mapped[dict] = mapped_column(JSONB, default=list, nullable=False)
-    first_order_only: Mapped[bool] = mapped_column(default=False, nullable=False)
-    hidden_code: Mapped[bool] = mapped_column(default=False, nullable=False)
-    abandoned_cart_only: Mapped[bool] = mapped_column(default=False, nullable=False)
-    validity_days_after_claim: Mapped[int] = mapped_column(default=0, nullable=False)
-    stackable: Mapped[bool] = mapped_column(default=False, nullable=False)
-    refund_policy: Mapped[str] = mapped_column(String(40), default="SHOP_FAULT_ONLY", nullable=False)
-    internal_note: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(30), default="ACTIVE", nullable=False)
-    starts_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    ends_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
-
-    __table_args__ = (
-        CheckConstraint("discount_type IN ('FIXED', 'PERCENT')"),
-        CheckConstraint("discount_value > 0"),
-        CheckConstraint("min_order_value >= 0"),
-        CheckConstraint("max_discount IS NULL OR max_discount >= 0"),
-        CheckConstraint("usage_limit >= 0"),
-        CheckConstraint("used_count >= 0"),
-        CheckConstraint("total_budget_cap IS NULL OR total_budget_cap >= 0"),
-        CheckConstraint("total_discount_used >= 0"),
-        CheckConstraint("per_user_limit >= 0"),
-        CheckConstraint("per_device_limit >= 0"),
-        CheckConstraint("per_ip_limit >= 0"),
-        CheckConstraint("validity_days_after_claim >= 0"),
-        CheckConstraint("status IN ('ACTIVE', 'INACTIVE', 'EXPIRED')"),
-    )
-
-
-class UserVoucher(Base):
-    __tablename__ = "user_vouchers"
-
-    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    voucher_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("vouchers.id"), nullable=False)
-    status: Mapped[str] = mapped_column(String(30), default="AVAILABLE", nullable=False)
-    claimed_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, nullable=False)
-    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    used_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    order_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("orders.id"))
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
-
-    __table_args__ = (
-        CheckConstraint("status IN ('AVAILABLE', 'RESERVED', 'USED', 'EXPIRED', 'REVOKED')"),
-    )
-
-
-class UserFavorite(Base):
-    __tablename__ = "user_favorites"
-
-    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
-    user_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    product_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now)
-    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=utc_now, onupdate=utc_now)
 
 
 class UserFavoriteEvent(Base):
@@ -459,5 +549,5 @@ class PaymentTransaction(Base):
     __table_args__ = (
         CheckConstraint("provider IN ('VNPAY', 'MOMO', 'ZALOPAY', 'SEPAY', 'CREDIT_CARD', 'COD')"),
         CheckConstraint("amount >= 0"),
-        CheckConstraint("status IN ('PENDING', 'PAID', 'FAILED', 'EXPIRED', 'REFUNDED')"),
+        CheckConstraint("status IN ('PENDING', 'PAID', 'FAILED', 'EXPIRED', 'REFUNDED', 'PAID_LATE')"),
     )

@@ -1,134 +1,93 @@
 # Order Management Notes
 
-## Cập nhật 2026-07-04 - Chuẩn hóa thông báo lỗi đơn hàng
+## Cập nhật 2026-07-13 - Bán thiết bị hàng cũ tại POS
 
-- Chuẩn hóa lỗi không tìm thấy đơn hàng, chuyển trạng thái không hợp lệ, thiếu lý do hủy đơn và lỗi tài khoản/ví điểm khi tạo đơn sang tiếng Việt có dấu.
-- Cập nhật mô tả lỗi OpenAPI của router commerce cho cùng nhóm lỗi.
-- Không đổi lifecycle đơn hàng, side effect tồn kho/thanh toán/voucher.
-- Verification: `py_compile` và test order/checkout liên quan pass.
+- POS có hai nguồn hàng rõ ràng: `Sản phẩm mới` và `Hàng cũ`; nhân viên có thể tìm máy cũ theo tiêu đề, mã thiết bị hoặc IMEI rồi thêm đúng một thiết bị vật lý vào giỏ.
+- Dòng hàng cũ gửi `used_device_id`, không gửi `product_id`/`variant_id`, không hiển thị ô quét IMEI/serial và không cho tăng số lượng hoặc áp dụng nhầm logic mua kèm của hàng mới.
+- Thẻ máy và hóa đơn thể hiện rõ nhãn hàng cũ, hạng máy, mã thiết bị, IMEI, pin, bảo hành và giá bán đã duyệt.
+- Khi tạo đơn POS, thiết bị và bài đăng chuyển `READY_FOR_SALE/PUBLISHED → SOLD`; máy đã bán biến mất ngay khỏi catalog POS và backend vẫn chặn đồng thời nếu request cũ cố mua lại.
+- Sửa hoàn tiền đơn chỉ có hàng cũ: hệ thống nhận diện thiết bị `SOLD` là hàng đã giao dù không có adjustment `ORDER_SHIPPED` của kho catalog, sau đó chuyển máy về `RETURNED_QC`; bài đăng giữ `SOLD` để không tự bán lại trước QC.
+- Kiểm thử giao diện hoàn chỉnh bằng các đơn `EMV2093217402` và `EMV5494230567`; cả hai đã `REFUNDED`, điểm đã thu hồi, fixture máy cũ đã được khôi phục `READY_FOR_SALE/PUBLISHED` kèm audit đối soát.
 
-## Cập nhật 2026-07-04 - Tránh restock trùng khi đơn có hồ sơ đổi trả
+## Cập nhật 2026-07-13 - Hoàn thiện đơn bán tại quầy (POS)
 
-- Khi đơn chuyển order-level sang `RETURNED`, backend kiểm tra đơn có hồ sơ return đang được quản lý qua after-sales hay không.
-- Nếu có hồ sơ return chưa bị hủy/từ chối/hết hạn, order lifecycle không bulk-restock toàn bộ đơn nữa; restock theo từng dòng tiếp tục do after-sales refund xử lý.
-- Luồng trả hàng trực tiếp không qua after-sales vẫn giữ hành vi restock cũ, bao gồm chuyển thiết bị cũ đã bán về QC riêng.
-- Verification: nhóm test order/outbound/after-sales/used-products pass.
+- Đơn POS chọn khách hàng lưu đúng `orders.user_id`, vì vậy đơn xuất hiện trong tài khoản và lịch sử mua hàng của đúng khách được chọn.
+- Đơn nhận tại cửa hàng dùng `fulfillment_method = STORE_PICKUP`, không gắn hãng vận chuyển và phí giao hàng luôn bằng `0` dù bộ tính phí trả về báo giá mặc định.
+- Thanh toán tiền mặt tại quầy bắt buộc khai báo số tiền khách đưa và backend từ chối hoàn tất khi số tiền nhỏ hơn tổng đơn; frontend đồng thời khóa nút xác nhận để phản hồi sớm.
+- Luồng tạo đơn flush các dòng hàng trước khi xuất kho tự động, bảo đảm tồn catalog, tồn kệ, lô FIFO và IMEI/serial đều được cập nhật trong cùng giao dịch.
+- Đơn POS kiểm thử được hoàn tác; migration `091_reconcile_admin_pos_test_order.sql` và `092_reconcile_pos_refund_main_inventory.sql` chỉ đối soát hai mã đơn test đã xác định.
 
-## Cập nhật 2026-06-29 - Bổ sung test đơn hàng sinh phiếu xuất kho
+## Cập nhật 2026-07-10 - Không bỏ sót trạng thái thiết bị cũ khi giao hàng
 
-- Bổ sung test admin order lifecycle cho nhánh `PENDING -> PROCESSING`: đơn COD có sản phẩm/variant thật sẽ sinh phiếu xuất kho `OUTBOUND`.
-- Sau khi phiếu xuất được auto-suggest và hoàn tất, hệ thống đồng bộ đơn hàng sang `SHIPPED`.
-- Sửa query kiểm tra tồn variant khi tạo đơn: cast `variant_id` và `product_id` sang UUID để tránh lỗi asyncpg `could not determine data type of parameter`.
-- Verification: `pytest backend/tests/test_12_admin_inventory_outbound_flow.py -q` pass.
+- Khi đơn có phiếu xuất kho đã hoàn tất và được chuyển sang `SHIPPED`, backend nay đánh dấu các thiết bị cũ của đơn từ `RESERVED` sang `SOLD` dù FIFO hàng catalog đã được xử lý trước đó.
+- Bài đăng của thiết bị đã bán đồng thời chuyển sang `SOLD`, giúp trạng thái đơn, thiết bị và bài đăng nhất quán.
 
-## Cập nhật 2026-06-29 - Bổ sung test quyền cho thao tác admin đơn hàng
+## Cập nhật 2026-07-07 (Bổ sung 5) - Chặn xuất kho thiếu định danh khi giao đơn
 
-- Bổ sung test API admin cho `/api/orders/{order_id}/admin`: anonymous và customer bị chặn, admin cập nhật được thông tin xử lý nội bộ của đơn hàng.
-- Endpoint cập nhật đơn hàng admin nay dùng `require_staff_or_admin`; trước đó route admin này chưa có dependency phân quyền rõ ràng.
-- Sau khi dependency đọc quyền dùng chung session, endpoint rollback transaction đọc trước khi gọi `CompleteOrderUseCase`, tránh lỗi `A transaction is already begun on this Session` khi use case mở transaction ghi.
-- Test cũng ghi nhận rule hiện tại không cho chuyển trạng thái `PENDING -> CONFIRMED`; nhánh này được assert là lỗi nghiệp vụ `409`.
-- Verification: `pytest backend/tests/test_10_admin_permissions_and_orders_flow.py backend/tests/test_11_admin_voucher_flash_sale_flow.py -q` pass.
+- Khi hoàn tất phiếu xuất kho liên kết đơn hàng, backend hiện kiểm tra số dòng IMEI/serial thật sự được cập nhật sang `SOLD`.
+- Nếu cập nhật thiếu do dữ liệu định danh bị giao dịch khác thay đổi đồng thời, phiếu xuất không được chuyển `COMPLETED` và đơn không được chuyển `SHIPPED`.
 
-## Cập nhật 2026-06-29 - Chống kết quả kiểm tra voucher POS lỗi thời
+## Cập nhật 2026-07-07 (Bổ sung 4) - Không giữ đơn PENDING sau hủy/thất bại thanh toán
 
-- POS kiểm tra lại voucher khi phương thức thanh toán, khách hàng, mã voucher, tổng tiền hoặc danh sách sản phẩm thay đổi.
-- Mỗi lần kiểm tra có mã phiên tăng dần; response cũ bị bỏ qua để không ghi đè kết quả của request mới hơn.
-- Giữ nguyên payload tạo đơn và API validate voucher hiện tại.
-- Verification: frontend `npm run lint` và `npm run build` pass.
+- Cập nhật lại quyết định ở mục "Bổ sung 3": payment online thất bại hoặc khách hủy phiên thanh toán không còn giữ đơn ở `PENDING` để retry nữa.
+- Luồng đúng hiện tại là chuyển đơn còn `PENDING` sang `PAYMENT_FAILED` để đóng reservation, voucher, loyalty và quota flash sale ngay trong transaction nghiệp vụ.
+- Lý do: ở mức phản biện đồ án, ưu tiên dữ liệu nội bộ nhất quán và có rollback rõ ràng hơn khả năng retry trên cùng một đơn sau khi gateway đã báo thất bại.
 
-## Cập nhật 2026-06-27 - Sửa dữ liệu giá mua kèm và dịch vụ trong POS
+## Cập nhật 2026-07-07 (Bổ sung) - Siết vòng đời thanh toán thất bại
 
-- Kiểm thử POS sau refactor phát hiện nhiều badge mua kèm và dịch vụ hiển thị `0 ₫`.
-- Nguyên nhân nằm ở mapping response của `list_admin_products`: repository đã trả dữ liệu nhưng service không đưa các trường giá, tồn kho, override và metadata vào `salesConfig`.
-- Đã khôi phục đầy đủ contract để POS dùng lại công thức giá hiện có; không thay đổi payload tạo đơn.
+- **Chặn trạng thái sai sau khi đã thanh toán**: `ORDER_STATUS_TRANSITIONS` không còn cho phép đơn `PAID` hoặc `PROCESSING` chuyển sang `PAYMENT_FAILED`. Nếu đơn đã có thanh toán thành công hoặc đã xử lý kho, luồng đúng phải là `CANCELLED`/`REFUNDED` thay vì ghi nhận thất bại thanh toán.
+- **Đồng bộ giao dịch pending khi đơn thất bại**: Khi đơn còn `PENDING` chuyển sang `PAYMENT_FAILED`, các `payment_transactions` còn `PENDING` của đơn được đánh dấu `FAILED` và ghi `failed_at`, tránh giao dịch treo sau khi reservation/voucher đã được giải phóng.
 
-## Cập nhật 2026-06-27 - Tách tiếp POS và hoàn tất đơn hàng
+## Cập nhật 2026-07-07 - Ràng buộc thanh toán và đóng giữ hàng nguyên tử
 
-- Tách giao diện POS đang hoạt động sang `AdminPosWorkspace.tsx`; `AdminPosModal.tsx` giữ state, handler và khung modal.
-- Tách `CompleteOrderUseCase` thành lớp điều phối chính cùng hai mixin `complete_order_carrier.py` và `complete_order_fulfillment.py`.
-- Giữ nguyên MRO, API gọi hiện tại, quy tắc tồn kho, hoàn tiền, vận chuyển và loyalty.
+- **Ràng buộc phương thức thanh toán khi tạo đơn**: `CreateOrderRequest` chỉ chấp nhận `COD`, `MOMO`, `ZALOPAY` và `SEPAY`, đúng với các cổng mà `CreateOrderUseCase` và `PaymentUseCase` đang xử lý. Tránh trường hợp schema cho `VNPAY` hoặc `CREDIT_CARD` đi vào luồng tạo đơn nhưng nghiệp vụ không có gateway tương ứng.
+- **Đóng reservation an toàn hơn**: `close_active_order_reservations` khóa dòng reservation và inventory level bằng `FOR UPDATE`, đồng thời thêm điều kiện chặn trực tiếp trong câu `UPDATE` để không thể giải phóng/tiêu thụ lượng giữ hàng nếu `reserved_quantity` hoặc `on_hand_quantity` đã thay đổi giữa chừng.
+- **Phạm vi chưa đổi**: Chưa thay đổi chính sách đăng ký vận chuyển sau khi chuyển đơn sang `SHIPPED`; lỗi từ shipping gateway hiện vẫn chỉ được ghi log.
 
-## Cập nhật 2026-06-27 - Tách commerce use cases/repository và sửa lỗi mã hóa repository
+## Cập nhật 2026-07-07 (Bổ sung 2) - Khắc phục các lỗi logic nghiệp vụ phản biện
+- **Tránh trùng lặp đăng ký vận chuyển**: Chặn việc tự động đăng ký lại vận chuyển qua API khi đơn chuyển sang `SHIPPED` nếu đơn đã được cấp mã vận đơn (`tracking_code`) từ trước.
+- **Tự động hủy phiếu xuất kho khi đơn hoàn tiền (`REFUNDED`)**: Tự động chuyển các phiếu xuất kho (`OUTBOUND` document) liên kết chưa hoàn tất sang `CANCELLED` khi đơn hàng chuyển sang trạng thái `REFUNDED` nhằm tránh việc kho đóng gói nhầm.
+- **Mở rộng cập nhật trạng thái hoàn tiền cho COD**: Hỗ trợ thay đổi trạng thái thanh toán của đơn hàng sang `REFUNDED` khi hoàn tiền cho đơn COD (do đơn COD không có các giao dịch thanh toán online qua gateway).
 
-- Tách `app/application/commerce/use_cases.py` thành facade tương thích và các module nhỏ trong `app/application/commerce/use_cases/`: `common`, `voucher_service`, `create_order`, `payment`, `complete_order`, `reporting`.
-- Tách `commerce_repo.py` thành facade tương thích và các module nhỏ trong `app/infrastructure/database/repositories/commerce/`: `vouchers`, `reservations`, `inventory_levels`, `payments`, `orders_reports`.
-- Sửa lỗi mã hóa/cú pháp trong `commerce_repo.py` tại thông báo `Không đủ tồn khả dụng ở các kệ để xuất kho.`; trước đó chuỗi bị hỏng và dính vào khai báo `deduct_inventory_levels_from_locations`, làm file không compile được.
-- Tách POS admin thành `AdminPosModalUtils` và `AdminPosSuccessScreen` để giảm kích thước component chính.
-- Verification: `py_compile` pass cho commerce repository, commerce use cases, router commerce và `app/main.py`; frontend `npm run lint` pass.
+## Cập nhật 2026-07-07 (Bổ sung 3) - Sửa lỗi logic nghiệp vụ phản biện (Bán hàng & Đơn hàng)
+- **Kiểm tra trùng lặp khi hoàn kho (Idempotency)**: Thêm check log `ORDER_CANCELLED_RESTOCK` ở đầu hàm `_restock_order_items` tránh cộng dồn tồn kho nhiều lần.
+- **Hoàn trả kho khi hoàn tiền trực tiếp (`REFUNDED`)**: Sửa logic check `previous_status != "RETURNED"` cho phép hoàn trả kho từ đơn đã xuất hàng (`SHIPPED` hoặc `COMPLETED`) khi bấm hoàn tiền.
+- **Ghi chú đã được cập nhật bởi Bổ sung 4**: Quyết định giữ nguyên trạng thái `PENDING` khi thanh toán online thất bại không còn áp dụng; hiện hệ thống đóng đơn sang `PAYMENT_FAILED` để rollback tài nguyên ngay.
+- **Kiểm tra chéo khi thanh toán lại (Cross-Module Validation)**: Bổ sung check active reservations và kiểm tra hạn dùng, trạng thái của voucher trong hàm `retry` của `PaymentUseCase`.
 
-## Cập nhật 2026-06-27 - Đồng bộ giá mua kèm và dịch vụ trong POS admin
+## Cập nhật 2026-07-07 (Bổ sung 6) - Khắc phục các lỗi phản biện đồ án (Tạo & Vận chuyển Đơn hàng)
 
-- POS admin tính giá sản phẩm mua kèm theo cùng hướng với storefront: ưu tiên `offer.price` nếu API đã trả giá ưu đãi đã tính sẵn; nếu thiếu thì fallback về giá gốc và công thức giảm theo `discountType/discountValue`.
-- API admin products đã hydrate thêm `price`, `salePrice/discountPrice`, `originalPrice` và `normalDiscountPrice` cho sản phẩm mua kèm, tránh badge `[Mua kèm]` hiển thị `0 đ` khi dữ liệu offer cũ không lưu sẵn giá đã tính.
-- Giá dịch vụ đi kèm trong POS admin nay ưu tiên `overridePrice`, sau đó mới tính theo `priceMode` gồm `FIXED`, `PERCENT` và `TIERED_AMOUNT`.
-- Cách tính `TIERED_AMOUNT` dùng `metadata.priceTiers` và hỗ trợ tier cuối không có `max`, tránh trường hợp dịch vụ có bảng giá hợp lệ nhưng hiển thị `0 đ`.
-- Dòng dịch vụ trong giỏ POS được định danh theo cả sản phẩm cha và dịch vụ để cùng một dịch vụ gắn với hai sản phẩm khác nhau không bị gộp nhầm số lượng.
+- **Ngăn ngừa Race Condition trùng lặp đơn hàng**: Chuyển logic kiểm tra `idempotency_key` vào bên trong khối transaction chính của `CreateOrderUseCase` sử dụng ngoại lệ `IdempotencyOrderExistsException` truyền `order_id` (UUID) để triệt tiêu lỗ hổng TOCTOU và tránh lỗi lazy-loading của SQLAlchemy.
+- **Đồng bộ hạng thành viên khi tiêu điểm thưởng**: Cập nhật lại `user.loyalty_tier` khi trừ điểm ví thưởng ở luồng checkout online và POS.
+- **Sửa lỗi chặn đăng ký vận chuyển**: Thay đổi điều kiện trong `complete_order_carrier.py` để hỗ trợ tạo vận đơn giao hàng với Mock Carrier cho cả các đơn hàng thông thường không đi qua quy trình sinh phiếu xuất kho liên kết.
 
-## Cập nhật 2026-06-27 - Khắc phục danh sách sản phẩm và khách hàng trong POS
+## Cập nhật 2026-07-07 (Bổ sung 7) - Khắc phục lỗi Saga hoàn tiền và đơn hàng online 0 đồng
 
-- Sửa `AdminPosModal.tsx` để danh sách sản phẩm POS gọi `GET /admin/products` với `page=1`, nhờ đó frontend nhận đúng payload dạng `{ items: [...] }`; trước đó endpoint trả mảng trực tiếp khi không truyền `page` nhưng modal chỉ đọc `data.items`, làm danh sách luôn rỗng.
-- Sửa tham số tìm khách hàng từ `q` sang `search` để khớp endpoint `GET /admin/customers`.
-- Chuẩn hóa đọc response dạng mảng hoặc `{ items }` bằng helper `listFromResponse`, giúp modal bền hơn nếu endpoint thay đổi chế độ phân trang.
-- Chuẩn hóa điểm khách hàng từ `points`, `loyaltyPointsBalance` hoặc `loyalty_points_balance`; danh sách khách hàng tải sẵn nay hiển thị ngay dưới ô tìm kiếm thay vì chỉ hiện sau khi nhập từ khóa.
-- Chuẩn hóa nhãn và giá biến thể sản phẩm POS từ `configuration`, `colorName`, `storage`, `ram`, `salePrice`, `discountPrice` để tránh hiện `undefined` và dùng đúng giá bán.
+- **Gọi API Refund ngoài Transaction (Saga Integrity)**: Cập nhật `CompleteOrderUseCase.execute` để chuyển cuộc gọi `RefundGateway().refund()` ra ngoài ranh giới transaction chính, tránh việc giữ PostgreSQL locks lâu khi API phản hồi chậm, đồng thời lưu trạng thái hoàn tiền của giao dịch/đơn hàng thông qua các transaction ngắn độc lập.
+- **Xử lý đơn hàng online 0 đồng (0 VND Checkout)**: Cập nhật `CreateOrderUseCase.execute` để tự động bỏ qua cuộc gọi API cổng thanh toán online nếu số tiền cần thanh toán bằng 0đ (sau khi giảm trừ voucher/loyalty points). Đơn hàng và giao dịch được đánh dấu thành công là `PAID` ngay lập tức và tự động tạo phiếu xuất kho nháp (`OUTBOUND`).
 
-## Cập nhật 2026-06-27 - Hiển thị sản phẩm trong quản lý đơn hàng
+# Cập nhật 2026-07-12 - Tách hai hướng hoàn hàng
 
-- Kiểm tra backend endpoint `GET /api/orders` và `GET /api/orders/{order_id}`: dữ liệu đơn hàng đã có trường `items`, lấy từ bảng `order_items`.
-- Cập nhật `frontend/src/features/admin-orders/components/AdminOrdersTab.tsx` để bảng quản lý đơn hàng có thêm cột `Sản phẩm`, hiển thị tối đa 2 dòng sản phẩm đầu tiên kèm số lượng và dòng `+n sản phẩm khác` nếu đơn có nhiều sản phẩm.
-- Bảng `Sản phẩm trong đơn` trong modal chi tiết dùng helper chuẩn hóa dữ liệu, hỗ trợ cả key camelCase (`productName`, `totalPrice`) và snake_case (`product_name`, `total_price`) để tránh mất hiển thị khi nguồn dữ liệu thay đổi kiểu field.
-- Khi một đơn không có dòng sản phẩm, giao diện hiển thị trạng thái rõ ràng `Chưa có dòng sản phẩm` thay vì để bảng trống.
+- Đơn chuyển sang `RETURNING` bắt buộc xác định nguồn hoàn: khách từ chối nhận (`DELIVERY_REFUSED`) hoặc khách đã nhận rồi chủ động trả (`CUSTOMER_RETURN`).
+- Bắt buộc lưu lý do hoàn; có thể lưu riêng mã vận đơn hoàn để không nhầm với vận đơn giao đi.
+- Hàng khách đã nhận phải có hồ sơ đổi trả trong module Hậu mãi trước khi đơn được chuyển sang đang hoàn hoặc đã nhận lại.
+- Khi cửa hàng xác nhận `RETURNED`, bắt buộc ghi tình trạng tiếp nhận: nguyên niêm phong, đã mở hộp/thiếu phụ kiện hoặc hư hỏng/bất thường.
+- Chỉ hàng giao không thành công và còn nguyên niêm phong mới được tự động nhập lại tồn bán được. Hàng đã mở hoặc hư hỏng không tự cộng lại kho hàng mới.
+- Giao diện quản trị đơn hàng hiển thị biểu mẫu hoàn chuyên dụng và dẫn nhân viên sang module Hậu mãi cho nhánh khách chủ động trả.
+- Migration: `085_order_return_workflow.sql`.
+## 2026-07-13 - Làm mới đơn hàng trong trang tài khoản
 
-## Cập nhật 2026-06-27 - Luồng tạo đơn hàng tại quầy (POS)
+- Hook đơn hàng tải lại khi người dùng chuyển tab tài khoản, giúp tổng quan và lịch sử mua hàng đồng bộ sau khi trạng thái đơn vừa thay đổi.
+- Tổng quan hiển thị trạng thái đang tải thay vì tạm kết luận khách chưa có đơn hàng.
+- Form checkout dùng địa chỉ hành chính 2 cấp: tỉnh/thành phố và phường/xã; không còn bắt buộc quận/huyện.
 
-### Backend
+## Cập nhật 2026-07-13 - Hủy đơn có lý do và đồng bộ COD
 
-- Thêm `is_offline: bool` và `internal_note: str` vào `CreateOrderRequest` trong `backend/app/application/commerce/schemas.py`.
-- Trong `CreateOrderUseCase` tại `backend/app/application/commerce/use_cases.py`, nếu `request.is_offline` là `True`:
-  - Đơn hàng được tạo trực tiếp với `status = 'COMPLETED'` và `payment_status = 'PAID'`.
-  - Gọi `CompleteOrderUseCase._ship_order_items(order)` để trừ tồn kho theo FIFO ngay lập tức.
-  - Gọi `commerce_repo.close_active_order_reservations(self._session, order.id, 'CONSUMED')` để đóng reservation tạm thời.
-  - Tự động cộng điểm loyalty cho tài khoản khách hàng được chọn.
-  - Bỏ qua các bước thanh toán qua cổng online như MoMo, ZaloPay, SePay, kể cả khi nhân viên chọn phương thức thanh toán online để phân loại giao dịch tại quầy.
+- Dropdown trạng thái nhanh của quản trị mở chi tiết khi chọn hủy để bắt buộc nhập lý do, tránh API từ chối ngầm và trạng thái tự quay lại.
+- Sau khi đổi trạng thái nhanh, frontend đọc lại chi tiết đơn để đồng bộ cả trạng thái thanh toán COD và các tác dụng phụ nghiệp vụ.
+- Khách hàng có thể tự hủy đơn `PENDING` ngay tại trang chi tiết, bắt buộc nhập lý do và dùng endpoint hủy đơn dành cho chủ đơn hàng.
 
-### Frontend
+## Cập nhật 2026-07-13 - Làm mới số liệu Tổng quan khi quay lại tab
 
-- Thêm `AdminPosModal.tsx` cho luồng POS mini:
-  - Tìm kiếm và chọn sản phẩm, chọn variant phù hợp, kiểm tra tồn kho.
-  - Tìm kiếm và gán khách hàng đã đăng ký hoặc để trống cho khách vãng lai.
-  - Áp dụng voucher shop và trừ điểm loyalty trực tiếp.
-  - Chọn phương thức thanh toán, tính tiền thừa trả khách.
-- Tích hợp nút `Tạo đơn tại quầy` vào `AdminOrdersTab.tsx`.
-- Sau khi tạo đơn thành công, hệ thống mở bản in hóa đơn nhiệt K80 qua iframe ẩn và gọi `window.print()`.
-
-### Liên kết đơn hàng offline theo email
-
-- POS lưu email khách vãng lai vào `recipient_email` trong bảng `orders`.
-- Khi khách đăng ký tài khoản online hoặc đăng nhập Google lần đầu, helper `sync_and_link_offline_orders` trong `backend/app/api/routers/auth_utils.py`:
-  - Lấy họ tên và số điện thoại từ đơn offline gần nhất khớp email để điền vào tài khoản mới.
-  - Cập nhật `user_id` của các đơn offline cũ khớp email về user mới.
-  - Tổng hợp điểm loyalty từ các đơn offline cũ và tạo giao dịch đồng bộ điểm tương ứng.
-
-## Cập nhật 2026-06-27 - Bổ sung Bộ lọc Sản phẩm tại POS
-
-- **Tích hợp UI**: Bổ sung 2 dropdown bộ lọc bên cạnh thanh tìm kiếm sản phẩm tại giao diện POS Modal (`AdminPosModal.tsx`):
-  - **Danh mục (Category)**: Tự động tải danh sách danh mục từ API `/admin/categories`.
-  - **Thương hiệu (Brand)**: Tự động tải danh sách thương hiệu từ API `/admin/brands`.
-- **Tích hợp API & Logic lọc**:
-  - Giao diện POS tự động truyền thêm tham số `categoryId` và `brandId` vào query string của API `/admin/products` khi nhân viên thực hiện thao tác chọn bộ lọc.
-  - Các bộ lọc và thanh tìm kiếm từ khóa hoạt động đồng bộ và giữ nguyên trạng thái của nhau khi thay đổi.
-
-## Cập nhật 2026-06-27 - Hỗ trợ Mua kèm Phụ kiện & Dịch vụ tại POS
-
-- **Giao diện Badge Thêm nhanh**: Bên dưới thẻ sản phẩm, các phụ kiện gợi ý mua kèm (`accessoryOffers`) và các dịch vụ đi kèm (`attachedServices`) được render thành các badge bấm nhanh nhỏ nhắn, thẩm mỹ:
-  - **Badge màu đỏ**: Dành cho Phụ kiện mua kèm, tự động áp dụng giá combo ưu đãi đã giảm (được lưu trong `offer.price`).
-  - **Badge màu xanh**: Dành cho Dịch vụ đi kèm (được lưu trong `service.fixedPrice` hoặc `service.percentValue`).
-- **Thao tác một chạm**: Nhân viên chỉ cần nhấp vào các badge này, phụ kiện/dịch vụ sẽ tự động được thêm vào giỏ hàng bên phải dưới dạng các dòng đơn hàng chuẩn hóa `[Mua kèm] <Tên>` hoặc `[Dịch vụ] <Tên>` với đúng giá tiền ưu đãi tương ứng.
-
-## Cập nhật 2026-07-05 - Snapshot bảo hành trên dòng đơn
-
-- `order_items` có thêm `warranty_months_snapshot` để lưu số tháng bảo hành tại thời điểm bán.
-- `CreateOrderUseCase` lấy `products.warranty_period` trong bước resolve checkout và ghi vào từng `OrderItem`.
-- Snapshot này tách quyền bảo hành của đơn đã bán khỏi cấu hình sản phẩm hiện tại, tương tự các snapshot giá/khuyến mãi đã lưu trên dòng đơn.
-- Dòng thiết bị cũ ghi snapshot từ `used_device_listings.warranty_months`, không dùng `products.warranty_period` của sản phẩm gốc.
-- API `GET /api/orders`, `GET /api/orders/{order_id}` và `GET /api/me/orders` trả thêm `items[].warrantyMonthsSnapshot` để frontend khách hàng hiển thị quyền bảo hành đúng theo đơn đã mua.
+- Tab Tổng quan luôn đọc lại API overview khi người dùng quay về từ phân hệ khác, tránh giữ số đơn đã hủy/hoàn tiền cũ trong cache frontend.
+- Truy vấn overview vẫn là nguồn chuẩn cho tổng số và tỉ lệ hủy; bảng đơn hàng không tự ghi đè read-model báo cáo.

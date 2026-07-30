@@ -40,6 +40,14 @@ async def get_payment_transaction(session: AsyncSession, payment_id: UUID) -> Pa
     return await session.scalar(select(PaymentTransaction).where(PaymentTransaction.id == payment_id))
 
 
+async def get_payment_transaction_by_id_for_update(session: AsyncSession, payment_id: UUID) -> PaymentTransaction | None:
+    return await session.scalar(
+        select(PaymentTransaction)
+        .where(PaymentTransaction.id == payment_id)
+        .with_for_update()
+    )
+
+
 async def get_payment_transaction_for_update(
     session: AsyncSession,
     *,

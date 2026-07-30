@@ -34,6 +34,217 @@ const paymentMethodLabels: Record<string, string> = {
   VNPAY: 'VNPAY',
 };
 
+const moduleLabels: Record<string, string> = {
+  overview: 'Tổng quan hệ thống',
+  product: 'Quản lý sản phẩm',
+  category: 'Quản lý danh mục',
+  brand: 'Quản lý thương hiệu',
+  order: 'Quản lý đơn hàng',
+  voucher: 'Quản lý khuyến mãi / Voucher',
+  customer: 'Quản lý khách hàng',
+  inventory: 'Quản lý kho / Tồn kho',
+  review: 'Quản lý đánh giá',
+  content: 'Quản lý nội dung / truyền thông',
+  audit: 'Nhật ký bảo mật',
+  sys: 'Cấu hình hệ thống',
+  supplier: 'Quản lý nhà cung cấp',
+  payment_method: 'Phương thức thanh toán',
+  used_product: 'Thu mua máy cũ',
+  service: 'Quản lý dịch vụ đi kèm',
+  flash_sale: 'Quản lý flash sale',
+};
+
+const permissionLabels: Record<string, { title: string; description: string }> = {
+  'overview:read': {
+    title: 'Xem tổng quan',
+    description: 'Xem các thông số tổng quan và biểu đồ thống kê kinh doanh',
+  },
+  'product:read': {
+    title: 'Xem sản phẩm',
+    description: 'Xem danh sách và chi tiết thông tin sản phẩm',
+  },
+  'product:create': {
+    title: 'Thêm sản phẩm',
+    description: 'Tạo mới sản phẩm và các phiên bản sản phẩm',
+  },
+  'product:update': {
+    title: 'Cập nhật sản phẩm',
+    description: 'Sửa thông tin sản phẩm, cập nhật giá bán, hình ảnh',
+  },
+  'product:delete': {
+    title: 'Xóa / Ẩn sản phẩm',
+    description: 'Ẩn sản phẩm khỏi cửa hàng hoặc chuyển vào lưu trữ',
+  },
+  'category:read': {
+    title: 'Xem danh mục',
+    description: 'Xem cấu trúc và danh sách danh mục sản phẩm',
+  },
+  'category:create': {
+    title: 'Thêm danh mục',
+    description: 'Tạo mới danh mục sản phẩm',
+  },
+  'category:update': {
+    title: 'Cập nhật danh mục',
+    description: 'Thay đổi thông tin, vị trí hoặc cấp cha-con của danh mục',
+  },
+  'category:delete': {
+    title: 'Xóa / Ẩn danh mục',
+    description: 'Xóa danh mục không hoạt động hoặc ẩn danh mục',
+  },
+  'brand:read': {
+    title: 'Xem thương hiệu',
+    description: 'Xem danh sách các thương hiệu/nhãn hàng',
+  },
+  'brand:create': {
+    title: 'Thêm thương hiệu',
+    description: 'Tạo mới thương hiệu',
+  },
+  'brand:update': {
+    title: 'Cập nhật thương hiệu',
+    description: 'Thay đổi thông tin thương hiệu',
+  },
+  'brand:delete': {
+    title: 'Xóa / Ẩn thương hiệu',
+    description: 'Xóa thương hiệu không hoạt động hoặc ẩn thương hiệu',
+  },
+  'order:read': {
+    title: 'Xem đơn hàng',
+    description: 'Xem danh sách đơn hàng và trạng thái chi tiết',
+  },
+  'order:update': {
+    title: 'Cập nhật đơn hàng',
+    description: 'Xác nhận đơn, chuyển trạng thái giao hàng, xử lý hủy/hoàn đơn',
+  },
+  'voucher:read': {
+    title: 'Xem khuyến mãi',
+    description: 'Xem danh sách mã giảm giá, chương trình khuyến mãi',
+  },
+  'voucher:create': {
+    title: 'Thêm khuyến mãi',
+    description: 'Tạo mới mã giảm giá, thiết lập điều kiện khuyến mãi',
+  },
+  'voucher:update': {
+    title: 'Cập nhật khuyến mãi',
+    description: 'Thay đổi thông tin hoặc sửa điều kiện của voucher',
+  },
+  'voucher:delete': {
+    title: 'Tắt khuyến mãi',
+    description: 'Tạm dừng hoặc hủy kích hoạt mã giảm giá trước hạn',
+  },
+  'customer:read': {
+    title: 'Xem khách hàng',
+    description: 'Xem danh sách tài khoản khách hàng và hồ sơ khách hàng',
+  },
+  'customer:update': {
+    title: 'Cập nhật thông tin khách hàng',
+    description: 'Thay đổi nhãn (tag), ghi chú hỗ trợ chăm sóc khách hàng',
+  },
+  'customer:loyalty_adjust': {
+    title: 'Điều chỉnh điểm tích lũy',
+    description: 'Cộng hoặc trừ điểm thưởng thủ công cho khách hàng',
+  },
+  'customer:issue_voucher': {
+    title: 'Tặng voucher riêng',
+    description: 'Gửi mã giảm giá tri ân riêng cho từng khách hàng',
+  },
+  'inventory:read': {
+    title: 'Xem kho hàng',
+    description: 'Xem lượng tồn kho thực tế, lịch sử xuất nhập kho',
+  },
+  'inventory:adjust': {
+    title: 'Điều chỉnh tồn kho',
+    description: 'Điều chỉnh số lượng tồn kho thủ công hoặc tạo yêu cầu điều chỉnh',
+  },
+  'inventory:approve': {
+    title: 'Duyệt phiếu kho',
+    description: 'Duyệt các phiếu nhập/xuất hoặc phiếu điều chỉnh tồn kho',
+  },
+  'inventory:count': {
+    title: 'Kiểm kê kho',
+    description: 'Tạo và đối soát kết quả kiểm kê kho định kỳ',
+  },
+  'inventory:reserve': {
+    title: 'Quản lý giữ hàng',
+    description: 'Giữ trước số lượng tồn kho phục vụ đơn hàng chờ thanh toán',
+  },
+  'review:read': {
+    title: 'Xem đánh giá',
+    description: 'Xem các nhận xét, đánh giá sản phẩm của khách hàng',
+  },
+  'review:update': {
+    title: 'Duyệt đánh giá',
+    description: 'Duyệt hiển thị hoặc ẩn các đánh giá không phù hợp',
+  },
+  'review:delete': {
+    title: 'Xóa đánh giá',
+    description: 'Xóa vĩnh viễn đánh giá/bình luận của khách hàng',
+  },
+  'content:read': {
+    title: 'Xem nội dung',
+    description: 'Xem thông tin các trang tĩnh, banner, bài viết',
+  },
+  'content:create': {
+    title: 'Tạo nội dung',
+    description: 'Đăng bài viết mới, tải lên video giới thiệu hoặc tạo banner quảng cáo',
+  },
+  'content:update': {
+    title: 'Sửa nội dung',
+    description: 'Thay đổi banner, chỉnh sửa bài viết tin tức và nội dung giới thiệu',
+  },
+  'content:delete': {
+    title: 'Xóa nội dung',
+    description: 'Xóa banner hoặc ẩn bài viết tin tức',
+  },
+  'audit:read': {
+    title: 'Xem nhật ký bảo mật',
+    description: 'Xem lịch sử thao tác của các tài khoản nhân viên khác',
+  },
+  'sys:manage_users': {
+    title: 'Quản lý nhân viên',
+    description: 'Tạo tài khoản nhân viên, đổi trạng thái hoạt động tài khoản',
+  },
+  'sys:manage_roles': {
+    title: 'Quản lý phân quyền',
+    description: 'Chỉnh sửa ma trận quyền hạn cho các vai trò trong hệ thống',
+  },
+  'supplier:read': {
+    title: 'Xem nhà cung cấp',
+    description: 'Xem danh sách và chi tiết thông tin nhà cung cấp hàng hóa',
+  },
+  'supplier:create': {
+    title: 'Thêm nhà cung cấp',
+    description: 'Tạo mới hồ sơ nhà cung cấp',
+  },
+  'supplier:update': {
+    title: 'Cập nhật nhà cung cấp',
+    description: 'Cập nhật thông tin liên hệ, hợp đồng nhà cung cấp',
+  },
+  'supplier:delete': {
+    title: 'Xóa nhà cung cấp',
+    description: 'Ngừng hợp tác hoặc ẩn thông tin nhà cung cấp',
+  },
+  'payment_method:read': {
+    title: 'Xem cấu hình thanh toán',
+    description: 'Xem thông tin kết nối các cổng thanh toán online (MoMo, ZaloPay, SePay...)',
+  },
+  'payment_method:update': {
+    title: 'Cấu hình thanh toán',
+    description: 'Bật/tắt hoặc cấu hình tham số, trạng thái bảo trì cổng thanh toán',
+  },
+  'used_product:read': {
+    title: 'Xem yêu cầu thu mua',
+    description: 'Xem danh sách khách hàng đăng ký bán lại máy cũ',
+  },
+  'used_product:manage': {
+    title: 'Thẩm định máy cũ',
+    description: 'Nhận máy, chạy kiểm tra và định giá sơ bộ thiết bị cũ',
+  },
+  'used_product:approve': {
+    title: 'Duyệt thu mua máy cũ',
+    description: 'Duyệt quyết định thu mua và xác nhận mức giá giao dịch cuối cùng',
+  },
+};
+
 export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
   const {
     addCustomerNote,
@@ -77,10 +288,12 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
     setEditingStaffAccessId,
     setStaffForm,
     setStaffPermissionDraft,
+    setStaffPermissionDenyDraft,
     setStaffPermissionEditor,
     staffBasePermissionCodes,
     staffForm,
     staffPermissionDraft,
+    staffPermissionDenyDraft,
     staffPermissionEditor,
     staffUsers,
     updateUserAccess,
@@ -97,16 +310,16 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                 </div>
                 {canManageCustomerAccess && (
                   <div className="mb-6 grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
-                    <form onSubmit={createStaffAccount} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <form onSubmit={createStaffAccount} autoComplete="off" className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                       <div className="mb-3">
                         <div className="text-sm font-black text-slate-900">Tạo tài khoản nhân viên</div>
                         <div className="mt-1 text-xs font-medium text-slate-500">Nhân viên mới chưa có quyền nghiệp vụ. Super Admin cấp quyền theo đúng chức năng của từng tài khoản sau khi tạo.</div>
                       </div>
                       <div className="grid gap-3">
-                        <Input label="Họ tên nhân viên" value={staffForm.fullName} required onChange={(value) => setStaffForm({ ...staffForm, fullName: value })} />
-                        <Input label="Email đăng nhập" type="email" value={staffForm.email} required onChange={(value) => setStaffForm({ ...staffForm, email: value })} />
-                        <Input label="Mật khẩu tạm" type="password" value={staffForm.password} required onChange={(value) => setStaffForm({ ...staffForm, password: value })} />
-                        <Input label="Số điện thoại" value={staffForm.phone} onChange={(value) => setStaffForm({ ...staffForm, phone: value })} />
+                        <Input label="Họ tên nhân viên" name="new-staff-full-name" autoComplete="off" value={staffForm.fullName} required onChange={(value) => setStaffForm({ ...staffForm, fullName: value })} />
+                        <Input label="Email đăng nhập" name="new-staff-email" autoComplete="off" type="email" value={staffForm.email} required onChange={(value) => setStaffForm({ ...staffForm, email: value })} />
+                        <Input label="Mật khẩu tạm" name="new-staff-password" autoComplete="new-password" type="password" value={staffForm.password} required onChange={(value) => setStaffForm({ ...staffForm, password: value })} />
+                        <Input label="Số điện thoại" name="new-staff-phone" autoComplete="off" value={staffForm.phone} onChange={(value) => setStaffForm({ ...staffForm, phone: value })} />
                         <Select label="Trạng thái" value={staffForm.status} onChange={(value) => setStaffForm({ ...staffForm, status: value })} options={[['ACTIVE', 'ACTIVE'], ['SUSPENDED', 'SUSPENDED']]} />
                         <button type="submit" className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-slate-800">
                           <Plus className="h-4 w-4" /> Tạo nhân viên
@@ -149,8 +362,8 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                                   <td className="px-3 py-3">
                                     {isSuper ? staff.status : (
                                       <select disabled={!isEditingStaff} value={staff.status || 'ACTIVE'} onChange={(event) => updateUserAccess(staff, { status: event.target.value })} className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold outline-none focus:border-red-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500">
-                                        <option value="ACTIVE">ACTIVE</option>
-                                        <option value="SUSPENDED">SUSPENDED</option>
+                                        <option value="ACTIVE">Đang hoạt động</option>
+                                        <option value="SUSPENDED">Tạm khóa</option>
                                       </select>
                                     )}
                                   </td>
@@ -215,32 +428,44 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                     <div className="mb-4 grid gap-3 md:grid-cols-3">
                       <MiniMetric label="Quyền chung" value={staffBasePermissionCodes.length} helper="Luôn là 0 với Staff Admin" />
                       <MiniMetric label="Quyền riêng" value={staffPermissionDraft.length} helper="Cấp trực tiếp cho nhân viên này" />
-                      <MiniMetric label="Tổng hiệu lực" value={new Set([...staffBasePermissionCodes, ...staffPermissionDraft]).size} helper="Quyền riêng đang áp dụng" />
+                      <MiniMetric label="Quyền từ chối" value={staffPermissionDenyDraft.length} helper="Luôn ưu tiên cao nhất" />
+                      <MiniMetric label="Tổng hiệu lực" value={[...new Set([...staffBasePermissionCodes, ...staffPermissionDraft])].filter((code) => !staffPermissionDenyDraft.includes(code)).length} helper="Sau khi loại quyền từ chối" />
                     </div>
                     <div className="grid gap-4 md:grid-cols-2">
                       {Object.entries(permissionsByModule).map(([moduleName, modulePermissions]) => (
                         <div key={moduleName} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                          <div className="mb-3 text-sm font-black uppercase text-slate-700">{moduleName}</div>
+                          <div className="mb-3 text-sm font-black uppercase text-slate-700">
+                            {moduleLabels[moduleName] || moduleName}
+                          </div>
                           <div className="space-y-2">
                             {(modulePermissions as any[]).map((permission) => {
                               const baseLocked = staffBasePermissionCodes.includes(permission.code);
-                              const checked = baseLocked || staffPermissionDraft.includes(permission.code);
+                              const denied = staffPermissionDenyDraft.includes(permission.code);
+                              const checked = !denied && (baseLocked || staffPermissionDraft.includes(permission.code));
+                              const labelData = permissionLabels[permission.code];
                               return (
-                                <label key={permission.code} className={`flex items-start gap-3 rounded-md border px-3 py-2 ${baseLocked ? 'border-slate-200 bg-white/70 opacity-75' : 'border-slate-200 bg-white'}`}>
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    disabled={baseLocked}
-                                    onChange={(event) => {
-                                      setStaffPermissionDraft((prev) => event.target.checked
-                                        ? [...new Set([...prev, permission.code])]
-                                        : prev.filter((code) => code !== permission.code));
-                                    }}
-                                    className="mt-1 h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
-                                  />
-                                  <span>
-                                    <span className="block text-sm font-bold text-slate-900">{permission.code}</span>
-                                    <span className="block text-xs text-slate-500">{baseLocked ? 'Quyền chung' : (permission.description || permission.module)}</span>
+                                <label key={permission.code} className={`flex items-start gap-3 rounded-md border px-3 py-2.5 transition-all hover:bg-slate-50/50 ${baseLocked ? 'border-slate-200 bg-white/70 opacity-75' : 'border-slate-200 bg-white'}`}>
+                                  <div className="mt-0.5 flex shrink-0 flex-col gap-2">
+                                    <label className="flex items-center gap-1 text-[11px] font-bold text-emerald-700">
+                                      <input type="checkbox" checked={checked} disabled={baseLocked || denied} onChange={(event) => setStaffPermissionDraft((prev) => event.target.checked ? [...new Set([...prev, permission.code])] : prev.filter((code) => code !== permission.code))} /> Cấp
+                                    </label>
+                                    <label className="flex items-center gap-1 text-[11px] font-bold text-red-700">
+                                      <input type="checkbox" checked={denied} onChange={(event) => {
+                                        setStaffPermissionDenyDraft((prev) => event.target.checked ? [...new Set([...prev, permission.code])] : prev.filter((code) => code !== permission.code));
+                                        if (event.target.checked) setStaffPermissionDraft((prev) => prev.filter((code) => code !== permission.code));
+                                      }} /> Từ chối
+                                    </label>
+                                  </div>
+                                  <span className="flex-1">
+                                    <span className="block text-sm font-bold text-slate-900">
+                                      {labelData?.title || permission.code}
+                                    </span>
+                                    <span className="block text-xs text-slate-500 mt-0.5">
+                                      {baseLocked ? 'Quyền mặc định của nhân viên' : (labelData?.description || permission.description || permission.module)}
+                                    </span>
+                                    <span className="inline-block text-[10px] font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded mt-1.5 select-all">
+                                      {permission.code}
+                                    </span>
                                   </span>
                                 </label>
                               );

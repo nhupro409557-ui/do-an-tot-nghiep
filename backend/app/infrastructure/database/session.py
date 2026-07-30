@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
-from app.testing.database_guard import database_name, TEST_DATABASE_PREFIX
+from app.infrastructure.database.naming import TEST_DATABASE_PREFIX, database_name
 
 
 engine_options = {"pool_pre_ping": True}

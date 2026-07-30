@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 async def get_product_variant_context(session: AsyncSession, product_id: UUID) -> dict | None:
     result = await session.execute(
-        text("SELECT options, sku, status, parent_product_id FROM products WHERE id = :product_id"),
+        text("SELECT options, sku, status, parent_product_id FROM products WHERE id = :product_id FOR UPDATE"),
         {"product_id": product_id},
     )
     row = result.mappings().first()
@@ -80,6 +80,9 @@ async def list_bound_variant_ids(session: AsyncSession, variant_ids: list[UUID])
         "inventory_adjustment_logs",
         "product_imeis",
         "product_serial_numbers",
+        "used_devices",
+        "used_device_intake_requests",
+        "flash_sales",
     }
     table_result = await session.execute(
         text(
@@ -87,7 +90,7 @@ async def list_bound_variant_ids(session: AsyncSession, variant_ids: list[UUID])
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema = 'public'
-              AND table_name IN :table_names
+            AND table_name IN :table_names
             """
         ).bindparams(bindparam("table_names", expanding=True)),
         {"table_names": sorted(optional_tables)},
@@ -105,13 +108,23 @@ async def list_bound_variant_ids(session: AsyncSession, variant_ids: list[UUID])
     if "inventory_lots" in existing_tables:
         optional_checks.append("EXISTS (SELECT 1 FROM inventory_lots ilot WHERE ilot.variant_id = tv.id)")
     if "inventory_lot_movements" in existing_tables:
-        optional_checks.append("EXISTS (SELECT 1 FROM inventory_lot_movements ilm WHERE ilm.variant_id = tv.id)")
+        optional_checks.append(
+            "EXISTS (SELECT 1 FROM inventory_lot_movements ilm JOIN inventory_lots ilot ON ilot.id = ilm.lot_id WHERE ilot.variant_id = tv.id)"
+        )
     if "inventory_adjustment_logs" in existing_tables:
         optional_checks.append("EXISTS (SELECT 1 FROM inventory_adjustment_logs ial WHERE ial.variant_id = tv.id)")
     if "product_imeis" in existing_tables:
         optional_checks.append("EXISTS (SELECT 1 FROM product_imeis pi WHERE pi.variant_id = tv.id)")
     if "product_serial_numbers" in existing_tables:
         optional_checks.append("EXISTS (SELECT 1 FROM product_serial_numbers psn WHERE psn.variant_id = tv.id)")
+    if "used_devices" in existing_tables:
+        optional_checks.append("EXISTS (SELECT 1 FROM used_devices ud WHERE ud.variant_id = tv.id)")
+    if "used_device_intake_requests" in existing_tables:
+        optional_checks.append("EXISTS (SELECT 1 FROM used_device_intake_requests udi WHERE udi.variant_id = tv.id)")
+    if "flash_sales" in existing_tables:
+        optional_checks.append(
+            "EXISTS (SELECT 1 FROM flash_sales fs WHERE fs.variant_id = tv.id AND fs.status = 'ACTIVE')"
+        )
     optional_sql = "\n               OR ".join(optional_checks)
     if optional_sql:
         optional_sql = "\n               OR " + optional_sql
@@ -204,8 +217,8 @@ async def soft_delete_variants(session: AsyncSession, variant_ids: list[UUID]) -
     )
 
 
-async def update_product_sku(session: AsyncSession, *, product_id: UUID, sku: str) -> None:
-    await session.execute(
+async def update_product_sku(session: AsyncSession, *, product_id: UUID, sku: str) -> int:
+    result = await session.execute(
         text(
             """
             UPDATE products
@@ -222,6 +235,7 @@ async def update_product_sku(session: AsyncSession, *, product_id: UUID, sku: st
         ),
         {"sku": sku, "product_id": product_id},
     )
+    return int(result.rowcount or 0)
 
 
 async def get_variant_for_delete(
@@ -236,6 +250,7 @@ async def get_variant_for_delete(
             SELECT id, is_default, sku
             FROM product_variants
             WHERE id = :variant_id AND product_id = :product_id AND deleted_at IS NULL
+            FOR UPDATE
             """
         ),
         {"variant_id": variant_id, "product_id": product_id},
@@ -292,8 +307,8 @@ async def mark_variant_default(session: AsyncSession, variant_id: UUID) -> None:
     )
 
 
-async def update_product_sku_with_timestamp(session: AsyncSession, *, product_id: UUID, sku: str) -> None:
-    await session.execute(
+async def update_product_sku_with_timestamp(session: AsyncSession, *, product_id: UUID, sku: str) -> int:
+    result = await session.execute(
         text(
             """
             UPDATE products
@@ -311,6 +326,7 @@ async def update_product_sku_with_timestamp(session: AsyncSession, *, product_id
         ),
         {"sku": sku, "product_id": product_id},
     )
+    return int(result.rowcount or 0)
 
 
 def json_param(value: object) -> str:

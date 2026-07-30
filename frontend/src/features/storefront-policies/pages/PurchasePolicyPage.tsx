@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { LiveStorePolicySummary } from '../components/LiveStorePolicySummary';
 import {
   ChevronDown, ChevronUp, ShoppingCart, CreditCard, Receipt, AlertTriangle,
   BadgeCheck, Clock, FileText, ArrowRight, ShieldCheck, Box, RotateCcw,
@@ -527,6 +528,7 @@ export default function PurchasePolicyPage() {
 
       {/* Content */}
       <div className="mx-auto max-w-5xl px-4 py-10 lg:px-6">
+        <LiveStorePolicySummary codes={['INSTALLMENT', 'VAT_INVOICE', 'AUTHENTICITY']} tone="rose" />
         <div className="space-y-3">
           {PURCHASE_POLICY_PAGE_SECTIONS.map((section) => {
             const isOpen = expanded === section.id;

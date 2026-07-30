@@ -50,3 +50,15 @@ patch_*.py
 
 # Local visual verification screenshots
 *-check.png
+frontend/*-redesign*.png
+
+# Generated previews and one-off local scratch files
+.codex-runtime/
+.playwright-cli/
+tmp/
+docx_render/
+backend/scratch/
+scratch_replace_*.txt
+drawio_version.txt
+test.mmd
+*.preview.png

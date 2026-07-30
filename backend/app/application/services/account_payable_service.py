@@ -38,6 +38,13 @@ async def ensure_payable_for_completed_receipt(
         return None
 
     metadata = source.get("metadata") or {}
+    normalized_source = {
+        **source,
+        "metadata": {
+            **metadata,
+            "invoiceDate": _parse_datetime(metadata.get("invoiceDate")),
+        },
+    }
     payment_term_days = max(0, min(int(metadata.get("paymentTermDays") or 0), 365))
     posted_at = _parse_datetime(source.get("postedAt")) or datetime.now(timezone.utc)
     due_date = _parse_datetime(metadata.get("dueDate")) or (posted_at + timedelta(days=payment_term_days))
@@ -56,7 +63,7 @@ async def ensure_payable_for_completed_receipt(
 
     payable = await account_payable_repo.upsert_payable_from_receipt(
         session,
-        source=source,
+        source=normalized_source,
         due_date=due_date,
         payment_term_days=payment_term_days,
         paid_amount=paid_amount,
@@ -183,4 +190,13 @@ async def cancel_payable_for_reversed_receipt(
             event_type="CANCELLED_BY_RECEIPT_REVERSAL",
             actor_id=actor_id,
             metadata={"sourceDocumentId": str(source_document_id), "note": note},
+        )
+
+
+async def ensure_receipt_reversal_allowed(session: AsyncSession, source_document_id: UUID) -> None:
+    payable = await account_payable_repo.get_payable_by_source_document(session, source_document_id)
+    if payable and float(payable.get("paidAmount") or 0) > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Phiếu nhập đã phát sinh thanh toán công nợ. Phải hoàn hoặc điều chỉnh khoản thanh toán trước khi đảo phiếu.",
         )

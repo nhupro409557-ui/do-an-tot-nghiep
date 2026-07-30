@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from redis.asyncio import Redis
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.repositories import brand_repo
@@ -116,6 +117,7 @@ async def process_brand_import_job(session: AsyncSession, redis: Redis, job_id: 
     skipped: list[dict] = []
     changed_slugs: list[str] = []
     seen_codes: set[str] = set()
+    seen_names: set[str] = set()
 
     try:
         for index, item in enumerate(items, start=1):
@@ -123,29 +125,42 @@ async def process_brand_import_job(session: AsyncSession, redis: Redis, job_id: 
             code = str(item.get("code") or "").strip()
             logo_url = item.get("logoUrl") or None
             order = int(item.get("order") or 0)
+            normalized_name = name.casefold()
+            normalized_code = code.casefold()
 
             if not name or not code:
                 skipped.append({"row": index, "name": name, "code": code, "reason": "Thiếu tên hoặc mã thương hiệu."})
-            elif code.lower() in seen_codes:
+            elif normalized_code in seen_codes:
                 skipped.append({"row": index, "name": name, "code": code, "reason": "Mã bị trùng trong file import."})
+            elif normalized_name in seen_names:
+                skipped.append({"row": index, "name": name, "code": code, "reason": "Tên thương hiệu bị trùng trong file import."})
             else:
-                seen_codes.add(code.lower())
+                seen_codes.add(normalized_code)
+                seen_names.add(normalized_name)
                 exists = await brand_repo.get_brand_by_code(session, code)
                 if exists and job["mode"] == "skip":
                     skipped.append({"row": index, "name": name, "code": code, "reason": "Mã thương hiệu đã tồn tại."})
+                elif await brand_repo.brand_name_exists(session, name=name, exclude_id=exists["id"] if exists else None):
+                    skipped.append({"row": index, "name": name, "code": code, "reason": "Tên thương hiệu đã tồn tại."})
                 else:
                     brand_id = uuid4()
                     slug = f"{slugify(name)}-{brand_id.hex[:5]}"
-                    row = await brand_repo.upsert_brand_from_import(
-                        session,
-                        brand_id=brand_id,
-                        code=code,
-                        slug=slug,
-                        name=name,
-                        logo_url=logo_url,
-                        sort_order=order,
-                        mode=job["mode"],
-                    )
+                    skip_reason: str | None = None
+                    try:
+                        async with session.begin_nested():
+                            row = await brand_repo.upsert_brand_from_import(
+                                session,
+                                brand_id=brand_id,
+                                code=code,
+                                slug=slug,
+                                name=name,
+                                logo_url=logo_url,
+                                sort_order=order,
+                                mode=job["mode"],
+                            )
+                    except IntegrityError:
+                        row = None
+                        skip_reason = "Tên hoặc mã thương hiệu đã tồn tại."
                     if row and row["inserted"]:
                         imported += 1
                         changed_slugs.append(row["slug"])
@@ -153,7 +168,7 @@ async def process_brand_import_job(session: AsyncSession, redis: Redis, job_id: 
                         updated += 1
                         changed_slugs.append(row["slug"])
                     else:
-                        skipped.append({"row": index, "name": name, "code": code, "reason": "Tên thương hiệu đã tồn tại."})
+                        skipped.append({"row": index, "name": name, "code": code, "reason": skip_reason or "Tên thương hiệu đã tồn tại."})
 
             progress = int(index / max(total_rows, 1) * 100)
             await brand_repo.update_brand_import_job_progress(

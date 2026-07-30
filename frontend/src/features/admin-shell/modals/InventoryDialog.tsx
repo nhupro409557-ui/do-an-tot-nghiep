@@ -1,6 +1,7 @@
 import React from 'react';
 import { Input, Select } from '../components/AdminDashboardParts';
 import { Plus, Trash2, X } from 'lucide-react';
+import { adminInventoryApi } from '../../admin-inventory/services/adminInventoryApi';
 
 type InventoryDialogProps = Record<string, any>;
 
@@ -124,6 +125,7 @@ export default function InventoryDialog(props: InventoryDialogProps) {
     suppliers,
     inventoryLocations,
     addReceiptLine,
+    addReceiptShelfAllocation,
     removeReceiptLine,
     updateReceiptLine,
     resolveProduct,
@@ -139,6 +141,15 @@ export default function InventoryDialog(props: InventoryDialogProps) {
   } = props;
 
   const [isUploadingAttachment, setIsUploadingAttachment] = React.useState(false);
+  const [purchaseOrders, setPurchaseOrders] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    if (!inventoryDraft || inventoryDraft.receiptReasonCode !== 'NK_MUA') return;
+    void adminInventoryApi.adminListPurchaseOrders('', 'APPROVED').then(async (approved) => {
+      const partial = await adminInventoryApi.adminListPurchaseOrders('', 'PARTIALLY_RECEIVED').catch(() => []);
+      setPurchaseOrders([...(approved || []), ...(partial || [])]);
+    }).catch(() => setPurchaseOrders([]));
+  }, [Boolean(inventoryDraft), inventoryDraft?.receiptReasonCode]);
 
   if (!inventoryDraft) return null;
 
@@ -147,6 +158,41 @@ export default function InventoryDialog(props: InventoryDialogProps) {
     ['', 'Chọn nhà cung cấp'],
     ...activeSuppliers.map((supplier: any) => [String(supplier.id), `${supplier.name}${supplier.code ? ` - ${supplier.code}` : ''}`] as [string, string]),
   ];
+  const purchaseOrderOptions: [string, string][] = [
+    ['', 'Không liên kết đơn mua'],
+    ...purchaseOrders.map((order: any) => [String(order.id), `${order.code} - ${order.supplierName} (còn ${Number(order.orderedQuantity || 0) - Number(order.receivedQuantity || 0)})`] as [string, string]),
+  ];
+
+  async function handlePurchaseOrderChange(orderId: string) {
+    if (!orderId) {
+      setInventoryDraft({ ...inventoryDraft, purchaseOrderId: '', lines: inventoryDraft.lines.map((line: any) => ({ ...line, purchaseOrderLineId: '' })) });
+      return;
+    }
+    const order = await adminInventoryApi.adminGetPurchaseOrder(orderId);
+    const supplier = activeSuppliers.find((item: any) => String(item.id) === String(order.supplierId));
+    const poLines = (order.lines || []).filter((line: any) => Number(line.remainingQuantity || 0) > 0);
+    setInventoryDraft({
+      ...inventoryDraft,
+      purchaseOrderId: orderId,
+      supplierId: String(order.supplierId || ''),
+      supplierName: supplier?.name || order.supplierName || '',
+      discountAmount: Number(order.discountAmount || 0),
+      shippingFee: Number(order.shippingFee || 0),
+      lines: poLines.map((line: any) => ({
+        id: `${Date.now()}-${line.id}`,
+        productId: String(line.productId),
+        variantId: String(line.variantId || ''),
+        warehouseLocationId: '',
+        quantity: Number(line.remainingQuantity || 0),
+        unitCost: Number(line.unitCost || 0),
+        reason: 'Nhập theo đơn mua',
+        note: '',
+        storageLocationCode: '',
+        storageLocationName: '',
+        purchaseOrderLineId: String(line.id),
+      })),
+    });
+  }
   const categoryOptions: [string, string][] = [
     ['', 'Tất cả danh mục'],
     ...categories.map((category: any) => [String(category.id), category.parentName ? `${category.parentName} / ${category.name}` : category.name] as [string, string]),
@@ -350,12 +396,17 @@ export default function InventoryDialog(props: InventoryDialogProps) {
           </div>
 
           <div className="grid gap-3 rounded-lg border border-amber-100 bg-amber-50/40 p-3 md:grid-cols-4">
+            <div className="md:col-span-2">
+              <Select label="Đơn mua hàng" value={inventoryDraft.purchaseOrderId || ''} onChange={(value) => void handlePurchaseOrderChange(value)} options={purchaseOrderOptions} />
+            </div>
             <Input label="Số hóa đơn NCC" value={inventoryDraft.invoiceNumber || ''} onChange={(value) => setInventoryDraft({ ...inventoryDraft, invoiceNumber: value })} />
             <Input label="Ngày hóa đơn" type="date" value={inventoryDraft.invoiceDate || ''} onChange={(value) => setInventoryDraft({ ...inventoryDraft, invoiceDate: value })} />
             <Select label="Thanh toán NCC" value={inventoryDraft.paymentMode || 'DEBT'} onChange={(value) => setInventoryDraft({ ...inventoryDraft, paymentMode: value })} options={paymentModeOptions} />
             <Input label="Số ngày được nợ" type="number" value={inventoryDraft.paymentTermDays || 0} onChange={(value) => setInventoryDraft({ ...inventoryDraft, paymentTermDays: Math.max(0, Number(value || 0)) })} />
             <Input label="Ngày đến hạn" type="date" value={inventoryDraft.dueDate || ''} onChange={(value) => setInventoryDraft({ ...inventoryDraft, dueDate: value })} />
             <Input label="Đã trả trước" type="number" value={inventoryDraft.paidAmount || 0} onChange={(value) => setInventoryDraft({ ...inventoryDraft, paidAmount: Math.max(0, Number(value || 0)) })} />
+            <Input label="Chiết khấu nhập" type="number" value={inventoryDraft.discountAmount || 0} onChange={(value) => setInventoryDraft({ ...inventoryDraft, discountAmount: Math.max(0, Number(value || 0)) })} />
+            <Input label="Phí vận chuyển/nhập" type="number" value={inventoryDraft.shippingFee || 0} onChange={(value) => setInventoryDraft({ ...inventoryDraft, shippingFee: Math.max(0, Number(value || 0)) })} />
             <div className="md:col-span-2">
               <Input label="Ghi chú công nợ" value={inventoryDraft.payableNote || ''} onChange={(value) => setInventoryDraft({ ...inventoryDraft, payableNote: value })} />
             </div>
@@ -519,7 +570,7 @@ export default function InventoryDialog(props: InventoryDialogProps) {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-bold text-slate-900">Danh sách sản phẩm nhập</div>
-                <div className="text-xs font-medium text-slate-500">Số lượng ở bước này là số lượng dự kiến; sau khi khóa phiếu mới xử lý IMEI và số lượng thực nhận.</div>
+                <div className="text-xs font-medium text-slate-500">Mỗi dòng là một phân bổ theo kệ. Nếu một kệ không đủ chỗ, dùng nút Thêm kệ để tách số lượng sang kệ khác.</div>
               </div>
               <button type="button" onClick={addReceiptLine} className="inline-flex h-9 items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 text-sm font-bold text-amber-800 transition hover:bg-amber-100">
                 <Plus className="h-4 w-4" /> Thêm dòng trống
@@ -537,7 +588,7 @@ export default function InventoryDialog(props: InventoryDialogProps) {
                   <col className="w-64" />
                   <col className="w-48" />
                   <col className="w-56" />
-                  <col className="w-16" />
+                  <col className="w-28" />
                 </colgroup>
                 <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500">
                   <tr>
@@ -556,6 +607,15 @@ export default function InventoryDialog(props: InventoryDialogProps) {
                   {inventoryDraft.lines.map((line: any, index: number) => {
                     const product = resolveProduct(line.productId);
                     const variants = product?.variants || [];
+                    const usedLocationIds = new Set(
+                      inventoryDraft.lines
+                        .filter((other: any) => other.id !== line.id
+                          && String(other.productId || '') === String(line.productId || '')
+                          && String(other.variantId || '') === String(line.variantId || ''))
+                        .map((other: any) => String(other.warehouseLocationId || ''))
+                        .filter(Boolean),
+                    );
+                    const availableLocationOptions = reasonLocationOptions.filter(([locationId]) => !locationId || !usedLocationIds.has(locationId));
                     const variantOptions: [string, string][] = [
                       ['', variants.length > 1 ? 'Chọn biến thể' : 'Tự chọn biến thể duy nhất'],
                       ...variants.map((variant: any) => [String(variant.id), formatVariantName(variant)] as [string, string]),
@@ -584,15 +644,20 @@ export default function InventoryDialog(props: InventoryDialogProps) {
                                 storageLocationName: location?.name || '',
                               });
                             }}
-                            options={reasonLocationOptions}
+                            options={availableLocationOptions}
                           />
                         </td>
                         <td className="px-3 py-3"><Input label="Lý do" value={line.reason} onChange={(value) => updateReceiptLine(line.id, { reason: value })} noLabel /></td>
                         <td className="px-3 py-3"><Input label="Ghi chú" value={line.note} onChange={(value) => updateReceiptLine(line.id, { note: value })} noLabel /></td>
                         <td className="px-3 py-3">
-                          <button type="button" onClick={() => removeReceiptLine(line.id)} disabled={inventoryDraft.lines.length <= 1} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40" title="Xóa dòng">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          <div className="flex gap-1.5">
+                            <button type="button" onClick={() => addReceiptShelfAllocation(line.id)} disabled={!line.productId || Number(line.quantity || 0) <= 1} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40" title="Tách một phần số lượng sang kệ khác">
+                              <Plus className="h-4 w-4" />
+                            </button>
+                            <button type="button" onClick={() => removeReceiptLine(line.id)} disabled={inventoryDraft.lines.length <= 1} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40" title="Xóa dòng">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

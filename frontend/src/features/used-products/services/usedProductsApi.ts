@@ -4,6 +4,8 @@ import type { StorefrontUsedProductDetail, StorefrontUsedProductsResponse } from
 export type UsedProductFilters = {
   search?: string;
   grade?: string;
+  brandId?: string | number;
+  categoryId?: string | number;
   minPrice?: number;
   maxPrice?: number;
   sort?: string;
@@ -20,4 +22,14 @@ export const usedProductsApi = {
     return request<StorefrontUsedProductsResponse>(`/storefront/used-products${query.size ? `?${query.toString()}` : ''}`);
   },
   detail: (slug: string) => request<StorefrontUsedProductDetail>(`/storefront/used-products/${encodeURIComponent(slug)}`),
+  createBuybackRequest: (data: any) => request<{ id: string; requestCode: string }>('/storefront/used-products/buyback-requests', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  listBuybackRequests: (params: { page?: number; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    return request<any>(`/storefront/used-products/buyback-requests${query.size ? `?${query.toString()}` : ''}`);
+  },
 };

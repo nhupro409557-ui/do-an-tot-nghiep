@@ -24,6 +24,8 @@ async def get_admin_overview(session: AsyncSession) -> dict:
         "customers": {"total": row["customers_total"]},
         "reviews": {"total": row["reviews_total"], "pending": row["reviews_pending"]},
         "revenue": float(row["total_revenue"]),
+        "costOfGoodsSold": float(row["total_cogs"]),
+        "grossProfit": float(row["total_revenue"] - row["total_cogs"]),
         "revenueByDay": revenue_by_day,
         "revenueByMonth": revenue_by_month,
         "topProducts": top_products,

@@ -59,30 +59,29 @@ class CompleteOrderFulfillmentMixin:
         for transaction in transactions:
             if transaction.status == "REFUNDED":
                 continue
-            if transaction.status in {"PAID", "PENDING"}:
-                gateway_result = await self._refund_gateway.refund(
-                    provider=transaction.provider,
-                    order_code=order.order_code,
-                    amount=Decimal(transaction.amount or 0),
-                )
+            if transaction.status == "PAID":
                 transaction.status = "REFUNDED"
                 transaction.raw_response = {
                     **(transaction.raw_response or {}),
                     "refund_marked_at": now.isoformat(),
-                    "refund_mode": gateway_result.mode,
-                    "refund_provider_ref": gateway_result.provider_ref,
-                    "refund_message": gateway_result.message,
+                    "refund_mode": "MANUAL",
+                    "refund_message": "Shop/admin đã xác nhận hoàn tiền thủ công cho khách.",
                 }
                 commerce_repo.save_model(self._session, transaction)
         order.payment_status = "REFUNDED"
         order.refunded_at = order.refunded_at or now
 
     async def _release_or_restock_unshipped_order(self, order: Order, *, reservation_status: str) -> None:
-        if await commerce_repo.order_has_inventory_adjustment_reason(
+        has_shipped_catalog_item = await commerce_repo.order_has_inventory_adjustment_reason(
             self._session,
             order_code=order.order_code,
-            reason="ORDER_CREATED",
-        ):
+            reason="ORDER_SHIPPED",
+        )
+        has_sold_used_device = await used_product_repo.order_has_sold_device(
+            self._session,
+            order_id=order.id,
+        )
+        if has_shipped_catalog_item or has_sold_used_device:
             await self._restock_order_items(order)
             return
         await commerce_repo.close_active_order_reservations(
@@ -103,12 +102,6 @@ class CompleteOrderFulfillmentMixin:
             order_code=order.order_code,
             reason="ORDER_SHIPPED",
         ):
-            return
-        if await commerce_repo.order_has_inventory_adjustment_reason(
-            self._session,
-            order_code=order.order_code,
-            reason="ORDER_CREATED",
-        ):
             await commerce_repo.close_active_order_reservations(
                 self._session,
                 order_id=order.id,
@@ -120,6 +113,7 @@ class CompleteOrderFulfillmentMixin:
                 order_code=order.order_code,
             )
             return
+
 
         allocations_by_item_id: dict[str, list[dict]] = {}
         for allocation in issue_allocations or []:
@@ -200,11 +194,7 @@ class CompleteOrderFulfillmentMixin:
                     manual_allocations = identifier_allocations["location_quantities"]
                 elif pos_identifier_required:
                     manual_allocations = []
-                old_quantity = int(inventory_row["stock_quantity"] or 0)
-                new_quantity = old_quantity - quantity
-                if new_quantity < 0:
-                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Not enough stock for {item['product_name']}.")
-                await commerce_repo.update_variant_stock(self._session, variant_id=variant_id, quantity=new_quantity)
+                await commerce_repo.decrement_variant_stock(self._session, variant_id=variant_id, quantity=quantity)
                 await sync_parent_price_from_variants(self._session, inventory_row["product_id"])
                 try:
                     if manual_allocations:
@@ -287,11 +277,7 @@ class CompleteOrderFulfillmentMixin:
                 manual_allocations = identifier_allocations["location_quantities"]
             elif pos_identifier_required:
                 manual_allocations = []
-            old_quantity = int(inventory_row["stock_quantity"] or 0)
-            new_quantity = old_quantity - quantity
-            if new_quantity < 0:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Not enough stock for {item['product_name']}.")
-            await commerce_repo.update_product_stock(self._session, product_id=item["product_id"], quantity=new_quantity)
+            await commerce_repo.decrement_product_stock(self._session, product_id=item["product_id"], quantity=quantity)
             try:
                 if manual_allocations:
                     allocations = await commerce_repo.deduct_inventory_levels_from_locations(
@@ -560,7 +546,7 @@ class CompleteOrderFulfillmentMixin:
                     """
                 ),
                 {
-                    "order_id": order_id,
+                    "order_id": str(order_id),
                     "product_id": product_id,
                     "variant_id": variant_id,
                     "location_id": location_id,
@@ -579,67 +565,258 @@ class CompleteOrderFulfillmentMixin:
         location_id: UUID,
         quantity: int,
     ) -> None:
-        await self._session.execute(
+        # Kiểm tra xem sản phẩm có quản lý IMEI hay không
+        imei_managed = int(await self._session.scalar(
             text(
                 """
-                UPDATE product_imeis
-                SET status = 'SOLD',
-                    location_id = NULL,
-                    sold_at = NOW(),
-                    sold_order_id = :order_id,
-                    updated_at = NOW()
-                WHERE id IN (
-                    SELECT id FROM product_imeis
-                    WHERE product_id = :product_id
-                      AND variant_id IS NOT DISTINCT FROM :variant_id
-                      AND location_id = :location_id
-                      AND status = 'IN_STOCK'
-                    ORDER BY received_at ASC
-                    LIMIT :quantity
-                    FOR UPDATE
-                )
+                SELECT COUNT(*) FROM product_imeis
+                WHERE product_id = :product_id
+                  AND variant_id IS NOT DISTINCT FROM :variant_id
                 """
             ),
-            {
-                "order_id": order_id,
-                "product_id": product_id,
-                "variant_id": variant_id,
-                "location_id": location_id,
-                "quantity": quantity,
-            },
-        )
-        await self._session.execute(
+            {"product_id": product_id, "variant_id": variant_id},
+        ) or 0) > 0
+
+        if imei_managed:
+            result = await self._session.execute(
+                text(
+                    """
+                    UPDATE product_imeis
+                    SET status = 'SOLD',
+                        location_id = NULL,
+                        sold_at = NOW(),
+                        sold_order_id = :order_id,
+                        updated_at = NOW()
+                    WHERE id IN (
+                        SELECT id FROM product_imeis
+                        WHERE product_id = :product_id
+                          AND variant_id IS NOT DISTINCT FROM :variant_id
+                          AND location_id = :location_id
+                          AND status = 'IN_STOCK'
+                        ORDER BY received_at ASC
+                        LIMIT :quantity
+                        FOR UPDATE
+                    )
+                    """
+                ),
+                {
+                    "order_id": order_id,
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "location_id": location_id,
+                    "quantity": quantity,
+                },
+            )
+            if result.rowcount != quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Không đủ mã IMEI trong kho tại vị trí này để xuất hàng (cần {quantity}, có {result.rowcount})."
+                )
+
+        # Kiểm tra xem sản phẩm có quản lý Serial hay không
+        serial_managed = int(await self._session.scalar(
             text(
                 """
-                UPDATE product_serial_numbers
-                SET status = 'SOLD',
-                    location_id = NULL,
-                    sold_at = NOW(),
-                    service_payload = COALESCE(service_payload, '{}'::jsonb)
-                        || jsonb_build_object('soldOrderId', CAST(:order_id AS TEXT)),
-                    updated_at = NOW()
-                WHERE id IN (
-                    SELECT id FROM product_serial_numbers
-                    WHERE product_id = :product_id
-                      AND variant_id IS NOT DISTINCT FROM :variant_id
-                      AND location_id = :location_id
-                      AND status = 'IN_STOCK'
-                    ORDER BY received_at ASC NULLS LAST, created_at ASC
-                    LIMIT :quantity
-                    FOR UPDATE
-                )
+                SELECT COUNT(*) FROM product_serial_numbers
+                WHERE product_id = :product_id
+                  AND variant_id IS NOT DISTINCT FROM :variant_id
                 """
             ),
-            {
-                "order_id": order_id,
-                "product_id": product_id,
-                "variant_id": variant_id,
-                "location_id": location_id,
-                "quantity": quantity,
-            },
-        )
+            {"product_id": product_id, "variant_id": variant_id},
+        ) or 0) > 0
+
+        if serial_managed:
+            result = await self._session.execute(
+                text(
+                    """
+                    UPDATE product_serial_numbers
+                    SET status = 'SOLD',
+                        location_id = NULL,
+                        sold_at = NOW(),
+                        service_payload = COALESCE(service_payload, '{}'::jsonb)
+                            || jsonb_build_object('soldOrderId', CAST(:order_id AS TEXT)),
+                        updated_at = NOW()
+                    WHERE id IN (
+                        SELECT id FROM product_serial_numbers
+                        WHERE product_id = :product_id
+                          AND variant_id IS NOT DISTINCT FROM :variant_id
+                          AND location_id = :location_id
+                          AND status = 'IN_STOCK'
+                        ORDER BY received_at ASC NULLS LAST, created_at ASC
+                        LIMIT :quantity
+                        FOR UPDATE
+                    )
+                    """
+                ),
+                {
+                    "order_id": str(order_id),
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "location_id": location_id,
+                    "quantity": quantity,
+                },
+            )
+            if result.rowcount != quantity:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Không đủ mã Serial trong kho tại vị trí này để xuất hàng (cần {quantity}, có {result.rowcount})."
+                )
 
     async def _restock_order_items(self, order: Order) -> None:
+        # Reservation MAIN là lớp tồn ảo đã bị trừ khi đơn xuất thành công.
+        # Hoàn lại đúng một lần bằng trạng thái CONSUMED, sau đó chuyển sang RELEASED.
+        await self._session.execute(
+            text(
+                """
+                WITH restored_reservations AS (
+                    UPDATE inventory_levels level
+                    SET on_hand_quantity = level.on_hand_quantity + reservation.reserved_quantity,
+                        updated_at = NOW()
+                    FROM inventory_reservations reservation
+                    JOIN inventory_locations location
+                      ON location.id = reservation.location_id
+                     AND location.code = 'MAIN'
+                    WHERE reservation.order_id = :order_id
+                      AND reservation.status = 'CONSUMED'
+                      AND level.location_id = reservation.location_id
+                      AND level.product_id IS NOT DISTINCT FROM reservation.product_id
+                      AND level.variant_id IS NOT DISTINCT FROM reservation.variant_id
+                    RETURNING reservation.id
+                )
+                UPDATE inventory_reservations reservation
+                SET status = 'RELEASED',
+                    released_at = NOW()
+                FROM restored_reservations restored
+                WHERE reservation.id = restored.id
+                """
+            ),
+            {"order_id": order.id},
+        )
+
+        # Kiểm tra tính idempotent: nếu đã được restock rồi thì không làm lại
+        already_restocked = await self._session.scalar(
+            text(
+                """
+                SELECT EXISTS(
+                    SELECT 1 FROM inventory_adjustment_logs
+                    WHERE reference_code = :order_code AND reason = 'ORDER_CANCELLED_RESTOCK'
+                )
+                """
+            ),
+            {"order_code": order.order_code},
+        )
+        if already_restocked:
+            return
+
+        # Retrieve physical shipping locations from logs
+        outbound_reference_code = f"OUT-{order.order_code}"
+        adjustments_res = await self._session.execute(
+            text(
+                """
+                SELECT product_id, variant_id, delta, location_code
+                FROM inventory_adjustment_logs
+                WHERE reference_code IN (:order_code, :outbound_reference_code)
+                  AND reason = 'ORDER_SHIPPED'
+                  AND delta < 0
+                """
+            ),
+            {
+                "order_code": order.order_code,
+                "outbound_reference_code": outbound_reference_code,
+            },
+        )
+        adjustments = adjustments_res.mappings().all()
+
+        identifier_allocations_res = await self._session.execute(
+            text(
+                """
+                SELECT
+                    line.product_id,
+                    line.variant_id,
+                    CAST(allocation->>'locationId' AS uuid) AS location_id,
+                    COALESCE(allocation->'imeis', '[]'::jsonb) AS imeis,
+                    COALESCE(allocation->'serialNumbers', '[]'::jsonb) AS serial_numbers
+                FROM inventory_documents document
+                JOIN inventory_document_lines line ON line.document_id = document.id
+                CROSS JOIN LATERAL jsonb_array_elements(
+                    COALESCE(line.metadata->'allocations', '[]'::jsonb)
+                ) allocation
+                WHERE document.order_id = :order_id
+                  AND document.document_type = 'OUTBOUND'
+                  AND allocation->>'locationId' IS NOT NULL
+                """
+            ),
+            {"order_id": order.id},
+        )
+        identifiers_by_location: dict[tuple[str, str, str], dict[str, list[str]]] = {}
+        for allocation in identifier_allocations_res.mappings().all():
+            key = (
+                str(allocation["product_id"]),
+                str(allocation["variant_id"] or ""),
+                str(allocation["location_id"]),
+            )
+            entry = identifiers_by_location.setdefault(key, {"imeis": [], "serial_numbers": []})
+            entry["imeis"].extend(str(value) for value in (allocation["imeis"] or []))
+            entry["serial_numbers"].extend(str(value) for value in (allocation["serial_numbers"] or []))
+
+        tracked_identifier_rows = await self._session.execute(
+            text(
+                """
+                SELECT DISTINCT product_id, variant_id
+                FROM product_imeis
+                WHERE sold_order_id = :order_id
+                  AND status = 'SOLD'
+                UNION
+                SELECT DISTINCT product_id, variant_id
+                FROM product_serial_numbers
+                WHERE service_payload->>'soldOrderId' = :order_id_text
+                  AND status = 'SOLD'
+                """
+            ),
+            {"order_id": order.id, "order_id_text": str(order.id)},
+        )
+        tracked_product_keys = {
+            (str(row["product_id"]), str(row["variant_id"] or ""))
+            for row in tracked_identifier_rows.mappings().all()
+        }
+
+        adjustment_locations: dict[tuple[str, str], set[str]] = {}
+        for adjustment in adjustments:
+            product_key = (
+                str(adjustment["product_id"]),
+                str(adjustment["variant_id"] or ""),
+            )
+            if adjustment.get("location_code"):
+                adjustment_locations.setdefault(product_key, set()).add(str(adjustment["location_code"]))
+
+        for product_key, location_codes in adjustment_locations.items():
+            if product_key not in tracked_product_keys:
+                continue
+            saved_location_codes = {
+                str(key[2])
+                for key in identifiers_by_location
+                if key[:2] == product_key
+            }
+            expected_location_ids = {
+                str(await self._session.scalar(
+                    text("SELECT id FROM inventory_locations WHERE code = :code"),
+                    {"code": code},
+                ))
+                for code in location_codes
+            }
+            expected_location_ids.discard("None")
+            if (
+                (not saved_location_codes and len(expected_location_ids) > 1)
+                or (saved_location_codes and not expected_location_ids.issubset(saved_location_codes))
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Không thể tự động hoàn mã định danh của đơn lịch sử đã xuất từ nhiều kệ "
+                        "vì không còn dữ liệu phân bổ. Vui lòng đối soát kho thủ công."
+                    ),
+                )
+
         for item in await commerce_repo.list_restock_items(self._session, order_id=order.id, order_code=order.order_code):
             if item.get("used_device_id"):
                 continue
@@ -687,17 +864,156 @@ class CompleteOrderFulfillmentMixin:
                 reason="ORDER_CANCELLED_RESTOCK",
                 note=f"Restock after cancelling order for {item['product_name']}.",
             )
-        # Giải phóng các IMEI liên quan đến đơn hàng này về trạng thái sẵn sàng
-        await self._session.execute(
+
+        # Restore shelf levels (inventory_levels) and IMEI / Serial locations
+        for adj in adjustments:
+            loc_id = await self._session.scalar(
+                text("SELECT id FROM inventory_locations WHERE code = :code"),
+                {"code": adj["location_code"]},
+            )
+            if loc_id:
+                identifier_key = (
+                    str(adj["product_id"]),
+                    str(adj["variant_id"] or ""),
+                    str(loc_id),
+                )
+                identifiers = identifiers_by_location.get(identifier_key, {"imeis": [], "serial_numbers": []})
+                product_key = identifier_key[:2]
+                has_any_saved_allocation = any(key[:2] == product_key for key in identifiers_by_location)
+                restore_all_identifiers = (
+                    product_key in tracked_product_keys
+                    and not has_any_saved_allocation
+                    and len(adjustment_locations.get(product_key, set())) == 1
+                )
+                await self._session.execute(
+                    text(
+                        """
+                        UPDATE inventory_levels
+                        SET on_hand_quantity = on_hand_quantity + :quantity,
+                            updated_at = NOW()
+                        WHERE location_id = :location_id
+                          AND product_id IS NOT DISTINCT FROM :product_id
+                          AND variant_id IS NOT DISTINCT FROM :variant_id
+                        """
+                    ),
+                    {
+                        "location_id": loc_id,
+                        "product_id": adj["product_id"] if not adj["variant_id"] else None,
+                        "variant_id": adj["variant_id"],
+                        "quantity": -adj["delta"],
+                    },
+                )
+                await self._session.execute(
+                    text(
+                        """
+                        UPDATE product_imeis
+                        SET status = 'IN_STOCK',
+                            location_id = :location_id,
+                            sold_at = NULL,
+                            sold_order_id = NULL,
+                            updated_at = NOW()
+                        WHERE sold_order_id = :order_id
+                          AND product_id = :product_id
+                          AND variant_id IS NOT DISTINCT FROM :variant_id
+                          AND status = 'SOLD'
+                          AND (
+                              :restore_all_identifiers
+                              OR
+                              imei = ANY(:imeis)
+                              OR imei IN (
+                                  SELECT pair.imei2
+                                  FROM product_identifier_pairs pair
+                                  WHERE pair.product_id = :product_id
+                                    AND pair.variant_id IS NOT DISTINCT FROM :variant_id
+                                    AND pair.imei2 IS NOT NULL
+                                    AND (
+                                        pair.imei1 = ANY(:imeis)
+                                        OR pair.serial_number = ANY(:serial_numbers)
+                                    )
+                              )
+                          )
+                        """
+                    ),
+                    {
+                        "order_id": order.id,
+                        "product_id": adj["product_id"],
+                        "variant_id": adj["variant_id"],
+                        "location_id": loc_id,
+                        "imeis": identifiers["imeis"],
+                        "serial_numbers": identifiers["serial_numbers"],
+                        "restore_all_identifiers": restore_all_identifiers,
+                    },
+                )
+                await self._session.execute(
+                    text(
+                        """
+                        UPDATE product_serial_numbers
+                        SET status = 'IN_STOCK',
+                            location_id = :location_id,
+                            sold_at = NULL,
+                            updated_at = NOW()
+                        WHERE (service_payload->>'soldOrderId') = :order_id_str
+                          AND product_id = :product_id
+                          AND variant_id IS NOT DISTINCT FROM :variant_id
+                          AND status = 'SOLD'
+                          AND (
+                              :restore_all_identifiers
+                              OR serial_number = ANY(:serial_numbers)
+                          )
+                        """
+                    ),
+                    {
+                        "order_id_str": str(order.id),
+                        "product_id": adj["product_id"],
+                        "variant_id": adj["variant_id"],
+                        "location_id": loc_id,
+                        "serial_numbers": identifiers["serial_numbers"],
+                        "restore_all_identifiers": restore_all_identifiers,
+                    },
+                )
+
+        # Restore FIFO inventory lots
+        lot_movements_res = await self._session.execute(
             text(
                 """
-                UPDATE product_imeis
-                SET status = 'IN_STOCK', sold_at = NULL, sold_order_id = NULL, updated_at = NOW()
-                WHERE sold_order_id = :order_id AND status = 'SOLD'
+                SELECT lot_id, quantity
+                FROM inventory_lot_movements
+                WHERE order_id = :order_id AND movement_type = 'SALE'
                 """
             ),
             {"order_id": order.id},
         )
+        lot_movements = lot_movements_res.mappings().all()
+        for mv in lot_movements:
+            await self._session.execute(
+                text(
+                    """
+                    UPDATE inventory_lots
+                    SET remaining_quantity = remaining_quantity + :quantity,
+                        status = 'ACTIVE',
+                        updated_at = NOW()
+                    WHERE id = :lot_id
+                    """
+                ),
+                {"lot_id": mv["lot_id"], "quantity": mv["quantity"]},
+            )
+            await self._session.execute(
+                text(
+                    """
+                    INSERT INTO inventory_lot_movements (id, lot_id, movement_type, quantity, reference_code, order_id, note, created_at)
+                    VALUES (:id, :lot_id, 'RETURN', :quantity, :reference_code, :order_id, 'Hoàn trả tồn kho lô từ đơn hàng bị hủy/hoàn trả.', NOW())
+                    """
+                ),
+                {
+                    "id": uuid4(),
+                    "lot_id": mv["lot_id"],
+                    "quantity": mv["quantity"],
+                    "reference_code": order.order_code,
+                    "order_id": order.id,
+                },
+            )
+
+        # Release reservations and used device listings
         await used_product_repo.release_order_device_reservations(
             self._session,
             order_id=order.id,
@@ -708,6 +1024,8 @@ class CompleteOrderFulfillmentMixin:
             order_id=order.id,
             order_code=order.order_code,
         )
+        await flash_sale_repo.release_order_flash_sale_quantities(self._session, order.id)
+
 
     def _send_order_status_email(self, *, order: Order, user: User | None) -> None:
         if not user or not user.email or not settings.smtp_username or not settings.smtp_password:

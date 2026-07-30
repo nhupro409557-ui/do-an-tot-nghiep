@@ -121,7 +121,8 @@ async def record_product_view_heartbeat(
 
     try:
         if await redis.exists(valid_key):
-            return {"counted": False, "reason": "deduped", "validAfterSeconds": PRODUCT_VIEW_VALID_SECONDS}
+            counts = await catalog_product_repo.get_product_engagement_counts(session, product_id=product_uuid)
+            return {"counted": False, "reason": "deduped", "validAfterSeconds": PRODUCT_VIEW_VALID_SECONDS, **counts}
 
         accumulated_seconds = int(await redis.hincrby(state_key, "active_seconds", delta_seconds) or 0)
         await redis.hset(
@@ -139,7 +140,8 @@ async def record_product_view_heartbeat(
             return {"counted": False, "activeSeconds": accumulated_seconds, "validAfterSeconds": PRODUCT_VIEW_VALID_SECONDS}
 
         if not await redis.set(valid_key, "1", ex=PRODUCT_VIEW_DEDUPE_SECONDS, nx=True):
-            return {"counted": False, "reason": "deduped", "validAfterSeconds": PRODUCT_VIEW_VALID_SECONDS}
+            counts = await catalog_product_repo.get_product_engagement_counts(session, product_id=product_uuid)
+            return {"counted": False, "reason": "deduped", "validAfterSeconds": PRODUCT_VIEW_VALID_SECONDS, **counts}
         await insert_valid_product_view(
             session=session,
             product_id=product_uuid,
@@ -148,7 +150,8 @@ async def record_product_view_heartbeat(
             accumulated_seconds=accumulated_seconds,
         )
         await redis.delete(state_key)
-        return {"counted": True, "activeSeconds": accumulated_seconds}
+        counts = await catalog_product_repo.get_product_engagement_counts(session, product_id=product_uuid)
+        return {"counted": True, "activeSeconds": accumulated_seconds, **counts}
     except Exception:
         existing = await catalog_product_repo.has_recent_product_view_event(
             session,
@@ -159,7 +162,8 @@ async def record_product_view_heartbeat(
             user_agent=request.headers.get("user-agent"),
         )
         if existing:
-            return {"counted": False, "reason": "deduped", "validAfterSeconds": PRODUCT_VIEW_VALID_SECONDS}
+            counts = await catalog_product_repo.get_product_engagement_counts(session, product_id=product_uuid)
+            return {"counted": False, "reason": "deduped", "validAfterSeconds": PRODUCT_VIEW_VALID_SECONDS, **counts}
         if delta_seconds >= PRODUCT_VIEW_VALID_SECONDS or payload.scrollDepth >= PRODUCT_VIEW_VALID_SCROLL_DEPTH:
             await insert_valid_product_view(
                 session=session,
@@ -168,7 +172,8 @@ async def record_product_view_heartbeat(
                 request=request,
                 accumulated_seconds=delta_seconds,
             )
-            return {"counted": True, "activeSeconds": delta_seconds, "mode": "fallback"}
+            counts = await catalog_product_repo.get_product_engagement_counts(session, product_id=product_uuid)
+            return {"counted": True, "activeSeconds": delta_seconds, "mode": "fallback", **counts}
         return {"counted": False, "activeSeconds": delta_seconds, "validAfterSeconds": PRODUCT_VIEW_VALID_SECONDS}
 
 
@@ -178,11 +183,13 @@ async def toggle_favorite(product_id: UUID, session: AsyncSession, redis: Redis,
     if row and row.is_active:
         await catalog_product_repo.deactivate_favorite(session, user_id=current_user_id, product_id=product_id)
         await session.commit()
-        return {"favorited": False}
+        counts = await catalog_product_repo.get_product_engagement_counts(session, product_id=product_id)
+        return {"favorited": False, **counts}
 
     await catalog_product_repo.activate_favorite(session, user_id=current_user_id, product_id=product_id, exists=bool(row))
     await session.commit()
-    return {"favorited": True}
+    counts = await catalog_product_repo.get_product_engagement_counts(session, product_id=product_id)
+    return {"favorited": True, **counts}
 
 
 async def list_favorites(session: AsyncSession, current_user_id: UUID) -> list[dict]:

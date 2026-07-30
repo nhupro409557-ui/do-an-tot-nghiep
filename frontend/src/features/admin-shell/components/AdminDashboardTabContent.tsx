@@ -47,17 +47,30 @@ function AdminTabFallback() {
 }
 
 export function buildOverviewStats(admin: any) {
-  return [
+  const stats = [
     {
-      label: 'Doanh thu',
-      value: compactCurrency.format(admin.revenue || admin.overview?.revenue?.total || 0),
-      caption: 'Tổng doanh thu từ đơn hàng đã tải',
+      label: 'Doanh thu ròng',
+      value: compactCurrency.format(admin.overview?.revenue || 0),
+      caption: 'Đơn hoàn tất trừ tiền hoàn thực tế',
       icon: ClipboardList,
       tone: 'emerald',
     },
+    ...(admin.usePermission?.('report:profit_read') ? [{
+      label: 'Giá vốn hàng bán',
+      value: compactCurrency.format(admin.overview?.costOfGoodsSold || 0),
+      caption: 'Giá vốn lô đã xuất trừ hàng nhập trả',
+      icon: Boxes,
+      tone: 'amber',
+    }, {
+      label: 'Lợi nhuận gộp',
+      value: compactCurrency.format(admin.overview?.grossProfit || 0),
+      caption: 'Doanh thu ròng trừ giá vốn hàng bán',
+      icon: ClipboardList,
+      tone: 'emerald',
+    }] : []),
     {
       label: 'Sản phẩm',
-      value: admin.products.length,
+      value: admin.overview?.products?.total ?? admin.products.length,
       caption: 'Sản phẩm đang có trong catalog',
       icon: Package,
       tone: 'red',
@@ -77,13 +90,14 @@ export function buildOverviewStats(admin: any) {
       tone: 'amber',
     },
   ];
+  return stats;
 }
 
 export function buildRoleDashboards(admin: any) {
   return [
     { role: 'Quản trị', metric: `${admin.availableTabs.length} phân hệ`, helper: 'Các mục đang được cấp quyền truy cập', icon: ShieldCheck },
-    { role: 'Kinh doanh', metric: `${admin.orders.length} đơn`, helper: 'Theo dõi xử lý và hậu mãi', icon: ClipboardList },
-    { role: 'Danh mục hàng', metric: `${admin.products.length} sản phẩm`, helper: 'Quản lý sản phẩm, danh mục và thương hiệu', icon: Package },
+    { role: 'Kinh doanh', metric: `${admin.orders.length || admin.overview?.orders?.total || 0} đơn`, helper: 'Theo dõi xử lý và hậu mãi', icon: ClipboardList },
+    { role: 'Danh mục hàng', metric: `${admin.overview?.products?.total ?? admin.products.length} sản phẩm`, helper: 'Quản lý sản phẩm, danh mục và thương hiệu', icon: Package },
   ];
 }
 
@@ -118,7 +132,7 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
     case 'orders':
       return <AdminOrdersTab {...sharedProps} />;
     case 'afterSales':
-      return <AdminAfterSalesTab />;
+      return <AdminAfterSalesTab query={admin.query} setTab={admin.setTab} setQuery={admin.setQuery} />;
     case 'vouchers':
       return <AdminVouchersTab {...sharedProps} />;
     case 'customers':

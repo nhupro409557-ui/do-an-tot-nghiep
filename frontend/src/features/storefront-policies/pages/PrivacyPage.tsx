@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { LiveStorePolicySummary } from '../components/LiveStorePolicySummary';
 import {
   ChevronDown, ChevronUp, Shield, Database, Lock, EyeOff, UserCheck,
   CreditCard, Clock, FileText, AlertTriangle, UserX, Activity, Share2,
@@ -480,6 +481,7 @@ export default function PrivacyPage() {
 
       {/* Content */}
       <div className="mx-auto max-w-5xl px-4 py-10 lg:px-6">
+        <LiveStorePolicySummary codes={['PRIVACY']} tone="emerald" />
         <div className="space-y-3">
           {PRIVACY_PAGE_SECTIONS.map((section) => {
             const isOpen = expanded === section.id;

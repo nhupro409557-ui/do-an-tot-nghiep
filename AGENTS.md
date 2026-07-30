@@ -22,6 +22,13 @@ Nếu cần index lại, tránh để CodeGraph quét các thư mục sinh tự 
 - `.codegraph`
 - `*.log`
 
+## Testing Preference
+
+- Không tự chạy test sau mỗi lần sửa nhỏ.
+- Chỉ chạy test khi user yêu cầu trực tiếp hoặc khi đã hoàn thành toàn bộ cụm chức năng/đồ án và user đồng ý.
+- Nếu thay đổi có rủi ro cao, chỉ báo nên test phần đó, không tự chạy test khi chưa được user cho phép.
+- Vẫn được đọc file, tìm code, phân tích cấu trúc và chạy các lệnh nhẹ cần thiết để hiểu vấn đề; tránh các lệnh test/verify tốn thời gian cho đến giai đoạn kiểm tra tổng thể.
+
 ## Coding Discipline
 
 Các nguyên tắc này được chắt lọc từ bộ hướng dẫn `andrej-karpathy-skills` để giảm lỗi thường gặp khi agent sửa code.

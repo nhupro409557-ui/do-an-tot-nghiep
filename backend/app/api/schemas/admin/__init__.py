@@ -2,6 +2,7 @@ from .category import CategoryPayload, CategorySlugCheckPayload, CategoryReorder
 from .brand import BrandPayload, BrandCodeCheckPayload, BrandStatusPayload, BrandBulkStatusPayload
 from .supplier import SupplierPayload, SupplierCodeCheckPayload, SupplierStatusPayload, SupplierBulkStatusPayload
 from .account_payable import SupplierPaymentPayload, AccountPayableAdjustmentPayload
+from .purchase_order import PurchaseOrderPayload, PurchaseOrderStatusPayload
 from .product import ProductBulkActionPayload, ProductImportPayload, ProductVariantPayload, ProductAccessoryOfferPayload, ProductAttachedServicePayload, AttachedServicePayload, ProductPayload
 from .inventory import (
     InventoryAdjustmentPayload,
@@ -18,6 +19,7 @@ from .inventory import (
     InventoryInternalHoldStatusPayload,
     InventoryLocationPayload,
     InventoryLocationStatusPayload,
+    InventoryLegacyPutawayPayload,
     InventoryReceiptAttachmentDecisionPayload,
     InventoryReceiptAttachmentsPayload,
     InventoryReceiptImeiPayload,
@@ -60,6 +62,8 @@ __all__ = [
     "SupplierBulkStatusPayload",
     "SupplierPaymentPayload",
     "AccountPayableAdjustmentPayload",
+    "PurchaseOrderPayload",
+    "PurchaseOrderStatusPayload",
     "ProductBulkActionPayload",
     "ProductImportPayload",
     "ProductVariantPayload",

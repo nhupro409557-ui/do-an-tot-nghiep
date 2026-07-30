@@ -32,6 +32,7 @@ export function useAdminPermissionsLogic({
   const [rolePermissionEditing, setRolePermissionEditing] = useState(false);
   const [staffPermissionEditor, setStaffPermissionEditor] = useState<any | null>(null);
   const [staffPermissionDraft, setStaffPermissionDraft] = useState<string[]>([]);
+  const [staffPermissionDenyDraft, setStaffPermissionDenyDraft] = useState<string[]>([]);
 
   const staffUsers = useMemo(() => (
     customers
@@ -79,16 +80,18 @@ export function useAdminPermissionsLogic({
 
   async function openStaffPermissionEditor(staff: any) {
     if (!canManageCustomerAccess) return;
-    const detail = await adminCustomersApi.adminGetUserPermissions(staff.id).catch(() => ({ permissionCodes: staff.extraPermissionCodes || [] }));
+    const detail = await adminCustomersApi.adminGetUserPermissions(staff.id).catch(() => ({ permissionCodes: staff.extraPermissionCodes || [], deniedPermissionCodes: [] }));
     setStaffPermissionEditor(staff);
     setStaffPermissionDraft(detail.permissionCodes || []);
+    setStaffPermissionDenyDraft(detail.deniedPermissionCodes || []);
   }
 
   async function saveStaffPermissions() {
     if (!staffPermissionEditor?.id || !canManageCustomerAccess) return;
-    await adminCustomersApi.adminUpdateUserPermissions(staffPermissionEditor.id, staffPermissionDraft);
+    await adminCustomersApi.adminUpdateUserPermissions(staffPermissionEditor.id, staffPermissionDraft, staffPermissionDenyDraft);
     setStaffPermissionEditor(null);
     setStaffPermissionDraft([]);
+    setStaffPermissionDenyDraft([]);
     await reloadCurrentTab();
   }
 
@@ -117,6 +120,8 @@ export function useAdminPermissionsLogic({
     setStaffPermissionEditor,
     staffPermissionDraft,
     setStaffPermissionDraft,
+    staffPermissionDenyDraft,
+    setStaffPermissionDenyDraft,
     staffUsers,
     staffBasePermissionCodes,
     permissionsByModule,

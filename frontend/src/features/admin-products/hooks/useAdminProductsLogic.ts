@@ -32,6 +32,14 @@ function categoryContainsProduct(categories: any[], selectedCategoryId: string, 
     || categoryContainsCategory(categories, selectedCategoryId, product?.subcategoryId);
 }
 
+function numericSpecValue(value: string, unit?: string) {
+  const trimmedValue = String(value || '').trim();
+  const trimmedUnit = String(unit || '').trim();
+  if (!trimmedValue || !trimmedUnit) return trimmedValue;
+  const escapedUnit = trimmedUnit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return trimmedValue.replace(new RegExp(`\\s*${escapedUnit}\\s*$`, 'i'), '').trim();
+}
+
 type UseAdminProductsLogicParams = {
   tab: string;
   query: string;
@@ -231,20 +239,24 @@ export function useAdminProductsLogic({
       subcategoryId: productForm.subcategoryId || null,
       brandId: selectedBrand?.id || null,
       videoUrl: productForm.videoUrl || null,
-      variants: sortedVariants.map((item) => ({
-        ...item,
-        sku: item.sku || buildVariantSku(productForm.name, item.colorName, sortedVariants.indexOf(item)),
-        storage: String(variantSpecValue(item, 'storage', 'Bộ nhớ trong') || item.storage || ''),
-        ram: String(variantSpecValue(item, 'ram', 'RAM') || item.ram || ''),
-        configuration: String(variantSpecValue(item, 'configuration', 'Cấu hình') || item.configuration || ''),
-        salePrice: item.salePrice || null,
-        compareAtPrice: item.compareAtPrice || null,
-        isDefault: item.isDefault || false,
-        status: item.status || 'active',
-        attributes: buildVariantAttributes(item),
-        specs: Object.fromEntries(Object.entries(item.specs || {}).filter(([key]) => productForm.variantSpecKeys.includes(key))),
-        images: item.images || [],
-      })),
+      variants: sortedVariants.map((item, index) => {
+        const variantPayload = { ...item };
+        delete variantPayload.stockQuantity;
+        return {
+          ...variantPayload,
+          sku: item.sku || buildVariantSku(productForm.name, item.colorName, index),
+          storage: String(variantSpecValue(item, 'storage', 'Bộ nhớ trong') || item.storage || ''),
+          ram: String(variantSpecValue(item, 'ram', 'RAM') || item.ram || ''),
+          configuration: String(variantSpecValue(item, 'configuration', 'Cấu hình') || item.configuration || ''),
+          salePrice: item.salePrice || null,
+          compareAtPrice: item.compareAtPrice || null,
+          isDefault: item.isDefault || false,
+          status: item.status || 'active',
+          attributes: buildVariantAttributes(item),
+          specs: Object.fromEntries(Object.entries(item.specs || {}).filter(([key]) => productForm.variantSpecKeys.includes(key))),
+          images: item.images || [],
+        };
+      }),
       options: derivedOptions,
       updatedAt: productForm.updatedAt || null,
       version: productForm.version || null,
@@ -259,8 +271,30 @@ export function useAdminProductsLogic({
       return 'Vui lòng chọn thương hiệu có trong database.';
     }
 
-    if (false && editingProductStatus === 'ARCHIVED' && productForm.status === 'ACTIVE') {
-      return 'Sản phẩm đã lưu trữ không thể chuyển thẳng sang Đang bán. Vui lòng tạo bản nháp mới nếu cần bán lại.';
+    // Validate specifications
+    for (const field of specFields) {
+      const isVariant = field.variant && productForm.variantSpecKeys.includes(field.key);
+      if (isVariant) {
+        for (let i = 0; i < productForm.variants.length; i++) {
+          const variant = productForm.variants[i];
+          const val = (variant.specs?.[field.key] || '').toString().trim();
+          const variantLabel = variant.colorName || `Dòng ${i + 1}`;
+          if (field.required && !val) {
+            return `Thông số biến thể '${field.label || field.key}' của [${variantLabel}] là bắt buộc.`;
+          }
+          if (val && field.type === 'number' && isNaN(Number(numericSpecValue(val, field.unit)))) {
+            return `Thông số biến thể '${field.label || field.key}' của [${variantLabel}] phải là số hợp lệ.`;
+          }
+        }
+      } else {
+        const val = (productForm.specifications[field.key] || '').toString().trim();
+        if (field.required && !val) {
+          return `Thông số '${field.label || field.key}' là bắt buộc.`;
+        }
+        if (val && field.type === 'number' && isNaN(Number(numericSpecValue(val, field.unit)))) {
+          return `Thông số '${field.label || field.key}' phải là số hợp lệ.`;
+        }
+      }
     }
 
     const activeOptions = deriveOptionsFromVariants(productForm.variants || [])
@@ -286,8 +320,8 @@ export function useAdminProductsLogic({
 
     const optionMap = new Map(activeOptions.map((option: any) => [option.name, new Set(option.values)]));
     for (const variant of variants) {
-      if (Number(variant.price || 0) < 0 || Number(variant.salePrice || 0) < 0 || Number(variant.stockQuantity || 0) < 0) {
-        return 'Giá và tồn kho của biến thể không được âm.';
+      if (Number(variant.price || 0) < 0 || Number(variant.salePrice || 0) < 0) {
+        return 'Giá của biến thể không được âm.';
       }
       const attributes = buildVariantAttributes(variant);
       for (const option of activeOptions) {
@@ -477,7 +511,6 @@ export function useAdminProductsLogic({
           images: item.images || [],
           price: Number(item.price || 0),
           salePrice: Number(item.salePrice ?? item.discountPrice ?? item.price ?? 0),
-          stockQuantity: Number(item.stockQuantity ?? item.stock ?? 0),
           isActive: item.isActive !== false,
           compareAtPrice: Number(item.compareAtPrice || 0),
           isDefault: Boolean(item.isDefault),

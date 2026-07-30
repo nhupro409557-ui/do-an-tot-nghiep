@@ -1,6 +1,7 @@
-﻿import json
+import json
 from uuid import UUID, uuid4
 from fastapi import HTTPException
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,12 +61,11 @@ async def merge_revision_variants(session: AsyncSession, *, parent_id: UUID, rev
         )
     ).mappings().all()
     active_revision_rows = [row for row in revision_rows if row["is_active"] is not False and str(row["status"]).lower() not in {"deleted", "archived", "inactive"}]
-    if not active_revision_rows:
+    if revision_rows and not active_revision_rows:
         raise HTTPException(status_code=400, detail="Không thể áp dụng bản chỉnh sửa nếu không có ít nhất một biến thể đang hoạt động.")
 
     live_by_id = {row["id"]: row for row in live_rows}
     live_by_sku = {str(row["sku"] or "").strip(): row for row in live_rows if str(row["sku"] or "").strip()}
-    revision_skus = {str(row["sku"] or "").strip() for row in revision_rows if str(row["sku"] or "").strip()}
     kept_live_ids: set[UUID] = set()
 
     for revision in revision_rows:
@@ -124,21 +124,21 @@ async def merge_revision_variants(session: AsyncSession, *, parent_id: UUID, rev
                 text(
                     """
                     INSERT INTO product_variants (
-                        id, product_id, parent_variant_id, sku, color_name, color_code, storage, ram, configuration,
+                        id, product_id, sku, color_name, color_code, storage, ram, configuration,
                         specs, image_url, images, price, sale_price, compare_at_price, stock_quantity,
                         is_active, is_default, status, attributes, created_at, updated_at
                     )
                     VALUES (
-                        :id, :parent_id, NULL, :sku, :color_name, :color_code, :storage, :ram, :configuration,
-                        CAST(:specs AS jsonb), :image_url, CAST(:images AS jsonb), :price, :sale_price, :compare_at_price, :stock_quantity,
-                        :is_active, :is_default, :status, CAST(:attributes AS jsonb), NOW(), NOW()
+                        :id, :product_id, :sku, :color_name, :color_code, :storage, :ram, :configuration,
+                        CAST(:specs AS jsonb), :image_url, CAST(:images AS jsonb), :price, :sale_price, :compare_at_price,
+                        0, :is_active, :is_default, :status, CAST(:attributes AS jsonb), NOW(), NOW()
                     )
                     """
                 ),
                 {
                     "id": new_variant_id,
-                    "parent_id": parent_id,
-                    "sku": sku or f"SKU-{new_variant_id.hex[:10].upper()}",
+                    "product_id": parent_id,
+                    "sku": revision["sku"],
                     "color_name": revision["color_name"],
                     "color_code": revision["color_code"],
                     "storage": revision["storage"],
@@ -150,7 +150,6 @@ async def merge_revision_variants(session: AsyncSession, *, parent_id: UUID, rev
                     "price": revision["price"],
                     "sale_price": revision["sale_price"],
                     "compare_at_price": revision["compare_at_price"],
-                    "stock_quantity": max(0, int(revision["stock_quantity"] or 0)),
                     "is_active": revision["is_active"],
                     "is_default": revision["is_default"],
                     "status": "active" if revision["is_active"] is not False else "inactive",
@@ -158,19 +157,16 @@ async def merge_revision_variants(session: AsyncSession, *, parent_id: UUID, rev
                 },
             )
 
-    kept_revision_parent_ids = {row["parent_variant_id"] for row in revision_rows if row["parent_variant_id"]}
-    missing_live = [row for row in live_rows if row["id"] not in kept_revision_parent_ids and str(row["sku"] or "").strip() not in revision_skus]
-    for live in missing_live:
+    for live in live_rows:
+        if live["id"] in kept_live_ids:
+            continue
         history_sql = """
-                    SELECT
-                        (SELECT COUNT(*) FROM inventory_adjustment_logs WHERE variant_id = :variant_id) AS total
-                    """
-        if has_order_item_variant_id:
-            history_sql = """
-                    SELECT
-                        (SELECT COUNT(*) FROM order_items WHERE variant_id = :variant_id) +
-                        (SELECT COUNT(*) FROM inventory_adjustment_logs WHERE variant_id = :variant_id) AS total
-                    """
+            SELECT (
+                SELECT COUNT(*) FROM order_items WHERE variant_id = :variant_id
+            ) + (
+                SELECT COUNT(*) FROM inventory_adjustment_logs WHERE variant_id = :variant_id
+            ) AS total
+        """
         has_history = (
             await session.execute(
                 text(history_sql),
@@ -193,37 +189,75 @@ async def merge_revision_variants(session: AsyncSession, *, parent_id: UUID, rev
             {"id": live["id"], "status": next_status},
         )
 
-    default_count = (
+    total_count = (
         await session.execute(
             text(
                 """
                 SELECT COUNT(*)
                 FROM product_variants
-                WHERE product_id = :parent_id AND deleted_at IS NULL AND is_active = TRUE AND is_default = TRUE
+                WHERE product_id = :parent_id AND deleted_at IS NULL
                 """
             ),
             {"parent_id": parent_id},
         )
     ).scalar_one()
-    if int(default_count or 0) != 1:
-        first_active = (
+
+    if int(total_count or 0) > 0:
+        default_count = (
             await session.execute(
                 text(
                     """
-                    SELECT id
+                    SELECT COUNT(*)
                     FROM product_variants
-                    WHERE product_id = :parent_id AND deleted_at IS NULL AND is_active = TRUE
-                    ORDER BY created_at ASC
-                    LIMIT 1
+                    WHERE product_id = :parent_id AND deleted_at IS NULL AND is_active = TRUE AND is_default = TRUE
                     """
                 ),
                 {"parent_id": parent_id},
             )
-        ).scalar()
-        if not first_active:
-            raise HTTPException(status_code=400, detail="Không thể áp dụng bản chỉnh sửa nếu không có ít nhất một biến thể đang hoạt động.")
-        await session.execute(text("UPDATE product_variants SET is_default = FALSE WHERE product_id = :parent_id"), {"parent_id": parent_id})
-        await session.execute(text("UPDATE product_variants SET is_default = TRUE WHERE id = :id"), {"id": first_active})
+        ).scalar_one()
+        if int(default_count or 0) != 1:
+            first_active = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT id
+                        FROM product_variants
+                        WHERE product_id = :parent_id AND deleted_at IS NULL AND is_active = TRUE
+                        ORDER BY created_at ASC
+                        LIMIT 1
+                        """
+                    ),
+                    {"parent_id": parent_id},
+                )
+            ).scalar()
+            if not first_active:
+                raise HTTPException(status_code=400, detail="Không thể áp dụng bản chỉnh sửa nếu không có ít nhất một biến thể đang hoạt động.")
+            await session.execute(text("UPDATE product_variants SET is_default = FALSE WHERE product_id = :parent_id"), {"parent_id": parent_id})
+            await session.execute(text("UPDATE product_variants SET is_default = TRUE WHERE id = :id"), {"id": first_active})
+
+
+async def unpublish_product_dependents(session: AsyncSession, product_id: UUID) -> None:
+    await session.execute(
+        text("UPDATE product_variants SET is_active = FALSE, updated_at = NOW() WHERE product_id = :id"),
+        {"id": product_id},
+    )
+    await session.execute(
+        text("""
+            UPDATE used_device_listings
+            SET status = 'HIDDEN', updated_at = NOW()
+            WHERE device_id IN (SELECT id FROM used_devices WHERE product_id = :id)
+              AND status = 'PUBLISHED'
+        """),
+        {"id": product_id},
+    )
+    await session.execute(
+        text("""
+            UPDATE used_devices
+            SET status = 'READY_FOR_PRICING', updated_at = NOW()
+            WHERE product_id = :id AND status = 'READY_FOR_SALE'
+        """),
+        {"id": product_id},
+    )
 
 
 async def transition_product_status_data(
@@ -353,7 +387,8 @@ async def transition_product_status_data(
                             'videoUrl', video_url,
                             'options', options,
                             'isFeatured', is_featured,
-                            'isFlashSale', is_flash_sale
+                            'isFlashSale', is_flash_sale,
+                            'version', version
                         )
                         FROM products
                         WHERE id = :revision_id
@@ -367,7 +402,6 @@ async def transition_product_status_data(
                     """
                     UPDATE products parent
                     SET name = revision.name,
-                        status = :final_status,
                         category = revision.category,
                         brand = revision.brand,
                         category_id = revision.category_id,
@@ -377,12 +411,15 @@ async def transition_product_status_data(
                         specifications = revision.specifications,
                         seo_metadata = revision.seo_metadata,
                         sales_config = revision.sales_config,
+                        price = revision.price,
+                        sale_price = revision.sale_price,
                         image_url = revision.image_url,
                         images = revision.images,
                         video_url = revision.video_url,
                         options = revision.options,
                         is_featured = revision.is_featured,
                         is_flash_sale = revision.is_flash_sale,
+                        status = :final_status,
                         version = parent.version + 1,
                         updated_at = NOW()
                     FROM products revision
@@ -445,8 +482,93 @@ async def transition_product_status_data(
                     "revisionDeleted": True,
                 },
             )
+            # Reassociate media assets from revision_id to parent_id
+            await session.execute(
+                text(
+                    """
+                    UPDATE media_assets
+                    SET associated_entity_id = :parent_id
+                    WHERE associated_entity_id = :revision_id
+                      AND associated_entity_type = 'PRODUCT'
+                    """
+                ),
+                {"parent_id": parent_id, "revision_id": product_id}
+            )
+            # Release media assets of other revisions being deleted
+            await session.execute(
+                text(
+                    """
+                    UPDATE media_assets
+                    SET associated_entity_id = NULL, associated_entity_type = NULL
+                    WHERE associated_entity_type = 'PRODUCT'
+                      AND associated_entity_id IN (
+                          SELECT id FROM products
+                          WHERE parent_product_id = :parent_id AND id <> :revision_id
+                      )
+                    """
+                ),
+                {"parent_id": parent_id, "revision_id": product_id}
+            )
+            # Delete relations of other revisions being deleted
+            await session.execute(
+                text(
+                    """
+                    DELETE FROM product_bundles
+                    WHERE product_id IN (
+                        SELECT id FROM products
+                        WHERE parent_product_id = :parent_id AND id <> :revision_id
+                    )
+                    """
+                ),
+                {"parent_id": parent_id, "revision_id": product_id}
+            )
+            await session.execute(
+                text(
+                    """
+                    DELETE FROM product_accessories
+                    WHERE product_id IN (
+                        SELECT id FROM products
+                        WHERE parent_product_id = :parent_id AND id <> :revision_id
+                    )
+                    """
+                ),
+                {"parent_id": parent_id, "revision_id": product_id}
+            )
+            await session.execute(
+                text(
+                    """
+                    DELETE FROM product_attached_services
+                    WHERE product_id IN (
+                        SELECT id FROM products
+                        WHERE parent_product_id = :parent_id AND id <> :revision_id
+                    )
+                    """
+                ),
+                {"parent_id": parent_id, "revision_id": product_id}
+            )
+            # Delete other draft/pending revisions of the parent product to avoid old drafts overriding the active product later
+            await session.execute(
+                text(
+                    """
+                    DELETE FROM product_variants
+                    WHERE product_id IN (
+                        SELECT id FROM products
+                        WHERE parent_product_id = :parent_id AND id <> :revision_id
+                    )
+                    """
+                ),
+                {"parent_id": parent_id, "revision_id": product_id}
+            )
+            await session.execute(
+                text(
+                    """
+                    DELETE FROM products
+                    WHERE parent_product_id = :parent_id AND id <> :revision_id
+                    """
+                ),
+                {"parent_id": parent_id, "revision_id": product_id}
+            )
             await session.execute(text("DELETE FROM products WHERE id = :revision_id"), {"revision_id": product_id})
-            await session.commit()
             return {"ok": True, "status": final_status, "publishedProductId": str(parent_id)}
     if next_status == "ARCHIVED":
         relation_count = (
@@ -468,10 +590,9 @@ async def transition_product_status_data(
         text("UPDATE products SET status = :status, updated_at = NOW() WHERE id = :id"),
         {"id": product_id, "status": status_to_apply},
     )
-    if status_to_apply == "INACTIVE":
-        await session.execute(text("UPDATE product_variants SET is_active = FALSE, updated_at = NOW() WHERE product_id = :product_id"), {"product_id": product_id})
+    if status_to_apply in ("INACTIVE", "ARCHIVED"):
+        await unpublish_product_dependents(session, product_id)
     await audit_product_event(session, product_id, "PRODUCT_STATUS_CHANGED", old_value={"status": current_status}, new_value={"status": status_to_apply, "approvalAction": next_status})
-    await session.commit()
     return {"ok": True, "status": status_to_apply}
 
 
@@ -561,7 +682,6 @@ async def reactivate_product_data(product_id: UUID, session: AsyncSession) -> di
         {"product_id": product_id},
     )
     await audit_product_event(session, product_id, "PRODUCT_STATUS_CHANGED", old_value={"status": current_status}, new_value={"status": "ACTIVE"})
-    await session.commit()
     return {"ok": True, "status": "ACTIVE"}
 
 
@@ -610,7 +730,6 @@ async def product_bulk_action_data(
                 if result.rowcount == 0:
                     raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
                 await session.execute(text("UPDATE product_variants SET is_active = FALSE, updated_at = NOW() WHERE product_id = :id"), {"id": product_id})
-                await session.commit()
             updated += 1
         except HTTPException:
             skipped.append(str(product_id))
@@ -641,8 +760,29 @@ async def hide_product_data(product_id: UUID, session: AsyncSession) -> dict:
         text("UPDATE product_variants SET is_active = FALSE, updated_at = NOW() WHERE product_id = :id"),
         {"id": product_id},
     )
+    await session.execute(
+        text(
+            """
+            UPDATE used_device_listings
+            SET status = 'HIDDEN', updated_at = NOW()
+            WHERE device_id IN (
+                SELECT id FROM used_devices WHERE product_id = :product_id
+            ) AND status = 'PUBLISHED'
+            """
+        ),
+        {"product_id": product_id}
+    )
+    await session.execute(
+        text(
+            """
+            UPDATE used_devices
+            SET status = 'READY_FOR_PRICING', updated_at = NOW()
+            WHERE product_id = :product_id AND status = 'READY_FOR_SALE'
+            """
+        ),
+        {"product_id": product_id}
+    )
     await audit_product_event(session, product_id, "PRODUCT_STATUS_CHANGED", old_value={"status": product_category_row["status"]}, new_value={"status": "INACTIVE"})
-    await session.commit()
     return {"ok": True, "action": "hidden"}
 
 
@@ -670,6 +810,8 @@ async def deactivate_product_data(product_id: UUID, session: AsyncSession) -> di
                 SELECT
                     (SELECT COUNT(*) FROM order_items WHERE product_id = :id) AS order_count,
                     (SELECT COUNT(*) FROM product_reviews WHERE product_id = :id) AS review_count,
+                    (SELECT COUNT(*) FROM used_device_intake_requests WHERE product_id = :id) AS used_intake_count,
+                    (SELECT COUNT(*) FROM used_devices WHERE product_id = :id) AS used_device_count,
                     (
                         SELECT COUNT(*)
                         FROM inventory_adjustment_logs
@@ -692,9 +834,9 @@ async def deactivate_product_data(product_id: UUID, session: AsyncSession) -> di
         )
     ).mappings().one()
 
-    if usage["order_count"] > 0 or usage["review_count"] > 0:
+    if usage["order_count"] > 0 or usage["review_count"] > 0 or usage["used_intake_count"] > 0 or usage["used_device_count"] > 0:
         await session.execute(text("UPDATE products SET status = 'INACTIVE', updated_at = NOW() WHERE id = :id"), {"id": product_id})
-        await session.commit()
+        await unpublish_product_dependents(session, product_id)
         return {"ok": True, "action": "deactivated"}
 
     if usage["receipt_count"] > 0 or usage["inbound_transaction_count"] > 0:
@@ -703,11 +845,29 @@ async def deactivate_product_data(product_id: UUID, session: AsyncSession) -> di
             detail="Không thể xóa sản phẩm đã có dữ liệu nhập kho thật. Hãy ẩn sản phẩm nếu cần ngừng bán.",
         )
 
+    # Clean up empty inventory levels for product and its variants to avoid FK constraint errors on deletion
+    await session.execute(
+        text(
+            """
+            DELETE FROM inventory_levels
+            WHERE (on_hand_quantity = 0 AND reserved_quantity = 0)
+              AND (
+                  variant_id IN (SELECT id FROM product_variants WHERE product_id = :id)
+                  OR (product_id = :id AND variant_id IS NULL)
+              )
+            """
+        ),
+        {"id": product_id}
+    )
+
     await session.execute(text("DELETE FROM product_bundles WHERE product_id = :id OR bundled_product_id = :id"), {"id": product_id})
     await session.execute(text("DELETE FROM product_accessories WHERE product_id = :id OR accessory_product_id = :id"), {"id": product_id})
     await session.execute(text("DELETE FROM product_attached_services WHERE product_id = :id"), {"id": product_id})
+    await session.execute(
+        text("UPDATE media_assets SET associated_entity_id = NULL, associated_entity_type = NULL WHERE associated_entity_id = :id"),
+        {"id": product_id}
+    )
     result = await session.execute(text("DELETE FROM products WHERE id = :id"), {"id": product_id})
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
-    await session.commit()
     return {"ok": True, "action": "deleted"}

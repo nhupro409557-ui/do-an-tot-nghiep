@@ -360,7 +360,12 @@ const ProductDetailContent = ({
         code: s.code,
         name: s.name,
         price: getAttachedServicePriceNumeric(s, displayPrice)
-      }))
+      })),
+      categoryId: product.categoryId || product.category_id || product.category?.id || null,
+      brandId: product.brandId || product.brand_id || product.brand?.id || null,
+      isFlashSale: activeVariant?.isFlashSale || activeVariant?.is_flash_sale || product.isFlashSale || product.is_flash_sale || false,
+      flashSaleId: activeVariant?.flashSale?.id || product.flashSale?.id,
+      flashSalePerUserLimit: activeVariant?.flashSale?.perUserLimit ?? product.flashSale?.perUserLimit ?? null,
     });
 
     // Thêm các phụ kiện mua kèm đã chọn
@@ -375,7 +380,10 @@ const ProductDetailContent = ({
         quantity: quantity, // Số lượng tương ứng với sản phẩm chính
         originalPrice: basePrice, // Giá gốc hoặc giá đang bán trước ưu đãi mua kèm
         isAccessory: true,
-        parentProductId: product.id
+        parentProductId: product.id,
+        categoryId: acc.categoryId || acc.category_id || acc.category?.id || null,
+        brandId: acc.brandId || acc.brand_id || acc.brand?.id || null,
+        isFlashSale: acc.isFlashSale || acc.is_flash_sale || false
       });
     });
 

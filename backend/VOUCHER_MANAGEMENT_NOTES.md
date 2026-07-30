@@ -1,49 +1,57 @@
 # Voucher Management Notes
 
-## Cập nhật 2026-07-04 - Chuẩn hóa thông báo validate voucher
+## Cập nhật 2026-07-11 - Chỉ mất quyền khách hàng mới sau đơn thành công
 
-- Chuẩn hóa thông báo lỗi CRUD voucher admin và toàn bộ message validate voucher checkout sang tiếng Việt có dấu.
-- Giữ nguyên `error_code`, metadata keys và trạng thái ví voucher để frontend không phải đổi logic xử lý.
-- Verification: `py_compile` và test voucher/checkout liên quan pass.
+- Điều kiện `NEW_CUSTOMER`/`firstOrderOnly` chỉ đếm đơn có trạng thái `COMPLETED` (đã giao hàng thành công).
+- Các đơn chờ xử lý, đã xác nhận, đã thanh toán, đang xử lý, đang giao, bị hủy, thanh toán thất bại hoặc hoàn tiền không làm khách mất quyền dùng voucher cho đơn đầu tiên.
 
-## Cập nhật 2026-06-29 - Bổ sung test CRUD voucher admin
+## Cập nhật 2026-07-11 - Form voucher hiển thị theo ngữ cảnh
 
-- Bổ sung test API admin cho voucher: customer bị chặn khi tạo voucher, payload giảm giá âm trả `422`, admin tạo/list/update/deactivate voucher trên database test.
-- Test assert trực tiếp bảng `vouchers` để xác nhận trạng thái sau khi update và deactivate.
-- Verification: `pytest backend/tests/test_10_admin_permissions_and_orders_flow.py backend/tests/test_11_admin_voucher_flash_sale_flow.py -q` pass.
+- Form quản trị chỉ hiện bộ chọn khách hàng khi đối tượng là `SPECIFIC_USER`, bộ chọn hạng khi là `MEMBER_TIER`, và ngày đăng ký khi là `NEW_CUSTOMER`.
+- Cấu hình điểm đổi/hạn sau khi lưu chỉ hiện với chiến dịch `LOYALTY`; giảm tối đa chỉ hiện với voucher phần trăm.
+- Khi đổi đối tượng, form xóa các giá trị chỉ thuộc đối tượng cũ để tránh gửi điều kiện ẩn ngoài ý muốn.
+- Các cờ đơn đầu tiên, mã ẩn và giỏ bỏ quên được điều khiển trực tiếp bằng lựa chọn đối tượng, không hiển thị thành checkbox trùng lặp.
 
-## Cập nhật 2026-06-29 - Chỉ gửi voucher Checkout đã xác nhận
+## Cập nhật 2026-07-11 - Cấu hình cộng dồn theo loại sản phẩm
 
-- Checkout lưu riêng mã đang nhập và mã đã validate thành công.
-- Payload tạo đơn chỉ gửi mã đã xác nhận; sửa mã hoặc điều kiện áp dụng sẽ xóa/revalidate trạng thái cũ.
-- Response validate cũ bị bỏ qua bằng mã phiên request.
-- Verification: frontend `npm run lint` và `npm run build` pass.
+- Đổi nhãn `stackable` trên màn hình quản trị thành “Áp dụng cùng Flash Sale” để thể hiện đúng quy tắc đang được kiểm tra.
+- Thêm `applyOutsideScope`: khi bật, sản phẩm không nằm trong danh sách sản phẩm/danh mục/thương hiệu được chọn vẫn được tính giá trị và giảm giá; các danh sách loại trừ rõ ràng vẫn được ưu tiên và không được áp dụng.
+- Giá trị mặc định của `applyOutsideScope` là `false` để voucher cũ giữ nguyên hành vi.
 
-## Cập nhật 2026-06-29 - Tái kiểm tra voucher POS theo đầy đủ điều kiện
+## Cập nhật 2026-07-11 - Làm rõ giá trị đơn đủ điều kiện
 
-- Voucher đã áp dụng trong POS được kiểm tra lại khi khách hàng, phương thức thanh toán, mã voucher, tổng tiền hoặc danh sách sản phẩm thay đổi.
-- Bỏ qua response validate lỗi thời để tránh trạng thái hợp lệ/không hợp lệ bị ghi đè sai khi thao tác nhanh.
-- Verification: frontend `npm run lint` và `npm run build` pass.
+- Thông báo thiếu giá trị tối thiểu tại checkout nêu rõ số tiền cần thêm phải đến từ sản phẩm đủ điều kiện của voucher.
+- Giá trị tối thiểu không mặc định tính trên toàn bộ giỏ hàng: sản phẩm ngoài phạm vi áp dụng và sản phẩm Flash Sale khi voucher không cho cộng dồn sẽ không được tính.
 
-## Update 2026-06-26 - Thêm bộ lọc sản phẩm trong form voucher admin
+## Cập nhật 2026-07-11 - Bộ chọn voucher trực tiếp tại checkout
 
-- Form quản lý voucher nay có thanh lọc riêng cho danh sách sản phẩm áp dụng/loại trừ, gồm tìm kiếm theo tên/SKU/thương hiệu, lọc danh mục, lọc thương hiệu và lọc trạng thái.
-- Bộ lọc chỉ ảnh hưởng danh sách sản phẩm đang hiển thị để chọn trong form; các sản phẩm đã chọn vẫn được lưu bằng `includeProductIds` và `excludeProductIds` như trước.
-- Giới hạn hiển thị tối đa 200 sản phẩm sau khi lọc được giữ lại để tránh danh sách quá dài trong giao diện admin.
-- Căn lại ô tìm kiếm sản phẩm bằng label riêng để không bị lệch chiều dọc so với các ô lọc danh mục, thương hiệu và trạng thái.
-- Danh sách voucher có thêm tab lọc theo nhóm đối tượng: công khai, khách mới, theo hạng, cấp riêng, mã ẩn và giỏ bỏ quên.
-- Trường cấp voucher riêng trong form được đổi nhãn thành `Tài khoản nhận voucher`; khi nhập User ID, form tự chuyển `audienceType` sang `SPECIFIC_USER` để voucher chỉ cấp cho tài khoản đó.
-- Form voucher cấp riêng nay chọn được nhiều tài khoản từ danh sách khách hàng có tìm kiếm theo tên/email/số điện thoại, thay vì nhập thủ công một User ID.
-- Backend nhận thêm `assignedUserIds`, đồng bộ các tài khoản được cấp vào bảng `user_vouchers` và rule áp dụng voucher kiểm tra người dùng có nằm trong danh sách được cấp riêng.
-- Khi mở tab voucher, frontend tải thêm danh sách khách hàng cho bộ chọn tài khoản mà không phụ thuộc từ khóa tìm voucher.
-- Bộ chọn tài khoản trong form voucher tải tối đa 100 khách hàng, khớp giới hạn `limit <= 100` của endpoint `/admin/customers` để tránh lỗi `422`.
-- Bổ sung nhóm ưu tiên để voucher gần mô hình sàn/app hơn: `displayTitle`, `displayDescription`, `publicTerms`, `applicableChannels` và `applicablePaymentMethods`.
-- Form admin có thêm phần nội dung khách hàng nhìn thấy và điều kiện kênh/thanh toán; checkout truyền `paymentMethod` và kênh `WEB` vào rule validate để chặn voucher sai phương thức thanh toán/kênh áp dụng.
-- Thêm migration `025_voucher_display_channel_payment.sql` và cập nhật baseline `init_database.sql` cho các cột nội dung/kênh/thanh toán.
-- Theo phản hồi UI, bỏ phần chọn `Kênh áp dụng` khỏi form voucher admin; backend vẫn giữ mặc định `WEB` để rule checkout hoạt động ổn định nhưng admin không phải chỉnh trường này.
-- Sửa luồng edit form để parse chắc các danh sách JSON như `applicablePaymentMethods`, tránh trường hợp dữ liệu từ DB/API không phải mảng JS thuần làm checkbox phương thức thanh toán không phản ánh đúng.
-- Đổi UI chọn phương thức thanh toán từ `MultiPickList` có vùng cuộn sang nhóm nút toggle tĩnh, giúp admin click toàn bộ dòng để chọn/bỏ chọn và tránh lỗi checkbox không đổi trạng thái trong form.
-- Sửa storefront checkout: khi bấm áp dụng voucher, frontend gửi thêm `payment_method` và `channel='WEB'` vào `/vouchers/validate`; khi đổi phương thức thanh toán, voucher đang nhập được validate lại để báo lỗi ngay nếu không áp dụng cho phương thức mới.
-- Verification: cập nhật voucher test `TESTPAY-0626` sang chỉ `COD` cho kết quả `COD` hợp lệ và `MOMO` bị chặn; cập nhật lại `MOMO/ZALOPAY` cho kết quả `MOMO` hợp lệ và `COD` bị chặn.
-- Verification: `npm run lint` trong `frontend` pass.
-- Verification: `py_compile` pass cho schema/service/repository/model/router/use case voucher liên quan.
+- Checkout tự tải voucher công khai đang hoạt động/còn hạn và voucher trong ví được cấp riêng cho tài khoản đang đăng nhập.
+- Voucher được gộp theo mã, sắp xếp theo hạn gần nhất và chọn độc quyền bằng radio; chọn voucher mới sẽ thay voucher cũ.
+- Danh sách công khai loại voucher hết lượt hoặc hết ngân sách. Ví cá nhân chỉ trả voucher `AVAILABLE` có chiến dịch còn hiệu lực, còn lượt và còn ngân sách.
+- API ví voucher trả thêm tiêu đề, mô tả, điều khoản, nhóm đối tượng và hạn hiệu lực để checkout hiển thị đầy đủ.
+- Bộ chọn đối chiếu `applicablePaymentMethods` với phương thức thanh toán đang chọn; voucher không tương thích bị vô hiệu hóa ngay trên giao diện. Backend tiếp tục trả `VOUCHER_ERR_PAYMENT_METHOD` nếu client cố gửi sai.
+
+## Cập nhật 2026-07-11 - Đổi voucher bằng điểm thưởng
+
+- Voucher có thêm `redemption_points`; giá trị `0` là voucher không yêu cầu đổi điểm.
+- Admin cấu hình số điểm cần đổi. Checkout hiển thị nút đổi, kiểm tra số dư và chỉ cho chọn voucher sau khi voucher đã vào ví cá nhân.
+- Khi đổi, backend khóa tài khoản, trừ điểm, ghi `loyalty_transactions` loại `REDEEM` và tạo `user_vouchers` trong cùng transaction; yêu cầu lặp không trừ điểm lần hai.
+- Voucher yêu cầu điểm luôn bắt buộc có bản ghi ví `AVAILABLE`, kể cả khi không cấu hình hạn theo ngày sau khi nhận; người dùng khác biết mã cũng không thể áp dụng trực tiếp.
+
+## Cập nhật 2026-07-11 - Voucher sinh nhật tự động theo hạng
+
+- Ngày sinh chỉ được chính tài khoản `CUSTOMER` khai báo một lần; backend lưu cột riêng và khóa sau lần lưu đầu. Thay đổi tiếp theo phải qua chăm sóc khách hàng.
+- Voucher có cờ `birthday_only` và dùng danh sách `eligible_tiers` hiện có để cấu hình hạng thành viên được nhận.
+- Job bảo trì chỉ cấp cho khách có số điện thoại, tài khoản ít nhất 30 ngày, đã có tối thiểu một đơn hợp lệ và có sinh nhật trong ngày hiện tại.
+- `birthday_voucher_grants` khóa duy nhất theo khách, voucher và năm sinh nhật, bảo đảm mỗi voucher chỉ được cấp một lần mỗi năm dù job chạy lặp.
+- Voucher sinh nhật không xuất hiện trong danh sách công khai và luôn bắt buộc nằm trong ví `AVAILABLE`; biết mã không đủ để sử dụng.
+- Hạn voucher dùng `validity_days_after_claim`; nếu admin để `0`, hệ thống mặc định 14 ngày nhưng không vượt quá ngày kết thúc chiến dịch.
+- Lịch cấp voucher sinh nhật chạy độc lập mỗi giờ, không phụ thuộc cờ bật/tắt tác vụ bảo trì đơn hàng.
+- Voucher sinh nhật bắt buộc chọn ít nhất một hạng thành viên và không được đồng thời yêu cầu đổi điểm; việc đối chiếu hạng không phân biệt chữ hoa/chữ thường.
+
+## Cập nhật 2026-07-13 - Báo trước voucher không áp dụng với Flash Sale
+
+- API voucher công khai và voucher trong ví trả thêm cờ `stackable` để checkout biết voucher có được áp dụng cùng Flash Sale hay không.
+- Checkout tính trước giá trị sản phẩm chắc chắn đủ điều kiện; voucher bị vô hiệu hóa kèm lý do khi giỏ chỉ có Flash Sale không được cộng dồn hoặc chưa đạt giá trị tối thiểu.
+- Tóm tắt thanh toán không còn hiển thị dòng Flash Sale có số lượng bằng `0`.
+- Frontend tách cùng một sản phẩm thành phần giá Flash Sale và phần giá thường khi gọi API kiểm tra voucher. Voucher không cho cộng dồn Flash Sale vẫn được tính trên số lượng thực tế mua theo giá thường, thống nhất với các dòng hàng backend tạo khi checkout.

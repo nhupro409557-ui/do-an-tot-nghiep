@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import type { UsedProductHistory, UsedProductHistoryEntry } from '../types';
+import { adminActorLabel } from '../../admin-audit/utils/adminActorLabel';
 
 type DeviceHistoryModalProps = {
   deviceHistory: UsedProductHistory;
@@ -39,6 +40,7 @@ export default function DeviceHistoryModal({
                 <div>
                   <div className="text-sm font-bold text-slate-900">{item.title}</div>
                   <div className="mt-1 text-xs font-semibold text-slate-500">{formatDateTime(item.createdAt)} · {item.entryType}</div>
+                  <div className="mt-1 text-xs font-semibold text-indigo-700">Người thao tác: {adminActorLabel(item).name}{adminActorLabel(item).role ? ` · ${adminActorLabel(item).role}` : ''}</div>
                 </div>
                 {(item.oldStatus || item.newStatus) && (
                   <div className="text-xs font-bold text-slate-600">
@@ -56,7 +58,10 @@ export default function DeviceHistoryModal({
                   <div>Pin: {item.batteryHealth ?? '-'}%</div>
                 </div>
               )}
-              {(item.proposedSalePrice != null || item.approvedSalePrice != null || item.repairCostEstimate != null) && (
+              {item.entryType === 'REPAIR' && (
+                <div className="mt-3 text-sm font-bold text-purple-700">Chi phí thực tế: {money.format(Number(item.repairCostEstimate || 0))}</div>
+              )}
+              {item.entryType !== 'REPAIR' && (item.proposedSalePrice != null || item.approvedSalePrice != null || item.repairCostEstimate != null) && (
                 <div className="mt-3 grid gap-2 text-xs font-semibold text-slate-600 sm:grid-cols-3">
                   <div>Chi phí sửa: {money.format(Number(item.repairCostEstimate || 0))}</div>
                   <div>Giá đề xuất: {money.format(Number(item.proposedSalePrice || 0))}</div>

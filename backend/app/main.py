@@ -24,7 +24,7 @@ from app.api.routers.users import router as users_router
 from app.api.routers.used_products import router as used_products_router
 from app.application.commerce.use_cases import CompleteOrderUseCase
 from app.application.after_sales import service as after_sales_service
-from app.application.services import order_service
+from app.application.services import birthday_voucher_service, loyalty_maintenance_service, order_service
 from app.config import settings
 from app.infrastructure.database.repositories import audit_repo
 from app.infrastructure.database.session import AsyncSessionFactory
@@ -40,6 +40,7 @@ async def lifespan(_: FastAPI):
     maintenance_task = None
     if settings.order_maintenance_enabled:
         maintenance_task = asyncio.create_task(run_order_maintenance_loop())
+    birthday_voucher_task = asyncio.create_task(run_birthday_voucher_loop())
     try:
         yield
     finally:
@@ -47,6 +48,9 @@ async def lifespan(_: FastAPI):
             maintenance_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await maintenance_task
+        birthday_voucher_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await birthday_voucher_task
 
 
 app = FastAPI(
@@ -104,9 +108,23 @@ async def run_order_maintenance_loop() -> None:
                 await session.commit()
             async with AsyncSessionFactory() as session:
                 await after_sales_service.run_maintenance(session)
+            async with AsyncSessionFactory() as session:
+                await loyalty_maintenance_service.run_maintenance(session)
         except Exception as e:
             logger.error(f"Error in order maintenance loop: {str(e)}", exc_info=True)
         await asyncio.sleep(max(60, int(settings.order_maintenance_interval_seconds)))
+
+
+async def run_birthday_voucher_loop() -> None:
+    while True:
+        try:
+            async with AsyncSessionFactory() as session:
+                granted_count = await birthday_voucher_service.grant_due_birthday_vouchers(session)
+                if granted_count:
+                    logger.info("Đã tự động cấp %s voucher sinh nhật.", granted_count)
+        except Exception as e:
+            logger.error(f"Error in birthday voucher loop: {str(e)}", exc_info=True)
+        await asyncio.sleep(3600)
 
 
 async def save_audit_log_async(actor_id: UUID | None, method: str, ip_address: str, user_agent: str | None, metadata: dict) -> None:
@@ -166,6 +184,8 @@ app.add_middleware(
         settings.frontend_url.rstrip("/"),
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "https://do-an-tot-nghiep-rho.vercel.app"

@@ -1,0 +1,2 @@
+ALTER TABLE vouchers
+    ADD COLUMN IF NOT EXISTS apply_outside_scope BOOLEAN NOT NULL DEFAULT FALSE;

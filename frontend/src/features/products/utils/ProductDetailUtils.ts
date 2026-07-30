@@ -493,6 +493,7 @@ export function buildProductSpecs(product: any): Spec[] {
       {
         label: field.label || field.key,
         group: field.group || inferSpecGroup(normalizeSpecKey(field.key || field.label || '')),
+        unit: field.unit || '',
       },
     ]),
   );
@@ -512,9 +513,12 @@ export function buildProductSpecs(product: any): Spec[] {
       .flatMap((item: any, index: number) => {
         const key = normalizeSpecKey(item.key || item.label || `spec-${index}`);
         if (seenKeys.has(key)) return [];
-        const field = specFieldMap.get(key) as { label?: string; group?: string } | undefined;
+        const field = specFieldMap.get(key) as { label?: string; group?: string; unit?: string } | undefined;
         const fallback = fallbackSpecMeta(key);
-        const value = formatSpecValue(item.value ?? item.content ?? item.text);
+        let value = formatSpecValue(item.value ?? item.content ?? item.text);
+        if (field?.unit && value && !value.toLowerCase().endsWith(field.unit.toLowerCase())) {
+          value = `${value} ${field.unit}`;
+        }
         const originalLabel = item.label || field?.label || fallback.label;
         if (value) seenKeys.add(key);
         return value
@@ -533,11 +537,14 @@ export function buildProductSpecs(product: any): Spec[] {
     const key = normalizeSpecKey(rawKey);
     if (key === '_variantSpecKeys' || seenKeys.has(key)) continue;
     seenKeys.add(key);
-    const field = specFieldMap.get(key) as { label?: string; group?: string } | undefined;
+    const field = specFieldMap.get(key) as { label?: string; group?: string; unit?: string } | undefined;
     const fallback = fallbackSpecMeta(key);
     const originalLabel = field?.label || fallback.label;
-    const value = formatSpecValue(rawValue);
+    let value = formatSpecValue(rawValue);
     if (!value) continue;
+    if (field?.unit && !value.toLowerCase().endsWith(field.unit.toLowerCase())) {
+      value = `${value} ${field.unit}`;
+    }
     specs.push({
       label: translateLabel(originalLabel),
       value,

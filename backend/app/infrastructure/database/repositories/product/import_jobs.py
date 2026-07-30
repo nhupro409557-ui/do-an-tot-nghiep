@@ -22,6 +22,8 @@ async def insert_imported_product(
     slug: str,
     category: str,
     brand: str,
+    category_id: UUID | None = None,
+    brand_id: UUID | None = None,
     description: str,
     seo_metadata: dict,
     sales_config: dict,
@@ -34,12 +36,12 @@ async def insert_imported_product(
         text(
             """
             INSERT INTO products (
-                id, sku, name, slug, category, brand, description, specifications,
+                id, sku, name, slug, category, brand, category_id, brand_id, description, specifications,
                 seo_metadata, sales_config, price, sale_price, stock_quantity,
                 image_url, images, colors, capacities, promotions, status
             )
             VALUES (
-                :id, :sku, :name, :slug, :category, :brand, :description, '{}'::jsonb,
+                :id, :sku, :name, :slug, :category, :brand, :category_id, :brand_id, :description, '{}'::jsonb,
                 CAST(:seo_metadata AS jsonb), CAST(:sales_config AS jsonb), :price,
                 :sale_price, 0, :image_url, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
                 '[]'::jsonb, :status
@@ -53,6 +55,8 @@ async def insert_imported_product(
             "slug": slug,
             "category": category,
             "brand": brand,
+            "category_id": category_id,
+            "brand_id": brand_id,
             "description": description,
             "seo_metadata": json.dumps(seo_metadata),
             "sales_config": json.dumps(sales_config),

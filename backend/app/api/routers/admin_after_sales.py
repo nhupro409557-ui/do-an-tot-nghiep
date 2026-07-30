@@ -1,10 +1,10 @@
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_user_id, require_staff_or_admin
+from app.api.dependencies import get_current_user_id, get_user_permissions, require_permission
 from app.application.after_sales import service
 from app.application.after_sales.schemas import (
     AfterSalesTimelineNoteRequest,
@@ -18,7 +18,7 @@ from app.infrastructure.database.session import get_session
 router = APIRouter(
     prefix="/after-sales",
     tags=["Admin - Hậu mãi"],
-    dependencies=[Depends(require_staff_or_admin)],
+    dependencies=[Depends(require_permission("after_sales:read"))],
 )
 
 
@@ -35,25 +35,37 @@ async def list_returns(
     )
 
 
-@router.patch("/returns/{request_id}/status")
+@router.patch("/returns/{request_id}/status", dependencies=[Depends(require_permission("after_sales:update"))])
 async def update_return(
     request_id: UUID,
     payload: UpdateAfterSalesStatusRequest,
     actor_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
+    permissions: set[str] = Depends(get_user_permissions),
 ) -> dict:
+    target = payload.status.strip().upper()
+    if target == "REFUND_PROCESSING" and "after_sales:refund" not in permissions:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền xử lý hoàn tiền hậu mãi.")
+    if target in {"EXCHANGE_PROCESSING", "QC_APPROVED"} and "after_sales:exchange" not in permissions:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền xử lý đổi sản phẩm.")
     return await service.admin_update_status(
         session, kind="RETURN", request_id=request_id, actor_id=actor_id, payload=payload,
     )
 
 
-@router.post("/returns/{request_id}/inspection")
+@router.post("/returns/{request_id}/inspection", dependencies=[Depends(require_permission("after_sales:inspect"))])
 async def inspect_return(
     request_id: UUID,
     payload: InspectAfterSalesRequest,
     actor_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
+    permissions: set[str] = Depends(get_user_permissions),
 ) -> dict:
+    result = payload.result.strip().upper()
+    if result == "APPROVE_REFUND" and "after_sales:refund" not in permissions:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền xử lý hoàn tiền hậu mãi.")
+    if result == "APPROVE_EXCHANGE" and "after_sales:exchange" not in permissions:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền xử lý đổi sản phẩm.")
     return await service.inspect_request(
         session, kind="RETURN", request_id=request_id, actor_id=actor_id, payload=payload,
     )
@@ -67,7 +79,7 @@ async def list_return_events(
     return await service.list_request_events(session, kind="RETURN", request_id=request_id)
 
 
-@router.post("/returns/{request_id}/events", status_code=201)
+@router.post("/returns/{request_id}/events", status_code=201, dependencies=[Depends(require_permission("after_sales:update"))])
 async def add_return_event(
     request_id: UUID,
     payload: AfterSalesTimelineNoteRequest,
@@ -92,27 +104,51 @@ async def list_warranties(
     )
 
 
-@router.patch("/warranties/{request_id}/status")
+@router.patch("/warranties/{request_id}/status", dependencies=[Depends(require_permission("after_sales:update"))])
 async def update_warranty(
     request_id: UUID,
     payload: UpdateAfterSalesStatusRequest,
     actor_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
+    permissions: set[str] = Depends(get_user_permissions),
 ) -> dict:
+    target = payload.status.strip().upper()
+    if target == "QC_IN_PROGRESS" and "after_sales:inspect" not in permissions:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền đánh giá lại QC bảo hành.")
+    if target in {"REPLACEMENT_APPROVED", "REPLACEMENT_PROCESSING"} and "after_sales:exchange" not in permissions:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền xử lý đổi sản phẩm.")
     return await service.admin_update_status(
         session, kind="WARRANTY", request_id=request_id, actor_id=actor_id, payload=payload,
     )
 
 
-@router.post("/warranties/{request_id}/inspection")
+@router.post("/warranties/{request_id}/inspection", dependencies=[Depends(require_permission("after_sales:inspect"))])
 async def inspect_warranty(
     request_id: UUID,
     payload: InspectAfterSalesRequest,
     actor_id: UUID = Depends(get_current_user_id),
     session: AsyncSession = Depends(get_session),
+    permissions: set[str] = Depends(get_user_permissions),
 ) -> dict:
+    result = payload.result.strip().upper()
+    if result == "APPROVE_REPLACEMENT" and "after_sales:exchange" not in permissions:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền xử lý đổi sản phẩm.")
     return await service.inspect_request(
         session, kind="WARRANTY", request_id=request_id, actor_id=actor_id, payload=payload,
+    )
+
+
+@router.get(
+    "/warranties/{request_id}/replacement-candidates",
+    dependencies=[Depends(require_permission("after_sales:exchange"))],
+)
+async def list_warranty_replacement_candidates(
+    request_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await service.list_warranty_replacement_candidates(
+        session,
+        request_id=request_id,
     )
 
 
@@ -124,7 +160,7 @@ async def list_warranty_events(
     return await service.list_request_events(session, kind="WARRANTY", request_id=request_id)
 
 
-@router.post("/warranties/{request_id}/events", status_code=201)
+@router.post("/warranties/{request_id}/events", status_code=201, dependencies=[Depends(require_permission("after_sales:update"))])
 async def add_warranty_event(
     request_id: UUID,
     payload: AfterSalesTimelineNoteRequest,
@@ -379,9 +415,12 @@ async def list_disposition_events(
                 COALESCE(ev.recovery_value, 0) AS "recoveryValue",
                 ev.actor_id::text AS "actorId",
                 COALESCE(u.full_name, u.email) AS "actorName",
+                u.email AS "actorEmail",
+                r.code AS "actorRole",
                 ev.created_at AS "createdAt"
             FROM imei_disposition_events ev
             LEFT JOIN users u ON u.id = ev.actor_id
+            LEFT JOIN roles r ON r.id = u.role_id
             WHERE ev.imei_id = :id OR ev.serial_id = :id
             ORDER BY ev.created_at DESC, ev.id DESC
             """
@@ -391,7 +430,7 @@ async def list_disposition_events(
     return [dict(row._mapping) for row in result]
 
 
-@router.patch("/defective-identifiers/{identifier_id}/disposition")
+@router.patch("/defective-identifiers/{identifier_id}/disposition", dependencies=[Depends(require_permission("after_sales:update"))])
 async def update_disposition(
     identifier_id: UUID,
     payload: ImeiDispositionRequest,
@@ -571,6 +610,6 @@ async def update_disposition(
     return {"id": str(identifier_id), "status": new_status}
 
 
-@router.post("/maintenance")
+@router.post("/maintenance", dependencies=[Depends(require_permission("after_sales:update"))])
 async def maintenance(session: AsyncSession = Depends(get_session)) -> dict:
     return await service.run_maintenance(session)

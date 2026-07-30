@@ -1,10 +1,16 @@
 import React, { createContext, use, useCallback, useEffect, useMemo, useState } from 'react';
-import { MockUser, onAuthStateChanged, getUserProfile, initializeAuth, updateUserProfile } from '../services/authDb';
+import { MockUser, onAuthStateChanged, getUserProfile, initializeAuth } from '../services/authDb';
 
 interface UserData {
   role: string;
   tier: string;
   points: number;
+  tierPeriodStartedAt?: string;
+  tierPeriodEndsAt?: string;
+  tierPeriodSpendAmount?: number;
+  pointsExpiringSoon?: number;
+  nearestPointsExpirationAt?: string;
+  nearestPointsExpirationAmount?: number;
   displayName?: string;
   birthDate?: string;
   gender?: string;
@@ -74,12 +80,6 @@ const AuthContext = createContext<AuthContextType>({
   useAnyPermission: () => false,
 });
 
-const calculateTier = (points: number): string => {
-  if (points >= 15000) return 'S-Vip';
-  if (points >= 3000) return 'S-Mem';
-  return 'S-New';
-};
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<MockUser | null>(null);
   const [userData, setUserData] = useState<UserData | null>(null);
@@ -95,12 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const profile = getUserProfile(currentUser.uid);
         if (profile) {
           const data = profile as UserData;
-          const computedTier = calculateTier(data.points || 0);
-
-          if (data.tier !== computedTier && data.role === 'user') {
-            updateUserProfile(currentUser.uid, { tier: computedTier });
-          }
-          setUserData({ ...data, tier: computedTier });
+          setUserData(data);
         } else {
           setUserData(null);
         }
@@ -124,11 +119,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const permissions = userData?.permissions || EMPTY_PERMISSIONS;
-  const isSuperAdmin = userData?.role === 'super_admin';
-  const isStaff = userData?.role === 'staff';
+  const normalizedRole = String(userData?.role || '').trim().toLowerCase().replaceAll('-', '_');
+  const isSuperAdmin = ['super_admin', 'superadmin'].includes(normalizedRole);
+  const isStaff = ['staff', 'staff_admin'].includes(normalizedRole);
   const canAccessAdmin = isSuperAdmin || isStaff || permissions.length > 0;
-  const usePermission = useCallback((code: string) => permissions.includes(code), [permissions]);
-  const useAnyPermission = useCallback((codes: string[]) => codes.some((code) => permissions.includes(code)), [permissions]);
+  const usePermission = useCallback((code: string) => isSuperAdmin || permissions.includes(code), [isSuperAdmin, permissions]);
+  const useAnyPermission = useCallback((codes: string[]) => isSuperAdmin || codes.some((code) => permissions.includes(code)), [isSuperAdmin, permissions]);
   const contextValue = useMemo(
     () => ({ user, userData, loading, isSuperAdmin, isStaff, canAccessAdmin, permissions, usePermission, useAnyPermission }),
     [user, userData, loading, isSuperAdmin, isStaff, canAccessAdmin, permissions, usePermission, useAnyPermission],

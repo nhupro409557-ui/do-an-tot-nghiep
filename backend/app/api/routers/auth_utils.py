@@ -12,6 +12,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr, Field
 from redis.asyncio import Redis
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -47,6 +48,7 @@ class ProfileResponse(BaseModel):
     displayName: str | None = None
     phone: str | None = None
     birthDate: str | None = None
+    birthDateLocked: bool = False
     gender: str | None = None
     avatarUrl: str | None = None
     verificationRole: str | None = None
@@ -54,6 +56,12 @@ class ProfileResponse(BaseModel):
     schoolOrWorkplace: str | None = None
     verificationCode: str | None = None
     permissions: list[str] = Field(default_factory=list)
+    tierPeriodStartedAt: str | None = None
+    tierPeriodEndsAt: str | None = None
+    tierPeriodSpendAmount: int = 0
+    pointsExpiringSoon: int = 0
+    nearestPointsExpirationAt: str | None = None
+    nearestPointsExpirationAmount: int = 0
 
 class AuthResponse(BaseModel):
     token: str
@@ -357,22 +365,73 @@ async def customer_role_id(session: AsyncSession) -> UUID:
     return role_id
 
 async def to_profile_response(session: AsyncSession, user: User) -> ProfileResponse:
+    from app.application.services.loyalty_maintenance_service import expire_user_points
+    synced_balance = await expire_user_points(session, user_id=user.id)
+    if synced_balance is not None:
+        user.loyalty_points_balance = synced_balance
+        await session.commit()
     role = await role_code(session, user.role_id)
     permissions = await list_permissions_for_user(session, user.id)
     profile = dict(user.profile_json or {})
     app_role = "staff" if role == "STAFF_ADMIN" else "user"
     if role == "SUPER_ADMIN":
         app_role = "super_admin"
+    loyalty_summary = (await session.execute(
+        text(
+            """
+            SELECT
+                COALESCE((
+                    SELECT SUM(total_amount)
+                    FROM orders
+                    WHERE user_id = :user_id
+                      AND status = 'COMPLETED'
+                      AND completed_at >= :period_start
+                      AND completed_at < :period_end
+                ), 0)::bigint AS period_spend_amount,
+                COALESCE((
+                    SELECT SUM(remaining_points)
+                    FROM loyalty_point_lots
+                    WHERE user_id = :user_id
+                      AND remaining_points > 0
+                      AND expired_at IS NULL
+                      AND expires_at > NOW()
+                      AND expires_at <= NOW() + INTERVAL '30 days'
+                ), 0)::integer AS expiring_soon
+            """
+        ),
+        {
+            "user_id": user.id,
+            "period_start": user.loyalty_tier_period_started_at,
+            "period_end": user.loyalty_tier_period_ends_at,
+        },
+    )).mappings().one()
+    nearest_expiration = (await session.execute(
+        text(
+            """
+            SELECT expires_at, SUM(remaining_points)::integer AS points
+            FROM loyalty_point_lots
+            WHERE user_id = :user_id
+              AND remaining_points > 0
+              AND expired_at IS NULL
+              AND expires_at > NOW()
+            GROUP BY expires_at
+            ORDER BY expires_at
+            LIMIT 1
+            """
+        ),
+        {"user_id": user.id},
+    )).mappings().first()
     return ProfileResponse(
         role=app_role,
-        tier=profile.get("tier") or user.loyalty_tier or "S-New",
+        tier=user.loyalty_tier or profile.get("tier") or "MEMBER",
         points=user.loyalty_points_balance,
         walletStatus=user.loyalty_wallet_status,
         marketingOptIn=user.marketing_opt_in,
         addresses=list(user.addresses or []),
         displayName=profile.get("displayName") or user.full_name,
         phone=profile.get("phone") or user.phone,
-        birthDate=profile.get("birthDate"),
+        birthDate=user.birth_date.isoformat() if user.birth_date else profile.get("birthDate"),
+        birthDateLocked=bool(user.birth_date_locked_at or user.birth_date),
         gender=profile.get("gender"),
         avatarUrl=profile.get("avatarUrl"),
         verificationRole=profile.get("verificationRole"),
@@ -380,6 +439,12 @@ async def to_profile_response(session: AsyncSession, user: User) -> ProfileRespo
         schoolOrWorkplace=profile.get("schoolOrWorkplace"),
         verificationCode=profile.get("verificationCode"),
         permissions=permissions,
+        tierPeriodStartedAt=user.loyalty_tier_period_started_at.isoformat() if user.loyalty_tier_period_started_at else None,
+        tierPeriodEndsAt=user.loyalty_tier_period_ends_at.isoformat() if user.loyalty_tier_period_ends_at else None,
+        tierPeriodSpendAmount=int(loyalty_summary["period_spend_amount"] or 0),
+        pointsExpiringSoon=int(loyalty_summary["expiring_soon"] or 0),
+        nearestPointsExpirationAt=nearest_expiration["expires_at"].isoformat() if nearest_expiration else None,
+        nearestPointsExpirationAmount=int(nearest_expiration["points"] or 0) if nearest_expiration else 0,
     )
 
 async def list_permissions_for_user(session: AsyncSession, user_id: UUID) -> list[str]:
@@ -464,6 +529,7 @@ async def get_active_user(session: AsyncSession, user_id: UUID) -> User:
 
 async def sync_and_link_offline_orders(session: AsyncSession, user: User) -> None:
     from sqlalchemy import text
+    from app.application.services.loyalty_maintenance_service import tier_from_spend
     from app.infrastructure.database.models import LoyaltyTransaction
     
     email = user.email.lower()
@@ -502,16 +568,25 @@ async def sync_and_link_offline_orders(session: AsyncSession, user: User) -> Non
     total_points = int(points_res.scalar() or 0)
     if total_points > 0:
         user.loyalty_points_balance = total_points
-        
-        # Calculate tier
-        tier = "MEMBER"
-        if total_points >= 15000:
-            tier = "DIAMOND"
-        elif total_points >= 8000:
-            tier = "GOLD"
-        elif total_points >= 3000:
-            tier = "SILVER"
-        user.loyalty_tier = tier
+
+        period_spend = await session.scalar(
+            text(
+                """
+                SELECT COALESCE(SUM(total_amount), 0)
+                FROM orders
+                WHERE user_id = :user_id
+                  AND status = 'COMPLETED'
+                  AND completed_at >= :period_start
+                  AND completed_at < :period_end
+                """
+            ),
+            {
+                "user_id": user.id,
+                "period_start": user.loyalty_tier_period_started_at,
+                "period_end": user.loyalty_tier_period_ends_at,
+            },
+        )
+        user.loyalty_tier = tier_from_spend(period_spend or 0)
         
         # Thêm LoyaltyTransaction
         session.add(

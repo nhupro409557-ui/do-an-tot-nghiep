@@ -1,5 +1,5 @@
 from .common import *
-from .common import validate_identifier_pairs, _same_actor
+from .common import validate_identifier_pairs
 from app.infrastructure.database.repositories import store_info_repo
 
 TRANSFER_IDENTIFIER_STATUS_BY_PURPOSE = {
@@ -146,10 +146,16 @@ async def _prepare_stock_count_identifiers(
         _validate_serial_number_format(cleaned_serial_numbers)
     elif cleaned_serial_numbers:
         raise HTTPException(status_code=400, detail=f"Dòng {line_index}: sản phẩm không quản lý serial.")
-    if tracks_imei and tracks_serial_number and len(cleaned_imeis) != len(cleaned_serial_numbers):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Dòng {line_index}: số IMEI và serial quét phải bằng nhau.",
+    if tracks_imei and tracks_serial_number:
+        if not cleaned_imeis or not cleaned_serial_numbers:
+            raise HTTPException(status_code=400, detail=f"Dòng {line_index}: cần chọn đủ thiết bị gồm IMEI và serial.")
+        await validate_identifier_pairs(
+            session,
+            product_id=product_id,
+            variant_id=variant_id,
+            imeis=cleaned_imeis,
+            serial_numbers=cleaned_serial_numbers,
+            line_index=line_index,
         )
 
     system_imeis = (
@@ -173,10 +179,18 @@ async def _prepare_stock_count_identifiers(
         else []
     )
     counted_quantity = submitted_counted_quantity
-    if tracks_imei:
+    if tracks_imei and tracks_serial_number:
+        counted_quantity = len(cleaned_serial_numbers)
+    elif tracks_imei:
         counted_quantity = len(cleaned_imeis)
     elif tracks_serial_number:
         counted_quantity = len(cleaned_serial_numbers)
+    else:
+        if counted_quantity < 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dòng {line_index}: Số lượng thực tế đếm được không thể nhỏ hơn 0."
+            )
 
     system_imei_set = set(system_imeis)
     scanned_imei_set = set(cleaned_imeis)
@@ -297,8 +311,6 @@ async def update_inventory_stock_count_status(
     posted_lines: list[dict] = []
     touched_products: set[UUID] = set()
     if target_status == "APPROVED":
-        if _same_actor(document.get("created_by"), current_user_id):
-            raise HTTPException(status_code=403, detail="Người lập phiếu không được tự duyệt phiếu kiểm kê.")
         for index, line in enumerate(lines, start=1):
             product_id = line["productId"]
             variant_id = line["variantId"]
@@ -388,9 +400,11 @@ async def update_inventory_stock_count_status(
                         quantity=abs(variance),
                         movement_note=f"Kiểm kê kho lệch thiếu {variance}.",
                     )
-                except ValueError:
-                    # Bỏ qua nếu dữ liệu lịch sử hoặc test seed không có đủ lô hàng tại kệ
-                    pass
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Dòng {index}: không đủ dữ liệu lô FIFO để ghi sổ. {exc}",
+                    ) from exc
             elif variance > 0:
                 avg_cost = stock_level.get("averageUnitCost") if stock_level else None
                 await inventory_repo.create_inventory_lot_for_reconciliation(
@@ -507,6 +521,11 @@ async def create_inventory_adjustment_request(
         actual_current = int(stock_level["onHandQuantity"] or 0) if stock_level else 0
         current_quantity = int(line.currentQuantity)
         new_quantity = int(line.newQuantity)
+        if new_quantity < 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dòng {index}: Số lượng điều chỉnh mới không được nhỏ hơn 0."
+            )
         if current_quantity != actual_current:
             raise HTTPException(
                 status_code=409,
@@ -555,8 +574,6 @@ async def update_inventory_adjustment_status(
     posted_lines: list[dict] = []
     touched_products: set[UUID] = set()
     if target_status == "APPROVED":
-        if _same_actor(document.get("created_by"), current_user_id):
-            raise HTTPException(status_code=403, detail="Người lập phiếu không được tự duyệt phiếu điều chỉnh tồn.")
         for index, line in enumerate(lines, start=1):
             product_id = line["productId"]
             variant_id = line["variantId"]
@@ -583,6 +600,11 @@ async def update_inventory_adjustment_status(
             variance = new_quantity - old_location_quantity
             old_quantity = int(current_row["stock_quantity"] or 0)
             new_total_qty = old_quantity + variance
+            if new_total_qty < 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Dòng {index}: chênh lệch điều chỉnh làm tổng tồn bị âm."
+                )
             if variant_id:
                 await inventory_repo.update_variant_stock(session, variant_id=variant_id, quantity=new_total_qty)
             else:
@@ -606,8 +628,11 @@ async def update_inventory_adjustment_status(
                         quantity=abs(variance),
                         movement_note=f"Điều chỉnh kho lệch thiếu {variance}.",
                     )
-                except ValueError:
-                    pass
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Dòng {index}: không đủ dữ liệu lô FIFO để ghi sổ. {exc}",
+                    ) from exc
             elif variance > 0:
                 avg_cost = stock_level.get("averageUnitCost") if stock_level else None
                 await inventory_repo.create_inventory_lot_for_reconciliation(
@@ -696,6 +721,11 @@ async def create_inventory_transfer_request(
         product_id = line.productId
         variant_id = line.variantId
         quantity = int(line.quantity)
+        if quantity <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dòng {index}: Số lượng chuyển kệ phải lớn hơn 0."
+            )
         if line.fromLocationId == line.toLocationId:
             raise HTTPException(status_code=400, detail=f"Dòng {index}: kệ nguồn và kệ đích phải khác nhau.")
         key = (str(product_id), str(variant_id or ""), str(line.fromLocationId), str(line.toLocationId))
@@ -739,6 +769,54 @@ async def create_inventory_transfer_request(
 
         imeis = _clean_imeis(line.imeis)
         serial_numbers = _clean_serial_numbers(line.serialNumbers)
+        pair_ids = list(dict.fromkeys(line.identifierPairIds))
+        if pair_ids:
+            pair_rows = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT
+                            pair.id, pair.imei1, pair.imei2, pair.serial_number,
+                            imei1.location_id AS imei1_location_id,
+                            imei1.status AS imei1_status,
+                            imei2.location_id AS imei2_location_id,
+                            imei2.status AS imei2_status,
+                            serial.location_id AS serial_location_id,
+                            serial.status AS serial_status
+                        FROM product_identifier_pairs pair
+                        JOIN product_imeis imei1
+                          ON imei1.product_id = pair.product_id AND imei1.imei = pair.imei1
+                        LEFT JOIN product_imeis imei2
+                          ON imei2.product_id = pair.product_id AND imei2.imei = pair.imei2
+                        JOIN product_serial_numbers serial
+                          ON serial.product_id = pair.product_id AND serial.serial_number = pair.serial_number
+                        WHERE pair.id = ANY(:pair_ids)
+                          AND pair.product_id = :product_id
+                          AND pair.variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid)
+                        FOR UPDATE OF pair
+                        """
+                    ),
+                    {"pair_ids": pair_ids, "product_id": product_id, "variant_id": variant_id},
+                )
+            ).mappings().all()
+            if len(pair_rows) != len(pair_ids):
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: Có thiết bị ghép cặp không thuộc sản phẩm/biến thể đã chọn.")
+            if len(pair_rows) != quantity:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: Số thiết bị ghép cặp phải bằng số lượng chuyển.")
+            for pair in pair_rows:
+                expected_location = str(line.fromLocationId)
+                locations = [pair["imei1_location_id"], pair["serial_location_id"]]
+                if pair["imei2"]:
+                    locations.append(pair["imei2_location_id"])
+                if any(str(value or "") != expected_location for value in locations):
+                    raise HTTPException(status_code=409, detail=f"Dòng {index}: IMEI và serial của một thiết bị đang khác kệ; cần đối soát trước khi chuyển.")
+                statuses = [pair["imei1_status"], pair["serial_status"]]
+                if pair["imei2"]:
+                    statuses.append(pair["imei2_status"])
+                if len(set(statuses)) != 1:
+                    raise HTTPException(status_code=409, detail=f"Dòng {index}: IMEI và serial của một thiết bị đang khác trạng thái; cần đối soát trước khi chuyển.")
+            imeis = [code for pair in pair_rows for code in (pair["imei1"], pair["imei2"]) if code]
+            serial_numbers = [pair["serial_number"] for pair in pair_rows]
         if len(set(imeis)) != len(imeis):
             raise HTTPException(status_code=400, detail=f"Dòng {index}: danh sách IMEI bị trùng.")
         if len(set(serial_numbers)) != len(serial_numbers):
@@ -747,7 +825,7 @@ async def create_inventory_transfer_request(
         _validate_serial_number_format(serial_numbers)
 
         policy_row = await inventory_repo.get_product_inventory_policy(session, product_id)
-        if _policy_tracks_imei(policy_row) and len(imeis) != quantity:
+        if _policy_tracks_imei(policy_row) and not pair_ids and len(imeis) != quantity:
             raise HTTPException(status_code=400, detail=f"Dòng {index}: sản phẩm quản lý IMEI nên số IMEI phải bằng số lượng chuyển.")
         if _policy_tracks_serial_number(policy_row) and len(serial_numbers) != quantity:
             raise HTTPException(status_code=400, detail=f"Dòng {index}: sản phẩm quản lý serial nên số serial phải bằng số lượng chuyển.")
@@ -806,7 +884,7 @@ async def update_inventory_transfer_status(
 ) -> dict:
     reference_code = reference_code.strip()
     target_status = payload.status.upper()
-    if target_status not in {"APPROVED", "COMPLETED", "CANCELLED"}:
+    if target_status not in {"APPROVED", "COMPLETED", "CANCELLED", "REVERSED"}:
         raise HTTPException(status_code=400, detail="Trạng thái phiếu chuyển kệ không hợp lệ.")
     document = await inventory_repo.get_inventory_transfer_for_update(session, reference_code)
     if not document:
@@ -814,6 +892,7 @@ async def update_inventory_transfer_status(
     allowed_transitions = {
         "DRAFT": {"APPROVED", "CANCELLED"},
         "APPROVED": {"COMPLETED", "CANCELLED"},
+        "COMPLETED": {"REVERSED"},
     }
     current_status = str(document["status"])
     if target_status not in allowed_transitions.get(current_status, set()):
@@ -822,9 +901,8 @@ async def update_inventory_transfer_status(
             detail=f"Không thể chuyển phiếu chuyển kệ từ {current_status} sang {target_status}.",
         )
 
-    if target_status == "APPROVED":
-        if _same_actor(document.get("created_by"), current_user_id):
-            raise HTTPException(status_code=403, detail="Người lập phiếu không được tự duyệt phiếu chuyển kệ.")
+    if target_status == "REVERSED":
+        return await reverse_completed_transfer(session, reference_code, current_user_id)
 
     lines = await inventory_repo.list_inventory_transfer_lines(session, document["id"])
     posted_lines: list[dict] = []
@@ -849,6 +927,76 @@ async def update_inventory_transfer_status(
                 variant_id=var_id,
                 assigned_skus_by_location=assigned_skus_by_location,
             )
+
+    # --- Khóa tồn khi APPROVED: tăng reserved_quantity + lock IMEI/Serial ---
+    if target_status == "APPROVED":
+        for index, line in enumerate(lines, start=1):
+            product_id = line["productId"]
+            variant_id = line["variantId"]
+            from_location_id = line["fromLocationId"]
+            quantity = int(line["quantity"] or 0)
+            adjusted = await inventory_repo.adjust_inventory_level_reserved_quantity(
+                session,
+                product_id=product_id,
+                variant_id=variant_id,
+                location_id=from_location_id,
+                delta=quantity,
+            )
+            if not adjusted:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Dòng {index}: kệ nguồn {line.get('fromLocationCode')} "
+                           f"không đủ tồn khả dụng để giữ {quantity} đơn vị cho phiếu chuyển.",
+                )
+            imeis = [str(i).strip() for i in (line.get("imeis") or []) if str(i).strip()]
+            serial_numbers = [str(s).strip().upper() for s in (line.get("serialNumbers") or []) if str(s).strip()]
+            if imeis or serial_numbers:
+                locked_imeis, locked_serials = await inventory_repo.lock_identifiers_for_hold(
+                    session,
+                    product_id=product_id,
+                    variant_id=variant_id,
+                    location_id=from_location_id,
+                    imeis=imeis,
+                    serial_numbers=serial_numbers,
+                )
+                policy_row = await inventory_repo.get_product_inventory_policy(session, product_id)
+                if _policy_tracks_imei(policy_row) and len(locked_imeis) != len(imeis):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Dòng {index}: Một hoặc nhiều IMEI không sẵn IN_STOCK tại kệ nguồn để khóa giữ.",
+                    )
+                if _policy_tracks_serial_number(policy_row) and len(locked_serials) != len(serial_numbers):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Dòng {index}: Một hoặc nhiều Serial không sẵn IN_STOCK tại kệ nguồn để khóa giữ.",
+                    )
+
+    # --- Giải phóng reserved khi HỦY từ APPROVED ---
+    if target_status == "CANCELLED" and current_status == "APPROVED":
+        for index, line in enumerate(lines, start=1):
+            product_id = line["productId"]
+            variant_id = line["variantId"]
+            from_location_id = line["fromLocationId"]
+            quantity = int(line["quantity"] or 0)
+            await inventory_repo.adjust_inventory_level_reserved_quantity(
+                session,
+                product_id=product_id,
+                variant_id=variant_id,
+                location_id=from_location_id,
+                delta=-quantity,
+            )
+            imeis = [str(i).strip() for i in (line.get("imeis") or []) if str(i).strip()]
+            serial_numbers = [str(s).strip().upper() for s in (line.get("serialNumbers") or []) if str(s).strip()]
+            if imeis or serial_numbers:
+                await inventory_repo.unlock_identifiers_for_hold(
+                    session,
+                    product_id=product_id,
+                    variant_id=variant_id,
+                    location_id=from_location_id,
+                    imeis=imeis,
+                    serial_numbers=serial_numbers,
+                )
+
     if target_status == "COMPLETED":
         for index, line in enumerate(lines, start=1):
             product_id = line["productId"]
@@ -883,6 +1031,41 @@ async def update_inventory_transfer_status(
             imeis = [str(item).strip() for item in (line.get("imeis") or []) if str(item).strip()]
             serial_numbers = [str(item).strip().upper() for item in (line.get("serialNumbers") or []) if str(item).strip()]
             if to_loc_purpose in {"STORAGE", "VIRTUAL"} and from_loc_purpose in {"QC", "DAMAGED", "RETURN", "WARRANTY"}:
+                # Kiểm tra QC cho hàng thường (không có IMEI/Serial) qua inventory_lots
+                if not imeis and not serial_numbers:
+                    lot_res = await session.execute(
+                        text("""
+                            SELECT DISTINCT il.source_reference
+                            FROM inventory_lots il
+                            WHERE il.product_id = :product_id
+                              AND il.variant_id IS NOT DISTINCT FROM CAST(:variant_id AS uuid)
+                              AND il.location_id = :from_location_id
+                              AND il.remaining_quantity > 0
+                              AND il.status = 'ACTIVE'
+                              AND il.source_reference IS NOT NULL
+                        """),
+                        {
+                            "product_id": product_id,
+                            "variant_id": variant_id,
+                            "from_location_id": from_location_id,
+                        },
+                    )
+                    for lot_row in lot_res.mappings():
+                        source_ref = lot_row["source_reference"]
+                        receipt_res = await session.execute(
+                            text("SELECT COALESCE(metadata->>'qualityStatus', 'PENDING') as qs FROM inventory_documents WHERE document_no = :ref AND document_type = 'INBOUND'"),
+                            {"ref": source_ref},
+                        )
+                        r_row = receipt_res.mappings().first()
+                        if r_row and r_row["qs"] != "PASSED":
+                            raise HTTPException(
+                                status_code=400,
+                                detail=(
+                                    f"Dòng {index}: Không thể chuyển hàng về STORAGE/VIRTUAL "
+                                    f"khi lô hàng từ phiếu nhập {source_ref} chưa đạt QC "
+                                    f"(Trạng thái hiện tại: {r_row['qs']})."
+                                ),
+                            )
                 if imeis:
                     res = await session.execute(
                         text("""
@@ -927,6 +1110,24 @@ async def update_inventory_transfer_status(
                                     status_code=400,
                                     detail=f"Không thể chuyển Serial {row['serial_number']} về STORAGE/VIRTUAL khi phiếu nhập {source_ref} chưa đạt QC (Trạng thái hiện tại: {r_row['qs']})."
                                 )
+
+            # --- Giải phóng reserved đã khóa lúc APPROVED trước khi chuyển thực tế ---
+            await inventory_repo.adjust_inventory_level_reserved_quantity(
+                session,
+                product_id=product_id,
+                variant_id=variant_id,
+                location_id=from_location_id,
+                delta=-quantity,
+            )
+            if imeis or serial_numbers:
+                await inventory_repo.unlock_identifiers_for_hold(
+                    session,
+                    product_id=product_id,
+                    variant_id=variant_id,
+                    location_id=from_location_id,
+                    imeis=imeis,
+                    serial_numbers=serial_numbers,
+                )
 
             moved_imeis = await inventory_repo.move_product_imeis_location(
                 session,
@@ -981,15 +1182,18 @@ async def update_inventory_transfer_status(
                 location_id=to_location_id,
             )
             target_old_quantity = int(target_level["onHandQuantity"] or 0) if target_level else 0
-            await inventory_repo.transfer_inventory_level_quantity(
-                session,
-                product_id=product_id,
-                variant_id=variant_id,
-                from_location_id=from_location_id,
-                to_location_id=to_location_id,
-                quantity=quantity,
-                average_unit_cost=stock_level.get("averageUnitCost"),
-            )
+            try:
+                await inventory_repo.transfer_inventory_level_quantity(
+                    session,
+                    product_id=product_id,
+                    variant_id=variant_id,
+                    from_location_id=from_location_id,
+                    to_location_id=to_location_id,
+                    quantity=quantity,
+                    average_unit_cost=stock_level.get("averageUnitCost"),
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
             source_sellable = str(line.get("fromLocationPurpose") or "STORAGE").upper() in SELLABLE_LOCATION_PURPOSES
             target_sellable = str(line.get("toLocationPurpose") or "STORAGE").upper() in SELLABLE_LOCATION_PURPOSES
             if source_sellable != target_sellable:
@@ -1082,6 +1286,261 @@ async def update_inventory_transfer_status(
     return {"ok": True, "referenceCode": reference_code, "status": target_status, "postedLineCount": len(posted_lines), "lines": posted_lines}
 
 
+async def reverse_completed_transfer(
+    session: AsyncSession,
+    reference_code: str,
+    actor_id: UUID | None = None,
+) -> dict:
+    reference_code = reference_code.strip()
+    transfer = await inventory_repo.get_inventory_transfer_for_update(session, reference_code)
+    if not transfer or transfer["status"] != "COMPLETED":
+        raise HTTPException(status_code=400, detail="Chỉ đảo phiếu chuyển kệ đã hoàn tất.")
+
+    lines = await inventory_repo.list_inventory_transfer_lines(session, transfer["id"])
+    touched_products: set[UUID] = set()
+
+    for line in lines:
+        product_id = line["productId"]
+        variant_id = line["variantId"]
+        from_location_id = line["fromLocationId"]
+        to_location_id = line["toLocationId"]
+        quantity = int(line["quantity"])
+
+        # 1. Reverse IMEI/serial numbers back to the original location and status
+        imeis = [str(item).strip() for item in (line.get("imeis") or []) if str(item).strip()]
+        serial_numbers = [str(item).strip().upper() for item in (line.get("serialNumbers") or []) if str(item).strip()]
+
+        original_status = TRANSFER_IDENTIFIER_STATUS_BY_PURPOSE.get(
+            str(line.get("fromLocationPurpose") or "STORAGE").upper(), "IN_STOCK"
+        )
+
+        if imeis:
+            moved_imeis = await inventory_repo.move_product_imeis_location(
+                session,
+                product_id=product_id,
+                variant_id=variant_id,
+                from_location_id=to_location_id,
+                to_location_id=from_location_id,
+                imeis=imeis,
+                target_status=original_status,
+            )
+            missing_imeis = sorted(set(imeis) - set(moved_imeis))
+            if missing_imeis:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Không thể đảo vì một số IMEI đã bị di chuyển hoặc thay đổi trạng thái: {', '.join(missing_imeis[:5])}."
+                )
+
+        if serial_numbers:
+            moved_serials = await inventory_repo.move_product_serial_numbers_location(
+                session,
+                product_id=product_id,
+                variant_id=variant_id,
+                from_location_id=to_location_id,
+                to_location_id=from_location_id,
+                serial_numbers=serial_numbers,
+                target_status=original_status,
+            )
+            missing_serials = sorted(set(serial_numbers) - set(moved_serials))
+            if missing_serials:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Không thể đảo vì một số Serial đã bị di chuyển hoặc thay đổi trạng thái: {', '.join(missing_serials[:5])}."
+                )
+
+        # 2. Reverse FIFO lots:
+        # We query the destination lots created for this transfer reference.
+        # We decrease their remaining_quantity at the destination shelf (toLocationId)
+        # And increase remaining_quantity of their original source lots at fromLocationId.
+        target_lots_res = await session.execute(
+            text(
+                """
+                SELECT id, remaining_quantity, initial_quantity, metadata->>'transferredFromLotId' AS parent_lot_id
+                FROM inventory_lots
+                WHERE metadata->>'transferReference' = :reference_code
+                  AND product_id = :product_id
+                  AND variant_id IS NOT DISTINCT FROM :variant_id
+                """
+            ),
+            {"reference_code": reference_code, "product_id": product_id, "variant_id": variant_id}
+        )
+        target_lots = target_lots_res.mappings().all()
+        for t_lot in target_lots:
+            parent_lot_id = t_lot["parent_lot_id"]
+            qty_to_reverse = int(t_lot["initial_quantity"] or 0)
+
+            # Deduct from target lot (the one at toLocationId)
+            await session.execute(
+                text(
+                    """
+                    UPDATE inventory_lots
+                    SET remaining_quantity = GREATEST(remaining_quantity - :qty, 0),
+                        status = CASE WHEN GREATEST(remaining_quantity - :qty, 0) = 0 THEN 'DEPLETED' ELSE status END,
+                        updated_at = NOW()
+                    WHERE id = :lot_id
+                    """
+                ),
+                {"lot_id": t_lot["id"], "qty": qty_to_reverse}
+            )
+
+            # Add back to parent/source lot (the one at fromLocationId)
+            if parent_lot_id:
+                await session.execute(
+                    text(
+                        """
+                        UPDATE inventory_lots
+                        SET remaining_quantity = remaining_quantity + :qty,
+                            status = 'ACTIVE',
+                            updated_at = NOW()
+                        WHERE id = :lot_id
+                        """
+                    ),
+                    {"lot_id": UUID(parent_lot_id), "qty": qty_to_reverse}
+                )
+
+            # Log movements in inventory_lot_movements
+            for lot_id, movement_qty, note in (
+                (t_lot["id"], qty_to_reverse, "Hoàn đảo lô (xóa lô chuyển kệ)."),
+                (UUID(parent_lot_id) if parent_lot_id else None, qty_to_reverse, "Nhận lại lô từ đảo chuyển kệ.")
+            ):
+                if lot_id:
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO inventory_lot_movements (
+                                id, lot_id, movement_type, quantity,
+                                reference_code, inventory_document_id, note
+                            )
+                            VALUES (
+                                :id, :lot_id, 'ADJUSTMENT', :quantity,
+                                :reference_code, :document_id, :note
+                            )
+                            """
+                        ),
+                        {
+                            "id": uuid4(),
+                            "lot_id": lot_id,
+                            "quantity": movement_qty,
+                            "reference_code": reference_code,
+                            "document_id": transfer["id"],
+                            "note": note,
+                        }
+                    )
+
+        # 3. Get old quantities before the physical inventory level transfer
+        from_level = await inventory_repo.get_inventory_level_for_transfer(
+            session,
+            product_id=product_id,
+            variant_id=variant_id,
+            location_id=to_location_id,
+        )
+        from_old_qty = int(from_level["onHandQuantity"] or 0) if from_level else 0
+
+        to_level = await inventory_repo.get_inventory_level_for_transfer(
+            session,
+            product_id=product_id,
+            variant_id=variant_id,
+            location_id=from_location_id,
+        )
+        to_old_qty = int(to_level["onHandQuantity"] or 0) if to_level else 0
+
+        # 4. Reverse the inventory level quantity
+        try:
+            await inventory_repo.transfer_inventory_level_quantity(
+                session,
+                product_id=product_id,
+                variant_id=variant_id,
+                from_location_id=to_location_id,
+                to_location_id=from_location_id,
+                quantity=quantity,
+                average_unit_cost=None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        # 5. Reverse the sellable variant/product stock_quantity if purposes changed
+        source_sellable = str(line.get("fromLocationPurpose") or "STORAGE").upper() in SELLABLE_LOCATION_PURPOSES
+        target_sellable = str(line.get("toLocationPurpose") or "STORAGE").upper() in SELLABLE_LOCATION_PURPOSES
+        if source_sellable != target_sellable:
+            inventory_row = (
+                await inventory_repo.get_variant_inventory_for_update(
+                    session,
+                    product_id=product_id,
+                    variant_id=variant_id,
+                )
+                if variant_id
+                else await inventory_repo.get_product_stock_for_update(session, product_id)
+            )
+            if not inventory_row:
+                raise HTTPException(status_code=404, detail="Không tìm thấy tồn bán được của sản phẩm.")
+            reversal_sellable_delta = quantity if source_sellable else -quantity
+            new_sellable_quantity = int(inventory_row["stock_quantity"] or 0) + reversal_sellable_delta
+            if new_sellable_quantity < 0:
+                raise HTTPException(status_code=409, detail="Tồn bán được không đủ để đảo chuyển trạng thái.")
+            if variant_id:
+                await inventory_repo.update_variant_stock(
+                    session,
+                    variant_id=variant_id,
+                    quantity=new_sellable_quantity,
+                )
+                touched_products.add(product_id)
+            else:
+                await inventory_repo.update_product_stock(
+                    session,
+                    product_id=product_id,
+                    quantity=new_sellable_quantity,
+                )
+
+        # 6. Insert new reverse inventory adjustment logs
+        await inventory_repo.insert_inventory_adjustment_log(
+            session,
+            log_id=uuid4(),
+            product_id=product_id,
+            variant_id=variant_id,
+            old_quantity=from_old_qty,
+            new_quantity=from_old_qty - quantity,
+            delta=-quantity,
+            transaction_type="ADJUSTMENT",
+            reference_code=reference_code,
+            reason="REVERSE_TRANSFER_OUT",
+            note=f"Đảo chuyển kệ: Xuất khỏi kệ đích {line.get('toLocationCode')}",
+            supplier_name=None,
+            unit_cost=None,
+            location_code=line.get("toLocationCode"),
+            location_name=line.get("toLocationName"),
+        )
+        await inventory_repo.insert_inventory_adjustment_log(
+            session,
+            log_id=uuid4(),
+            product_id=product_id,
+            variant_id=variant_id,
+            old_quantity=to_old_qty,
+            new_quantity=to_old_qty + quantity,
+            delta=quantity,
+            transaction_type="ADJUSTMENT",
+            reference_code=reference_code,
+            reason="REVERSE_TRANSFER_IN",
+            note=f"Đảo chuyển kệ: Nhập lại vào kệ nguồn {line.get('fromLocationCode')}",
+            supplier_name=None,
+            unit_cost=None,
+            location_code=line.get("fromLocationCode"),
+            location_name=line.get("fromLocationName"),
+        )
+
+    for product_id in touched_products:
+        await sync_parent_price_from_variants(session, product_id)
+
+    await inventory_repo.update_inventory_receipt_status(
+        session,
+        document_id=transfer["id"],
+        status="REVERSED",
+        note="Đảo phiếu điều chuyển kệ",
+        actor_id=actor_id,
+    )
+    await session.commit()
+    return {"ok": True, "referenceCode": reference_code, "status": "REVERSED"}
+
+
 async def create_inventory_internal_hold(
     session: AsyncSession,
     payload: InventoryInternalHoldPayload,
@@ -1139,6 +1598,11 @@ async def create_inventory_internal_hold(
         reserved_quantity = int(stock_level["reservedQuantity"] or 0) if stock_level else 0
         available_quantity = max(on_hand_quantity - reserved_quantity, 0)
         quantity = int(line.quantity)
+        if quantity <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dòng {index}: Số lượng giữ kho phải lớn hơn 0."
+            )
         if available_quantity < quantity:
             raise HTTPException(
                 status_code=409,
@@ -1229,10 +1693,6 @@ async def update_inventory_internal_hold_status(
             status_code=400,
             detail=f"Không thể chuyển phiếu giữ nội bộ từ {current_status} sang {target_status}.",
         )
-
-    if target_status == "APPROVED":
-        if _same_actor(document.get("created_by"), current_user_id):
-            raise HTTPException(status_code=403, detail="Người lập phiếu không được tự duyệt phiếu giữ nội bộ.")
 
     lines = await inventory_repo.list_inventory_internal_hold_lines(session, document["id"])
     posted_lines: list[dict] = []
@@ -1399,6 +1859,9 @@ async def create_inventory_cost_adjustment(
             raise HTTPException(status_code=400, detail=f"Dòng {index}: không có tồn tại kệ để điều chỉnh giá vốn.")
         if not await inventory_repo.get_product_inventory_policy(session, line.productId):
             raise HTTPException(status_code=404, detail=f"Dòng {index}: không tìm thấy sản phẩm.")
+        new_avg_cost = float(line.newAverageUnitCost or 0)
+        if new_avg_cost <= 0:
+            raise HTTPException(status_code=400, detail=f"Dòng {index}: Giá vốn mới phải lớn hơn 0.")
         current_lots = await inventory_repo.list_active_lots_for_cost_adjustment(
             session,
             product_id=line.productId,
@@ -1417,13 +1880,16 @@ async def create_inventory_cost_adjustment(
             if lot_id not in lot_map:
                 raise HTTPException(status_code=400, detail=f"Dòng {index}: lô điều chỉnh không thuộc tồn tại kệ này.")
             lot = lot_map[lot_id]
+            new_u_cost = float(lot_item.newUnitCost or 0)
+            if new_u_cost <= 0:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: Giá vốn lô hàng mới phải lớn hơn 0.")
             lot_costs.append(
                 {
                     "lotId": lot_id,
                     "lotCode": lot.get("lotCode"),
                     "remainingQuantity": int(lot.get("remainingQuantity") or 0),
                     "oldUnitCost": float(lot.get("unitCost") or 0),
-                    "newUnitCost": float(lot_item.newUnitCost or 0),
+                    "newUnitCost": new_u_cost,
                 }
             )
         if not lot_costs:
@@ -1473,10 +1939,6 @@ async def update_inventory_cost_adjustment_status(
     if target_status not in allowed_transitions.get(current_status, set()):
         raise HTTPException(status_code=400, detail=f"Không thể chuyển phiếu điều chỉnh giá vốn từ {current_status} sang {target_status}.")
 
-    if target_status == "APPROVED":
-        if _same_actor(document.get("created_by"), current_user_id):
-            raise HTTPException(status_code=403, detail="Người lập phiếu không được tự duyệt phiếu điều chỉnh giá vốn.")
-
     lines = await inventory_repo.list_inventory_cost_adjustment_lines(session, document["id"])
     posted_lines: list[dict] = []
     if target_status == "COMPLETED":
@@ -1496,6 +1958,8 @@ async def update_inventory_cost_adjustment_status(
             if on_hand_quantity != int(line.get("onHandQuantity") or 0):
                 raise HTTPException(status_code=400, detail=f"Dòng {index}: tồn tại kệ đã thay đổi, cần lập lại phiếu giá vốn.")
             new_average_cost = float(line.get("newAverageUnitCost") or 0)
+            if new_average_cost <= 0:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: Giá vốn mới phải lớn hơn 0.")
             updated_level = await inventory_repo.update_inventory_level_average_unit_cost(
                 session,
                 product_id=product_id,
@@ -1519,6 +1983,8 @@ async def update_inventory_cost_adjustment_status(
                     raise HTTPException(status_code=400, detail=f"Dòng {index}: lô điều chỉnh không còn tồn tại tại kệ.")
                 old_lot = lot_map[lot_id]
                 new_unit_cost = float(lot_item.get("newUnitCost") or 0)
+                if new_unit_cost <= 0:
+                    raise HTTPException(status_code=400, detail=f"Dòng {index}: Giá vốn lô hàng mới phải lớn hơn 0.")
                 updated_lot = await inventory_repo.update_inventory_lot_unit_cost(
                     session,
                     lot_id=UUID(lot_id),
@@ -1631,6 +2097,11 @@ async def create_inventory_disposal(
         if stock_level:
             available_quantity = int(stock_level["onHandQuantity"] or 0) - int(stock_level["reservedQuantity"] or 0)
         quantity = int(line.quantity)
+        if quantity <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dòng {index}: Số lượng thanh lý phải lớn hơn 0."
+            )
         if available_quantity < quantity:
             raise HTTPException(
                 status_code=409,
@@ -1646,9 +2117,11 @@ async def create_inventory_disposal(
         _validate_imei_format(imeis)
         _validate_serial_number_format(serial_numbers)
         policy_row = await inventory_repo.get_product_inventory_policy(session, product_id)
-        if _policy_tracks_imei(policy_row) and len(imeis) != quantity:
+        tracks_imei = _policy_tracks_imei(policy_row)
+        tracks_serial = _policy_tracks_serial_number(policy_row)
+        if tracks_imei and not tracks_serial and len(imeis) != quantity:
             raise HTTPException(status_code=400, detail=f"Dòng {index}: sản phẩm quản lý IMEI nên số IMEI phải bằng số lượng xử lý.")
-        if _policy_tracks_serial_number(policy_row) and len(serial_numbers) != quantity:
+        if tracks_serial and len(serial_numbers) != quantity:
             raise HTTPException(status_code=400, detail=f"Dòng {index}: sản phẩm quản lý serial nên số serial phải bằng số lượng xử lý.")
         await validate_identifier_pairs(
             session,
@@ -1708,10 +2181,6 @@ async def update_inventory_disposal_status(
             status_code=400,
             detail=f"Không thể chuyển phiếu xử lý tồn từ {current_status} sang {target_status}.",
         )
-
-    if target_status == "APPROVED":
-        if _same_actor(document.get("created_by"), current_user_id):
-            raise HTTPException(status_code=403, detail="Người lập phiếu không được tự duyệt phiếu xử lý tồn.")
 
     lines = await inventory_repo.list_inventory_disposal_lines(session, document["id"])
     posted_lines: list[dict] = []

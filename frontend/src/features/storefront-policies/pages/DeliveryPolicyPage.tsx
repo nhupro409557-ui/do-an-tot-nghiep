@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { LiveStorePolicySummary } from '../components/LiveStorePolicySummary';
 import {
   ChevronDown, ChevronUp, Truck, MapPin, Clock, DollarSign, PackageSearch,
   Eye, XOctagon, AlertTriangle, RefreshCcw, Edit, UserCheck, Wrench,
@@ -497,6 +498,7 @@ export default function DeliveryPolicyPage() {
 
       {/* Content */}
       <div className="mx-auto max-w-5xl px-4 py-10 lg:px-6">
+        <LiveStorePolicySummary codes={['DELIVERY', 'INSPECTION']} tone="sky" />
         <div className="space-y-3">
           {DELIVERY_POLICY_PAGE_SECTIONS.map((section) => {
             const isOpen = expanded === section.id;

@@ -27,6 +27,7 @@ GEMINI_EMBEDDING_ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent"
 )
 CATALOG_EMBEDDING_TABLE = "catalog_embedding_documents"
+PGVECTOR_DIMENSION = 768
 
 
 def normalize_asyncpg_dsn(database_url: str) -> str:
@@ -87,7 +88,34 @@ async def embed_text(
         json=payload,
     )
     response.raise_for_status()
-    return extract_embedding(response.json())
+    embedding = extract_embedding(response.json())
+    if len(embedding) != output_dimensionality:
+        raise ValueError(
+            "Gemini trả embedding sai số chiều: "
+            f"nhận {len(embedding)}, cần {output_dimensionality}."
+        )
+    return embedding
+
+
+def pgvector_literal(embedding: list[float]) -> str:
+    if len(embedding) != PGVECTOR_DIMENSION:
+        raise ValueError(
+            f"PGVector yêu cầu embedding {PGVECTOR_DIMENSION} chiều, nhận {len(embedding)}."
+        )
+    values = [float(value) for value in embedding]
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("Embedding chứa giá trị không hữu hạn.")
+    return json.dumps(values, separators=(",", ":"))
+
+
+def should_use_pgvector(query: str, percent: int) -> bool:
+    bounded_percent = max(0, min(int(percent), 100))
+    if bounded_percent == 0:
+        return False
+    if bounded_percent == 100:
+        return True
+    bucket = int.from_bytes(hashlib.sha256(query.encode("utf-8")).digest()[:2], "big") % 100
+    return bucket < bounded_percent
 
 
 def dense_cosine_similarity(left: list[float], right: list[float]) -> float:
@@ -117,6 +145,8 @@ def load_embedding_index(index_path: Path = DEFAULT_EMBEDDING_INDEX_PATH) -> dic
 
 def embedding_table_ddl() -> str:
     return f"""
+    CREATE EXTENSION IF NOT EXISTS vector;
+
     CREATE TABLE IF NOT EXISTS {CATALOG_EMBEDDING_TABLE} (
         file TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -126,6 +156,12 @@ def embedding_table_ddl() -> str:
         model TEXT NOT NULL,
         output_dimensionality INTEGER NOT NULL,
         embedding JSONB NOT NULL,
+        embedding_v2 vector({PGVECTOR_DIMENSION}),
+        source_id TEXT,
+        source_type TEXT NOT NULL DEFAULT 'catalog_markdown',
+        content_hash_v2 TEXT,
+        indexed_at TIMESTAMPTZ,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
         source_dir TEXT NOT NULL DEFAULT '',
         complete_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -133,7 +169,15 @@ def embedding_table_ddl() -> str:
             CHECK (jsonb_typeof(embedding) = 'array'),
         CONSTRAINT catalog_embedding_documents_dimensionality_check
             CHECK (output_dimensionality > 0)
-    )
+    );
+
+    ALTER TABLE {CATALOG_EMBEDDING_TABLE}
+        ADD COLUMN IF NOT EXISTS embedding_v2 vector({PGVECTOR_DIMENSION}),
+        ADD COLUMN IF NOT EXISTS source_id TEXT,
+        ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'catalog_markdown',
+        ADD COLUMN IF NOT EXISTS content_hash_v2 TEXT,
+        ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE
     """
 
 
@@ -151,6 +195,14 @@ async def sync_embedding_index_to_database(
         await connection.execute(embedding_table_ddl())
         async with connection.transaction():
             for document in documents:
+                document_file = str(document.get("file") or "")
+                document_hash = str(document.get("text_hash") or "")
+                embedding = [float(value) for value in (document.get("embedding") or [])]
+                vector_value = (
+                    pgvector_literal(embedding)
+                    if settings.ai_pgvector_dual_write_enabled
+                    else None
+                )
                 await connection.execute(
                     f"""
                     INSERT INTO {CATALOG_EMBEDDING_TABLE} (
@@ -162,11 +214,22 @@ async def sync_embedding_index_to_database(
                         model,
                         output_dimensionality,
                         embedding,
+                        embedding_v2,
                         source_dir,
                         complete_snapshot,
+                        source_id,
+                        source_type,
+                        content_hash_v2,
+                        indexed_at,
+                        is_active,
                         updated_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, NOW())
+                    VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::vector,
+                        $10, $11, $12, 'catalog_markdown', $13,
+                        CASE WHEN $14 THEN NOW() ELSE NULL END,
+                        TRUE, NOW()
+                    )
                     ON CONFLICT (file) DO UPDATE SET
                         title = EXCLUDED.title,
                         excerpt = EXCLUDED.excerpt,
@@ -175,20 +238,42 @@ async def sync_embedding_index_to_database(
                         model = EXCLUDED.model,
                         output_dimensionality = EXCLUDED.output_dimensionality,
                         embedding = EXCLUDED.embedding,
+                        embedding_v2 = EXCLUDED.embedding_v2,
                         source_dir = EXCLUDED.source_dir,
                         complete_snapshot = EXCLUDED.complete_snapshot,
+                        source_id = EXCLUDED.source_id,
+                        source_type = EXCLUDED.source_type,
+                        content_hash_v2 = EXCLUDED.content_hash_v2,
+                        indexed_at = EXCLUDED.indexed_at,
+                        is_active = TRUE,
                         updated_at = NOW()
                     """,
-                    str(document.get("file") or ""),
+                    document_file,
                     str(document.get("title") or ""),
                     str(document.get("excerpt") or ""),
-                    str(document.get("text_hash") or ""),
+                    document_hash,
                     str(payload.get("provider") or "gemini"),
                     str(payload.get("model") or ""),
                     int(payload.get("output_dimensionality") or 0),
-                    json.dumps(document.get("embedding") or []),
+                    json.dumps(embedding),
+                    vector_value,
                     str(payload.get("source_dir") or ""),
                     bool(payload.get("complete")),
+                    Path(document_file).stem,
+                    document_hash if vector_value else None,
+                    bool(vector_value),
+                )
+            if bool(payload.get("complete")):
+                active_files = [str(document.get("file") or "") for document in documents]
+                await connection.execute(
+                    f"""
+                    UPDATE {CATALOG_EMBEDDING_TABLE}
+                    SET is_active = FALSE,
+                        complete_snapshot = FALSE,
+                        updated_at = NOW()
+                    WHERE NOT (file = ANY($1::text[]))
+                    """,
+                    active_files,
                 )
         return len(documents)
     finally:
@@ -213,7 +298,9 @@ async def load_embedding_documents_from_database(
             f"""
             SELECT file, title, excerpt, text_hash, embedding
             FROM {CATALOG_EMBEDDING_TABLE}
-            WHERE model = $1 AND output_dimensionality = $2
+            WHERE model = $1
+              AND output_dimensionality = $2
+              AND is_active = TRUE
             ORDER BY file
             """,
             model,
@@ -242,6 +329,54 @@ def embedding_task_type(model: str, *, query: bool) -> str | None:
     return None
 
 
+async def search_catalog_embeddings_pgvector(
+    query_embedding: list[float],
+    *,
+    limit: int,
+    database_url: str = settings.database_url,
+    model: str = settings.gemini_embedding_model,
+    output_dimensionality: int = settings.gemini_embedding_output_dimensionality,
+) -> list[dict[str, Any]]:
+    if output_dimensionality != PGVECTOR_DIMENSION or limit <= 0:
+        return []
+
+    connection = await asyncpg.connect(normalize_asyncpg_dsn(database_url))
+    try:
+        rows = await connection.fetch(
+            f"""
+            SELECT
+                file,
+                title,
+                excerpt,
+                1 - (embedding_v2 <=> $1::vector) AS score
+            FROM {CATALOG_EMBEDDING_TABLE}
+            WHERE model = $2
+              AND output_dimensionality = $3
+              AND embedding_v2 IS NOT NULL
+              AND is_active = TRUE
+            ORDER BY embedding_v2 <=> $1::vector, title, file
+            LIMIT $4
+            """,
+            pgvector_literal(query_embedding),
+            model,
+            output_dimensionality,
+            limit,
+        )
+        return [
+            {
+                "title": row["title"] or row["file"] or "Catalog item",
+                "excerpt": row["excerpt"] or "",
+                "file": row["file"] or "",
+                "score": round(float(row["score"] or 0), 4),
+                "source": "pgvector_catalog_embedding",
+            }
+            for row in rows
+            if row["score"] is not None and float(row["score"]) > 0
+        ]
+    finally:
+        await connection.close()
+
+
 def make_index_payload(
     *,
     index_dir: Path,
@@ -252,7 +387,7 @@ def make_index_payload(
     last_error: str | None = None,
 ) -> dict[str, Any]:
     payload = {
-        "version": 1,
+        "version": 2,
         "provider": "gemini",
         "model": model,
         "output_dimensionality": output_dimensionality,
@@ -406,19 +541,6 @@ async def search_catalog_embeddings(
     data = load_embedding_index(index_path)
     if not api_key or limit <= 0:
         return []
-    try:
-        documents = await load_embedding_documents_from_database(
-            model=model,
-            output_dimensionality=output_dimensionality,
-        )
-    except (asyncpg.PostgresError, OSError):
-        documents = []
-    if not documents:
-        if not data:
-            return []
-        if data.get("model") != model or data.get("output_dimensionality") != output_dimensionality:
-            return []
-        documents = data.get("documents", [])
 
     async with httpx.AsyncClient(timeout=15) as client:
         query_embedding = await embed_text(
@@ -429,6 +551,35 @@ async def search_catalog_embeddings(
             output_dimensionality=output_dimensionality,
             task_type=embedding_task_type(model, query=True),
         )
+
+    if should_use_pgvector(query, settings.ai_pgvector_search_percent):
+        try:
+            pgvector_hits = await search_catalog_embeddings_pgvector(
+                query_embedding,
+                limit=limit,
+                model=model,
+                output_dimensionality=output_dimensionality,
+            )
+        except (asyncpg.PostgresError, OSError, ValueError):
+            pgvector_hits = []
+        if pgvector_hits:
+            return pgvector_hits
+
+    try:
+        documents = await load_embedding_documents_from_database(
+            model=model,
+            output_dimensionality=output_dimensionality,
+        )
+    except (asyncpg.PostgresError, OSError):
+        documents = []
+    if not documents:
+        if not data:
+            return []
+        if not bool(data.get("complete")):
+            return []
+        if data.get("model") != model or data.get("output_dimensionality") != output_dimensionality:
+            return []
+        documents = data.get("documents", [])
 
     ranked: list[tuple[float, str, dict]] = []
     for document in documents:

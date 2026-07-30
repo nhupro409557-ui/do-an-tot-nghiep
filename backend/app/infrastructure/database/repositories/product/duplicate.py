@@ -46,9 +46,9 @@ async def duplicate_product_record(
                 price,
                 sale_price,
                 0,
-                image_url,
-                images,
-                video_url,
+                NULL,
+                '[]'::jsonb,
+                NULL,
                 colors,
                 capacities,
                 promotions,
@@ -125,6 +125,21 @@ async def duplicate_product_accessories(session: AsyncSession, *, new_id: UUID, 
             INSERT INTO product_accessories (product_id, accessory_product_id)
             SELECT :new_id, accessory_product_id
             FROM product_accessories
+            WHERE product_id = :source_id
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"new_id": new_id, "source_id": source_id},
+    )
+
+
+async def duplicate_product_attached_services(session: AsyncSession, *, new_id: UUID, source_id: UUID) -> None:
+    await session.execute(
+        text(
+            """
+            INSERT INTO product_attached_services (product_id, service_id, override_price)
+            SELECT :new_id, service_id, override_price
+            FROM product_attached_services
             WHERE product_id = :source_id
             ON CONFLICT DO NOTHING
             """

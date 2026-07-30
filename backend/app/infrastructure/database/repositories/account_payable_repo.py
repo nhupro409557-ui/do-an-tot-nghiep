@@ -440,3 +440,21 @@ async def cancel_payable_by_source_document(
         )
     ).mappings().all()
     return [dict(row) for row in rows]
+
+
+async def get_payable_by_source_document(session: AsyncSession, source_document_id: UUID) -> dict | None:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT id::text, status, principal_amount AS "principalAmount",
+                       paid_amount AS "paidAmount", remaining_amount AS "remainingAmount"
+                FROM account_payables
+                WHERE source_document_id = :source_document_id
+                FOR UPDATE
+                """
+            ),
+            {"source_document_id": source_document_id},
+        )
+    ).mappings().first()
+    return dict(row) if row else None

@@ -33,7 +33,9 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
     usePermission,
   } = props;
   const [showForm, setShowForm] = useState(false);
-  const canManageFlashSale = usePermission('product:update');
+  const canCreateFlashSale = usePermission('flash_sale:create');
+  const canUpdateFlashSale = usePermission('flash_sale:update');
+  const canDeleteFlashSale = usePermission('flash_sale:delete');
   const selectedFlashSaleProduct = (products || flashSaleProductChoices).find(
     (product: any) => String(product.id) === String(flashSaleForm.productId),
   );
@@ -84,7 +86,7 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
   return (
     <AdminPanel
       title="Quản lý flash sale"
-      action={canManageFlashSale ? (
+      action={canCreateFlashSale ? (
         <button
           type="button"
           onClick={openCreateForm}
@@ -111,7 +113,7 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
         </div>
       )}
     >
-      {showForm && canManageFlashSale && (
+      {showForm && (editingFlashSaleId ? canUpdateFlashSale : canCreateFlashSale) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6 backdrop-blur-sm">
           <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
@@ -184,11 +186,12 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
               <Select label="Kiểu giảm" value={flashSaleForm.discountType} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, discountType: value as 'PERCENT' | 'FIXED' })} options={[['PERCENT', 'Theo %'], ['FIXED', 'Theo số tiền']]} />
               <Input label={flashSaleForm.discountType === 'PERCENT' ? 'Giảm (%)' : 'Giảm (VND)'} type="number" value={flashSaleForm.discountValue} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, discountValue: Number(value) })} />
               <Input label="Số lượng sale" type="number" value={flashSaleForm.quantityLimit} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, quantityLimit: value })} placeholder="Để trống nếu không giới hạn" />
+              <Input label="Tối đa mỗi khách" type="number" value={flashSaleForm.perUserLimit} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, perUserLimit: value })} placeholder="Để trống nếu không giới hạn" />
               <Input label="Bắt đầu" type="datetime-local" value={flashSaleForm.startsAt} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, startsAt: value })} />
               <Input label="Kết thúc" type="datetime-local" value={flashSaleForm.endsAt} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, endsAt: value })} />
               <Select label="Trạng thái" value={flashSaleForm.status} onChange={(value) => setFlashSaleForm({ ...flashSaleForm, status: value as 'ACTIVE' | 'INACTIVE' })} options={[['ACTIVE', 'Đang bật'], ['INACTIVE', 'Tạm tắt']]} />
               <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-slate-600 md:col-span-2">
-                Để trống thời gian bắt đầu để sale có hiệu lực ngay. Để trống thời gian kết thúc hoặc số lượng sale nếu không muốn giới hạn. Khi hết số lượng sale, hệ thống tự tắt flash sale và sản phẩm quay về giá bán thường.
+                Để trống thời gian bắt đầu để sale có hiệu lực ngay. Giới hạn mỗi khách được tính trong toàn bộ thời gian chương trình; phần mua vượt giới hạn sẽ trở về giá thường.
               </div>
               <div className="md:col-span-2">
                 <SubmitButtons editing={Boolean(editingFlashSaleId)} onCancel={closeForm} />
@@ -228,6 +231,7 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
             <td className="px-4 py-3 text-sm text-slate-600">
               <div className="font-bold text-slate-800">{quantitySummary.primary}</div>
               <div className="text-xs text-slate-500">{quantitySummary.secondary}</div>
+              <div className="text-xs font-semibold text-amber-700">{item.perUserLimit ? `Tối đa ${item.perUserLimit} sản phẩm/khách` : 'Không giới hạn theo khách'}</div>
             </td>
             <td className="px-4 py-3 text-sm text-slate-600">
               <div>{item.startsAt ? new Date(item.startsAt).toLocaleString('vi-VN') : 'Có hiệu lực ngay'}</div>
@@ -240,10 +244,10 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
             </td>
             <td className="px-4 py-3">
               <div className="flex items-center gap-2">
-                {canManageFlashSale && <button type="button" onClick={() => openEditForm(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50" title="Sửa flash sale">
+                {canUpdateFlashSale && <button type="button" onClick={() => openEditForm(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50" title="Sửa flash sale">
                   <Pencil className="h-4 w-4" />
                 </button>}
-                {canManageFlashSale && <button type="button" onClick={() => deleteFlashSale(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-100 text-red-600 hover:bg-red-50" title="Xóa flash sale">
+                {canDeleteFlashSale && <button type="button" onClick={() => deleteFlashSale(item)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-100 text-red-600 hover:bg-red-50" title="Xóa flash sale">
                   <Trash2 className="h-4 w-4" />
                 </button>}
               </div>

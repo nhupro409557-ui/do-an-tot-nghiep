@@ -29,6 +29,11 @@ class RedeemPointsUseCase:
             if user is None:
                 raise UserNotFoundError("Không tìm thấy tài khoản đang hoạt động.")
 
+            from app.application.services.loyalty_maintenance_service import expire_user_points
+            synced_balance = await expire_user_points(self._session, user_id=user.id)
+            if synced_balance is not None:
+                user.loyalty_points_balance = synced_balance
+
             if user.loyalty_wallet_status != LoyaltyWalletStatus.ACTIVE:
                 raise LoyaltyWalletClosedError("Ví điểm thưởng không ở trạng thái hoạt động.")
 

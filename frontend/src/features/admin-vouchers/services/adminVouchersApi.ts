@@ -16,6 +16,7 @@ export const adminVouchersApi = {
     body: JSON.stringify({ user_id: userId }),
   }),
   listUserVouchers: (userId: string) => request<any[]>(`/users/${encodeURIComponent(userId)}/vouchers`),
+  listPublicVouchers: () => request<any[]>('/vouchers'),
   validateVoucher: (code: string, subtotalAmount: number, context: Record<string, unknown> = {}) => request<any>('/vouchers/validate', {
     method: 'POST',
     body: JSON.stringify({ code, subtotal_amount: subtotalAmount, ...context }),

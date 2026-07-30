@@ -242,16 +242,22 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
             </div>
             <div className="space-y-2">
               {categoryForm.specFields.map((field, index) => (
-                <div key={index} className="grid gap-2 rounded-md bg-slate-50 p-2 md:grid-cols-2 xl:grid-cols-4">
+                <div key={index} className="grid gap-2 rounded-md bg-slate-50 p-2 md:grid-cols-3 xl:grid-cols-6">
                   <Input label="Mã trường" value={field.key} onChange={(value) => patchSpecField(index, { key: value })} />
                   <Input label="Tên hiển thị" value={field.label} onChange={(value) => patchSpecField(index, { label: value })} />
                   <Input label="Nhóm cha" value={field.group || ''} onChange={(value) => patchSpecField(index, { group: value })} />
-                  <Select label="Kiểu" value={field.type} onChange={(value) => patchSpecField(index, { type: value })} options={[['text', 'Chữ'], ['number', 'Số'], ['select', 'Lựa chọn'], ['color', 'Màu']]} />
+                  <Select label="Kiểu" value={field.type} onChange={(value) => patchSpecField(index, { type: value })} options={[['text', 'Chữ'], ['number', 'Số'], ['select', 'Lựa chọn'], ['color', 'Màu']]} minWidthClass="min-w-0" />
+                  <Input label="Đơn vị / Đuôi" placeholder="Ví dụ: GB, TB..." value={field.unit || ''} onChange={(value) => patchSpecField(index, { unit: value })} />
+                  <Input label="Tùy chọn gợi ý (dấu phẩy)" placeholder="Ví dụ: 8, 16, 32" value={field.options || ''} onChange={(value) => patchSpecField(index, { options: value })} />
                   <Checkbox label="Bắt buộc" checked={field.required} onChange={(checked) => patchSpecField(index, { required: checked })} />
                   <Checkbox label="Dùng cho biến thể" checked={field.variant} onChange={(checked) => patchSpecField(index, { variant: checked })} />
                   <Checkbox label="Dùng làm lọc" checked={Boolean(field.isFilterable)} onChange={(checked) => patchSpecField(index, { isFilterable: checked })} />
-                  <Select label="Kiểu lọc" value={field.filterType || (field.type === 'number' ? 'range' : 'checkbox')} onChange={(value) => patchSpecField(index, { filterType: value })} options={[['checkbox', 'Checkbox'], ['range', 'Khoảng'], ['select', 'Danh sách']]} />
-                  {!categoryViewOnly && <button type="button" aria-label={`Xóa trường ${field.label || field.key || index + 1}`} onClick={() => setCategoryForm({ ...categoryForm, specFields: categoryForm.specFields.filter((_, i) => i !== index) })} className="justify-self-end text-red-600 md:col-span-2 xl:col-span-4"><Trash2 className="h-4 w-4" /></button>}
+                  <Select label="Kiểu lọc" value={field.filterType || (field.type === 'number' ? 'range' : 'checkbox')} onChange={(value) => patchSpecField(index, { filterType: value })} options={[['checkbox', 'Checkbox'], ['range', 'Khoảng'], ['select', 'Danh sách']]} minWidthClass="min-w-0" />
+                  {!categoryViewOnly && (
+                    <div className="flex items-end justify-end md:col-span-3 xl:col-span-2">
+                      <button type="button" aria-label={`Xóa trường ${field.label || field.key || index + 1}`} onClick={() => setCategoryForm({ ...categoryForm, specFields: categoryForm.specFields.filter((_, i) => i !== index) })} className="mb-2 text-red-600 flex items-center gap-1"><Trash2 className="h-4 w-4" /> Xóa</button>
+                    </div>
+                  )}
                 </div>
               ))}
               {categoryForm.specFields.length === 0 && <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-500">Chưa có trường thông số. Hãy thêm các trường như màn hình, chip, pin, camera, chất liệu...</div>}

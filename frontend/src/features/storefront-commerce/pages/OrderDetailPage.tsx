@@ -28,6 +28,7 @@ const statusStyles: Record<string, { bg: string; text: string; border: string }>
 };
 
 const paymentLabels: Record<string, string> = {
+  NO_PAYMENT: 'Không yêu cầu thanh toán',
   COD: 'Thanh toán khi nhận hàng (COD)',
   MOMO: 'Ví MoMo Sandbox',
   ZALOPAY: 'Ví ZaloPay Sandbox',
@@ -38,15 +39,17 @@ const paymentLabels: Record<string, string> = {
 const paymentStatusLabels: Record<string, string> = {
   UNPAID: 'Chưa thanh toán',
   PAID: 'Đã thanh toán',
+  PAID_LATE: 'Thanh toán trễ cần đối soát',
   FAILED: 'Thanh toán thất bại',
   PENDING: 'Đang chờ thanh toán',
   EXPIRED: 'Đã hết hạn',
-  REFUNDED: 'Đã hoàn tiền',
+  REFUNDED: 'Đã ghi nhận hoàn tiền',
 };
 
 const paymentStatusStyles: Record<string, { text: string; bg: string }> = {
   UNPAID: { text: 'text-amber-700', bg: 'bg-amber-50' },
   PAID: { text: 'text-emerald-700', bg: 'bg-emerald-50' },
+  PAID_LATE: { text: 'text-amber-700', bg: 'bg-amber-50' },
   FAILED: { text: 'text-rose-700', bg: 'bg-rose-50' },
   PENDING: { text: 'text-amber-700', bg: 'bg-amber-50' },
   EXPIRED: { text: 'text-rose-700', bg: 'bg-rose-50' },
@@ -175,7 +178,7 @@ const AlertCircleIcon = () => (
 const orderSteps = [
   { label: 'Đã đặt đơn', desc: 'Đặt hàng thành công', icon: CartIcon },
   { label: 'Đang xử lý', desc: 'Shop đang chuẩn bị hàng', icon: ProcessingIcon },
-  { label: 'Đang giao hàng', desc: 'Đơn vị vận chuyển đã nhận', icon: ShippingIcon },
+  { label: 'Đang giao hàng', desc: 'Vận chuyển mô phỏng đã nhận', icon: ShippingIcon },
   { label: 'Hoàn tất', desc: 'Đã nhận hàng thành công', icon: CompletedIcon },
 ];
 
@@ -186,6 +189,10 @@ export default function OrderDetailPage() {
     initialOrderDetailState,
   );
   const [copied, setCopied] = useState(false);
+  const [showCancelForm, setShowCancelForm] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState('');
 
   useEffect(() => {
     if (!orderId) return;
@@ -218,6 +225,27 @@ export default function OrderDetailPage() {
     navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCancelOrder = async () => {
+    const normalizedReason = cancelReason.trim();
+    if (normalizedReason.length < 3) {
+      setCancelError('Vui lòng nhập lý do hủy đơn có ít nhất 3 ký tự.');
+      return;
+    }
+    setCancelBusy(true);
+    setCancelError('');
+    try {
+      await customerCenterApi.cancelOrder(orderId, normalizedReason);
+      const detail = await adminOrdersApi.getOrderDetail(orderId);
+      setPageState({ order: detail, error: '' });
+      setShowCancelForm(false);
+      setCancelReason('');
+    } catch (error) {
+      setCancelError(error instanceof Error ? error.message : 'Không thể hủy đơn hàng.');
+    } finally {
+      setCancelBusy(false);
+    }
   };
 
   if (loading) {
@@ -310,13 +338,65 @@ export default function OrderDetailPage() {
               </div>
             </div>
             <p className="mt-1.5 text-sm text-slate-500">Đặt lúc {formatDate(order.createdAt)}</p>
+            {order.orderType && order.orderType !== 'SALE' && (
+              <div className="mt-3 inline-flex rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                {order.orderType === 'WARRANTY_REPLACEMENT' ? 'Đơn giao máy bảo hành' : 'Đơn giao máy đổi trả'}
+              </div>
+            )}
           </div>
-          <div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <span className={`inline-flex items-center rounded-xl px-4 py-1.5 text-xs font-bold uppercase tracking-wider border ${badgeStyle.bg} ${badgeStyle.text} ${badgeStyle.border}`}>
               {statusLabels[order.status] || order.status}
             </span>
+            {order.status === 'PENDING' && (
+              <button
+                type="button"
+                onClick={() => { setShowCancelForm(value => !value); setCancelError(''); }}
+                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-rose-200 bg-white px-4 text-sm font-bold text-rose-700 transition hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-200"
+              >
+                Hủy đơn
+              </button>
+            )}
           </div>
         </div>
+
+        {showCancelForm && order.status === 'PENDING' && (
+          <section className="mb-8 rounded-2xl border border-rose-200 bg-white p-5 shadow-sm" aria-labelledby="cancel-order-title">
+            <h2 id="cancel-order-title" className="font-bold text-slate-900">Xác nhận hủy đơn hàng</h2>
+            <p className="mt-1 text-sm text-slate-600">Đơn chỉ có thể tự hủy khi còn chờ xử lý. Hàng đang giữ sẽ được trả lại tồn kho.</p>
+            <label htmlFor="customer-cancel-reason" className="mt-4 block text-sm font-semibold text-slate-700">
+              Lý do hủy <span className="text-rose-600">*</span>
+            </label>
+            <textarea
+              id="customer-cancel-reason"
+              value={cancelReason}
+              onChange={event => { setCancelReason(event.target.value); setCancelError(''); }}
+              className="mt-2 min-h-24 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+              placeholder="Ví dụ: Tôi muốn thay đổi địa chỉ nhận hàng."
+              maxLength={1000}
+              disabled={cancelBusy}
+            />
+            {cancelError && <p role="alert" className="mt-2 text-sm font-semibold text-rose-700">{cancelError}</p>}
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setShowCancelForm(false); setCancelError(''); }}
+                disabled={cancelBusy}
+                className="min-h-10 rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Giữ đơn hàng
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCancelOrder()}
+                disabled={cancelBusy}
+                className="min-h-10 rounded-xl bg-rose-600 px-4 text-sm font-bold text-white transition hover:bg-rose-700 disabled:cursor-wait disabled:bg-rose-300"
+              >
+                {cancelBusy ? 'Đang hủy...' : 'Xác nhận hủy đơn'}
+              </button>
+            </div>
+          </section>
+        )}
 
         {/* Banner trạng thái đặc biệt nếu có */}
         {isSpecialStatus && (
@@ -335,7 +415,7 @@ export default function OrderDetailPage() {
                 <p className="mt-1 text-xs text-rose-500">Ghi nhận vào lúc: {formatDate(order.cancelledAt)}</p>
               )}
               {order.refundedAt && (
-                <p className="mt-1 text-xs text-rose-500">Hoàn tiền lúc: {formatDate(order.refundedAt)}</p>
+                <p className="mt-1 text-xs text-rose-500">Ghi nhận hoàn tiền lúc: {formatDate(order.refundedAt)}</p>
               )}
             </div>
           </div>
@@ -435,7 +515,7 @@ export default function OrderDetailPage() {
             {/* Card Lịch trình vận chuyển (Timeline) */}
             <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-bold text-slate-900 border-b border-slate-100 pb-4 mb-5">
-                Cập nhật vận chuyển
+                Cập nhật vận chuyển mô phỏng
               </h2>
               <div className="relative pl-6 space-y-6 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100">
                 {shipmentEvents.map((event, index) => {
@@ -465,7 +545,7 @@ export default function OrderDetailPage() {
                 })}
                 {!shipmentEvents.length && (
                   <div className="py-2 text-center text-sm text-slate-400">
-                    Chưa có cập nhật vận chuyển nào cho đơn hàng này.
+                    Chưa có cập nhật vận chuyển mô phỏng nào cho đơn hàng này.
                   </div>
                 )}
               </div>
@@ -522,7 +602,9 @@ export default function OrderDetailPage() {
                       <span className={`inline-flex items-center rounded-lg px-2.5 py-0.5 text-xs font-semibold ${
                         paymentStatusStyles[order.paymentStatus]?.bg || 'bg-slate-50'
                       } ${paymentStatusStyles[order.paymentStatus]?.text || 'text-slate-700'}`}>
-                        {paymentStatusLabels[order.paymentStatus] || order.paymentStatus}
+                        {order.paymentRequirement === 'NO_PAYMENT_REQUIRED'
+                          ? 'Không phát sinh thanh toán'
+                          : (paymentStatusLabels[order.paymentStatus] || order.paymentStatus)}
                       </span>
                     </div>
                     {hasValidPaymentLink && (
@@ -550,7 +632,7 @@ export default function OrderDetailPage() {
                   <div className="border-t border-slate-100 pt-5 flex items-start gap-3">
                     <BoxIcon />
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Đơn vị vận chuyển</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Đơn vị vận chuyển demo</span>
                       {order.shippingProvider && (
                         <p className="mt-0.5 text-sm font-semibold text-slate-800">{order.shippingProvider}</p>
                       )}
@@ -562,6 +644,9 @@ export default function OrderDetailPage() {
                           </strong>
                         </div>
                       )}
+                      <p className="mt-2 text-[11px] leading-4 text-slate-400">
+                        Vận đơn này phục vụ demo luận văn, không được gửi sang hãng vận chuyển thật.
+                      </p>
                     </div>
                   </div>
                 )}

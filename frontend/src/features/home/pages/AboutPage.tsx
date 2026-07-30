@@ -68,6 +68,11 @@ export default function AboutPage() {
             người dùng sau mua hàng.
           </p>
           <p>
+            Do đây là đồ án luận văn ở mức demo, các thao tác tích hợp bên ngoài không phát sinh nghiệp vụ thật. Vận
+            chuyển chỉ dùng đơn vị mock và mã vận đơn mô phỏng; hoàn tiền chỉ ghi nhận chứng từ nội bộ; các cổng thanh
+            toán trực tuyến hoạt động trong môi trường sandbox, không phát sinh tiền thật.
+          </p>
+          <p>
             Việc xây dựng hệ thống ElectroMart Việt Nam góp phần thể hiện khả năng ứng dụng công nghệ thông tin vào lĩnh
             vực kinh doanh trực tuyến, đồng thời tạo nền tảng để nghiên cứu, phát triển và hoàn thiện các chức năng nâng
             cao trong tương lai.
@@ -173,7 +178,7 @@ export default function AboutPage() {
             {
               num: '6.3',
               title: 'Thanh toán thuận tiện và an toàn',
-              desc: 'Hệ thống hỗ trợ các phương thức thanh toán trực tuyến nhằm đáp ứng nhu cầu đa dạng của khách hàng. Quy trình thanh toán được thiết kế theo hướng đơn giản, rõ ràng và đảm bảo an toàn trong quá trình giao dịch.',
+              desc: 'Hệ thống hỗ trợ các phương thức thanh toán trực tuyến ở môi trường sandbox để mô phỏng quy trình giao dịch trong phạm vi đồ án. Các thao tác thanh toán không phát sinh tiền thật.',
             },
             {
               num: '6.4',

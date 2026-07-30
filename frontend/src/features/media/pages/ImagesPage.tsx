@@ -335,6 +335,17 @@ export default function ImagesPage() {
     }, { replace: true });
   }
 
+  const handleMetricsChange = useCallback((productId: string, metrics: { favoriteCount?: number; viewCount?: number }) => {
+    const applyMetrics = (card: ProductCard) => card.productId !== productId ? card : {
+      ...card,
+      ...metrics,
+      product: { ...card.product, ...metrics },
+      images: card.images.map((image) => ({ ...image, ...metrics, product: { ...image.product, ...metrics } })),
+    };
+    setProductCards((cards) => cards.map(applyMetrics));
+    setResolvedCard((card) => card ? applyMetrics(card) : card);
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-50/80 text-gray-900">
       <div className="relative overflow-hidden border-b border-gray-200 bg-white">
@@ -505,6 +516,7 @@ export default function ImagesPage() {
         playlist={isModalOpen && activeCard ? activeCard.images : []}
         initialIndex={activeImageIndex}
         onClose={closeImagesModal}
+        onMetricsChange={handleMetricsChange}
       />
     </div>
   );

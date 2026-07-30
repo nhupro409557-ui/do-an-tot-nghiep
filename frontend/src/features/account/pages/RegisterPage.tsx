@@ -10,7 +10,7 @@ import {
 } from '../../../services/authDb';
 import { requestGoogleProfile } from '../../../services/googleAuth';
 
-const brandName = 'ElectroMart VietNam';
+const brandName = 'ElectroMart Vietnam';
 
 type RegisterState = {
   name: string;

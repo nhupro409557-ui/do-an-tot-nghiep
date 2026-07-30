@@ -34,13 +34,13 @@ export const brandApi = {
   },
   adminListBrandImportJobs: () => request<any[]>('/admin/brands/import-jobs'),
   adminGetBrandImportJob: (id: string) => request<any>(`/admin/brands/import-jobs/${encodeURIComponent(id)}`),
-  adminUpdateBrandStatus: (id: string, isActive: boolean) => request(`/admin/brands/${encodeURIComponent(id)}/status`, {
+  adminUpdateBrandStatus: (id: string, isActive: boolean, version?: number | null) => request(`/admin/brands/${encodeURIComponent(id)}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({ isActive }),
+    body: JSON.stringify({ isActive, version: version || null }),
   }),
-  adminUpdateBrandsStatus: (ids: string[], isActive: boolean) => request<{ updated: number; failed: any[] }>('/admin/brands/status', {
+  adminUpdateBrandsStatus: (ids: string[], isActive: boolean, versions?: Record<string, number>) => request<{ updated: number; failed: any[] }>('/admin/brands/status', {
     method: 'PATCH',
-    body: JSON.stringify({ ids, isActive }),
+    body: JSON.stringify({ ids, isActive, versions }),
   }),
   adminDeleteBrand: (id: string) => request(`/admin/brands/${encodeURIComponent(id)}`, {
     method: 'DELETE',

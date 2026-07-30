@@ -1,4 +1,5 @@
 from uuid import UUID
+from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +10,7 @@ from app.application.services.product_helper_service import (
     sync_parent_price_from_variants,
     sync_parent_price_if_variants_exist,
 )
+from app.infrastructure.database.transaction import transaction_scope
 
 
 async def merge_revision_variants(session: AsyncSession, *, parent_id: UUID, revision_id: UUID) -> None:
@@ -22,21 +24,22 @@ async def transition_product_status(
     allowed_from: set[str],
     next_status: str,
 ) -> dict:
-    if next_status == "ACTIVE":
-        blocker = await product_repo.product_visibility_blocker(session, product_id=product_id)
-        if blocker:
-            raise HTTPException(status_code=400, detail=blocker)
-        await sync_parent_price_if_variants_exist(session, product_id)
-    result = await product_approval_repo.transition_product_status_data(
-        session,
-        product_id,
-        allowed_from=allowed_from,
-        next_status=next_status,
-    )
-    published_product_id = result.get("publishedProductId")
-    if next_status == "ACTIVE" and published_product_id:
-        await sync_parent_price_from_variants(session, UUID(published_product_id))
-    return result
+    async with transaction_scope(session):
+        if next_status == "ACTIVE":
+            blocker = await product_repo.product_visibility_blocker(session, product_id=product_id)
+            if blocker:
+                raise HTTPException(status_code=400, detail=blocker)
+            await sync_parent_price_if_variants_exist(session, product_id)
+        result = await product_approval_repo.transition_product_status_data(
+            session,
+            product_id,
+            allowed_from=allowed_from,
+            next_status=next_status,
+        )
+        published_product_id = result.get("publishedProductId")
+        if next_status == "ACTIVE" and published_product_id:
+            await sync_parent_price_from_variants(session, UUID(published_product_id))
+        return result
 
 
 async def submit_product(product_id: UUID, session: AsyncSession) -> dict:
@@ -55,10 +58,11 @@ async def approve_product(
 
 
 async def reactivate_product(product_id: UUID, session: AsyncSession) -> dict:
-    blocker = await product_repo.product_visibility_blocker(session, product_id=product_id)
-    if blocker:
-        raise HTTPException(status_code=400, detail=blocker)
-    return await product_approval_repo.reactivate_product_data(product_id, session)
+    async with transaction_scope(session):
+        blocker = await product_repo.product_visibility_blocker(session, product_id=product_id)
+        if blocker:
+            raise HTTPException(status_code=400, detail=blocker)
+        return await product_approval_repo.reactivate_product_data(product_id, session)
 
 
 async def bulk_approve_products(
@@ -74,10 +78,24 @@ async def bulk_approve_products(
         allowed.update({"DRAFT", "REVISION_DRAFT"})
     for product_id in ids:
         try:
-            await transition_product_status(session, product_id, allowed_from=allowed, next_status="ACTIVE")
+            async with session.begin_nested():
+                blocker = await product_repo.product_visibility_blocker(session, product_id=product_id)
+                if blocker:
+                    raise HTTPException(status_code=400, detail=blocker)
+                await sync_parent_price_if_variants_exist(session, product_id)
+                result = await product_approval_repo.transition_product_status_data(
+                    session,
+                    product_id,
+                    allowed_from=allowed,
+                    next_status="ACTIVE",
+                )
+                published_product_id = result.get("publishedProductId")
+                if published_product_id:
+                    await sync_parent_price_from_variants(session, UUID(published_product_id))
             updated += 1
         except Exception:
             skipped.append(str(product_id))
+    await session.commit()
     return {"ok": True, "updated": updated, "skipped": skipped}
 
 
@@ -95,19 +113,41 @@ async def product_bulk_action(
 
     for product_id in ids:
         try:
-            if payload.action == "APPROVE":
-                await transition_product_status(session, product_id, allowed_from=allowed, next_status="ACTIVE")
-            elif payload.action == "ARCHIVE":
-                await transition_product_status(session, product_id, allowed_from={"DRAFT", "INACTIVE"}, next_status="ARCHIVED")
-            elif payload.action == "HIDE":
-                await product_approval_repo.hide_product_data(product_id, session)
-            elif payload.action == "RESTORE":
-                await reactivate_product(product_id, session)
-            elif payload.action == "DELETE":
-                await product_approval_repo.deactivate_product_data(product_id, session)
+            async with session.begin_nested():
+                if payload.action == "APPROVE":
+                    blocker = await product_repo.product_visibility_blocker(session, product_id=product_id)
+                    if blocker:
+                        raise HTTPException(status_code=400, detail=blocker)
+                    await sync_parent_price_if_variants_exist(session, product_id)
+                    result = await product_approval_repo.transition_product_status_data(
+                        session,
+                        product_id,
+                        allowed_from=allowed,
+                        next_status="ACTIVE",
+                    )
+                    published_product_id = result.get("publishedProductId")
+                    if published_product_id:
+                        await sync_parent_price_from_variants(session, UUID(published_product_id))
+                elif payload.action == "ARCHIVE":
+                    await product_approval_repo.transition_product_status_data(
+                        session,
+                        product_id,
+                        allowed_from={"DRAFT", "INACTIVE", "REVISION_DRAFT"},
+                        next_status="ARCHIVED",
+                    )
+                elif payload.action == "HIDE":
+                    await product_approval_repo.hide_product_data(product_id, session)
+                elif payload.action == "RESTORE":
+                    blocker = await product_repo.product_visibility_blocker(session, product_id=product_id)
+                    if blocker:
+                        raise HTTPException(status_code=400, detail=blocker)
+                    await product_approval_repo.reactivate_product_data(product_id, session)
+                elif payload.action == "DELETE":
+                    await product_approval_repo.deactivate_product_data(product_id, session)
             updated += 1
         except Exception:
             skipped.append(str(product_id))
+    await session.commit()
     return {"ok": True, "action": payload.action, "updated": updated, "skipped": skipped}
 
 
@@ -116,8 +156,10 @@ async def archive_product(product_id: UUID, session: AsyncSession) -> dict:
 
 
 async def hide_product(product_id: UUID, session: AsyncSession) -> dict:
-    return await product_approval_repo.hide_product_data(product_id, session)
+    async with transaction_scope(session):
+        return await product_approval_repo.hide_product_data(product_id, session)
 
 
 async def deactivate_product(product_id: UUID, session: AsyncSession) -> dict:
-    return await product_approval_repo.deactivate_product_data(product_id, session)
+    async with transaction_scope(session):
+        return await product_approval_repo.deactivate_product_data(product_id, session)

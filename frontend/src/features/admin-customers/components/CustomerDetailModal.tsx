@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { adminVouchersApi } from '../../admin-vouchers/services/adminVouchersApi';
+import { adminCustomersApi } from '../services/adminCustomersApi';
 
 const userStatusLabels: Record<string, string> = {
   ACTIVE: 'Hoạt động',
@@ -45,6 +46,9 @@ type CustomerDetailModalProps = {
   activeSection: CustomerSection;
   orders: any[];
   loyaltyHistory: any[];
+  loyaltyPage: number;
+  loyaltyTotal: number;
+  onLoyaltyPageChange: (page: number) => void;
   notes: any[];
   auditLogs: any[];
   profileDraft: { fullName: string; phone: string; tier: string; walletStatus: string };
@@ -100,6 +104,9 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 export default function CustomerDetailModal(props: CustomerDetailModalProps) {
+  const [expandedLoyaltyId, setExpandedLoyaltyId] = useState<string | null>(null);
+  const [loyaltyAllocations, setLoyaltyAllocations] = useState<Record<string, any[]>>({});
+  const [allocationBusyId, setAllocationBusyId] = useState<string | null>(null);
   const {
     customer,
     busy,
@@ -107,6 +114,9 @@ export default function CustomerDetailModal(props: CustomerDetailModalProps) {
     activeSection,
     orders,
     loyaltyHistory,
+    loyaltyPage,
+    loyaltyTotal,
+    onLoyaltyPageChange,
     notes,
     auditLogs,
     profileDraft,
@@ -135,6 +145,20 @@ export default function CustomerDetailModal(props: CustomerDetailModalProps) {
     onIssueVoucher,
     canIssueVoucher,
   } = props;
+
+  async function toggleLoyaltyAllocations(transactionId: string) {
+    if (expandedLoyaltyId === transactionId) {
+      setExpandedLoyaltyId(null);
+      return;
+    }
+    setExpandedLoyaltyId(transactionId);
+    if (!loyaltyAllocations[transactionId] && customer?.id) {
+      setAllocationBusyId(transactionId);
+      const rows = await adminCustomersApi.adminGetCustomerLoyaltyAllocations(customer.id, transactionId).catch(() => []);
+      setLoyaltyAllocations(current => ({ ...current, [transactionId]: rows }));
+      setAllocationBusyId(null);
+    }
+  }
   const tabs: [CustomerSection, string][] = [
     ['summary', 'Tổng quan'],
     ['orders', 'Đơn hàng'],
@@ -232,12 +256,13 @@ export default function CustomerDetailModal(props: CustomerDetailModalProps) {
                       </label>
                       <label className="block">
                         <span className="text-xs font-bold uppercase text-slate-500">Hạng thành viên</span>
-                        <select disabled={!canUpdateProfile} value={profileDraft.tier} onChange={(event) => onProfileDraftChange({ ...profileDraft, tier: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-slate-500 disabled:bg-slate-100">
-                          <option value="MEMBER">MEMBER</option>
-                          <option value="SILVER">SILVER</option>
-                          <option value="GOLD">GOLD</option>
-                          <option value="DIAMOND">DIAMOND</option>
+                        <select disabled value={profileDraft.tier} className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-slate-100 px-3 text-sm">
+                          <option value="MEMBER">Thành viên</option>
+                          <option value="SILVER">Bạc</option>
+                          <option value="GOLD">Vàng</option>
+                          <option value="DIAMOND">Kim cương</option>
                         </select>
+                        <p className="mt-1 text-xs text-slate-500">Hạng do hệ thống tự xét theo điểm hợp lệ trong kỳ.</p>
                       </label>
                       <label className="block">
                         <span className="text-xs font-bold uppercase text-slate-500">Trạng thái ví điểm</span>
@@ -303,12 +328,16 @@ export default function CustomerDetailModal(props: CustomerDetailModalProps) {
                       {balanceAfter < 0 && <p className="mt-2 text-xs font-semibold text-red-600">Không thể trừ quá số điểm hiện có của khách hàng.</p>}
                     </section>
                   )}
-                  <Table headers={['Loại', 'Điểm', 'Số dư trước', 'Số dư sau', 'Lý do', 'Người thao tác', 'Thời gian']}>{loyaltyHistory.length === 0 ? <EmptyRow colSpan={7} text="Chưa có lịch sử điểm thưởng." /> : loyaltyHistory.map((item) => {
-                    const delta = Number(item.metadata?.delta ?? item.points ?? 0);
+                  <Table headers={['Loại', 'Điểm', 'Số dư trước', 'Số dư sau', 'Chi tiết lô FIFO', 'Lý do', 'Người thao tác', 'Thời gian']}>{loyaltyHistory.length === 0 ? <EmptyRow colSpan={8} text="Chưa có lịch sử điểm thưởng." /> : loyaltyHistory.map((item) => {
+                    const rawPoints = Number(item.metadata?.delta ?? item.points ?? 0);
+                    const delta = ['REDEEM', 'REVOKE', 'EXPIRE'].includes(item.type) ? -Math.abs(rawPoints) : rawPoints;
                     const isNegative = delta < 0;
                     const actor = item.actorName || item.actorEmail || (item.metadata?.source === 'admin_manual_adjustment' ? item.metadata?.adjustedBy : 'Hệ thống');
-                    return <tr key={item.id}><td className="px-4 py-3">{item.type}</td><td className={`px-4 py-3 font-bold ${isNegative ? 'text-red-600' : 'text-emerald-700'}`}>{delta > 0 ? `+${delta}` : delta}</td><td className="px-4 py-3">{item.balanceBefore}</td><td className="px-4 py-3">{item.balanceAfter}</td><td className="px-4 py-3">{item.reason || '-'}</td><td className="px-4 py-3">{actor || '-'}</td><td className="px-4 py-3">{formatDate(item.createdAt)}</td></tr>;
+                    const allocations = loyaltyAllocations[item.id] || [];
+                    const canInspect = ['REDEEM', 'REVOKE'].includes(item.type) || (item.type === 'ADJUST' && delta < 0);
+                    return <tr key={item.id}><td className="px-4 py-3">{item.type}</td><td className={`px-4 py-3 font-bold ${isNegative ? 'text-red-600' : 'text-emerald-700'}`}>{delta > 0 ? `+${delta}` : delta}</td><td className="px-4 py-3">{item.balanceBefore}</td><td className="px-4 py-3">{item.balanceAfter}</td><td className="px-4 py-3">{!canInspect ? '-' : <div><button type="button" onClick={() => void toggleLoyaltyAllocations(item.id)} className="font-semibold text-blue-600 hover:underline">{expandedLoyaltyId === item.id ? 'Ẩn chi tiết' : 'Xem phân bổ'}</button>{expandedLoyaltyId === item.id && <div className="mt-2 min-w-56 space-y-2">{allocationBusyId === item.id ? <div className="text-xs text-slate-500">Đang tải...</div> : allocations.length === 0 ? <div className="text-xs text-slate-500">Không có dữ liệu phân bổ.</div> : allocations.map((allocation: any) => <div key={allocation.lotId} className="rounded border border-slate-200 bg-slate-50 p-2 text-xs"><div><strong>{Number(allocation.points).toLocaleString('vi-VN')} điểm</strong></div><div>Phát sinh: {formatDate(allocation.earnedAt)}</div><div>Hết hạn: {formatDate(new Date(new Date(allocation.expiresAt).getTime() - 86400000).toISOString())}</div><div>Còn lại trong lô: {Number(allocation.remainingPoints).toLocaleString('vi-VN')}</div></div>)}</div>}</div>}</td><td className="px-4 py-3">{item.reason || '-'}</td><td className="px-4 py-3">{actor || '-'}</td><td className="px-4 py-3">{formatDate(item.createdAt)}</td></tr>;
                   })}</Table>
+                  {loyaltyTotal > 20 && <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm"><span>Trang {loyaltyPage} / {Math.ceil(loyaltyTotal / 20)} · {loyaltyTotal.toLocaleString('vi-VN')} giao dịch</span><div className="flex gap-2"><button type="button" disabled={loyaltyPage <= 1} onClick={() => onLoyaltyPageChange(loyaltyPage - 1)} className="rounded border px-3 py-1.5 font-semibold disabled:cursor-not-allowed disabled:opacity-40">Trang trước</button><button type="button" disabled={loyaltyPage * 20 >= loyaltyTotal} onClick={() => onLoyaltyPageChange(loyaltyPage + 1)} className="rounded border px-3 py-1.5 font-semibold disabled:cursor-not-allowed disabled:opacity-40">Trang sau</button></div></div>}
                 </div>
               )}
 

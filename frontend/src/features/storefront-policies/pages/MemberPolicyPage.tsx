@@ -103,14 +103,14 @@ const MEMBER_POLICY_PAGE_SECTIONS: Section[] = [
       icon: <Star className="h-5 w-5" />,
       content: (
         <div className="space-y-4 text-sm text-slate-600 leading-relaxed">
-          <p>Hệ thống có thể phân hạng thành viên dựa trên tổng giá trị mua hàng, số lượng giao dịch hoặc lịch sử sử dụng dịch vụ.</p>
+          <p>Hạng thành viên được xét theo tổng giá trị các đơn hàng hợp lệ đã hoàn tất trong chu kỳ 6 tháng.</p>
           <Table
-            headers={['Hạng thành viên', 'Điều kiện tham khảo', 'Quyền lợi tham khảo']}
+            headers={['Hạng thành viên', 'Doanh số trong kỳ', 'Quyền lợi tham khảo']}
             rows={[
-              ['Thành viên cơ bản', 'Đăng ký tài khoản thành công', 'Theo dõi đơn hàng, lưu địa chỉ, nhận thông báo'],
-              ['Thành viên bạc', 'Có phát sinh giao dịch hợp lệ', 'Ưu đãi định kỳ, tích điểm mua hàng'],
-              ['Thành viên vàng', 'Đạt mức chi tiêu nhất định', 'Tỷ lệ tích điểm cao hơn, ưu tiên hỗ trợ'],
-              ['Thành viên kim cương', 'Giá trị giao dịch cao', 'Ưu đãi đặc biệt, ưu tiên bảo hành, vận chuyển'],
+              ['Thành viên cơ bản', 'Dưới 30.000.000đ', 'Theo dõi đơn hàng, lưu địa chỉ, nhận thông báo'],
+              ['Thành viên bạc', 'Từ 30.000.000đ', 'Ưu đãi định kỳ, tích điểm mua hàng'],
+              ['Thành viên vàng', 'Từ 80.000.000đ', 'Tỷ lệ tích điểm cao hơn, ưu tiên hỗ trợ'],
+              ['Thành viên kim cương', 'Từ 150.000.000đ', 'Ưu đãi đặc biệt, ưu tiên bảo hành, vận chuyển'],
             ]}
           />
         </div>
@@ -135,7 +135,7 @@ const MEMBER_POLICY_PAGE_SECTIONS: Section[] = [
           <div className="rounded border border-indigo-200 bg-indigo-50 p-3 text-indigo-800 font-semibold">
             Điểm thưởng = Giá trị thanh toán hợp lệ × Tỷ lệ tích điểm
           </div>
-          <p>Ví dụ: Tỷ lệ tích điểm 1%, đơn hàng thanh toán 10.000.000đ → Nhận 100.000 điểm tương ứng.</p>
+          <p>Hiện tại, mỗi 10.000đ giá trị thanh toán hợp lệ được quy đổi thành 1 điểm thưởng.</p>
         </div>
       ),
     },

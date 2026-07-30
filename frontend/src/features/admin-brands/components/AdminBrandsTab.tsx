@@ -1,5 +1,5 @@
 import React from 'react';
-import { Edit2, Eye, EyeOff, RotateCcw, Trash2 } from 'lucide-react';
+import { Edit2, Eye, EyeOff, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { AdminBadge, AdminPanel, AdminTable, BrandLogo, CollapsibleSection, FileInput, Input, SearchBox, Select, SubmitButtons } from '../../admin-shell/components/AdminDashboardParts';
 import { slugifyText } from '../../admin-shell/pages/AdminDashboardConfig';
 import { resolveImageUrl } from '../../../services/productMedia';
@@ -12,6 +12,8 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
     brandCodeStatus,
     brandCloseSignal,
     brandForm,
+    brandImportJobs,
+    brandImportMode,
     brandPage,
     brandStatusFilter,
     brandViewOnly,
@@ -23,6 +25,7 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
     editingBrandId,
     filteredBrands,
     handleBrandSubmit,
+    handleBrandImportFile,
     hideBrand,
     query,
     reactivateBrand,
@@ -30,6 +33,7 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
     selectedBrandIds,
     setBrandCodeStatus,
     setBrandForm,
+    setBrandImportMode,
     setBrandPage,
     setBrandStatusFilter,
     setQuery,
@@ -37,6 +41,7 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
     uploadFiles,
     viewBrand,
     usePermission,
+    activeBrandImportJob,
   } = props;
   const canCreateBrand = usePermission('brand:create');
   const canUpdateBrand = usePermission('brand:update');
@@ -47,6 +52,35 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
   return (
     <AdminPanel
       title="Quản lý thương hiệu và logo"
+      action={
+        canCreateBrand ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              noLabel={true}
+              label="Chế độ import"
+              value={brandImportMode}
+              onChange={setBrandImportMode}
+              minWidthClass="min-w-36"
+              options={[
+                ['skip', 'Bỏ qua mã trùng'],
+                ['upsert', 'Cập nhật mã trùng'],
+              ]}
+            />
+            <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+              <Upload className="h-4 w-4" />Nhập từ CSV
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(event) => {
+                  void handleBrandImportFile(event.target.files);
+                  event.target.value = '';
+                }}
+              />
+            </label>
+          </div>
+        ) : null
+      }
       filters={
         <>
           <Select noLabel={true} label="Trạng thái" value={brandStatusFilter} onChange={setBrandStatusFilter} options={[['all', 'Tất cả'], ['active', 'Đang hiển thị'], ['inactive', 'Đã ẩn']]} />
@@ -97,6 +131,36 @@ export default function AdminBrandsTab(props: AdminBrandsTabProps) {
         </form>
       </CollapsibleSection>}
       {canUpdateBrand && selectedBrandIds.length > 0 && <div className="mb-3 flex gap-2"><button type="button" onClick={() => bulkUpdateBrandStatus(false)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Ẩn đã chọn</button><button type="button" onClick={() => bulkUpdateBrandStatus(true)} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Khôi phục đã chọn</button></div>}
+      {(activeBrandImportJob || brandImportJobs?.length > 0) && (
+        <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-bold text-slate-800">Nhập thương hiệu từ tệp</div>
+            {activeBrandImportJob && (
+              <AdminBadge tone={activeBrandImportJob.status === 'FAILED' ? 'red' : activeBrandImportJob.status === 'COMPLETED' ? 'green' : 'yellow'}>
+                {activeBrandImportJob.status}
+              </AdminBadge>
+            )}
+          </div>
+          {activeBrandImportJob && (
+            <div className="grid gap-2 text-xs font-semibold text-slate-600 sm:grid-cols-5">
+              <div>Tiến trình: {activeBrandImportJob.progress || 0}%</div>
+              <div>Tổng dòng: {activeBrandImportJob.totalRows || 0}</div>
+              <div>Đã xử lý: {activeBrandImportJob.processedRows || 0}</div>
+              <div>Thêm mới: {activeBrandImportJob.importedRows || 0}</div>
+              <div>Bỏ qua: {activeBrandImportJob.skippedRows || 0}</div>
+            </div>
+          )}
+          {brandImportJobs?.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {brandImportJobs.slice(0, 3).map((job: any) => (
+                <span key={job.id} className="rounded border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600">
+                  {job.sourceFilename || job.id}: {job.status}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <AdminTable
         headers={['', 'Logo', 'Thương hiệu', 'Mã', 'Landing', 'Sản phẩm', 'Số danh mục', 'Thứ tự', 'Cập nhật', 'Trạng thái', 'Thao tác']}
         currentPage={brandPage}

@@ -7,6 +7,7 @@ from app.api.dependencies import get_current_user_id
 from app.application.loyalty.schemas import RedeemPointsRequest, RedeemPointsResponse
 from app.application.loyalty.use_cases import RedeemPointsUseCase
 from app.infrastructure.database.session import get_session
+from app.infrastructure.database.repositories.customer.profile import list_customer_loyalty_history
 from app.shared.exceptions import (
     InsufficientPointsError,
     LoyaltyWalletClosedError,
@@ -15,6 +16,14 @@ from app.shared.exceptions import (
 
 
 router = APIRouter(prefix="/loyalty", tags=["Loyalty"])
+
+
+@router.get("/history")
+async def loyalty_history(
+    current_user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await list_customer_loyalty_history(session, current_user_id)
 
 
 @router.post(

@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS vouchers (
     max_discount NUMERIC(14, 2) CHECK (max_discount IS NULL OR max_discount >= 0),
     usage_limit INTEGER NOT NULL DEFAULT 0 CHECK (usage_limit >= 0),
     used_count INTEGER NOT NULL DEFAULT 0 CHECK (used_count >= 0),
+    redemption_points INTEGER NOT NULL DEFAULT 0 CHECK (redemption_points >= 0),
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE', 'EXPIRED')),
     starts_at TIMESTAMPTZ,
     ends_at TIMESTAMPTZ,
@@ -195,7 +196,7 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
     order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     provider VARCHAR(30) NOT NULL CHECK (provider IN ('VNPAY', 'MOMO', 'ZALOPAY', 'SEPAY', 'CREDIT_CARD', 'COD')),
     amount NUMERIC(14, 2) NOT NULL CHECK (amount >= 0),
-    status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PAID', 'FAILED', 'EXPIRED', 'REFUNDED')),
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PAID', 'FAILED', 'EXPIRED', 'REFUNDED', 'PAID_LATE')),
     transaction_ref VARCHAR(120),
     checkout_url TEXT,
     attempt_number INTEGER NOT NULL DEFAULT 1,
@@ -1181,6 +1182,7 @@ ALTER TABLE vouchers
     ADD COLUMN IF NOT EXISTS exclude_category_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
     ADD COLUMN IF NOT EXISTS validity_days_after_claim INTEGER NOT NULL DEFAULT 0 CHECK (validity_days_after_claim >= 0),
     ADD COLUMN IF NOT EXISTS stackable BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS apply_outside_scope BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS refund_policy VARCHAR(40) NOT NULL DEFAULT 'SHOP_FAULT_ONLY';
 
 ALTER TABLE orders
@@ -1197,130 +1199,130 @@ CREATE INDEX IF NOT EXISTS idx_orders_voucher_ip ON orders(voucher_code, voucher
 
 UPDATE categories
 SET spec_fields = '[
-  {"key":"screen_size","label":"KÃ­ch thÆ°á»›c mÃ n hÃ¬nh","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"screen_technology","label":"CÃ´ng nghá»‡ mÃ n hÃ¬nh","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"resolution","label":"Äá»™ phÃ¢n giáº£i","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"refresh_rate","label":"Táº§n sá»‘ quÃ©t","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"brightness","label":"Äá»™ sÃ¡ng tá»‘i Ä‘a","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"processor","label":"Chip xá»­ lÃ½","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"ram","label":"RAM","group":"Hiá»‡u nÄƒng","type":"text","required":true,"variant":true},
-  {"key":"storage","label":"Bá»™ nhá»› trong","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":true},
-  {"key":"os","label":"Há»‡ Ä‘iá»u hÃ nh","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"rear_camera","label":"Camera sau","group":"Camera","type":"text","required":false,"variant":false},
-  {"key":"front_camera","label":"Camera trÆ°á»›c","group":"Camera","type":"text","required":false,"variant":false},
+  {"key":"screen_size","label":"Kích thước màn hình","group":"Màn hình","type":"text","required":false,"variant":false,"unit":"inch"},
+  {"key":"screen_technology","label":"Công nghệ màn hình","group":"Màn hình","type":"text","required":false,"variant":false},
+  {"key":"resolution","label":"Độ phân giải","group":"Màn hình","type":"text","required":false,"variant":false},
+  {"key":"refresh_rate","label":"Tần số quét","group":"Màn hình","type":"text","required":false,"variant":false,"unit":"Hz"},
+  {"key":"brightness","label":"Độ sáng tối đa","group":"Màn hình","type":"text","required":false,"variant":false,"unit":"nits"},
+  {"key":"processor","label":"Chip xử lý","group":"Hiệu năng","type":"text","required":false,"variant":false},
+  {"key":"ram","label":"RAM","group":"Hiệu năng","type":"text","required":true,"variant":true,"unit":"GB"},
+  {"key":"storage","label":"Bộ nhớ trong","group":"Hiệu năng","type":"text","required":false,"variant":true,"unit":"GB/TB"},
+  {"key":"os","label":"Hệ điều hành","group":"Hiệu năng","type":"text","required":false,"variant":false},
+  {"key":"rear_camera","label":"Camera sau","group":"Camera","type":"text","required":false,"variant":false,"unit":"MP"},
+  {"key":"front_camera","label":"Camera trước","group":"Camera","type":"text","required":false,"variant":false,"unit":"MP"},
   {"key":"video_recording","label":"Quay video","group":"Camera","type":"text","required":false,"variant":false},
-  {"key":"battery","label":"Dung lÆ°á»£ng pin","group":"Pin & sáº¡c","type":"text","required":false,"variant":false},
-  {"key":"charging","label":"CÃ´ng nghá»‡ sáº¡c","group":"Pin & sáº¡c","type":"text","required":false,"variant":false},
-  {"key":"sim","label":"SIM","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"network","label":"Máº¡ng di Ä‘á»™ng","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"connectivity","label":"Káº¿t ná»‘i khÃ¡c","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"material","label":"Cháº¥t liá»‡u","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false},
-  {"key":"dimensions","label":"KÃ­ch thÆ°á»›c","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false},
-  {"key":"weight","label":"Trá»ng lÆ°á»£ng","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false}
+  {"key":"battery","label":"Dung lượng pin","group":"Pin & sạc","type":"text","required":false,"variant":false,"unit":"mAh"},
+  {"key":"charging","label":"Công nghệ sạc","group":"Pin & sạc","type":"text","required":false,"variant":false,"unit":"W"},
+  {"key":"sim","label":"SIM","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"network","label":"Mạng di động","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"connectivity","label":"Kết nối khác","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"material","label":"Chất liệu","group":"Thiết kế","type":"text","required":false,"variant":false},
+  {"key":"dimensions","label":"Kích thước","group":"Thiết kế","type":"text","required":false,"variant":false,"unit":"mm"},
+  {"key":"weight","label":"Trọng lượng","group":"Thiết kế","type":"text","required":false,"variant":false,"unit":"g"}
 ]'::jsonb,
 updated_at = NOW()
 WHERE parent_id IS NULL AND slug = 'smartphones';
 
 UPDATE categories
 SET spec_fields = '[
-  {"key":"screen_size","label":"KÃ­ch thÆ°á»›c mÃ n hÃ¬nh","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"screen_technology","label":"CÃ´ng nghá»‡ mÃ n hÃ¬nh","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"resolution","label":"Äá»™ phÃ¢n giáº£i","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"refresh_rate","label":"Táº§n sá»‘ quÃ©t","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"processor","label":"CPU","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"graphics","label":"Card Ä‘á»“ há»a","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"ram","label":"RAM","group":"Hiá»‡u nÄƒng","type":"text","required":true,"variant":true},
-  {"key":"storage","label":"á»” cá»©ng","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":true},
-  {"key":"os","label":"Há»‡ Ä‘iá»u hÃ nh","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"battery","label":"Pin","group":"Pin & sáº¡c","type":"text","required":false,"variant":false},
-  {"key":"ports","label":"Cá»•ng káº¿t ná»‘i","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"wireless","label":"Káº¿t ná»‘i khÃ´ng dÃ¢y","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"webcam","label":"Webcam","group":"Camera & Ã¢m thanh","type":"text","required":false,"variant":false},
-  {"key":"audio","label":"Ã‚m thanh","group":"Camera & Ã¢m thanh","type":"text","required":false,"variant":false},
-  {"key":"keyboard","label":"BÃ n phÃ­m","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false},
-  {"key":"material","label":"Cháº¥t liá»‡u","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false},
-  {"key":"dimensions","label":"KÃ­ch thÆ°á»›c","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false},
-  {"key":"weight","label":"Trá»ng lÆ°á»£ng","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false}
+  {"key":"screen_size","label":"Kích thước màn hình","group":"Màn hình","type":"text","required":false,"variant":false,"unit":"inch"},
+  {"key":"screen_technology","label":"Công nghệ màn hình","group":"Màn hình","type":"text","required":false,"variant":false},
+  {"key":"resolution","label":"Độ phân giải","group":"Màn hình","type":"text","required":false,"variant":false},
+  {"key":"refresh_rate","label":"Tần số quét","group":"Màn hình","type":"text","required":false,"variant":false,"unit":"Hz"},
+  {"key":"processor","label":"CPU","group":"Hiệu năng","type":"text","required":false,"variant":false},
+  {"key":"graphics","label":"Card đồ họa","group":"Hiệu năng","type":"text","required":false,"variant":false},
+  {"key":"ram","label":"RAM","group":"Hiệu năng","type":"text","required":true,"variant":true,"unit":"GB"},
+  {"key":"storage","label":"Ổ cứng","group":"Hiệu năng","type":"text","required":false,"variant":true,"unit":"GB/TB"},
+  {"key":"os","label":"Hệ điều hành","group":"Hiệu năng","type":"text","required":false,"variant":false},
+  {"key":"battery","label":"Pin","group":"Pin & sạc","type":"text","required":false,"variant":false,"unit":"Wh"},
+  {"key":"ports","label":"Cổng kết nối","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"wireless","label":"Kết nối không dây","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"webcam","label":"Webcam","group":"Camera & âm thanh","type":"text","required":false,"variant":false},
+  {"key":"audio","label":"Âm thanh","group":"Camera & âm thanh","type":"text","required":false,"variant":false},
+  {"key":"keyboard","label":"Bàn phím","group":"Thiết kế","type":"text","required":false,"variant":false},
+  {"key":"material","label":"Chất liệu","group":"Thiết kế","type":"text","required":false,"variant":false},
+  {"key":"dimensions","label":"Kích thước","group":"Thiết kế","type":"text","required":false,"variant":false,"unit":"mm"},
+  {"key":"weight","label":"Trọng lượng","group":"Thiết kế","type":"text","required":false,"variant":false,"unit":"kg"}
 ]'::jsonb,
 updated_at = NOW()
 WHERE parent_id IS NULL AND slug = 'laptops';
 
 UPDATE categories
 SET spec_fields = '[
-  {"key":"screen_size","label":"KÃ­ch thÆ°á»›c mÃ n hÃ¬nh","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"screen_technology","label":"CÃ´ng nghá»‡ mÃ n hÃ¬nh","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"resolution","label":"Äá»™ phÃ¢n giáº£i","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"refresh_rate","label":"Táº§n sá»‘ quÃ©t","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"processor","label":"Chip xá»­ lÃ½","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"ram","label":"RAM","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":true},
-  {"key":"storage","label":"Bá»™ nhá»› trong","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":true},
-  {"key":"os","label":"Há»‡ Ä‘iá»u hÃ nh","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"rear_camera","label":"Camera sau","group":"Camera","type":"text","required":false,"variant":false},
-  {"key":"front_camera","label":"Camera trÆ°á»›c","group":"Camera","type":"text","required":false,"variant":false},
-  {"key":"battery","label":"Dung lÆ°á»£ng pin","group":"Pin & sáº¡c","type":"text","required":false,"variant":false},
-  {"key":"charging","label":"CÃ´ng nghá»‡ sáº¡c","group":"Pin & sáº¡c","type":"text","required":false,"variant":false},
-  {"key":"connectivity","label":"Káº¿t ná»‘i","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"sim","label":"SIM/eSIM","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"dimensions","label":"KÃ­ch thÆ°á»›c","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false},
-  {"key":"weight","label":"Trá»ng lÆ°á»£ng","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false}
+  {"key":"screen_size","label":"Kích thước màn hình","group":"Màn hình","type":"text","required":false,"variant":false,"unit":"inch"},
+  {"key":"screen_technology","label":"Công nghệ màn hình","group":"Màn hình","type":"text","required":false,"variant":false},
+  {"key":"resolution","label":"Độ phân giải","group":"Màn hình","type":"text","required":false,"variant":false},
+  {"key":"refresh_rate","label":"Tần số quét","group":"Màn hình","type":"text","required":false,"variant":false,"unit":"Hz"},
+  {"key":"processor","label":"Chip xử lý","group":"Hiệu năng","type":"text","required":false,"variant":false},
+  {"key":"ram","label":"RAM","group":"Hiệu năng","type":"text","required":false,"variant":true,"unit":"GB"},
+  {"key":"storage","label":"Bộ nhớ trong","group":"Hiệu năng","type":"text","required":false,"variant":true,"unit":"GB/TB"},
+  {"key":"os","label":"Hệ điều hành","group":"Hiệu năng","type":"text","required":false,"variant":false},
+  {"key":"rear_camera","label":"Camera sau","group":"Camera","type":"text","required":false,"variant":false,"unit":"MP"},
+  {"key":"front_camera","label":"Camera trước","group":"Camera","type":"text","required":false,"variant":false,"unit":"MP"},
+  {"key":"battery","label":"Dung lượng pin","group":"Pin & sạc","type":"text","required":false,"variant":false,"unit":"mAh"},
+  {"key":"charging","label":"Công nghệ sạc","group":"Pin & sạc","type":"text","required":false,"variant":false,"unit":"W"},
+  {"key":"connectivity","label":"Kết nối","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"sim","label":"SIM/eSIM","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"dimensions","label":"Kích thước","group":"Thiết kế","type":"text","required":false,"variant":false,"unit":"mm"},
+  {"key":"weight","label":"Trọng lượng","group":"Thiết kế","type":"text","required":false,"variant":false,"unit":"g"}
 ]'::jsonb,
 updated_at = NOW()
 WHERE parent_id IS NULL AND slug = 'tablets';
 
 UPDATE categories
 SET spec_fields = '[
-  {"key":"screen_size","label":"KÃ­ch thÆ°á»›c mÃ n hÃ¬nh","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"screen_technology","label":"CÃ´ng nghá»‡ mÃ n hÃ¬nh","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"resolution","label":"Äá»™ phÃ¢n giáº£i","group":"MÃ n hÃ¬nh","type":"text","required":false,"variant":false},
-  {"key":"processor","label":"Chip xá»­ lÃ½","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"storage","label":"Bá»™ nhá»›","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"sensors","label":"Cáº£m biáº¿n sá»©c khá»e","group":"TÃ­nh nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"sports_modes","label":"Cháº¿ Ä‘á»™ luyá»‡n táº­p","group":"TÃ­nh nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"water_resistance","label":"KhÃ¡ng nÆ°á»›c","group":"Äá»™ bá»n","type":"text","required":false,"variant":false},
-  {"key":"battery","label":"Thá»i lÆ°á»£ng pin","group":"Pin & sáº¡c","type":"text","required":false,"variant":false},
-  {"key":"charging","label":"Sáº¡c","group":"Pin & sáº¡c","type":"text","required":false,"variant":false},
-  {"key":"connectivity","label":"Káº¿t ná»‘i","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"compatibility","label":"TÆ°Æ¡ng thÃ­ch","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"case_size","label":"KÃ­ch thÆ°á»›c máº·t","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":true},
-  {"key":"strap","label":"DÃ¢y Ä‘eo","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":true},
-  {"key":"weight","label":"Trá»ng lÆ°á»£ng","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false}
+  {"key":"screen_size","label":"Kích thước màn hình","group":"Màn hình","type":"text","required":false,"variant":false,"unit":"inch"},
+  {"key":"screen_technology","label":"Công nghệ màn hình","group":"Màn hình","type":"text","required":false,"variant":false},
+  {"key":"resolution","label":"Độ phân giải","group":"Màn hình","type":"text","required":false,"variant":false},
+  {"key":"processor","label":"Chip xử lý","group":"Hiệu năng","type":"text","required":false,"variant":false},
+  {"key":"storage","label":"Bộ nhớ","group":"Hiệu năng","type":"text","required":false,"variant":false,"unit":"GB"},
+  {"key":"sensors","label":"Cảm biến sức khỏe","group":"Tính năng","type":"text","required":false,"variant":false},
+  {"key":"sports_modes","label":"Chế độ luyện tập","group":"Tính năng","type":"text","required":false,"variant":false},
+  {"key":"water_resistance","label":"Kháng nước","group":"Độ bền","type":"text","required":false,"variant":false},
+  {"key":"battery","label":"Thời lượng pin","group":"Pin & sạc","type":"text","required":false,"variant":false},
+  {"key":"charging","label":"Sạc","group":"Pin & sạc","type":"text","required":false,"variant":false},
+  {"key":"connectivity","label":"Kết nối","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"compatibility","label":"Tương thích","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"case_size","label":"Kích thước mặt","group":"Thiết kế","type":"text","required":false,"variant":true,"unit":"mm"},
+  {"key":"strap","label":"Dây đeo","group":"Thiết kế","type":"text","required":false,"variant":true},
+  {"key":"weight","label":"Trọng lượng","group":"Thiết kế","type":"text","required":false,"variant":false,"unit":"g"}
 ]'::jsonb,
 updated_at = NOW()
 WHERE parent_id IS NULL AND slug = 'wearables';
 
 UPDATE categories
 SET spec_fields = '[
-  {"key":"sensor","label":"Cáº£m biáº¿n","group":"HÃ¬nh áº£nh","type":"text","required":false,"variant":false},
-  {"key":"resolution","label":"Äá»™ phÃ¢n giáº£i","group":"HÃ¬nh áº£nh","type":"text","required":false,"variant":false},
-  {"key":"lens","label":"á»ng kÃ­nh","group":"HÃ¬nh áº£nh","type":"text","required":false,"variant":false},
-  {"key":"zoom","label":"Zoom","group":"HÃ¬nh áº£nh","type":"text","required":false,"variant":false},
+  {"key":"sensor","label":"Cảm biến","group":"Hình ảnh","type":"text","required":false,"variant":false},
+  {"key":"resolution","label":"Độ phân giải","group":"Hình ảnh","type":"text","required":false,"variant":false,"unit":"MP"},
+  {"key":"lens","label":"Ống kính","group":"Hình ảnh","type":"text","required":false,"variant":false},
+  {"key":"zoom","label":"Zoom","group":"Hình ảnh","type":"text","required":false,"variant":false,"unit":"x"},
   {"key":"video_recording","label":"Quay video","group":"Video","type":"text","required":false,"variant":false},
-  {"key":"stabilization","label":"Chá»‘ng rung","group":"Video","type":"text","required":false,"variant":false},
-  {"key":"field_of_view","label":"GÃ³c nhÃ¬n","group":"Video","type":"text","required":false,"variant":false},
-  {"key":"storage","label":"LÆ°u trá»¯","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"battery","label":"Pin","group":"Pin & sáº¡c","type":"text","required":false,"variant":false},
-  {"key":"connectivity","label":"Káº¿t ná»‘i","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"water_resistance","label":"KhÃ¡ng nÆ°á»›c/bá»¥i","group":"Äá»™ bá»n","type":"text","required":false,"variant":false},
-  {"key":"dimensions","label":"KÃ­ch thÆ°á»›c","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false},
-  {"key":"weight","label":"Trá»ng lÆ°á»£ng","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false}
+  {"key":"stabilization","label":"Chống rung","group":"Video","type":"text","required":false,"variant":false},
+  {"key":"field_of_view","label":"Góc nhìn","group":"Video","type":"text","required":false,"variant":false,"unit":"độ"},
+  {"key":"storage","label":"Lưu trữ","group":"Hiệu năng","type":"text","required":false,"variant":false,"unit":"GB/TB"},
+  {"key":"battery","label":"Pin","group":"Pin & sạc","type":"text","required":false,"variant":false,"unit":"mAh"},
+  {"key":"connectivity","label":"Kết nối","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"water_resistance","label":"Kháng nước/bụi","group":"Độ bền","type":"text","required":false,"variant":false},
+  {"key":"dimensions","label":"Kích thước","group":"Thiết kế","type":"text","required":false,"variant":false,"unit":"mm"},
+  {"key":"weight","label":"Trọng lượng","group":"Thiết kế","type":"text","required":false,"variant":false,"unit":"g"}
 ]'::jsonb,
 updated_at = NOW()
 WHERE parent_id IS NULL AND slug = 'cameras';
 
 UPDATE categories
 SET spec_fields = '[
-  {"key":"accessory_type","label":"Loáº¡i phá»¥ kiá»‡n","group":"ThÃ´ng tin chung","type":"text","required":false,"variant":false},
-  {"key":"compatibility","label":"TÆ°Æ¡ng thÃ­ch","group":"ThÃ´ng tin chung","type":"text","required":false,"variant":false},
-  {"key":"power","label":"CÃ´ng suáº¥t","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":false},
-  {"key":"capacity","label":"Dung lÆ°á»£ng","group":"Hiá»‡u nÄƒng","type":"text","required":false,"variant":true},
-  {"key":"ports","label":"Cá»•ng káº¿t ná»‘i","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"connectivity","label":"Chuáº©n káº¿t ná»‘i","group":"Káº¿t ná»‘i","type":"text","required":false,"variant":false},
-  {"key":"charging_standard","label":"Chuáº©n sáº¡c","group":"Pin & sáº¡c","type":"text","required":false,"variant":false},
-  {"key":"battery","label":"Pin","group":"Pin & sáº¡c","type":"text","required":false,"variant":false},
-  {"key":"material","label":"Cháº¥t liá»‡u","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false},
-  {"key":"color","label":"MÃ u sáº¯c","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":true},
-  {"key":"dimensions","label":"KÃ­ch thÆ°á»›c","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false},
-  {"key":"weight","label":"Trá»ng lÆ°á»£ng","group":"Thiáº¿t káº¿","type":"text","required":false,"variant":false}
+  {"key":"accessory_type","label":"Loại phụ kiện","group":"Thông tin chung","type":"text","required":false,"variant":false},
+  {"key":"compatibility","label":"Tương thích","group":"Thông tin chung","type":"text","required":false,"variant":false},
+  {"key":"power","label":"Công suất","group":"Hiệu năng","type":"text","required":false,"variant":false,"unit":"W"},
+  {"key":"capacity","label":"Dung lượng","group":"Hiệu năng","type":"text","required":false,"variant":true,"unit":"mAh"},
+  {"key":"ports","label":"Cổng kết nối","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"connectivity","label":"Chuẩn kết nối","group":"Kết nối","type":"text","required":false,"variant":false},
+  {"key":"charging_standard","label":"Chuẩn sạc","group":"Pin & sạc","type":"text","required":false,"variant":false},
+  {"key":"battery","label":"Pin","group":"Pin & sạc","type":"text","required":false,"variant":false,"unit":"mAh"},
+  {"key":"material","label":"Chất liệu","group":"Thiết kế","type":"text","required":false,"variant":false},
+  {"key":"color","label":"Màu sắc","group":"Thiết kế","type":"text","required":false,"variant":true},
+  {"key":"dimensions","label":"Kích thước","group":"Thiết kế","type":"text","required":false,"variant":false,"unit":"mm"},
+  {"key":"weight","label":"Trọng lượng","group":"Thiết kế","type":"text","required":false,"variant":false,"unit":"g"}
 ]'::jsonb,
 updated_at = NOW()
 WHERE parent_id IS NULL AND slug = 'accessories';
@@ -2106,6 +2108,21 @@ ALTER TABLE orders
 
 CREATE INDEX IF NOT EXISTS idx_orders_tracking_code ON orders(tracking_code);
 CREATE INDEX IF NOT EXISTS idx_orders_assigned_staff_name ON orders(assigned_staff_name);
+
+ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS return_source VARCHAR(30),
+    ADD COLUMN IF NOT EXISTS return_reason TEXT,
+    ADD COLUMN IF NOT EXISTS return_tracking_code VARCHAR(120),
+    ADD COLUMN IF NOT EXISTS return_received_condition VARCHAR(30),
+    ADD COLUMN IF NOT EXISTS return_received_at TIMESTAMPTZ;
+
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS ck_orders_return_source;
+ALTER TABLE orders ADD CONSTRAINT ck_orders_return_source
+    CHECK (return_source IS NULL OR return_source IN ('DELIVERY_REFUSED', 'CUSTOMER_RETURN'));
+
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS ck_orders_return_received_condition;
+ALTER TABLE orders ADD CONSTRAINT ck_orders_return_received_condition
+    CHECK (return_received_condition IS NULL OR return_received_condition IN ('SEALED', 'OPENED', 'DAMAGED'));
 
 
 -- ==========================================
@@ -3259,6 +3276,7 @@ CREATE TABLE IF NOT EXISTS flash_sales (
     discount_value NUMERIC(14, 2) NOT NULL CHECK (discount_value > 0),
     starts_at TIMESTAMPTZ NULL,
     ends_at TIMESTAMPTZ NULL,
+    per_user_limit INTEGER NULL CHECK (per_user_limit IS NULL OR per_user_limit > 0),
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'INACTIVE')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

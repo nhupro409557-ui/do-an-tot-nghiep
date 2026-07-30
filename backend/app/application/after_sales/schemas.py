@@ -18,6 +18,9 @@ class CreateAfterSalesRequest(BaseModel):
     good_appearance: bool = True
     account_unlocked: bool = True
     has_vat_invoice: bool = True
+    exchange_product_id: UUID | None = None
+    exchange_variant_id: UUID | None = None
+    exchange_quantity: int = Field(default=1, ge=1, le=20)
 
 
 class ReplacementItemInput(BaseModel):
@@ -38,6 +41,7 @@ class UpdateAfterSalesStatusRequest(BaseModel):
     refund_note: str | None = Field(default=None, max_length=1000)
     shipping_deduction: float = Field(default=0, ge=0)
     depreciation_fee: float = Field(default=0, ge=0)
+    exchange_payment_reference: str | None = Field(default=None, max_length=160)
     repair_diagnosis: str | None = Field(default=None, max_length=2000)
     repair_action: str | None = Field(default=None, max_length=2000)
     repair_parts: str | None = Field(default=None, max_length=2000)
@@ -49,6 +53,10 @@ class InspectAfterSalesRequest(BaseModel):
     qc_note: str = Field(min_length=10, max_length=4000)
     customer_fault: bool = False
     depreciation_fee: float = Field(default=0, ge=0)
+    shipping_deduction: float = Field(default=0, ge=0)
+    exchange_fee: float | None = Field(default=None, ge=0)
+    exchange_shipping_fee: float = Field(default=0, ge=0)
+    inventory_disposition: str | None = Field(default=None, pattern="^(NEW_STOCK|USED_INTAKE|REPAIR|SCRAP)$")
 
 
 class AfterSalesTimelineNoteRequest(BaseModel):

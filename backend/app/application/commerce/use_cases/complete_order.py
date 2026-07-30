@@ -2,11 +2,11 @@ from .common import *
 from .voucher_service import VoucherService
 from .complete_order_carrier import CompleteOrderCarrierMixin
 from .complete_order_fulfillment import CompleteOrderFulfillmentMixin
+from app.infrastructure.database.repositories import used_product_repo
 
 class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMixin):
     def __init__(self, *, session: AsyncSession) -> None:
         self._session = session
-        self._refund_gateway = RefundGateway()
         self._shipping_gateway = ShippingGateway()
 
     # Keep order state changes centralized so stock, payment, and loyalty side effects stay consistent.
@@ -20,10 +20,18 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
         cancellation_reason: str | None = None,
         shipping_provider: str | None = None,
         tracking_code: str | None = None,
+        return_source: str | None = None,
+        return_reason: str | None = None,
+        return_tracking_code: str | None = None,
+        return_received_condition: str | None = None,
         refund_payment: bool = False,
         changed_by: str | None = None,
         issue_allocations: list | None = None,
+        run_external_side_effects: bool = True,
     ) -> None:
+        pending_shipping_registration = None
+        refund_jobs = []
+
         class AsyncNullContext:
             async def __aenter__(self):
                 return None
@@ -47,6 +55,14 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                 order.shipping_provider = shipping_provider.strip() or None
             if tracking_code is not None:
                 order.tracking_code = tracking_code.strip() or None
+            if return_source is not None:
+                order.return_source = return_source.strip().upper() or None
+            if return_reason is not None:
+                order.return_reason = return_reason.strip() or None
+            if return_tracking_code is not None:
+                order.return_tracking_code = return_tracking_code.strip() or None
+            if return_received_condition is not None:
+                order.return_received_condition = return_received_condition.strip().upper() or None
 
             if status_value is not None and status_value != previous_status:
                 allowed_transitions = ORDER_STATUS_TRANSITIONS.get(previous_status, set())
@@ -62,12 +78,43 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                         detail="Cần nhập lý do khi hủy đơn hàng.",
                     )
 
+                if status_value == "RETURNING":
+                    if not order.return_source:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Cần chọn hướng hoàn hàng trước khi bắt đầu hoàn.",
+                        )
+                    if not order.return_reason:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Cần nhập lý do hoàn hàng.",
+                        )
+                    if order.return_source == "CUSTOMER_RETURN" and not await self._has_managed_return_request(order.id):
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail="Khách đã nhận hàng phải tạo hồ sơ đổi trả trong mục Hậu mãi trước khi chuyển đơn sang đang hoàn.",
+                        )
+
+                if status_value == "RETURNED":
+                    if not order.return_source or not order.return_received_condition:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Cần xác nhận nguồn hoàn và tình trạng hàng khi cửa hàng tiếp nhận.",
+                        )
+                    if order.return_source == "CUSTOMER_RETURN" and not await self._has_managed_return_request(order.id):
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail="Hàng khách chủ động trả phải được tiếp nhận qua hồ sơ đổi trả/hậu mãi.",
+                        )
+
+                if status_value in {"PAID", "PROCESSING", "SHIPPED", "COMPLETED"} and order.payment_method != "COD":
+                    paid_transactions = await commerce_repo.list_payment_transactions_for_update(self._session, order.id)
+                    if not any(tx.status == "PAID" and Decimal(tx.amount) >= Decimal(order.total_amount) for tx in paid_transactions):
+                        raise HTTPException(status_code=409, detail="Đơn online chưa có giao dịch thanh toán thành công.")
+
                 order.status = status_value
                 if status_value in {"PAID", "COMPLETED"}:
                     order.payment_status = "PAID"
-                if status_value in {"PROCESSING", "PAID"}:
-                    from app.application.services.inventory_service import create_outbound_document_from_order
-                    await create_outbound_document_from_order(self._session, order.id)
                 if status_value == "SHIPPED":
                     # Check if there is an outbound document linked to this order
                     outbound_res = await self._session.execute(
@@ -84,6 +131,11 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                                 order_id=order.id,
                                 status="CONSUMED",
                             )
+                            await used_product_repo.mark_order_devices_sold(
+                                self._session,
+                                order_id=order.id,
+                                order_code=order.order_code,
+                            )
                         else:
                             raise HTTPException(
                                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -93,19 +145,55 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                         # Fallback to default FIFO shipping
                         await self._ship_order_items(order, issue_allocations=issue_allocations or [])
 
-                    shipment = await self._shipping_gateway.register_shipment(
-                        provider=order.shipping_provider,
-                        order_code=order.order_code,
-                        recipient_name=order.recipient_name,
-                        recipient_phone=order.recipient_phone,
-                        shipping_address=order.shipping_address,
-                    )
-                    if shipment.success:
-                        order.shipping_provider = shipment.provider or order.shipping_provider
-                        order.tracking_code = order.tracking_code or shipment.tracking_code
+                    # Hoãn gọi API Shipping
+                    if not order.tracking_code:
+                        pending_shipping_registration = {
+                            "provider": order.shipping_provider,
+                            "order_code": order.order_code,
+                            "recipient_name": order.recipient_name,
+                            "recipient_phone": order.recipient_phone,
+                            "shipping_address": order.shipping_address,
+                        }
                     order.shipped_at = now
                 if status_value == "COMPLETED":
                     order.completed_at = now
+                    await VoucherService(session=self._session).confirm_voucher_usage(order=order)
+                    if order.order_purpose in {"WARRANTY_REPLACEMENT", "RETURN_EXCHANGE"}:
+                        request_type = "WARRANTY" if order.order_purpose == "WARRANTY_REPLACEMENT" else "RETURN"
+                        request_table = "warranty_requests" if request_type == "WARRANTY" else "return_requests"
+                        request_id = order.warranty_request_id if request_type == "WARRANTY" else order.return_request_id
+                        previous_request_status = await self._session.scalar(
+                            text(f"SELECT status FROM {request_table} WHERE id = :request_id FOR UPDATE"),
+                            {"request_id": request_id},
+                        )
+                        if request_id and previous_request_status not in {"COMPLETED", "CANCELLED", "REJECTED", "CLOSED_EXPIRED"}:
+                            await self._session.execute(
+                                text(f"UPDATE {request_table} SET status = 'COMPLETED', closed_at = NOW(), updated_at = NOW() WHERE id = :request_id"),
+                                {"request_id": request_id},
+                            )
+                            await self._session.execute(
+                                text(
+                                    """
+                                    INSERT INTO after_sales_events (
+                                        id, reference_type, reference_id, old_status, new_status,
+                                        actor_id, note, metadata
+                                    ) VALUES (
+                                        :id, :reference_type, :reference_id, :old_status, 'COMPLETED',
+                                        NULL, :note, jsonb_build_object(
+                                            'orderId', CAST(CAST(:order_id AS UUID) AS TEXT),
+                                            'source', 'DELIVERY_COMPLETED'
+                                        )
+                                    )
+                                    """
+                                ),
+                                {
+                                    "id": uuid4(), "reference_type": request_type, "reference_id": request_id,
+                                    "old_status": previous_request_status, "order_id": order.id,
+                                    "note": "Khách đã nhận máy hậu mãi; hồ sơ được hoàn tất tự động.",
+                                },
+                            )
+                if status_value == "PAID":
+                    await VoucherService(session=self._session).confirm_voucher_usage(order=order)
                 if status_value == "CANCELLED":
                     order.cancelled_at = now
                     order.cancellation_reason = (cancellation_reason or order.cancellation_reason or "").strip() or None
@@ -123,57 +211,127 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                         {"order_id": order.id, "actor_id": order.assigned_staff_name or order.user_id},
                     )
 
-                    refund_payment = refund_payment or order.payment_method != "COD"
+                    transactions = await commerce_repo.list_payment_transactions_for_update(self._session, order.id)
+                    for tx in transactions:
+                        if tx.status == "PENDING":
+                            tx.status = "FAILED"
+                            tx.failed_at = now
+                            tx.raw_response = {
+                                **(tx.raw_response or {}),
+                                "failure_message": "Đơn hàng đã bị hủy trước khi thanh toán hoàn tất.",
+                            }
+                            commerce_repo.save_model(self._session, tx)
                 if status_value == "REFUNDED":
                     order.refunded_at = now
-                    if previous_status not in {"SHIPPED", "RETURNING", "RETURNED", "COMPLETED"}:
+                    if previous_status != "RETURNED":
                         await self._release_or_restock_unshipped_order(order, reservation_status="RELEASED")
+                    
+                    # Cancel linked outbound document if it exists and is not completed
+                    await self._session.execute(
+                        text(
+                            """
+                            UPDATE inventory_documents
+                            SET status = 'CANCELLED', cancelled_at = NOW(), cancelled_by = :actor_id
+                            WHERE order_id = :order_id AND document_type = 'OUTBOUND' AND status != 'COMPLETED'
+                            """
+                        ),
+                        {"order_id": order.id, "actor_id": order.assigned_staff_name or order.user_id},
+                    )
                     refund_payment = True
                 if status_value == "PAYMENT_FAILED":
                     order.cancelled_at = now
                     order.payment_status = "FAILED"
                     await self._release_or_restock_unshipped_order(order, reservation_status="EXPIRED")
+                    transactions = await commerce_repo.list_payment_transactions_for_update(self._session, order.id)
+                    for tx in transactions:
+                        if tx.status == "PENDING":
+                            tx.status = "FAILED"
+                            tx.failed_at = now
+                            tx.raw_response = {
+                                **(tx.raw_response or {}),
+                                "failure_message": "Đơn hàng đã chuyển sang trạng thái thanh toán thất bại.",
+                            }
+                            commerce_repo.save_model(self._session, tx)
                 if status_value == "RETURNED":
-                    if not await self._has_managed_return_request(order.id):
+                    order.return_received_at = now
+                    if (
+                        order.return_source == "DELIVERY_REFUSED"
+                        and order.return_received_condition == "SEALED"
+                        and not await self._has_managed_return_request(order.id)
+                    ):
                         await self._restock_order_items(order)
 
-            if cancellation_reason is not None and order.status == "CANCELLED":
+            # Tạo bù phiếu xuất cho đơn hợp lệ kể cả khi admin lưu lại cùng trạng thái.
+            # Hàm tạo phiếu có kiểm tra idempotent nên không sinh chứng từ trùng.
+            if status_value is not None and order.status in {"PAID", "PROCESSING"}:
+                from app.application.services.inventory_service import create_outbound_document_from_order
+                await create_outbound_document_from_order(self._session, order.id)
+
+            if cancellation_reason is not None and order.status in {"CANCELLED", "PAYMENT_FAILED"}:
                 order.cancellation_reason = cancellation_reason.strip() or None
 
+            # Chỉ ghi nhận khi shop/admin đã tự chuyển tiền hoàn lại ở ngoài hệ thống.
             if refund_payment:
-                await self._mark_payment_refunded(order, now=now)
+                transactions = await commerce_repo.list_payment_transactions_for_update(self._session, order.id)
+                for tx in transactions:
+                    if tx.status == "PAID":
+                        refund_jobs.append({
+                            "id": tx.id,
+                            "provider": tx.provider,
+                            "amount": tx.amount,
+                        })
+                if order.payment_method == "COD":
+                    order.payment_status = "REFUNDED"
+                    order.refunded_at = order.refunded_at or now
 
             if (
-                order.status in {"CANCELLED", "REFUNDED", "RETURNED"}
-                and previous_status not in {"CANCELLED", "REFUNDED", "RETURNED"}
+                order.status in {"CANCELLED", "REFUNDED", "RETURNED", "PAYMENT_FAILED"}
+                and previous_status not in {"CANCELLED", "REFUNDED", "RETURNED", "PAYMENT_FAILED"}
             ):
                 await self._reverse_loyalty_for_closed_order(order)
 
             commerce_repo.save_model(self._session, order)
 
-            if order.status == "COMPLETED" and previous_status != "COMPLETED" and order.user_id and order.loyalty_points_earned > 0:
+            if order.status == "COMPLETED" and previous_status != "COMPLETED" and order.user_id:
                 user = await commerce_repo.get_user_for_update(self._session, order.user_id)
                 if user and user.loyalty_wallet_status == "ACTIVE":
+                    from app.application.services.loyalty_maintenance_service import upgrade_tier_after_order
                     balance_before = user.loyalty_points_balance
                     user.loyalty_points_balance += order.loyalty_points_earned
-                    user.loyalty_tier = calculate_tier(user.loyalty_points_balance)
-                    commerce_repo.save_model(
+                    await upgrade_tier_after_order(
                         self._session,
-                        LoyaltyTransaction(
-                            id=uuid4(),
-                            user_id=user.id,
-                            order_id=order.id,
-                            type=LoyaltyTransactionType.EARN,
-                            points=order.loyalty_points_earned,
-                            balance_before=balance_before,
-                            balance_after=user.loyalty_points_balance,
-                            reason="Earn points when order is completed.",
-                            metadata_json={"order_code": order.order_code},
-                        ),
+                        user=user,
+                        order_id=order.id,
+                        order_amount=order.total_amount,
                     )
+                    if order.loyalty_points_earned > 0:
+                        commerce_repo.save_model(
+                            self._session,
+                            LoyaltyTransaction(
+                                id=uuid4(),
+                                user_id=user.id,
+                                order_id=order.id,
+                                type=LoyaltyTransactionType.EARN,
+                                points=order.loyalty_points_earned,
+                                balance_before=balance_before,
+                                balance_after=user.loyalty_points_balance,
+                                reason="Tích điểm khi đơn hàng hoàn tất.",
+                                metadata_json={"order_code": order.order_code},
+                            ),
+                        )
                     commerce_repo.save_model(self._session, user)
 
-            if order.status in {"CANCELLED", "REFUNDED", "PAYMENT_FAILED"} and previous_status not in {"CANCELLED", "REFUNDED", "PAYMENT_FAILED"} and order.voucher_code:
+            if (
+                order.status in {"CANCELLED", "PAYMENT_FAILED"}
+                and previous_status not in {"CANCELLED", "PAYMENT_FAILED"}
+                and order.voucher_code
+            ):
+                await VoucherService(session=self._session).rollback_voucher_usage(order=order)
+            elif (
+                order.status == "REFUNDED"
+                and previous_status != "REFUNDED"
+                and order.voucher_code
+            ):
                 voucher = await commerce_repo.get_voucher_by_order_code_for_update(self._session, order.voucher_code)
                 if voucher and voucher.refund_policy in {"ALWAYS", "SHOP_FAULT_ONLY"}:
                     await VoucherService(session=self._session).rollback_voucher_usage(order=order)
@@ -196,7 +354,22 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                     ),
                 )
                 user = await commerce_repo.get_user(self._session, order.user_id) if order.user_id else None
-                self._send_order_status_email(order=order, user=user)
+                from types import SimpleNamespace
+                order_snapshot = SimpleNamespace(
+                    status=order.status,
+                    order_code=order.order_code,
+                    total_amount=order.total_amount,
+                    payment_method=order.payment_method,
+                    tracking_code=order.tracking_code,
+                    shipping_provider=order.shipping_provider,
+                    cancellation_reason=order.cancellation_reason,
+                    recipient_name=order.recipient_name,
+                )
+                user_snapshot = SimpleNamespace(
+                    email=user.email,
+                    full_name=user.full_name,
+                ) if user else None
+
                 shipment_events = {
                     "CONFIRMED": [("CONFIRMED", "Đơn hàng đã được xác nhận")],
                     "PAID": [("CONFIRMED", "Đơn hàng đã được xác nhận")],
@@ -247,6 +420,122 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                         },
                     )
 
+        # NGOÀI RANH GIỚI TRANSACTION CHÍNH:
+
+        # 1. Gọi API Shipping
+        if run_external_side_effects and pending_shipping_registration:
+            try:
+                shipment = await self._shipping_gateway.register_shipment(
+                    provider=pending_shipping_registration["provider"],
+                    order_code=pending_shipping_registration["order_code"],
+                    recipient_name=pending_shipping_registration["recipient_name"],
+                    recipient_phone=pending_shipping_registration["recipient_phone"],
+                    shipping_address=pending_shipping_registration["shipping_address"],
+                )
+                if shipment.success:
+                    in_tx = self._session.in_transaction()
+                    tx = self._session.begin() if not in_tx else AsyncNullContext()
+                    async with tx:
+                        order_to_update = await self._session.get(Order, order_id)
+                        if order_to_update:
+                            order_to_update.shipping_provider = shipment.provider or order_to_update.shipping_provider
+                            order_to_update.tracking_code = order_to_update.tracking_code or shipment.tracking_code
+                            commerce_repo.save_model(self._session, order_to_update)
+                    if in_tx:
+                        await self._session.flush()
+            except Exception as e:
+                import logging
+                logger = logging.getLogger("uvicorn.error")
+                logger.error("Lỗi khi kết nối đăng ký đơn vị vận chuyển: %s", e)
+
+        # 3. Thực hiện hoàn tiền qua gateway ngoài transaction chính
+        if refund_payment and refund_jobs:
+            from app.application.commerce.integrations import RefundGateway
+            refund_gateway = RefundGateway()
+            refunded_any = False
+            for job in refund_jobs:
+                try:
+                    refund_res = await refund_gateway.refund(
+                        provider=job["provider"],
+                        order_code=order_snapshot.order_code,
+                        amount=job["amount"],
+                    )
+                    if refund_res.success:
+                        in_tx = self._session.in_transaction()
+                        tx_ctx = self._session.begin() if not in_tx else AsyncNullContext()
+                        async with tx_ctx:
+                            tx_model = await commerce_repo.get_payment_transaction_by_id_for_update(self._session, job["id"])
+                            if tx_model:
+                                tx_model.status = "REFUNDED"
+                                tx_model.raw_response = {
+                                    **(tx_model.raw_response or {}),
+                                    "refund_marked_at": now.isoformat(),
+                                    "refund_mode": "MANUAL",
+                                    "refund_message": refund_res.message,
+                                    "refund_ref": refund_res.provider_ref,
+                                    "refund_marked_by": changed_by or "admin-console",
+                                }
+                                commerce_repo.save_model(self._session, tx_model)
+                                refunded_any = True
+                        if in_tx:
+                            await self._session.flush()
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger("uvicorn.error")
+                    logger.error("Lỗi khi kết nối hoàn tiền qua gateway: %s", e)
+
+            if refunded_any:
+                in_tx = self._session.in_transaction()
+                tx_ctx = self._session.begin() if not in_tx else AsyncNullContext()
+                async with tx_ctx:
+                    order_to_update = await self._session.get(Order, order_id)
+                    if order_to_update:
+                        order_to_update.payment_status = "REFUNDED"
+                        order_to_update.refunded_at = order_to_update.refunded_at or now
+                        commerce_repo.save_model(self._session, order_to_update)
+                if in_tx:
+                    await self._session.flush()
+
+        # 2. Kích hoạt gửi email sau khi transaction chính đã commit
+        if run_external_side_effects and status_value is not None and status_value != previous_status:
+            import asyncio
+            asyncio.create_task(asyncio.to_thread(self._send_order_status_email, order=order_snapshot, user=user_snapshot))
+
+    async def run_committed_shipping_side_effects(self, *, order_id: UUID) -> None:
+        """Đăng ký vận chuyển và gửi email sau khi transaction xuất kho đã commit."""
+        order = await self._session.get(Order, order_id)
+        if not order or order.status != "SHIPPED":
+            return
+
+        if not order.tracking_code:
+            try:
+                shipment = await self._shipping_gateway.register_shipment(
+                    provider=order.shipping_provider,
+                    order_code=order.order_code,
+                    recipient_name=order.recipient_name,
+                    recipient_phone=order.recipient_phone,
+                    shipping_address=order.shipping_address,
+                )
+                if shipment.success:
+                    order.shipping_provider = shipment.provider or order.shipping_provider
+                    order.tracking_code = order.tracking_code or shipment.tracking_code
+                    commerce_repo.save_model(self._session, order)
+                    await self._session.commit()
+            except Exception as exc:
+                import logging
+                logging.getLogger("uvicorn.error").error(
+                    "Lỗi khi đăng ký vận chuyển sau khi xuất kho: %s",
+                    exc,
+                )
+                await self._session.rollback()
+
+        order = await self._session.get(Order, order_id, populate_existing=True)
+        if not order or order.status != "SHIPPED":
+            return
+        user = await self._session.get(User, order.user_id) if order.user_id else None
+        import asyncio
+        asyncio.create_task(asyncio.to_thread(self._send_order_status_email, order=order, user=user))
+
     async def execute_admin_update(self, *, order_id: UUID, request: AdminUpdateOrderRequest) -> None:
         await self.execute(
             order_id=order_id,
@@ -256,6 +545,10 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
             cancellation_reason=request.cancellation_reason,
             shipping_provider=request.shipping_provider,
             tracking_code=request.tracking_code,
+            return_source=request.return_source,
+            return_reason=request.return_reason,
+            return_tracking_code=request.return_tracking_code,
+            return_received_condition=request.return_received_condition,
             refund_payment=request.refund_payment,
             changed_by=request.changed_by,
             issue_allocations=request.issue_allocations,
@@ -265,7 +558,7 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
         if not order.user_id:
             return
         user = await commerce_repo.get_user_for_update(self._session, order.user_id)
-        if not user or user.loyalty_wallet_status != "ACTIVE":
+        if not user:
             return
 
         redeemed = int(order.loyalty_points_used or 0)
@@ -284,7 +577,6 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
             if not already_refunded:
                 balance_before = int(user.loyalty_points_balance or 0)
                 user.loyalty_points_balance = balance_before + redeemed
-                user.loyalty_tier = calculate_tier(user.loyalty_points_balance)
                 commerce_repo.save_model(
                     self._session,
                     LoyaltyTransaction(
@@ -326,20 +618,27 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
             )
             if earned_recorded and not already_revoked:
                 balance_before = int(user.loyalty_points_balance or 0)
-                user.loyalty_points_balance = max(balance_before - earned, 0)
-                user.loyalty_tier = calculate_tier(user.loyalty_points_balance)
-                commerce_repo.save_model(
-                    self._session,
-                    LoyaltyTransaction(
-                        id=uuid4(),
-                        user_id=user.id,
-                        order_id=order.id,
-                        type=LoyaltyTransactionType.REVOKE,
-                        points=earned,
-                        balance_before=balance_before,
-                        balance_after=user.loyalty_points_balance,
-                        reason="Thu hồi điểm loyalty đã cộng khi đơn hàng bị hủy hoặc hoàn.",
-                        metadata_json={"order_code": order.order_code, "status": order.status},
-                    ),
-                )
+                revoked_points = min(balance_before, earned)
+                unrecovered_points = earned - revoked_points
+                user.loyalty_points_balance = balance_before - revoked_points
+                if revoked_points > 0:
+                    commerce_repo.save_model(
+                        self._session,
+                        LoyaltyTransaction(
+                            id=uuid4(),
+                            user_id=user.id,
+                            order_id=order.id,
+                            type=LoyaltyTransactionType.REVOKE,
+                            points=revoked_points,
+                            balance_before=balance_before,
+                            balance_after=user.loyalty_points_balance,
+                            reason="Thu hồi điểm đã cộng khi đơn hàng bị hủy hoặc hoàn.",
+                            metadata_json={
+                                "order_code": order.order_code,
+                                "status": order.status,
+                                "requested_points": earned,
+                                "unrecovered_points": unrecovered_points,
+                            },
+                        ),
+                    )
         commerce_repo.save_model(self._session, user)

@@ -180,8 +180,11 @@ async def update_inventory_receipt_line_quality(
     failed_quantity: int,
     notes: str | None,
     action_type: str | None,
-    images: list[str],
+    images: list[dict],
     checked_by: UUID | None,
+    failed_location_id: UUID | None = None,
+    failed_imeis: list[str] | None = None,
+    failed_serial_numbers: list[str] | None = None,
 ) -> None:
     await session.execute(
         text(
@@ -196,6 +199,9 @@ async def update_inventory_receipt_line_quality(
                         'images', CAST(:images AS jsonb),
                         'checkedBy', CAST(:checked_by AS text),
                         'checkedAt', CAST(NOW() AS text)
+                        ,'failedLocationId', CAST(:failed_location_id AS text)
+                        ,'failedImeis', CAST(:failed_imeis AS jsonb)
+                        ,'failedSerialNumbers', CAST(:failed_serial_numbers AS jsonb)
                     )
                 )
             WHERE id = :line_id
@@ -209,6 +215,9 @@ async def update_inventory_receipt_line_quality(
             "action_type": action_type,
             "images": json.dumps(images) if images else "[]",
             "checked_by": str(checked_by) if checked_by else None,
+            "failed_location_id": str(failed_location_id) if failed_location_id else None,
+            "failed_imeis": json.dumps(failed_imeis or []),
+            "failed_serial_numbers": json.dumps(failed_serial_numbers or []),
         },
     )
 
@@ -335,9 +344,12 @@ async def insert_inventory_receipt_line(
     tracks_imei: bool,
     serial_numbers: list[str],
     tracks_serial_number: bool,
+    reason: str | None = None,
     secondary_imeis: list[str] | None = None,
     storage_location_code: str | None = None,
     storage_location_name: str | None = None,
+    purchase_order_line_id: UUID | None = None,
+    quoted_unit_cost: float | None = None,
 ) -> None:
     await session.execute(
         text(
@@ -372,6 +384,9 @@ async def insert_inventory_receipt_line(
                     "receivedQuantity": len(imeis) if tracks_imei else len(serial_numbers) if tracks_serial_number else quantity,
                     "storageLocationCode": storage_location_code,
                     "storageLocationName": storage_location_name,
+                    "purchaseOrderLineId": str(purchase_order_line_id) if purchase_order_line_id else None,
+                    "quotedUnitCost": quoted_unit_cost,
+                    "reason": reason,
                 },
                 ensure_ascii=False,
             ),
@@ -400,6 +415,16 @@ async def list_inventory_receipt_lines(session: AsyncSession, document_id: UUID)
                 l.metadata->>'shortageReason' AS "shortageReason",
                 l.metadata->>'storageLocationCode' AS "storageLocationCode",
                 l.metadata->>'storageLocationName' AS "storageLocationName"
+                ,l.metadata->>'reason' AS reason
+                ,NULLIF(l.metadata->>'purchaseOrderLineId', '')::uuid AS "purchaseOrderLineId"
+                ,COALESCE((l.metadata->>'quotedUnitCost')::numeric, l.unit_cost) AS "quotedUnitCost"
+                ,COALESCE((l.metadata->'qc'->>'passedQuantity')::int, 0) AS "passedQuantity"
+                ,COALESCE((l.metadata->'qc'->>'failedQuantity')::int, 0) AS "failedQuantity"
+                ,l.metadata->'qc'->>'actionType' AS "qualityActionType"
+                ,NULLIF(l.metadata->'qc'->>'failedLocationId', '')::uuid AS "failedLocationId"
+                ,COALESCE(l.metadata->'qc'->'failedImeis', '[]'::jsonb) AS "failedImeis"
+                ,COALESCE(l.metadata->'qc'->'failedSerialNumbers', '[]'::jsonb) AS "failedSerialNumbers"
+                ,COALESCE(l.metadata->'qc'->'images', '[]'::jsonb) AS "qualityImages"
             FROM inventory_document_lines l
             WHERE l.document_id = :document_id
             ORDER BY l.created_at, l.id

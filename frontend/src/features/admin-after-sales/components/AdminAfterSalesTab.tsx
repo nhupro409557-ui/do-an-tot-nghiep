@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { adminAfterSalesApi } from '../services/adminAfterSalesApi';
 import { API_BASE_URL } from '../../../services/apiClient';
+import { adminActorLabel } from '../../admin-audit/utils/adminActorLabel';
+import { useAuth } from '../../../context/AuthContext';
 
 const statusLabel: Record<string, string> = {
-  SUBMITTED: 'Đã gửi yêu cầu',
-  RECEIVED: 'Kho đã tiếp nhận',
+  SUBMITTED: 'Chờ cửa hàng duyệt',
+  RECEIVED: 'Cửa hàng đã tiếp nhận',
   QC_IN_PROGRESS: 'Đang kiểm tra QC',
   QC_APPROVED: 'Đã duyệt đổi trả',
   WARRANTY_ACCEPTED: 'Đã nhận bảo hành',
@@ -13,7 +15,7 @@ const statusLabel: Record<string, string> = {
   WAITING_FOR_STOCK: 'Đang chờ hàng',
   EXCHANGE_PROCESSING: 'Đang xử lý đổi máy',
   REPLACEMENT_PROCESSING: 'Đang xử lý máy thay thế',
-  REFUND_PROCESSING: 'Đang hoàn tiền',
+  REFUND_PROCESSING: 'Ghi nhận hoàn tiền demo',
   READY_TO_RETURN: 'Sẵn sàng trả máy',
   COMPLETED: 'Hoàn tất xử lý',
   REJECTED: 'Bị từ chối',
@@ -31,7 +33,7 @@ const actionLabel: Record<string, string> = {
   REPLACEMENT_APPROVED: 'Duyệt đổi máy mới',
   REPLACEMENT_PROCESSING: 'Đang đổi máy',
   EXCHANGE_PROCESSING: 'Đang đổi máy',
-  REFUND_PROCESSING: 'Đang hoàn tiền',
+  REFUND_PROCESSING: 'Ghi nhận hoàn tiền demo',
   COMPLETED: 'Hoàn tất hồ sơ',
   REJECTED: 'Từ chối yêu cầu',
 };
@@ -85,6 +87,18 @@ const statusStyles: Record<string, { bg: string; text: string; border: string }>
 
 const uploadBaseUrl = API_BASE_URL.replace(/\/api\/?$/, '');
 
+const inventoryDispositionLabels: Record<string, string> = {
+  NEW_STOCK: 'Nhập lại kho hàng mới',
+  USED_INTAKE: 'Chuyển sang hàng cũ',
+  REPAIR: 'Cách ly chờ sửa chữa',
+  SCRAP: 'Chờ thanh lý / tiêu hủy',
+};
+
+statusLabel.WAITING_FOR_EXCHANGE_PAYMENT = 'Chờ thanh toán chênh lệch';
+actionLabel.WAITING_FOR_EXCHANGE_PAYMENT = 'Chờ khách thanh toán';
+statusStyles.WAITING_FOR_EXCHANGE_PAYMENT = { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' };
+actionStyles.WAITING_FOR_EXCHANGE_PAYMENT = 'bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200';
+
 const resolveAttachmentUrl = (url: string | undefined) => {
   if (!url) return '#';
   if (/^https?:\/\//i.test(url)) return url;
@@ -108,6 +122,7 @@ const returnActions: Record<string, string[]> = {
   QC_IN_PROGRESS: ['QC_APPROVED', 'REJECTED'],
   QC_APPROVED: ['EXCHANGE_PROCESSING', 'REFUND_PROCESSING'],
   WAITING_FOR_STOCK: ['QC_APPROVED', 'EXCHANGE_PROCESSING'],
+  WAITING_FOR_EXCHANGE_PAYMENT: ['EXCHANGE_PROCESSING'],
   EXCHANGE_PROCESSING: ['COMPLETED'],
   REFUND_PROCESSING: ['COMPLETED'],
 };
@@ -116,10 +131,10 @@ const warrantyActions: Record<string, string[]> = {
   SUBMITTED: ['RECEIVED', 'REJECTED'],
   RECEIVED: ['QC_IN_PROGRESS', 'REJECTED'],
   QC_IN_PROGRESS: ['WARRANTY_ACCEPTED', 'REPLACEMENT_APPROVED', 'REJECTED'],
-  WARRANTY_ACCEPTED: ['REPAIRING', 'READY_TO_RETURN'],
+  WARRANTY_ACCEPTED: ['QC_IN_PROGRESS', 'REPAIRING', 'READY_TO_RETURN'],
   REPAIRING: ['READY_TO_RETURN'],
-  REPLACEMENT_APPROVED: ['REPLACEMENT_PROCESSING'],
-  WAITING_FOR_STOCK: ['REPLACEMENT_APPROVED', 'REPLACEMENT_PROCESSING'],
+  REPLACEMENT_APPROVED: ['QC_IN_PROGRESS', 'REPLACEMENT_PROCESSING'],
+  WAITING_FOR_STOCK: ['QC_IN_PROGRESS', 'REPLACEMENT_APPROVED', 'REPLACEMENT_PROCESSING'],
   REPLACEMENT_PROCESSING: ['READY_TO_RETURN', 'COMPLETED'],
   READY_TO_RETURN: ['COMPLETED'],
 };
@@ -127,6 +142,32 @@ const warrantyActions: Record<string, string[]> = {
 type ReplacementIdentifierDraft = {
   imeis: string;
   serialNumbers: string;
+};
+
+const canShowAfterSalesAction = (section: string, item: any, targetStatus: string) => {
+  if (
+    section !== 'warranties'
+    || item.resolutionType !== 'REPLACEMENT'
+    || !['READY_TO_RETURN', 'COMPLETED'].includes(targetStatus)
+  ) {
+    return true;
+  }
+  if (item.fulfillmentOutbound?.status !== 'COMPLETED') return false;
+  if (targetStatus === 'READY_TO_RETURN') {
+    return item.fulfillmentOrder?.fulfillmentMethod === 'STORE_PICKUP';
+  }
+  return item.fulfillmentOrder?.fulfillmentMethod !== 'DELIVERY'
+    || item.fulfillmentOrder?.status === 'COMPLETED';
+};
+
+type ReplacementCandidate = {
+  key: string;
+  imeis: string[];
+  secondaryImei?: string | null;
+  serialNumbers: string[];
+  locationId: string;
+  locationCode?: string | null;
+  locationName?: string | null;
 };
 
 const splitIdentifierValues = (value: string) => (
@@ -137,33 +178,19 @@ const splitIdentifierValues = (value: string) => (
 );
 
 const needsReplacementIdentifiers = (
-  section: 'returns' | 'warranties' | 'defective',
-  request: any,
-  targetStatus: string,
+  _section: 'returns' | 'warranties' | 'defective',
+  _request: any,
+  _targetStatus: string,
 ) => {
-  const requestItems = request?.items || [];
-  const alreadyAssigned = requestItems.length > 0 && requestItems.every((item: any) => (
-    (item?.replacementImeis || []).length > 0
-    || (item?.replacementSerialNumbers || []).length > 0
-    || String(item?.replacementImei || '').trim()
-  ));
-  if (alreadyAssigned) return false;
-  if (section === 'returns') {
-    return request?.status === 'EXCHANGE_PROCESSING' && targetStatus === 'COMPLETED';
-  }
-  if (section === 'warranties') {
-    return (
-      request?.status === 'REPLACEMENT_PROCESSING' && ['READY_TO_RETURN', 'COMPLETED'].includes(targetStatus)
-    ) || (
-      request?.status === 'READY_TO_RETURN'
-      && targetStatus === 'COMPLETED'
-      && request?.resolutionType === 'REPLACEMENT'
-    );
-  }
   return false;
 };
 
-export default function AdminAfterSalesTab() {
+export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { query?: string; setTab?: (tab: string) => void; setQuery?: (value: string) => void }) {
+  const { usePermission } = useAuth();
+  const canUpdateAfterSales = usePermission('after_sales:update');
+  const canInspectAfterSales = usePermission('after_sales:inspect');
+  const canRefundAfterSales = usePermission('after_sales:refund');
+  const canExchangeAfterSales = usePermission('after_sales:exchange');
   const [section, setSection] = useState<'returns' | 'warranties' | 'defective'>('returns');
   const [returns, setReturns] = useState<any[]>([]);
   const [warranties, setWarranties] = useState<any[]>([]);
@@ -177,7 +204,13 @@ export default function AdminAfterSalesTab() {
   const [modalTargetStatus, setModalTargetStatus] = useState('');
   const [note, setNote] = useState('');
   const [replacementIdentifiers, setReplacementIdentifiers] = useState<Record<string, ReplacementIdentifierDraft>>({});
+  const [replacementCandidates, setReplacementCandidates] = useState<Record<string, ReplacementCandidate[]>>({});
+  const [replacementSearch, setReplacementSearch] = useState<Record<string, string>>({});
+  const [replacementCandidatesLoading, setReplacementCandidatesLoading] = useState(false);
+  const [replacementCandidatesError, setReplacementCandidatesError] = useState('');
   const [depreciationFee, setDepreciationFee] = useState('');
+  const [shippingDeduction, setShippingDeduction] = useState('');
+  const [exchangeFee, setExchangeFee] = useState('');
   const [refundTransactionRef, setRefundTransactionRef] = useState('');
   const [refundProofUrl, setRefundProofUrl] = useState('');
   const [refundNote, setRefundNote] = useState('');
@@ -187,6 +220,7 @@ export default function AdminAfterSalesTab() {
   const [repairCost, setRepairCost] = useState('');
   const [busy, setBusy] = useState(false);
   const [qcResult, setQcResult] = useState('');
+  const [inventoryDisposition, setInventoryDisposition] = useState('USED_INTAKE');
   const [customerFault, setCustomerFault] = useState(false);
 
   // States dành cho Modal xem chi tiết
@@ -212,20 +246,27 @@ export default function AdminAfterSalesTab() {
   const [defectiveQuickFilter, setDefectiveQuickFilter] = useState<'all' | 'processing' | 'completed' | 'documented' | 'recovered'>('all');
 
   async function load() {
-    try {
-      const [returnData, warrantyData, defectiveData, defectiveReportData] = await Promise.all([
-        adminAfterSalesApi.listReturns(),
-        adminAfterSalesApi.listWarranties(),
-        adminAfterSalesApi.listDefectiveIdentifiers(),
-        adminAfterSalesApi.getDefectiveDispositionReport(),
-      ]);
-      setReturns(returnData.items || []);
-      setWarranties(warrantyData.items || []);
-      setDefective(defectiveData || []);
-      setDefectiveReport(defectiveReportData || { summary: {}, byStatus: [], byBrand: [], topProducts: [] });
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Không thể tải dữ liệu hậu mãi.');
+    const results = await Promise.allSettled([
+      adminAfterSalesApi.listReturns(),
+      adminAfterSalesApi.listWarranties(),
+      adminAfterSalesApi.listDefectiveIdentifiers(),
+      adminAfterSalesApi.getDefectiveDispositionReport(),
+    ]);
+    const [returnResult, warrantyResult, defectiveResult, defectiveReportResult] = results;
+    if (returnResult.status === 'fulfilled') setReturns(returnResult.value.items || []);
+    if (warrantyResult.status === 'fulfilled') setWarranties(warrantyResult.value.items || []);
+    if (defectiveResult.status === 'fulfilled') setDefective(defectiveResult.value || []);
+    if (defectiveReportResult.status === 'fulfilled') {
+      setDefectiveReport(defectiveReportResult.value || { summary: {}, byStatus: [], byBrand: [], topProducts: [] });
     }
+    const failedSections = [
+      returnResult.status === 'rejected' ? 'đổi trả' : '',
+      warrantyResult.status === 'rejected' ? 'bảo hành' : '',
+      defectiveResult.status === 'rejected' || defectiveReportResult.status === 'rejected' ? 'máy lỗi thu hồi' : '',
+    ].filter(Boolean);
+    setMessage(failedSections.length > 0
+      ? `Không thể tải phần ${failedSections.join(', ')}. Các phần còn lại vẫn hoạt động.`
+      : '');
   }
 
   useEffect(() => {
@@ -246,7 +287,12 @@ export default function AdminAfterSalesTab() {
         },
       ]),
     ));
+    setReplacementCandidates({});
+    setReplacementSearch({});
+    setReplacementCandidatesError('');
     setDepreciationFee(String(item.depreciationFee || ''));
+    setShippingDeduction('');
+    setExchangeFee(item.exchangeFee ? String(item.exchangeFee) : '');
     setRefundTransactionRef('');
     setRefundProofUrl('');
     setRefundNote('');
@@ -255,8 +301,59 @@ export default function AdminAfterSalesTab() {
     setRepairParts(String(item.repairSummary?.parts || ''));
     setRepairCost(item.repairSummary?.cost ? String(item.repairSummary.cost) : '');
     setQcResult(item.status === 'QC_IN_PROGRESS' ? (section === 'returns' ? 'APPROVE_EXCHANGE' : 'ACCEPT_REPAIR') : '');
+    setInventoryDisposition(String(item.inventoryDisposition || 'USED_INTAKE'));
     setCustomerFault(false);
     setShowAdvanceModal(true);
+  };
+
+  const loadReplacementCandidates = async () => {
+    if (!modalRequest || section !== 'warranties') return;
+    setReplacementCandidatesLoading(true);
+    setReplacementCandidatesError('');
+    try {
+      const data = await adminAfterSalesApi.listWarrantyReplacementCandidates(modalRequest.id);
+      setReplacementCandidates(Object.fromEntries(
+        (data.items || []).map((item: any) => [item.requestItemId, item.candidates || []]),
+      ));
+    } catch (error) {
+      setReplacementCandidatesError(error instanceof Error ? error.message : 'Không thể tải danh sách máy thay thế.');
+    } finally {
+      setReplacementCandidatesLoading(false);
+    }
+  };
+
+  const selectReplacementCandidate = (requestItem: any, candidate: ReplacementCandidate) => {
+    const current = replacementIdentifiers[requestItem.id] || { imeis: '', serialNumbers: '' };
+    const imeis = splitIdentifierValues(current.imeis);
+    const serialNumbers = splitIdentifierValues(current.serialNumbers);
+    const primaryImei = candidate.imeis[0];
+    const serialNumber = candidate.serialNumbers[0];
+    const quantity = Number(requestItem.quantity || 1);
+    if ((primaryImei && imeis.includes(primaryImei)) || (serialNumber && serialNumbers.includes(serialNumber))) return;
+    if (Math.max(imeis.length, serialNumbers.length) >= quantity) {
+      setReplacementCandidatesError(`Đã chọn đủ ${quantity} thiết bị cho ${requestItem.productName}.`);
+      return;
+    }
+    setReplacementIdentifiers(currentState => ({
+      ...currentState,
+      [requestItem.id]: {
+        imeis: [...imeis, ...(primaryImei ? [primaryImei] : [])].join('\n'),
+        serialNumbers: [...serialNumbers, ...(serialNumber ? [serialNumber] : [])].join('\n'),
+      },
+    }));
+    setReplacementCandidatesError('');
+  };
+
+  const removeReplacementCandidate = (requestItem: any, index: number) => {
+    const current = replacementIdentifiers[requestItem.id] || { imeis: '', serialNumbers: '' };
+    const imeis = splitIdentifierValues(current.imeis);
+    const serialNumbers = splitIdentifierValues(current.serialNumbers);
+    imeis.splice(index, 1);
+    serialNumbers.splice(index, 1);
+    setReplacementIdentifiers(currentState => ({
+      ...currentState,
+      [requestItem.id]: { imeis: imeis.join('\n'), serialNumbers: serialNumbers.join('\n') },
+    }));
   };
 
   // Xác nhận đổi trạng thái từ Modal
@@ -277,6 +374,9 @@ export default function AdminAfterSalesTab() {
           qc_note: note.trim(),
           customer_fault: customerFault,
           depreciation_fee: section === 'returns' ? Number(depreciationFee || 0) : 0,
+          shipping_deduction: section === 'returns' ? Number(shippingDeduction || 0) : 0,
+          exchange_fee: section === 'returns' && exchangeFee !== '' ? Number(exchangeFee || 0) : null,
+          inventory_disposition: section === 'returns' && qcResult !== 'REJECT' ? inventoryDisposition : null,
         });
         setShowAdvanceModal(false);
         await load();
@@ -290,6 +390,11 @@ export default function AdminAfterSalesTab() {
       } finally {
         setBusy(false);
       }
+      return;
+    }
+
+    if (section === 'warranties' && modalTargetStatus === 'QC_IN_PROGRESS' && note.trim().length < 10) {
+      alert('Vui lòng nhập lý do đánh giá lại QC tối thiểu 10 ký tự.');
       return;
     }
 
@@ -325,11 +430,11 @@ export default function AdminAfterSalesTab() {
     const needsRefundProof = section === 'returns' && modalTargetStatus === 'COMPLETED' && modalRequest.status === 'REFUND_PROCESSING';
     if (needsRefundProof) {
       if (!refundTransactionRef.trim()) {
-        alert('Vui lòng nhập mã giao dịch hoặc chứng từ hoàn tiền.');
+        alert('Vui lòng nhập mã giao dịch hoặc chứng từ hoàn tiền demo.');
         return;
       }
       if (!refundProofUrl.trim()) {
-        alert('Vui lòng cung cấp link hình ảnh/chứng từ hoàn tiền (proof URL).');
+        alert('Vui lòng cung cấp link hình ảnh/chứng từ hoàn tiền demo (proof URL).');
         return;
       }
     }
@@ -472,6 +577,36 @@ export default function AdminAfterSalesTab() {
   };
 
   const requests = section === 'returns' ? returns : warranties;
+  const filteredRequests = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return requests;
+
+    return requests.filter(item => {
+      const itemSearchText = (item.items || []).flatMap((line: any) => [
+        line.productName,
+        line.imei,
+        line.secondaryImei,
+        line.serialNumber,
+        ...(line.replacementImeis || []),
+        ...(line.replacementSecondaryImeis || []),
+        ...(line.replacementSerialNumbers || []),
+      ]);
+      const searchable = [
+        item.requestCode,
+        item.orderCode,
+        item.status,
+        statusLabel[item.status],
+        item.fulfillmentOrder?.orderCode,
+        item.fulfillmentOrder?.trackingCode,
+        item.fulfillmentOutbound?.documentNo,
+        ...itemSearchText,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return searchable.includes(needle);
+    });
+  }, [query, requests]);
   const actions = section === 'returns' ? returnActions : warrantyActions;
   const filteredDefective = useMemo(() => {
     const query = defectiveQuery.trim().toLowerCase();
@@ -633,7 +768,7 @@ export default function AdminAfterSalesTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {requests.map(item => {
+              {filteredRequests.map(item => {
                 const style = statusStyles[item.status] || { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' };
                 const isOverSLA = item.slaBreachedAt || (item.slaDueAt && new Date(item.slaDueAt) < new Date());
 
@@ -658,6 +793,9 @@ export default function AdminAfterSalesTab() {
                       <span className={`inline-flex items-center rounded-lg px-2.5 py-0.5 text-xs font-bold border ${style.bg} ${style.text} ${style.border}`}>
                         {statusLabel[item.status] || item.status}
                       </span>
+                      {section === 'returns' && item.inventoryDisposition && (
+                        <div className="mt-1.5"><span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-700">{inventoryDispositionLabels[item.inventoryDisposition] || item.inventoryDisposition}</span></div>
+                      )}
                     </td>
                     <td className="p-4">
                       {isOverSLA ? (
@@ -676,7 +814,7 @@ export default function AdminAfterSalesTab() {
                         Chi tiết
                       </button>
                       <div className="inline-flex gap-1.5">
-                        {item.status === 'QC_IN_PROGRESS' ? (
+                        {item.status === 'QC_IN_PROGRESS' && canInspectAfterSales ? (
                           <button
                             onClick={() => handleOpenAdvanceModal(item, 'QC_IN_PROGRESS')}
                             className="rounded-lg px-3 py-1.5 text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition-all"
@@ -684,7 +822,7 @@ export default function AdminAfterSalesTab() {
                             Đánh giá QC
                           </button>
                         ) : (
-                          (actions[item.status] || []).map(status => (
+                          canUpdateAfterSales && (actions[item.status] || []).filter(status => status !== 'REFUND_PROCESSING' || canRefundAfterSales).filter(status => !['EXCHANGE_PROCESSING', 'REPLACEMENT_APPROVED', 'REPLACEMENT_PROCESSING'].includes(status) || canExchangeAfterSales).filter(status => status !== 'QC_IN_PROGRESS' || canInspectAfterSales).filter(status => canShowAfterSalesAction(section, item, status)).map(status => (
                             <button
                               key={status}
                               onClick={() => handleOpenAdvanceModal(item, status)}
@@ -692,7 +830,9 @@ export default function AdminAfterSalesTab() {
                                 actionStyles[status] || 'bg-slate-800 text-white hover:bg-slate-750'
                               }`}
                             >
-                              {actionLabel[status] || status}
+                              {status === 'QC_IN_PROGRESS'
+                                ? (item.status === 'RECEIVED' ? 'Bắt đầu kiểm QC' : 'Đánh giá lại QC')
+                                : (actionLabel[status] || status)}
                             </button>
                           ))
                         )}
@@ -701,6 +841,13 @@ export default function AdminAfterSalesTab() {
                   </tr>
                 );
               })}
+              {!filteredRequests.length && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-sm font-medium text-slate-500">
+                    {query.trim() ? `Không tìm thấy hồ sơ phù hợp với “${query.trim()}”.` : 'Chưa có hồ sơ trong nhóm này.'}
+                  </td>
+                </tr>
+              )}
               {!requests.length && (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-sm text-slate-400 font-medium">
@@ -920,12 +1067,12 @@ export default function AdminAfterSalesTab() {
 ) : '-'}
                       </td>
                       <td className="p-4 text-right">
-                        <button
+                        {canUpdateAfterSales && <button
                           onClick={() => handleOpenDispositionModal(item)}
                           className="rounded-lg bg-slate-900 text-white px-3 py-1.5 text-xs font-bold hover:bg-slate-800 transition-colors"
                         >
                           Định đoạt
-                        </button>
+                        </button>}
                       </td>
                     </tr>
                   );
@@ -954,7 +1101,9 @@ export default function AdminAfterSalesTab() {
               Trạng thái hiện tại: <span className="underline font-bold text-slate-700">{statusLabel[modalRequest.status]}</span>
               {modalRequest.status !== 'QC_IN_PROGRESS' && (
                 <>
-                  {' '}| Chuyển sang: <span className="font-bold text-slate-900">{actionLabel[modalTargetStatus]}</span>
+                  {' '}| Chuyển sang: <span className="font-bold text-slate-900">{modalTargetStatus === 'QC_IN_PROGRESS'
+                    ? (modalRequest.status === 'RECEIVED' ? 'Bắt đầu kiểm QC' : 'Đánh giá lại QC')
+                    : actionLabel[modalTargetStatus]}</span>
                 </>
               )}
             </p>
@@ -997,18 +1146,54 @@ export default function AdminAfterSalesTab() {
                   </label>
 
                   {section === 'returns' && (
-                    <label className="flex flex-col gap-1.5">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Phí khấu hao / nhập lại</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={depreciationFee}
-                        onChange={e => setDepreciationFee(e.target.value)}
-                        placeholder="0"
-                        className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
-                      />
-                      <span className="text-[10px] text-slate-400">Trừ trực tiếp vào số tiền hoàn lại nếu có khấu hao ngoại quan/phụ kiện.</span>
-                    </label>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <label className="flex flex-col gap-1.5 md:col-span-3">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Hướng xử lý thiết bị hoàn về *</span>
+                        <select value={inventoryDisposition} onChange={e => setInventoryDisposition(e.target.value)} className="rounded-xl border border-slate-200 bg-white p-3 text-sm focus:border-slate-900 focus:outline-none">
+                          <option value="USED_INTAKE">Chuyển sang kiểm định và bán hàng cũ</option>
+                          <option value="NEW_STOCK">Đủ điều kiện nhập lại kho hàng mới</option>
+                          <option value="REPAIR">Chuyển khu vực chờ sửa chữa / tân trang</option>
+                          <option value="SCRAP">Không thể bán — chờ thanh lý / tiêu hủy</option>
+                        </select>
+                        <span className="text-xs text-slate-500">Chỉ chọn kho hàng mới khi thiết bị còn nguyên trạng và đủ điều kiện bán như mới.</span>
+                      </label>
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Phí khấu hao</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={depreciationFee}
+                          onChange={e => setDepreciationFee(e.target.value)}
+                          placeholder="0"
+                          className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Khấu trừ ship</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={shippingDeduction}
+                          onChange={e => setShippingDeduction(e.target.value)}
+                          placeholder="0"
+                          className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Phí đổi máy</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={exchangeFee}
+                          onChange={e => setExchangeFee(e.target.value)}
+                          placeholder="Mặc định 5%"
+                          className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
+                        />
+                      </label>
+                      <span className="md:col-span-3 text-[10px] text-slate-400">
+                        Các khoản này được dùng để tính số tiền chênh lệch/hoàn lại sau QC. Để trống phí đổi máy nếu muốn dùng mức mặc định của hệ thống.
+                      </span>
+                    </div>
                   )}
 
                   <label className="flex flex-col gap-1.5">
@@ -1024,64 +1209,114 @@ export default function AdminAfterSalesTab() {
                 </div>
               ) : (
                 <>
+                  {(
+                    (section === 'returns' && modalRequest?.resolutionType === 'EXCHANGE')
+                    || (section === 'warranties' && modalRequest?.resolutionType === 'REPLACEMENT')
+                  ) && (
+                    <div className="rounded-xl border border-cyan-100 bg-cyan-50/40 p-4 text-sm text-cyan-950">
+                      <div className="font-bold">Máy thay thế được xử lý tại phiếu xuất kho</div>
+                      <p className="mt-1 text-xs leading-5 text-cyan-800">
+                        Nhân viên kho sẽ tìm kiếm, chọn kệ và quét IMEI/serial khi đóng hàng. Hồ sơ hậu mãi tự nhận mã máy sau khi phiếu xuất hoàn tất.
+                      </p>
+                    </div>
+                  )}
                   {needsReplacementIdentifiers(section, modalRequest, modalTargetStatus) && (
                     <div className="space-y-3 rounded-xl border border-cyan-100 bg-cyan-50/30 p-4">
-                      <div>
-                        <div className="text-xs font-bold uppercase tracking-wider text-cyan-800">
-                          Mã định danh thiết bị thay thế
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-bold uppercase tracking-wider text-cyan-800">Chọn thiết bị thay thế trong kho</div>
+                          <p className="mt-1 text-xs text-slate-500">Tìm theo IMEI hoặc serial; hệ thống tự lấy đúng cặp mã và vị trí kệ.</p>
                         </div>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Mỗi dòng phải có IMEI hoặc serial. Nếu sản phẩm quản lý cả hai, có thể nhập một mã để hệ thống tự đối chiếu cặp.
-                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void loadReplacementCandidates()}
+                          disabled={replacementCandidatesLoading}
+                          className="min-h-10 cursor-pointer rounded-lg border border-cyan-200 bg-white px-3 text-xs font-bold text-cyan-800 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {replacementCandidatesLoading ? 'Đang tải thiết bị...' : 'Tải lại danh sách máy'}
+                        </button>
                       </div>
+                      {replacementCandidatesError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{replacementCandidatesError}</div>}
                       {(modalRequest.items || []).map((requestItem: any) => {
                         const draft = replacementIdentifiers[requestItem.id] || { imeis: '', serialNumbers: '' };
+                        const selectedImeis = splitIdentifierValues(draft.imeis);
+                        const selectedSerials = splitIdentifierValues(draft.serialNumbers);
+                        const query = String(replacementSearch[requestItem.id] || '').trim().toLowerCase();
+                        const candidates = replacementCandidates[requestItem.id] || [];
+                        const visibleCandidates = candidates.filter(candidate => {
+                          const selected = candidate.imeis.some(value => selectedImeis.includes(value))
+                            || candidate.serialNumbers.some(value => selectedSerials.includes(value));
+                          if (selected) return false;
+                          const searchable = [
+                            ...candidate.imeis,
+                            candidate.secondaryImei || '',
+                            ...candidate.serialNumbers,
+                            candidate.locationCode || '',
+                            candidate.locationName || '',
+                          ].join(' ').toLowerCase();
+                          return !query || searchable.includes(query);
+                        }).slice(0, 12);
+                        const selectedCount = Math.max(selectedImeis.length, selectedSerials.length);
                         return (
-                          <div key={requestItem.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                          <div key={requestItem.id} className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
                             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                               <div className="text-sm font-bold text-slate-900">{requestItem.productName}</div>
-                              <span className="text-xs font-semibold text-slate-500">Số lượng: {requestItem.quantity}</span>
+                              <span className={`text-xs font-bold ${selectedCount === Number(requestItem.quantity || 1) ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                Đã chọn {selectedCount}/{requestItem.quantity}
+                              </span>
                             </div>
-                            <div className="grid gap-3 md:grid-cols-2">
-                              <label className="flex flex-col gap-1.5">
-                                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">IMEI thay thế</span>
-                                <textarea
-                                  value={draft.imeis}
-                                  onChange={(event) => setReplacementIdentifiers(current => ({
-                                    ...current,
-                                    [requestItem.id]: {
-                                      ...(current[requestItem.id] || draft),
-                                      imeis: event.target.value,
-                                    },
-                                  }))}
-                                  rows={3}
-                                  placeholder="Mỗi IMEI một dòng"
-                                  className="rounded-xl border border-slate-200 p-3 font-mono text-sm focus:border-slate-900 focus:outline-none"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1.5">
-                                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Serial thay thế</span>
-                                <textarea
-                                  value={draft.serialNumbers}
-                                  onChange={(event) => setReplacementIdentifiers(current => ({
-                                    ...current,
-                                    [requestItem.id]: {
-                                      ...(current[requestItem.id] || draft),
-                                      serialNumbers: event.target.value,
-                                    },
-                                  }))}
-                                  rows={3}
-                                  placeholder="Mỗi serial một dòng"
-                                  className="rounded-xl border border-slate-200 p-3 font-mono text-sm focus:border-slate-900 focus:outline-none"
-                                />
-                              </label>
+                            {selectedCount > 0 && (
+                              <div className="space-y-2">
+                                {Array.from({ length: selectedCount }).map((_, index) => (
+                                  <div key={`${selectedImeis[index] || ''}:${selectedSerials[index] || ''}`} className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2">
+                                    <div className="min-w-0 text-xs">
+                                      {selectedSerials[index] && <div className="font-mono font-bold text-slate-900">Serial: {selectedSerials[index]}</div>}
+                                      {selectedImeis[index] && <div className="font-mono text-slate-600">IMEI: {selectedImeis[index]}</div>}
+                                    </div>
+                                    <button type="button" onClick={() => removeReplacementCandidate(requestItem, index)} className="min-h-9 cursor-pointer rounded-lg border border-red-200 bg-white px-3 text-xs font-bold text-red-700 hover:bg-red-50">Bỏ chọn</button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div className="relative">
+                              <label htmlFor={`replacement-search-${requestItem.id}`} className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Tìm máy khả dụng</label>
+                              <input
+                                id={`replacement-search-${requestItem.id}`}
+                                type="search"
+                                value={replacementSearch[requestItem.id] || ''}
+                                onFocus={() => { if (!Object.keys(replacementCandidates).length) void loadReplacementCandidates(); }}
+                                onChange={event => setReplacementSearch(current => ({ ...current, [requestItem.id]: event.target.value }))}
+                                placeholder="Nhập IMEI hoặc serial để tìm..."
+                                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+                              />
+                            </div>
+                            <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-1">
+                              {replacementCandidatesLoading ? (
+                                <div className="px-3 py-6 text-center text-xs font-semibold text-slate-500">Đang tải danh sách thiết bị...</div>
+                              ) : visibleCandidates.length ? visibleCandidates.map(candidate => (
+                                <button
+                                  key={candidate.key}
+                                  type="button"
+                                  onClick={() => selectReplacementCandidate(requestItem, candidate)}
+                                  disabled={selectedCount >= Number(requestItem.quantity || 1)}
+                                  className="flex min-h-12 w-full cursor-pointer items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-xs transition hover:bg-cyan-50 focus:bg-cyan-50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  <span className="min-w-0">
+                                    {candidate.serialNumbers[0] && <span className="block font-mono font-bold text-slate-900">Serial: {candidate.serialNumbers[0]}</span>}
+                                    {candidate.imeis[0] && <span className="block font-mono text-slate-600">IMEI: {candidate.imeis[0]}{candidate.secondaryImei ? ` · IMEI 2: ${candidate.secondaryImei}` : ''}</span>}
+                                  </span>
+                                  <span className="shrink-0 text-[11px] font-semibold text-slate-500">{candidate.locationCode || 'Chưa rõ kệ'}</span>
+                                </button>
+                              )) : (
+                                <div className="px-3 py-6 text-center text-xs text-slate-500">
+                                  {Object.keys(replacementCandidates).length ? 'Không tìm thấy máy khả dụng phù hợp.' : 'Nhấn vào ô tìm kiếm để tải danh sách máy.'}
+                                </div>
+                              )}
                             </div>
                           </div>
                         );
                       })}
-                      <span className="block text-[10px] text-slate-400">
-                        Các mã phải đang ở trạng thái sẵn sàng và nằm tại cùng vị trí kho của từng thiết bị.
-                      </span>
+                      <span className="block text-xs text-slate-500">Chỉ hiển thị thiết bị `IN_STOCK` tại kệ thật; kho tổng `MAIN` và mã không đồng bộ bị loại khỏi danh sách.</span>
                     </div>
                   )}
 
@@ -1097,30 +1332,33 @@ export default function AdminAfterSalesTab() {
                         placeholder="0"
                         className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
                       />
-                      <span className="text-[10px] text-slate-400">Khoản phí này sẽ được trừ khỏi số tiền hoàn thực tế.</span>
+                      <span className="text-[10px] text-slate-400">Khoản phí này được dùng để tính số tiền hoàn trong hồ sơ demo, không chuyển tiền thật.</span>
                     </div>
                   )}
 
                   {section === 'returns' && modalTargetStatus === 'COMPLETED' && modalRequest.status === 'REFUND_PROCESSING' && (
                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
-                      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-800">Chứng từ hoàn tiền</div>
+                      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-800">Chứng từ hoàn tiền demo</div>
+                      <p className="mb-3 text-xs leading-5 text-emerald-900/70">
+                        Luồng này chỉ ghi nhận mã giao dịch/chứng từ để phục vụ đối soát trong đồ án, không gọi API hoàn tiền thật.
+                      </p>
                       <div className="space-y-3">
                         <label className="flex flex-col gap-1.5">
-                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mã giao dịch / chứng từ *</span>
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mã giao dịch / chứng từ demo *</span>
                           <input
                             value={refundTransactionRef}
                             onChange={e => setRefundTransactionRef(e.target.value)}
-                            placeholder="Ví dụ: REF-20260705-001, UNC ngân hàng..."
+                            placeholder="Ví dụ: REF-DEMO-20260705-001, biên nhận nội bộ..."
                             className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
                             required
                           />
                         </label>
                         <label className="flex flex-col gap-1.5">
-                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Link chứng từ *</span>
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Link chứng từ demo *</span>
                           <input
                             value={refundProofUrl}
                             onChange={e => setRefundProofUrl(e.target.value)}
-                            placeholder="URL ảnh/PDF chứng từ"
+                            placeholder="URL ảnh/PDF chứng từ demo"
                             className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
                             required
                           />
@@ -1138,7 +1376,9 @@ export default function AdminAfterSalesTab() {
                     </div>
                   )}
 
-                  {section === 'warranties' && ['WARRANTY_ACCEPTED', 'REPAIRING', 'READY_TO_RETURN', 'COMPLETED'].includes(modalTargetStatus) && (
+                  {section === 'warranties'
+                    && modalRequest.resolutionType === 'REPAIR'
+                    && ['REPAIRING', 'READY_TO_RETURN', 'COMPLETED'].includes(modalTargetStatus) && (
                     <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3">
                       <div className="mb-3 text-xs font-bold uppercase tracking-wider text-amber-800">Chi tiết sửa chữa / bảo hành</div>
                       <div className="space-y-3">
@@ -1272,6 +1512,47 @@ export default function AdminAfterSalesTab() {
                   </p>
                 </div>
               </div>
+
+              {(detailRequest.fulfillmentOrder || detailRequest.fulfillmentOutbound) && (
+                <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 text-xs">
+                  <div className="font-bold uppercase tracking-wider text-cyan-700">Giao máy hậu mãi</div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {detailRequest.fulfillmentOrder && (
+                      <div className="rounded-lg border border-cyan-100 bg-white p-3">
+                        <div className="text-slate-500">Đơn giao máy</div>
+                        <div className="mt-0.5 font-mono font-bold text-slate-900">{detailRequest.fulfillmentOrder.orderCode}</div>
+                        <div className="mt-1 font-semibold text-cyan-700">{detailRequest.fulfillmentOrder.status}</div>
+                      </div>
+                    )}
+                    {detailRequest.fulfillmentOutbound && (
+                      <div className="rounded-lg border border-cyan-100 bg-white p-3">
+                        <div className="text-slate-500">Phiếu xuất kho</div>
+                        <div className="mt-0.5 font-mono font-bold text-slate-900">{detailRequest.fulfillmentOutbound.documentNo}</div>
+                        <div className="mt-1 font-semibold text-cyan-700">{detailRequest.fulfillmentOutbound.status}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {section === 'returns' && detailRequest.inventoryDisposition && (
+                <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-xs">
+                  <div className="font-bold uppercase tracking-wider text-violet-700">Hướng xử lý tồn kho</div>
+                  <div className="mt-1 text-sm font-bold text-slate-900">{inventoryDispositionLabels[detailRequest.inventoryDisposition] || detailRequest.inventoryDisposition}</div>
+                  {detailRequest.inventoryDestination ? (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-violet-100 bg-white p-3">
+                      <div>
+                        <div className="text-slate-500">Chứng từ / hồ sơ liên quan</div>
+                        <div className="mt-0.5 font-mono font-bold text-slate-900">{detailRequest.inventoryDestination.referenceCode}</div>
+                        <div className="mt-0.5 text-[10px] font-semibold text-slate-500">Trạng thái: {detailRequest.inventoryDestination.status}</div>
+                      </div>
+                      <button type="button" onClick={() => { setShowDetailModal(false); setQuery?.(detailRequest.inventoryDestination.referenceCode || ''); setTab?.(detailRequest.inventoryDestination.type === 'USED_INTAKE' ? 'usedProducts' : 'inventory'); }} className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-bold text-white hover:bg-violet-800">
+                        {detailRequest.inventoryDestination.type === 'USED_INTAKE' ? 'Mở quản lý hàng cũ' : 'Mở chứng từ kho'}
+                      </button>
+                    </div>
+                  ) : <div className="mt-2 text-violet-700">Hệ thống đang chờ tạo hồ sơ hoặc chứng từ liên quan.</div>}
+                </div>
+              )}
 
               {/* Sản phẩm lỗi */}
               <div>
@@ -1480,7 +1761,12 @@ export default function AdminAfterSalesTab() {
                     Đánh giá QC
                   </button>
                 ) : (
-                  (actions[detailRequest.status] || []).map(status => (
+                  canUpdateAfterSales && (actions[detailRequest.status] || [])
+                    .filter(status => status !== 'REFUND_PROCESSING' || canRefundAfterSales)
+                    .filter(status => !['EXCHANGE_PROCESSING', 'REPLACEMENT_APPROVED', 'REPLACEMENT_PROCESSING'].includes(status) || canExchangeAfterSales)
+                    .filter(status => status !== 'QC_IN_PROGRESS' || canInspectAfterSales)
+                    .filter(status => canShowAfterSalesAction(section, detailRequest, status))
+                    .map(status => (
                     <button
                       key={status}
                       onClick={() => {
@@ -1490,7 +1776,9 @@ export default function AdminAfterSalesTab() {
                         actionStyles[status] || 'bg-slate-800 text-white'
                       }`}
                     >
-                      {actionLabel[status]}
+                      {status === 'QC_IN_PROGRESS'
+                        ? (detailRequest.status === 'RECEIVED' ? 'Bắt đầu kiểm QC' : 'Đánh giá lại QC')
+                        : actionLabel[status]}
                     </button>
                   ))
                 )}
@@ -1536,6 +1824,7 @@ export default function AdminAfterSalesTab() {
                         </span>
                       </div>
                       <div className="mt-1 text-slate-600">{event.reason}</div>
+                      <div className="mt-1 font-semibold text-indigo-700">Người thao tác: {adminActorLabel(event).name}{adminActorLabel(event).role ? ` · ${adminActorLabel(event).role}` : ''}</div>
                       {(event.documentReference || event.partnerName || Number(event.recoveryValue || 0) > 0) && (
                         <div className="mt-1 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-500">
                           {event.documentReference && <span>Chứng từ: {event.documentReference}</span>}

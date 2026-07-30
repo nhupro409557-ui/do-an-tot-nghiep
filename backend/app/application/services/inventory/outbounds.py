@@ -24,28 +24,43 @@ async def set_variant_inventory(
 
 
 async def create_outbound_document_from_order(session: AsyncSession, order_id: UUID) -> UUID | None:
+    from app.infrastructure.database.models import Order
+    from app.infrastructure.database.repositories import commerce_repo
+
+    order = await session.get(Order, order_id, with_for_update=True)
+    if not order:
+        return None
+
     # Check if outbound document already exists
     res = await session.execute(
         text(
             """
-            SELECT id
+            SELECT id, status
             FROM inventory_documents
             WHERE order_id = :order_id
               AND document_type = 'OUTBOUND'
-              AND status != 'CANCELLED'
+            FOR UPDATE
             """
         ),
         {"order_id": order_id},
     )
     row = res.first()
     if row:
+        if row[1] == "CANCELLED":
+            await session.execute(
+                text(
+                    """
+                    UPDATE inventory_documents
+                    SET status = 'DRAFT',
+                        cancelled_at = NULL,
+                        cancelled_by = NULL,
+                        note = 'Phát hành lại phiếu xuất khi đơn hàng tiếp tục xử lý.'
+                    WHERE id = :document_id
+                    """
+                ),
+                {"document_id": row[0]},
+            )
         return row[0]
-
-    from app.infrastructure.database.models import Order
-    from app.infrastructure.database.repositories import commerce_repo
-    order = await session.get(Order, order_id)
-    if not order:
-        return None
 
     items = await commerce_repo.list_restock_items(session, order_id=order_id, order_code=order.order_code)
     shippable_items = [item for item in items if not item.get("used_device_id")]
@@ -83,9 +98,14 @@ async def create_outbound_document_from_order(session: AsyncSession, order_id: U
         suggested_location_id = None
         if variant_id:
             sql_levels = """
-                SELECT location_id FROM inventory_levels
-                WHERE variant_id = :variant_id
-                ORDER BY on_hand_quantity DESC LIMIT 1
+                SELECT il.location_id
+                FROM inventory_levels il
+                JOIN inventory_locations loc ON loc.id = il.location_id
+                WHERE il.variant_id = :variant_id
+                  AND GREATEST(il.on_hand_quantity - il.reserved_quantity, 0) > 0
+                ORDER BY (loc.code = 'MAIN') ASC,
+                         GREATEST(il.on_hand_quantity - il.reserved_quantity, 0) DESC
+                LIMIT 1
             """
             res_levels = await session.execute(text(sql_levels), {"variant_id": variant_id})
             row_level = res_levels.first()
@@ -93,9 +113,15 @@ async def create_outbound_document_from_order(session: AsyncSession, order_id: U
                 suggested_location_id = row_level[0]
         else:
             sql_levels = """
-                SELECT location_id FROM inventory_levels
-                WHERE product_id = :product_id AND variant_id IS NULL
-                ORDER BY on_hand_quantity DESC LIMIT 1
+                SELECT il.location_id
+                FROM inventory_levels il
+                JOIN inventory_locations loc ON loc.id = il.location_id
+                WHERE il.product_id = :product_id
+                  AND il.variant_id IS NULL
+                  AND GREATEST(il.on_hand_quantity - il.reserved_quantity, 0) > 0
+                ORDER BY (loc.code = 'MAIN') ASC,
+                         GREATEST(il.on_hand_quantity - il.reserved_quantity, 0) DESC
+                LIMIT 1
             """
             res_levels = await session.execute(text(sql_levels), {"product_id": product_id})
             row_level = res_levels.first()
@@ -105,9 +131,10 @@ async def create_outbound_document_from_order(session: AsyncSession, order_id: U
         if not suggested_location_id:
             suggested_location_id = location_id
 
+        line_id = uuid4()
         await inventory_repo.insert_inventory_outbound_line(
             session,
-            line_id=uuid4(),
+            line_id=line_id,
             document_id=document_id,
             product_id=product_id,
             variant_id=variant_id,
@@ -120,6 +147,26 @@ async def create_outbound_document_from_order(session: AsyncSession, order_id: U
             serial_numbers=[],
             tracks_serial_number=tracks_serial,
         )
+        if item.get("after_sales_request_item_id"):
+            await session.execute(
+                text(
+                    """
+                    UPDATE inventory_document_lines
+                    SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                        'orderItemId', CAST(CAST(:order_item_id AS UUID) AS TEXT),
+                        'afterSalesType', CAST(:after_sales_type AS TEXT),
+                        'afterSalesRequestItemId', CAST(CAST(:request_item_id AS UUID) AS TEXT)
+                    )
+                    WHERE id = :line_id
+                    """
+                ),
+                {
+                    "line_id": line_id,
+                    "order_item_id": item["id"],
+                    "after_sales_type": item.get("after_sales_type"),
+                    "request_item_id": item["after_sales_request_item_id"],
+                },
+            )
 
     return document_id
 
@@ -215,7 +262,7 @@ async def _determine_outbound_status(session: AsyncSession, document_id: UUID) -
         any_allocated = True
         total_qty = sum(int(a.get("quantity") or 0) for a in allocations)
 
-        if total_qty < line["quantity"]:
+        if total_qty != line["quantity"]:
             all_fully_allocated = False
             continue
 
@@ -247,6 +294,18 @@ async def update_outbound_document_lines(
     lines_data: list,
     current_user_id: UUID | None = None,
 ) -> dict:
+    await session.execute(
+        text(
+            """
+            SELECT id
+            FROM inventory_documents
+            WHERE document_no = :document_no
+              AND document_type = 'OUTBOUND'
+            FOR UPDATE
+            """
+        ),
+        {"document_no": document_no},
+    )
     doc = await inventory_repo.get_inventory_outbound_document(session, document_no)
     if not doc:
         raise HTTPException(status_code=404, detail="Không tìm thấy phiếu xuất kho.")
@@ -254,13 +313,21 @@ async def update_outbound_document_lines(
     if doc["status"] in ("COMPLETED", "CANCELLED"):
         raise HTTPException(status_code=400, detail="Không thể cập nhật phiếu xuất kho đã hoàn tất hoặc đã hủy.")
 
+    document_lines = await inventory_repo.list_inventory_outbound_lines(session, doc["id"])
+    document_line_ids = {str(item["id"]) for item in document_lines}
+
     for line in lines_data:
         line_id_str = line.get("lineId") or line.get("id")
         if not line_id_str:
             continue
-        line_id = UUID(line_id_str)
+        if str(line_id_str) not in document_line_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Dòng hàng không thuộc phiếu xuất kho đang cập nhật.",
+            )
+        line_id = UUID(str(line_id_str))
         location_id_str = line.get("locationId")
-        location_id = UUID(location_id_str) if location_id_str else None
+        location_id = UUID(str(location_id_str)) if location_id_str else None
 
         approved_quantity = int(line.get("approvedQuantity") or line.get("quantity") or 0)
         imeis = [str(item).strip() for item in (line.get("imeis") or []) if str(item).strip()]
@@ -277,9 +344,17 @@ async def update_outbound_document_lines(
 
         allocations = line.get("allocations") or []
         allocations_data = []
+        seen_allocation_locations: set[UUID] = set()
         for alloc in allocations:
             alloc_loc_id = alloc.get("locationId") or alloc.get("location_id")
-            alloc_loc_uuid = UUID(alloc_loc_id) if alloc_loc_id else None
+            alloc_loc_uuid = UUID(str(alloc_loc_id)) if alloc_loc_id else None
+            if alloc_loc_uuid and alloc_loc_uuid in seen_allocation_locations:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Mỗi kệ chỉ được phân bổ một lần trong cùng dòng hàng.",
+                )
+            if alloc_loc_uuid:
+                seen_allocation_locations.add(alloc_loc_uuid)
 
             alloc_loc_code = None
             alloc_loc_name = None
@@ -289,11 +364,18 @@ async def update_outbound_document_lines(
                     alloc_loc_code = loc["code"]
                     alloc_loc_name = loc["name"]
 
+            alloc_quantity = int(alloc.get("quantity") or 0)
+            if alloc_quantity <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Số lượng phân bổ tại mỗi kệ phải lớn hơn 0.",
+                )
+
             allocations_data.append({
                 "locationId": str(alloc_loc_uuid) if alloc_loc_uuid else None,
                 "locationCode": alloc_loc_code,
                 "locationName": alloc_loc_name,
-                "quantity": int(alloc.get("quantity") or 0),
+                "quantity": alloc_quantity,
                 "imeis": [str(x).strip() for x in (alloc.get("imeis") or []) if str(x).strip()],
                 "serialNumbers": _clean_serial_numbers(alloc.get("serialNumbers") or []),
             })
@@ -370,6 +452,13 @@ async def _post_inventory_outbound(
                 detail=f"Dòng {index} ({line['productName']}): Tổng số lượng phân bổ trên các kệ ({total_allocated_qty}) phải bằng số lượng yêu cầu ({quantity})."
             )
 
+        allocation_location_ids = [str(a.get("locationId") or "") for a in allocations_list]
+        if len(allocation_location_ids) != len(set(allocation_location_ids)):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dòng {index} ({line['productName']}): Mỗi kệ chỉ được phân bổ một lần.",
+            )
+
         for alloc in allocations_list:
             alloc_location_id_str = alloc.get("locationId")
             if not alloc_location_id_str:
@@ -378,11 +467,12 @@ async def _post_inventory_outbound(
             alloc_qty = int(alloc.get("quantity") or 0)
 
             stock_level = await inventory_repo.get_inventory_level(session, product_id, variant_id, alloc_location_id)
-            if not stock_level or int(stock_level["on_hand_quantity"]) < alloc_qty:
+            available_quantity = int((stock_level or {}).get("availableQuantity") or 0)
+            if not stock_level or available_quantity < alloc_qty:
                 loc_code = stock_level["locationCode"] if stock_level else alloc_location_id_str
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Dòng {index} ({line['productName']}): Kệ {loc_code} không đủ tồn kho khả dụng để xuất. (Cần {alloc_qty}, hiện có {stock_level['on_hand_quantity'] if stock_level else 0})"
+                    detail=f"Dòng {index} ({line['productName']}): Kệ {loc_code} không đủ tồn kho khả dụng để xuất. (Cần {alloc_qty}, khả dụng {available_quantity})"
                 )
 
             alloc_imeis = [str(item).strip() for item in (alloc.get("imeis") or []) if str(item).strip()]
@@ -428,7 +518,7 @@ async def _post_inventory_outbound(
         for alloc in allocations_list:
             alloc_location_id = UUID(alloc.get("locationId"))
             loc_res = await session.execute(
-                text("SELECT name, status, purpose FROM inventory_locations WHERE id = :location_id"),
+                text("SELECT code, name, status, purpose FROM inventory_locations WHERE id = :location_id"),
                 {"location_id": alloc_location_id}
             )
             loc = loc_res.mappings().first()
@@ -465,9 +555,64 @@ async def _post_inventory_outbound(
                 location_quantities=[{"location_id": alloc_location_id, "quantity": alloc_qty}]
             )
 
+            if (
+                loc["code"] != "MAIN"
+                and order.order_purpose in {"WARRANTY_REPLACEMENT", "RETURN_EXCHANGE"}
+            ):
+                main_mirror_update = await session.execute(
+                    text(
+                        """
+                        UPDATE inventory_levels il
+                        SET on_hand_quantity = il.on_hand_quantity - :quantity,
+                            updated_at = NOW()
+                        FROM inventory_locations main_loc
+                        WHERE main_loc.id = il.location_id
+                          AND main_loc.code = 'MAIN'
+                          AND il.product_id = :product_id
+                          AND il.variant_id IS NOT DISTINCT FROM :variant_id
+                          AND il.on_hand_quantity - :quantity >= il.reserved_quantity
+                        RETURNING il.id
+                        """
+                    ),
+                    {
+                        "quantity": alloc_qty,
+                        "product_id": product_id if not variant_id else inventory_row["product_id"],
+                        "variant_id": variant_id,
+                    },
+                )
+                if main_mirror_update.first() is None:
+                    main_mirror_exists = bool(
+                        await session.scalar(
+                            text(
+                                """
+                                SELECT EXISTS(
+                                    SELECT 1
+                                    FROM inventory_levels il
+                                    JOIN inventory_locations main_loc ON main_loc.id = il.location_id
+                                    WHERE main_loc.code = 'MAIN'
+                                      AND il.product_id = :product_id
+                                      AND il.variant_id IS NOT DISTINCT FROM :variant_id
+                                )
+                                """
+                            ),
+                            {
+                                "product_id": product_id if not variant_id else inventory_row["product_id"],
+                                "variant_id": variant_id,
+                            },
+                        )
+                    )
+                    if main_mirror_exists:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Dòng {index}: Tồn kho tổng tại MAIN không đủ để đồng bộ xuất máy hậu mãi. "
+                                "Vui lòng đối soát tồn kho trước khi thử lại."
+                            ),
+                        )
+
             for allocation in levels:
                 if tracks_imei:
-                    await session.execute(
+                    imei_update = await session.execute(
                         text(
                             """
                             UPDATE product_imeis
@@ -508,15 +653,24 @@ async def _post_inventory_outbound(
                             "serial_numbers": alloc_serials,
                         }
                     )
+                    if int(imei_update.rowcount or 0) < len(alloc_imeis):
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Dòng {index}: Không thể cập nhật đủ IMEI đã quét. "
+                                "Mã có thể vừa bị xuất ở giao dịch khác."
+                            ),
+                        )
                 if tracks_serial_number:
-                    await session.execute(
+                    serial_update = await session.execute(
                         text(
                             """
                             UPDATE product_serial_numbers
                             SET status = 'SOLD',
                                 location_id = NULL,
                                 sold_at = NOW(),
-                                sold_order_id = :order_id,
+                                service_payload = COALESCE(service_payload, '{}'::jsonb)
+                                    || jsonb_build_object('soldOrderId', CAST(:order_id AS TEXT)),
                                 updated_at = NOW()
                             WHERE id IN (
                                 SELECT id FROM product_serial_numbers
@@ -529,13 +683,21 @@ async def _post_inventory_outbound(
                             """
                         ),
                         {
-                            "order_id": order.id,
+                            "order_id": str(order.id),
                             "product_id": product_id if not variant_id else inventory_row["product_id"],
                             "variant_id": variant_id,
                             "location_id": allocation["locationId"],
                             "serial_numbers": alloc_serials,
                         }
                     )
+                    if int(serial_update.rowcount or 0) < len(alloc_serials):
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Dòng {index}: Không thể cập nhật đủ serial đã quét. "
+                                "Serial có thể vừa bị xuất ở giao dịch khác."
+                            ),
+                        )
 
                 await commerce_repo.insert_inventory_adjustment(
                     session,
@@ -545,7 +707,7 @@ async def _post_inventory_outbound(
                     new_quantity=int(allocation["newQuantity"]),
                     delta=-int(allocation["quantity"]),
                     transaction_type="SALE",
-                    reference_code=order.order_code,
+                    reference_code=reference_code,
                     reason="ORDER_SHIPPED",
                     note=f"Xuất kho thực tế từ kệ theo phiếu xuất {reference_code} cho {line['productName']}.",
                     location_code=allocation.get("locationCode"),
@@ -565,7 +727,38 @@ async def post_outbound_document(
     if current_role_code != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Chỉ có Quản trị viên cấp cao (Super Admin) mới được phép hoàn tất phiếu xuất kho.")
 
-    # Select document FOR UPDATE
+    # Luôn khóa đơn hàng trước phiếu xuất để thống nhất thứ tự khóa với luồng cập nhật đơn.
+    initial_row = (
+        await session.execute(
+            text(
+                """
+                SELECT order_id
+                FROM inventory_documents
+                WHERE document_no = :document_no
+                  AND document_type = 'OUTBOUND'
+                """
+            ),
+            {"document_no": document_no},
+        )
+    ).first()
+    if not initial_row:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiếu xuất kho.")
+
+    from app.infrastructure.database.models import Order
+    order = await session.get(Order, initial_row[0], with_for_update=True)
+    if not order:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng liên kết.")
+    if (
+        order.order_purpose == "RETURN_EXCHANGE"
+        and order.payment_requirement == "BALANCE_PAYMENT"
+        and order.payment_status != "PAID"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Đơn đổi máy còn tiền chênh lệch chưa được xác nhận thanh toán, không thể xuất kho.",
+        )
+
+    # Select document FOR UPDATE after locking its order.
     res = await session.execute(
         text(
             """
@@ -591,14 +784,32 @@ async def post_outbound_document(
             detail="Chỉ có thể xác nhận xuất kho khi phiếu xuất ở trạng thái Đã đóng đủ hàng."
         )
 
+    from app.application.commerce.use_cases import CompleteOrderUseCase
+    complete_order_use_case = CompleteOrderUseCase(session=session)
+    if order.status == "PAID":
+        await complete_order_use_case.execute(
+            order_id=order.id,
+            status_value="PROCESSING",
+            changed_by="warehouse-outbound",
+            run_external_side_effects=False,
+        )
+    elif order.status != "PROCESSING":
+        raise HTTPException(
+            status_code=409,
+            detail="Chỉ có thể xuất kho khi đơn hàng đang ở trạng thái Đã thanh toán hoặc Đang xử lý.",
+        )
+
     # Post physical inventory outbound logic
-    await _post_inventory_outbound(
-        session,
-        document_id=doc["id"],
-        reference_code=doc["document_no"],
-        note=doc["note"],
-        order_id=doc["order_id"],
-    )
+    try:
+        await _post_inventory_outbound(
+            session,
+            document_id=doc["id"],
+            reference_code=doc["document_no"],
+            note=doc["note"],
+            order_id=doc["order_id"],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     # Update document status to COMPLETED
     await inventory_repo.update_inventory_outbound_status(
@@ -608,16 +819,32 @@ async def post_outbound_document(
         actor_id=current_user_id,
     )
 
+    from app.application.after_sales.fulfillment import finalize_after_sales_outbound
+    await finalize_after_sales_outbound(
+        session,
+        document_id=doc["id"],
+        actor_id=current_user_id,
+    )
+
     # Sync order status to SHIPPED and trigger order side effects
-    from app.application.commerce.use_cases import CompleteOrderUseCase
-    await CompleteOrderUseCase(session=session).execute(
+    await complete_order_use_case.execute(
         order_id=doc["order_id"],
         status_value="SHIPPED",
         changed_by="warehouse-outbound",
+        run_external_side_effects=False,
     )
 
     # Commit all changes atomically (both physical inventory reduction and order status update)
     await session.commit()
+
+    try:
+        await complete_order_use_case.run_committed_shipping_side_effects(order_id=doc["order_id"])
+    except Exception as exc:
+        import logging
+        logging.getLogger("uvicorn.error").error(
+            "Xuất kho đã commit nhưng tác vụ vận chuyển/thông báo thất bại: %s",
+            exc,
+        )
 
     return {"ok": True, "referenceCode": document_no, "status": "COMPLETED"}
 
@@ -640,6 +867,14 @@ async def update_outbound_document_status(
             current_role_code,
         )
 
+    if normalized_status == "REVERSED":
+        _ensure_super_admin_inventory_action(current_role_code, "đảo phiếu xuất kho")
+        return await reverse_completed_outbound(
+            session,
+            document_no,
+            current_user_id,
+        )
+
     res = await session.execute(
         text(
             """
@@ -659,6 +894,23 @@ async def update_outbound_document_status(
     if normalized_status == "DRAFT":
         if doc["status"] != "CANCELLED":
             raise HTTPException(status_code=400, detail="Chỉ phiếu xuất đã hủy mới có thể phát hành lại (chuyển về Nháp).")
+        order_status = await session.scalar(
+            text(
+                """
+                SELECT o.status
+                FROM orders o
+                JOIN inventory_documents d ON d.order_id = o.id
+                WHERE d.id = :document_id
+                FOR UPDATE OF o
+                """
+            ),
+            {"document_id": doc["id"]},
+        )
+        if order_status not in {"PAID", "PROCESSING"}:
+            raise HTTPException(
+                status_code=409,
+                detail="Chỉ có thể phát hành lại phiếu khi đơn hàng đang chờ xử lý kho.",
+            )
         await inventory_repo.update_inventory_outbound_status(
             session,
             document_id=doc["id"],
@@ -699,6 +951,18 @@ async def auto_suggest_outbound_document(
     session: AsyncSession,
     document_no: str,
 ) -> dict:
+    await session.execute(
+        text(
+            """
+            SELECT id
+            FROM inventory_documents
+            WHERE document_no = :document_no
+              AND document_type = 'OUTBOUND'
+            FOR UPDATE
+            """
+        ),
+        {"document_no": document_no},
+    )
     # Lấy thông tin phiếu
     doc = await inventory_repo.get_inventory_outbound_document(session, document_no)
     if not doc:
@@ -763,3 +1027,97 @@ async def auto_suggest_outbound_document(
 
     await session.commit()
     return {"ok": True, "referenceCode": document_no}
+
+
+async def reverse_completed_outbound(
+    session: AsyncSession,
+    document_no: str,
+    actor_id: UUID | None = None,
+) -> dict:
+    from datetime import datetime, timezone
+    # 1. Lock the outbound document FOR UPDATE
+    res = await session.execute(
+        text(
+            """
+            SELECT id, status, order_id, document_no
+            FROM inventory_documents
+            WHERE document_no = :document_no AND document_type = 'OUTBOUND'
+            FOR UPDATE
+            """
+        ),
+        {"document_no": document_no},
+    )
+    doc = res.mappings().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiếu xuất kho.")
+    if doc["status"] != "COMPLETED":
+        raise HTTPException(status_code=400, detail="Chỉ đảo phiếu xuất kho đã hoàn tất.")
+
+    # 2. Get order for update
+    from app.infrastructure.database.models import Order
+    from app.infrastructure.database.repositories import commerce_repo
+    order = await commerce_repo.get_order_for_update(session, doc["order_id"])
+    if not order:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng liên kết.")
+    if order.status != "SHIPPED":
+        raise HTTPException(
+            status_code=409,
+            detail="Chỉ có thể đảo phiếu khi đơn hàng đang ở trạng thái Đang giao hàng.",
+        )
+    if order.payment_status == "PAID":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Đơn hàng đã thanh toán không thể hủy bằng thao tác đảo phiếu. "
+                "Vui lòng xử lý hoàn hàng và hoàn tiền theo đúng quy trình."
+            ),
+        )
+
+    # 3. Restock items, restore FIFO lots, and IMEI/serial numbers
+    from app.application.commerce.use_cases import CompleteOrderUseCase
+    complete_order_use_case = CompleteOrderUseCase(session=session)
+    await complete_order_use_case._restock_order_items(order)
+    await commerce_repo.close_active_order_reservations(
+        session,
+        order_id=order.id,
+        status="CANCELLED",
+    )
+
+    # 4. Update order status to CANCELLED to maintain consistency
+    order.status = "CANCELLED"
+    order.cancellation_reason = "Đảo phiếu xuất kho đã hoàn tất."
+    order.cancelled_at = datetime.now(timezone.utc)
+    commerce_repo.save_model(session, order)
+    await session.execute(
+        text(
+            """
+            UPDATE payment_transactions
+            SET status = 'FAILED',
+                failed_at = NOW(),
+                raw_response = COALESCE(raw_response, '{}'::jsonb)
+                    || jsonb_build_object('failure_message', 'Đơn hàng đã bị hủy khi đảo phiếu xuất kho.')
+            WHERE order_id = :order_id
+              AND status = 'PENDING'
+            """
+        ),
+        {"order_id": order.id},
+    )
+    await complete_order_use_case._insert_order_history(
+        order=order,
+        old_status="SHIPPED",
+        new_status="CANCELLED",
+        changed_by="warehouse-outbound-reversal",
+        note="Đảo phiếu xuất kho đã hoàn tất.",
+    )
+
+    # 5. Update outbound document status to REVERSED
+    await inventory_repo.update_inventory_outbound_status(
+        session,
+        document_id=doc["id"],
+        status="REVERSED",
+        note="Đảo phiếu xuất kho đã hoàn tất.",
+        actor_id=actor_id,
+    )
+
+    await session.commit()
+    return {"ok": True, "referenceCode": document_no, "status": "REVERSED"}

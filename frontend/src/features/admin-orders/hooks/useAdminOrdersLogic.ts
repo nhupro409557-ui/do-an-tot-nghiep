@@ -10,6 +10,10 @@ export type OrderDraft = {
   cancellationReason: string;
   shippingProvider: string;
   trackingCode: string;
+  returnSource: string;
+  returnReason: string;
+  returnTrackingCode: string;
+  returnReceivedCondition: string;
   refundPayment: boolean;
   issueAllocations: { orderItemId: string; locationId: string; quantity: number }[];
 };
@@ -21,6 +25,10 @@ const initialOrderDraft: OrderDraft = {
   cancellationReason: '',
   shippingProvider: '',
   trackingCode: '',
+  returnSource: '',
+  returnReason: '',
+  returnTrackingCode: '',
+  returnReceivedCondition: '',
   refundPayment: false,
   issueAllocations: [],
 };
@@ -36,6 +44,7 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
   const [orderSaving, setOrderSaving] = useState(false);
   const [carrierShipmentBusy, setCarrierShipmentBusy] = useState(false);
   const [carrierQuote, setCarrierQuote] = useState<any | null>(null);
+  const [carrierFeedback, setCarrierFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [orderDraft, setOrderDraft] = useState<OrderDraft>(initialOrderDraft);
 
   function syncOrderDraft(order: any) {
@@ -46,7 +55,11 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
       cancellationReason: order.cancellationReason || '',
       shippingProvider: order.shippingProvider || '',
       trackingCode: order.trackingCode || '',
-      refundPayment: order.paymentMethod && order.paymentMethod !== 'COD' && ['PAID', 'PENDING'].includes(order.paymentStatus || ''),
+      returnSource: order.returnSource || '',
+      returnReason: order.returnReason || '',
+      returnTrackingCode: order.returnTrackingCode || '',
+      returnReceivedCondition: order.returnReceivedCondition || '',
+      refundPayment: false,
       issueAllocations: [],
     });
   }
@@ -70,20 +83,25 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
 
   async function updateOrderStatus(id: string, status: string) {
     await adminOrdersApi.updateOrderStatus(id, status);
-    setOrders((items) => items.map((item) => (item.id === id ? { ...item, status } : item)));
+    const detail = await adminOrdersApi.getOrderDetail(id);
+    mergeOrderListItem(detail);
   }
 
-  async function saveOrderDraft() {
+  async function saveOrderDraft(statusOverride?: string) {
     if (!selectedOrder) return;
     setOrderSaving(true);
     try {
       await adminOrdersApi.adminUpdateOrder(selectedOrder.id, {
-        status: orderDraft.status,
+        status: statusOverride || orderDraft.status,
         assigned_staff_name: orderDraft.assignedStaffName || null,
         internal_note: orderDraft.internalNote || null,
         cancellation_reason: orderDraft.cancellationReason || null,
         shipping_provider: orderDraft.shippingProvider || null,
         tracking_code: orderDraft.trackingCode || null,
+        return_source: orderDraft.returnSource || null,
+        return_reason: orderDraft.returnReason || null,
+        return_tracking_code: orderDraft.returnTrackingCode || null,
+        return_received_condition: orderDraft.returnReceivedCondition || null,
         refund_payment: orderDraft.refundPayment,
         issue_allocations: [],
       });
@@ -103,12 +121,16 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
   async function quoteCarrierShipment(provider?: string) {
     if (!selectedOrder) return;
     setCarrierShipmentBusy(true);
+    setCarrierFeedback(null);
     try {
       const quote = await adminOrdersApi.quoteCarrierShipment(selectedOrder.id, {
         provider: provider || orderDraft.shippingProvider || 'MOCK_GHN',
       });
       setCarrierQuote(quote);
       setOrderDraft((draft) => ({ ...draft, shippingProvider: quote.provider || draft.shippingProvider }));
+      setCarrierFeedback({ type: 'success', message: 'Đã tính phí vận chuyển thành công.' });
+    } catch (error: any) {
+      setCarrierFeedback({ type: 'error', message: error?.message || 'Không thể tính phí vận chuyển.' });
     } finally {
       setCarrierShipmentBusy(false);
     }
@@ -117,6 +139,7 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
   async function createCarrierShipment(provider?: string) {
     if (!selectedOrder) return;
     setCarrierShipmentBusy(true);
+    setCarrierFeedback(null);
     try {
       const result = await adminOrdersApi.createCarrierShipment(selectedOrder.id, {
         provider: provider || orderDraft.shippingProvider || 'MOCK_GHN',
@@ -126,6 +149,9 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
       setSelectedOrder(detail);
       syncOrderDraft(detail);
       mergeOrderListItem(detail);
+      setCarrierFeedback({ type: 'success', message: 'Đã tạo vận đơn thành công.' });
+    } catch (error: any) {
+      setCarrierFeedback({ type: 'error', message: error?.message || 'Không thể tạo vận đơn.' });
     } finally {
       setCarrierShipmentBusy(false);
     }
@@ -134,6 +160,7 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
   async function cancelCarrierShipment(reason?: string) {
     if (!selectedOrder) return;
     setCarrierShipmentBusy(true);
+    setCarrierFeedback(null);
     try {
       const result = await adminOrdersApi.cancelCarrierShipment(selectedOrder.id, { reason });
       setCarrierQuote(result);
@@ -141,6 +168,9 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
       setSelectedOrder(detail);
       syncOrderDraft(detail);
       mergeOrderListItem(detail);
+      setCarrierFeedback({ type: 'success', message: 'Đã hủy vận đơn thành công.' });
+    } catch (error: any) {
+      setCarrierFeedback({ type: 'error', message: error?.message || 'Không thể hủy vận đơn.' });
     } finally {
       setCarrierShipmentBusy(false);
     }
@@ -149,6 +179,7 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
   async function simulateCarrierEvent(eventCode: string, note?: string) {
     if (!selectedOrder) return;
     setCarrierShipmentBusy(true);
+    setCarrierFeedback(null);
     try {
       const result = await adminOrdersApi.updateCarrierEvent(selectedOrder.id, {
         event_code: eventCode,
@@ -159,6 +190,9 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
       setSelectedOrder(detail);
       syncOrderDraft(detail);
       mergeOrderListItem(detail);
+      setCarrierFeedback({ type: 'success', message: result?.message || 'Đã cập nhật trạng thái vận chuyển.' });
+    } catch (error: any) {
+      setCarrierFeedback({ type: 'error', message: error?.message || 'Không thể cập nhật trạng thái vận chuyển.' });
     } finally {
       setCarrierShipmentBusy(false);
     }
@@ -176,6 +210,7 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
     carrierShipmentBusy,
     carrierQuote,
     setCarrierQuote,
+    carrierFeedback,
     orderDraft,
     setOrderDraft,
     openOrderPanel,

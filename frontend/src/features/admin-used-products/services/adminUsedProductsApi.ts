@@ -9,6 +9,8 @@ import type {
   UsedProductIntakePayload,
   UsedProductListing,
   UsedProductListingPayload,
+  UsedProductPricePayload,
+  UsedProductRepairPayload,
   UsedProductStatusPayload,
 } from '../types';
 
@@ -35,12 +37,20 @@ export const adminUsedProductsApi = {
     `/admin/used-products/devices/${encodeURIComponent(deviceId)}/listing`,
     { method: 'PUT', body: JSON.stringify(data) },
   ),
+  updateDevicePrice: (deviceId: string, data: UsedProductPricePayload) => request<{ salePrice: number; requiresApproval: boolean }>(
+    `/admin/used-products/devices/${encodeURIComponent(deviceId)}/price`,
+    { method: 'PATCH', body: JSON.stringify(data) },
+  ),
   updateDeviceStatus: (deviceId: string, data: UsedProductStatusPayload) => request<UsedProductDevice>(
     `/admin/used-products/devices/${encodeURIComponent(deviceId)}/status`,
     { method: 'PATCH', body: JSON.stringify(data) },
   ),
   getDeviceHistory: (deviceId: string) => request<UsedProductHistory>(
     `/admin/used-products/devices/${encodeURIComponent(deviceId)}/history`,
+  ),
+  addDeviceRepair: (deviceId: string, data: UsedProductRepairPayload) => request<{ id: string; deviceId: string }>(
+    `/admin/used-products/devices/${encodeURIComponent(deviceId)}/repairs`,
+    { method: 'POST', body: JSON.stringify(data) },
   ),
   reinspectDevice: (deviceId: string, data: UsedProductInspectionPayload) => request<UsedProductDevice>(
     `/admin/used-products/devices/${encodeURIComponent(deviceId)}/reinspection`,

@@ -85,7 +85,7 @@ async def insert_product_record(
 async def get_product_current_for_update(session: AsyncSession, product_id: UUID) -> dict | None:
     row = (
         await session.execute(
-            text("SELECT status, version, updated_at, name, price, sale_price, stock_quantity, category_id, subcategory_id FROM products WHERE id = :id"),
+            text("SELECT status, version, updated_at, name, price, sale_price, stock_quantity, category_id, subcategory_id FROM products WHERE id = :id FOR UPDATE"),
             {"id": product_id},
         )
     ).mappings().first()
@@ -162,6 +162,7 @@ async def update_product_record(
     session: AsyncSession,
     *,
     product_id: UUID,
+    expected_version: int,
     name: str,
     category: str,
     brand: str,
@@ -209,11 +210,12 @@ async def update_product_record(
                 is_flash_sale = :is_flash_sale,
                 version = version + 1,
                 updated_at = NOW()
-            WHERE id = :id
+            WHERE id = :id AND version = :expected_version
             """
         ),
         {
             "id": product_id,
+            "expected_version": expected_version,
             "name": name,
             "category": category,
             "brand": brand,

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { adminCustomersApi } from '../services/adminCustomersApi';
 import { notifyAdmin } from '../../admin-shell/utils/adminNotice';
 
-type CustomerSection = 'summary' | 'orders' | 'loyalty' | 'notes' | 'audit';
+type CustomerSection = 'summary' | 'orders' | 'loyalty' | 'notes' | 'audit' | 'vouchers';
 
 type UseAdminCustomersLogicParams = {
   canManageCustomerAccess: boolean;
@@ -29,6 +29,8 @@ export function useAdminCustomersLogic({
   const [customerActiveSection, setCustomerActiveSection] = useState<CustomerSection>('summary');
   const [customerOrders, setCustomerOrders] = useState<any[]>([]);
   const [customerLoyaltyHistory, setCustomerLoyaltyHistory] = useState<any[]>([]);
+  const [customerLoyaltyPage, setCustomerLoyaltyPage] = useState(1);
+  const [customerLoyaltyTotal, setCustomerLoyaltyTotal] = useState(0);
   const [customerNotes, setCustomerNotes] = useState<any[]>([]);
   const [customerAuditLogs, setCustomerAuditLogs] = useState<any[]>([]);
   const [customerTagDraft, setCustomerTagDraft] = useState('');
@@ -50,6 +52,8 @@ export function useAdminCustomersLogic({
       setSelectedCustomer(detail);
       setCustomerOrders([]);
       setCustomerLoyaltyHistory([]);
+      setCustomerLoyaltyPage(1);
+      setCustomerLoyaltyTotal(0);
       setCustomerNotes([]);
       setCustomerAuditLogs([]);
       setCustomerTagDraft(Array.isArray(detail.tags) ? detail.tags.join(', ') : '');
@@ -93,7 +97,7 @@ export function useAdminCustomersLogic({
       setCustomerOrders(await adminCustomersApi.adminGetCustomerOrders(selectedCustomer.id).catch(() => []));
     }
     if (section === 'loyalty') {
-      setCustomerLoyaltyHistory(await adminCustomersApi.adminGetCustomerLoyaltyHistory(selectedCustomer.id).catch(() => []));
+      await loadCustomerLoyaltyPage(1);
     }
     if (section === 'notes') {
       setCustomerNotes(await adminCustomersApi.adminGetCustomerNotes(selectedCustomer.id).catch(() => []));
@@ -101,6 +105,14 @@ export function useAdminCustomersLogic({
     if (section === 'audit') {
       setCustomerAuditLogs(await adminCustomersApi.adminGetCustomerAuditLogs(selectedCustomer.id).catch(() => []));
     }
+  }
+
+  async function loadCustomerLoyaltyPage(page: number) {
+    if (!selectedCustomer?.id) return;
+    const result = await adminCustomersApi.adminGetCustomerLoyaltyHistoryPage(selectedCustomer.id, page, 20).catch(() => ({ items: [], page, limit: 20, total: 0 }));
+    setCustomerLoyaltyHistory(result.items);
+    setCustomerLoyaltyPage(result.page);
+    setCustomerLoyaltyTotal(result.total);
   }
 
   async function saveCustomerTags() {
@@ -157,7 +169,7 @@ export function useAdminCustomersLogic({
       await adminCustomersApi.adminAdjustCustomerLoyalty(selectedCustomer.id, { delta, reason: customerPointReason.trim() });
       setCustomerPointDelta('0');
       setCustomerPointReason('');
-      setCustomerLoyaltyHistory(await adminCustomersApi.adminGetCustomerLoyaltyHistory(selectedCustomer.id).catch(() => []));
+      await loadCustomerLoyaltyPage(customerLoyaltyPage);
       await refreshSelectedCustomer();
       notifyAdmin('Đã cập nhật điểm khách hàng.');
     } catch (error) {
@@ -221,6 +233,9 @@ export function useAdminCustomersLogic({
     setCustomerOrders,
     customerLoyaltyHistory,
     setCustomerLoyaltyHistory,
+    customerLoyaltyPage,
+    customerLoyaltyTotal,
+    loadCustomerLoyaltyPage,
     customerNotes,
     setCustomerNotes,
     customerAuditLogs,
@@ -239,6 +254,7 @@ export function useAdminCustomersLogic({
     setCustomerPointDelta,
     customerPointReason,
     setCustomerPointReason,
+    canIssueCustomerVoucher,
     openCustomerDetail,
     refreshSelectedCustomer,
     loadCustomerSection,

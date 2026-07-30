@@ -26,7 +26,7 @@ import {
 
 export type AdminTab = 'overview' | 'products' | 'usedProducts' | 'flashSales' | 'categories' | 'brands' | 'suppliers' | 'services' | 'orders' | 'afterSales' | 'vouchers' | 'customers' | 'inventoryReceipts' | 'accountPayables' | 'inventory' | 'inventoryOutbounds' | 'reviews' | 'interactions' | 'content' | 'banners' | 'audit' | 'aiCatalogIndex' | 'permissions' | 'paymentMethods' | 'storeInfo';
 export type AdminTabGroup = 'Tổng quan' | 'Kinh doanh' | 'Danh mục hàng' | 'Vận hành' | 'Khách hàng' | 'Hệ thống';
-export type SpecField = { key: string; label: string; group?: string; type: string; required: boolean; variant: boolean; isFilterable?: boolean; filterType?: string; filterEnabled?: boolean };
+export type SpecField = { key: string; label: string; group?: string; type: string; required: boolean; variant: boolean; isFilterable?: boolean; filterType?: string; filterEnabled?: boolean; unit?: string; options?: string };
 export type CategoryFilterField = { key: string; label: string; type: string; enabled: boolean; source?: string };
 export type VariantForm = {
   id?: string;

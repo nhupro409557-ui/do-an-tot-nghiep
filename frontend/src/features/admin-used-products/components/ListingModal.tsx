@@ -54,6 +54,31 @@ export default function ListingModal({
               <textarea value={listingDraft.priceComparisonNote} onChange={(event) => setListingDraft({ ...listingDraft, priceComparisonNote: event.target.value })} rows={2} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-base outline-none focus:border-emerald-600" />
             </label>
           </div>
+          <fieldset className="rounded-md border border-slate-200 p-4 md:col-span-2">
+            <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
+              <input type="checkbox" checked={listingDraft.manufacturerWarrantyEnabled} onChange={(event) => setListingDraft({ ...listingDraft, manufacturerWarrantyEnabled: event.target.checked })} />
+              Thiết bị còn bảo hành chính hãng
+            </label>
+            {listingDraft.manufacturerWarrantyEnabled && (
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <label className="text-sm font-semibold text-slate-700">Hãng/đơn vị bảo hành
+                  <input value={listingDraft.manufacturerWarrantyProvider} onChange={(event) => setListingDraft({ ...listingDraft, manufacturerWarrantyProvider: event.target.value })} className="mt-1 h-11 w-full rounded-md border border-slate-200 px-3" />
+                </label>
+                <label className="text-sm font-semibold text-slate-700">Ngày kích hoạt
+                  <input required type="date" value={listingDraft.manufacturerWarrantyActivatedAt} onChange={(event) => setListingDraft({ ...listingDraft, manufacturerWarrantyActivatedAt: event.target.value })} className="mt-1 h-11 w-full rounded-md border border-slate-200 px-3" />
+                </label>
+                <label className="text-sm font-semibold text-slate-700">Thời hạn ban đầu (tháng)
+                  <input required type="number" min="1" max="60" value={listingDraft.manufacturerWarrantyTotalMonths} onChange={(event) => setListingDraft({ ...listingDraft, manufacturerWarrantyTotalMonths: event.target.value })} className="mt-1 h-11 w-full rounded-md border border-slate-200 px-3" />
+                </label>
+              </div>
+            )}
+            {listingDraft.manufacturerWarrantyEnabled && listingDraft.manufacturerWarrantyActivatedAt && listingDraft.manufacturerWarrantyActivatedAt > new Date().toISOString().slice(0, 10) && (
+              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+                Ngày kích hoạt đang nằm trong tương lai. Hệ thống vẫn cho phép lưu nhưng bài phải được Super Admin xem và duyệt lại.
+              </div>
+            )}
+            <p className="mt-3 text-xs text-slate-500">Thời gian còn lại được tính tự động từ ngày kích hoạt đến ngày hiện tại và làm tròn theo tháng.</p>
+          </fieldset>
           <div className="md:col-span-2">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>

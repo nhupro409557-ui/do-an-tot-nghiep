@@ -38,6 +38,34 @@ export type AiCatalogIndexStatus = {
     vector_installed?: boolean;
     error?: string;
   };
+  runtime?: {
+    metrics?: {
+      window_hours?: number;
+      total_responses?: number;
+      gemini_responses?: number;
+      fallback_responses?: number;
+      fallback_rate?: number;
+      verifier_failures?: number;
+      verifier_failure_rate?: number;
+      clarification_responses?: number;
+      average_confidence?: number;
+      shadow_evaluations?: number;
+      shadow_matches?: number;
+      shadow_match_rate?: number;
+      total_feedback?: number;
+      helpful_feedback?: number;
+      helpful_rate?: number;
+      error?: string;
+    };
+    circuit_breakers?: Array<{
+      model: string;
+      open: boolean;
+      ttl_seconds: number;
+      recent_failures: number;
+      status?: string;
+    }>;
+    features?: Record<string, boolean | number>;
+  };
   refresh_job?: AiCatalogRefreshJob | null;
   recent_refresh_jobs?: AiCatalogRefreshJob[];
 };

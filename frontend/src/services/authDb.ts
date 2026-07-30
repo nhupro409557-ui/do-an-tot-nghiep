@@ -9,6 +9,7 @@ let currentProfile: any | null = readAuthJson('auth_user_profile', null);
 let authToken: string | null = null;
 const listeners: ((user: MockUser | null) => void)[] = [];
 let authBootstrapPromise: Promise<void> | null = null;
+let refreshPromise: Promise<MockUser | null> | null = null;
 
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   return authRequest<T>(path, options, authToken);
@@ -32,8 +33,29 @@ export function getAccessToken() {
 }
 
 export async function refreshSession() {
-  persistAuth(await apiRequest('/auth/refresh', { method: 'POST' }));
-  return currentUser;
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      persistAuth(await apiRequest('/auth/refresh', { method: 'POST' }));
+      return currentUser;
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+export function isAccessTokenExpiringSoon(thresholdSeconds = 30) {
+  if (!authToken) return false;
+  try {
+    const payloadPart = authToken.split('.')[1];
+    if (!payloadPart) return true;
+    const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const payload = JSON.parse(atob(padded));
+    return typeof payload.exp !== 'number' || payload.exp * 1000 <= Date.now() + thresholdSeconds * 1000;
+  } catch {
+    return true;
+  }
 }
 
 function clearLocalAuthState(notifyListeners = true) {
@@ -119,6 +141,10 @@ export async function startRegistration(email: string, password: string, display
     displayName: displayName.trim() || email.trim().toLowerCase(),
     expiresAt: Date.now() + 15 * 60 * 1000,
   };
+}
+
+export async function getLoyaltyHistory(): Promise<any[]> {
+  return apiRequest<any[]>('/loyalty/history');
 }
 
 export async function resendRegistrationCode(email: string): Promise<PendingRegistration> {

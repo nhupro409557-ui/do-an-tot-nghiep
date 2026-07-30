@@ -16,6 +16,14 @@ from app.infrastructure.database.session import get_session
 router = APIRouter(prefix="/me", tags=["Tài khoản khách hàng"])
 
 
+@router.get("/after-sales/purchased-items")
+async def list_my_after_sales_purchased_items(
+    user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await service.get_purchased_items(session, user_id=user_id)
+
+
 @router.get("/returns")
 async def list_my_returns(
     status_value: str | None = Query(default=None, alias="status"),
@@ -133,7 +141,6 @@ async def my_vouchers(
     session: AsyncSession = Depends(get_session),
 ) -> list:
     result = await VoucherService(session=session).list_user_vouchers(user_id=user_id)
-    await session.commit()
     return result
 
 

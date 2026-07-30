@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks, HTTPException, status
@@ -208,6 +208,16 @@ async def get_admin_customer_loyalty_history(session: AsyncSession, user_id: UUI
     await ensure_customer_account(session, user_id)
     return await customer_repo.list_customer_loyalty_history(session, user_id)
 
+
+async def get_admin_customer_loyalty_history_page(session: AsyncSession, user_id: UUID, page: int, limit: int) -> dict:
+    await ensure_customer_account(session, user_id)
+    return await customer_repo.list_customer_loyalty_history_page(session, user_id, page, limit)
+
+
+async def get_admin_customer_loyalty_allocations(session: AsyncSession, user_id: UUID, transaction_id: UUID) -> list[dict]:
+    await ensure_customer_account(session, user_id)
+    return await customer_repo.get_customer_loyalty_allocations(session, user_id, transaction_id)
+
 async def get_admin_customer_notes(session: AsyncSession, user_id: UUID) -> list[dict]:
     await ensure_customer_account(session, user_id)
     return await customer_repo.list_customer_notes(session, user_id)
@@ -248,19 +258,17 @@ async def update_admin_customer_profile(
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản khách hàng.")
     full_name = payload.fullName.strip()
     phone = payload.phone.strip() if payload.phone else None
-    tier = payload.tier.strip().upper()
     await customer_repo.update_customer_profile(
         session,
         user_id=user_id,
         full_name=full_name,
         phone=phone,
-        tier=tier,
         wallet_status=payload.walletStatus,
     )
     after = {
         "fullName": full_name,
         "phone": phone,
-        "tier": tier,
+        "tier": before.get("tier") or "MEMBER",
         "walletStatus": payload.walletStatus,
     }
     await audit_admin_event(
@@ -336,7 +344,9 @@ async def create_admin_customer_loyalty_adjustment(
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     if user["loyalty_wallet_status"] != "ACTIVE":
         raise HTTPException(status_code=409, detail="Ví điểm thưởng không ở trạng thái hoạt động.")
-    balance_before = int(user["loyalty_points_balance"] or 0)
+    from app.application.services.loyalty_maintenance_service import expire_user_points
+    synced_balance = await expire_user_points(session, user_id=user_id)
+    balance_before = int(synced_balance if synced_balance is not None else (user["loyalty_points_balance"] or 0))
     balance_after = balance_before + payload.delta
     if balance_after < 0:
         raise HTTPException(status_code=400, detail="Không đủ điểm thưởng để thực hiện điều chỉnh này.")
@@ -372,12 +382,85 @@ async def issue_admin_customer_voucher(
     payload: CustomerVoucherIssuePayload,
     current_user_id: UUID,
 ) -> dict:
+    import json
     await ensure_customer_account(session, user_id)
-    if not await customer_repo.get_user_for_update(session, user_id):
+    customer = await customer_repo.get_admin_customer_summary(session, user_id)
+    if not customer:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     voucher = await customer_repo.get_active_voucher_for_update(session, payload.voucherId)
     if not voucher:
         raise HTTPException(status_code=404, detail="Không tìm thấy voucher hoặc voucher không còn hoạt động.")
+
+    now = datetime.now(timezone.utc)
+
+    # 1. Date active checks
+    starts_at = voucher.get("starts_at")
+    ends_at = voucher.get("ends_at")
+    if starts_at:
+        starts_at_utc = starts_at if starts_at.tzinfo is not None else starts_at.replace(tzinfo=timezone.utc)
+        if starts_at_utc > now:
+            raise HTTPException(status_code=400, detail="Voucher chưa đến thời gian bắt đầu sử dụng.")
+    if ends_at:
+        ends_at_utc = ends_at if ends_at.tzinfo is not None else ends_at.replace(tzinfo=timezone.utc)
+        if ends_at_utc < now:
+            raise HTTPException(status_code=400, detail="Voucher đã hết hạn sử dụng.")
+
+    # 2. Usage limits
+    usage_limit = voucher.get("usage_limit") or 0
+    used_count = voucher.get("used_count") or 0
+    if usage_limit > 0 and used_count >= usage_limit:
+        raise HTTPException(status_code=400, detail="Voucher đã đạt giới hạn tổng số lượt sử dụng.")
+
+    # 3. Budget cap
+    total_budget_cap = voucher.get("total_budget_cap")
+    total_discount_used = voucher.get("total_discount_used") or 0
+    if total_budget_cap is not None and total_discount_used >= total_budget_cap:
+        raise HTTPException(status_code=400, detail="Ngân sách của chiến dịch voucher đã hết.")
+
+    # 4. Audience policy
+    audience_type = voucher.get("audience_type")
+    if audience_type == "MEMBER_TIER":
+        eligible_tiers = voucher.get("eligible_tiers") or []
+        if isinstance(eligible_tiers, str):
+            try:
+                eligible_tiers = json.loads(eligible_tiers)
+            except Exception:
+                pass
+        cust_tier = customer.get("tier")
+        if eligible_tiers and cust_tier not in eligible_tiers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tài khoản thuộc hạng '{cust_tier}' không đủ điều kiện nhận voucher này (Hạng áp dụng: {', '.join(eligible_tiers)})."
+            )
+    elif audience_type == "SPECIFIC_USER":
+        from app.infrastructure.database.repositories import commerce_repo
+        has_assignment = await commerce_repo.has_user_voucher_assignment(session, user_id=user_id, voucher_id=payload.voucherId)
+        if not has_assignment and voucher.get("assigned_user_id") != user_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Tài khoản này không nằm trong danh sách khách hàng được cấp riêng voucher này."
+            )
+    elif audience_type == "NEW_CUSTOMER" or voucher.get("first_order_only"):
+        order_count = customer.get("orderCount") or 0
+        if order_count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Voucher chỉ áp dụng cho tài khoản mới chưa có đơn hàng nào."
+            )
+
+    # 5. Eligible registration date
+    eligible_reg = voucher.get("eligible_user_registered_after")
+    if eligible_reg:
+        created_at = customer.get("createdAt")
+        if created_at:
+            eligible_reg_utc = eligible_reg if eligible_reg.tzinfo is not None else eligible_reg.replace(tzinfo=timezone.utc)
+            created_at_utc = created_at if created_at.tzinfo is not None else created_at.replace(tzinfo=timezone.utc)
+            if created_at_utc < eligible_reg_utc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Voucher chỉ dành cho tài khoản đăng ký sau {eligible_reg_utc.strftime('%d/%m/%Y %H:%M:%S')}."
+                )
+
     expires_at = voucher["ends_at"] or (
         datetime.now(timezone.utc) + timedelta(days=int(voucher["validity_days_after_claim"] or 0))
         if int(voucher["validity_days_after_claim"] or 0) > 0
@@ -401,7 +484,6 @@ async def issue_admin_customer_voucher(
     )
     await session.commit()
     return {"ok": True, **dict(claimed)}
-
 
 async def create_staff_account(
     session: AsyncSession,
@@ -469,7 +551,11 @@ async def get_user_extra_permissions(session: AsyncSession, user_id: UUID, curre
         raise HTTPException(status_code=403, detail="Bạn không thể xem hoặc điều chỉnh quyền của chính mình.")
     if not await customer_repo.user_exists(session, user_id):
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
-    return {"userId": str(user_id), "permissionCodes": await list_user_extra_permissions(session, user_id)}
+    return {
+        "userId": str(user_id),
+        "permissionCodes": await list_user_extra_permissions(session, user_id),
+        "deniedPermissionCodes": await customer_repo.list_user_denied_permissions(session, user_id),
+    }
 
 
 async def update_user_extra_permissions(
@@ -486,8 +572,17 @@ async def update_user_extra_permissions(
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     if role != "STAFF_ADMIN":
         raise HTTPException(status_code=400, detail="Chỉ tài khoản Staff Admin mới có thể nhận quyền bổ sung.")
+    permission_codes = sorted(set(payload.permissionCodes))
+    denied_codes = sorted(set(payload.deniedPermissionCodes))
+    requested_codes = sorted(set(permission_codes + denied_codes))
+    known_codes = await customer_repo.list_known_permission_codes(session, requested_codes or ["__none__"])
+    if set(known_codes) != set(requested_codes):
+        raise HTTPException(status_code=400, detail="Một hoặc nhiều quyền không hợp lệ.")
+    permission_codes = [code for code in permission_codes if code not in set(denied_codes)]
     before = await list_user_extra_permissions(session, user_id)
-    after = await set_user_extra_permissions(session, user_id, payload.permissionCodes)
+    denied_before = await customer_repo.list_user_denied_permissions(session, user_id)
+    after = await set_user_extra_permissions(session, user_id, permission_codes)
+    await customer_repo.replace_user_denied_permissions(session, user_id, denied_codes)
     await revoke_users(session, [user_id], "user_permissions_changed")
     await clear_permission_cache(redis, [user_id])
     await audit_admin_event(
@@ -496,10 +591,10 @@ async def update_user_extra_permissions(
         event_type="admin_user_permissions_updated",
         resource="user_permissions",
         target_user_id=user_id,
-        metadata={"before": before, "after": after, "role": role},
+        metadata={"before": before, "after": after, "deniedBefore": denied_before, "deniedAfter": denied_codes, "role": role},
     )
     await session.commit()
-    return {"ok": True, "permissionCodes": after}
+    return {"ok": True, "permissionCodes": after, "deniedPermissionCodes": denied_codes}
 
 
 async def update_user_role(

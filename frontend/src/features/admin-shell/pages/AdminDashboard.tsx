@@ -105,6 +105,9 @@ export default function AdminDashboard() {
             activeSection={admin.customerActiveSection}
             orders={admin.customerOrders}
             loyaltyHistory={admin.customerLoyaltyHistory}
+            loyaltyPage={admin.customerLoyaltyPage}
+            loyaltyTotal={admin.customerLoyaltyTotal}
+            onLoyaltyPageChange={(page) => void admin.loadCustomerLoyaltyPage(page)}
             notes={admin.customerNotes}
             auditLogs={admin.customerAuditLogs}
             profileDraft={admin.customerProfileDraft}

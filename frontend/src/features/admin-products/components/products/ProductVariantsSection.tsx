@@ -19,6 +19,19 @@ interface ProductVariantsSectionProps {
   readOnly?: boolean;
 }
 
+function specOptionValue(option: string, unit?: string) {
+  const trimmedOption = String(option || '').trim();
+  const trimmedUnit = String(unit || '').trim();
+  if (!trimmedOption || !trimmedUnit) return trimmedOption;
+  const normalizedOption = trimmedOption.toLowerCase();
+  const normalizedUnit = trimmedUnit.toLowerCase();
+  if (normalizedOption.endsWith(normalizedUnit.replace(/\s+/g, ''))) return trimmedOption;
+  const unitParts = normalizedUnit.split('/').map((part) => part.trim()).filter(Boolean);
+  if (unitParts.some((part) => normalizedOption.includes(part))) return trimmedOption;
+  if (/[a-wyz]/i.test(trimmedOption) && /[a-z]/i.test(trimmedUnit)) return trimmedOption;
+  return `${trimmedOption} ${trimmedUnit}`;
+}
+
 export default function ProductVariantsSection(props: ProductVariantsSectionProps) {
   const {
     productForm,
@@ -95,8 +108,8 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
               Bảng biến thể (Flat Variants)
             </div>
             <p className="mt-1 text-xs font-medium text-slate-500">
-              Mỗi tổ hợp thuộc tính là một dòng độc lập chứa SKU, giá, tồn kho và
-              ảnh đại diện riêng.
+              Mỗi tổ hợp thuộc tính là một dòng độc lập chứa SKU, giá và ảnh đại
+              diện riêng.
             </p>
           </div>
           <div className={`${readOnly ? 'hidden ' : ''}flex flex-wrap items-center gap-2`}>
@@ -140,26 +153,7 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
             >
               Áp dụng giá bán
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                const stock = window.prompt(
-                  'Nhập tồn kho chung áp dụng cho tất cả biến thể:'
-                );
-                if (stock !== null && !isNaN(Number(stock))) {
-                  setProductForm({
-                    ...productForm,
-                    variants: productForm.variants.map((v: any) => ({
-                      ...v,
-                      stockQuantity: Math.max(0, Number(stock)),
-                    })),
-                  });
-                }
-              }}
-              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
-            >
-              Áp dụng tồn kho
-            </button>
+
           </div>
         </div>
 
@@ -171,7 +165,6 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
                 <th className="px-4 py-3">SKU</th>
                 <th className="px-4 py-3">Giá gốc (VND)</th>
                 <th className="px-4 py-3">Giá bán (VND)</th>
-                <th className="px-4 py-3">Tồn kho</th>
                 <th className="px-4 py-3 text-center">Mặc định</th>
                 <th className="px-4 py-3 text-center">Bật bán</th>
                 <th className="px-4 py-3">Thao tác</th>
@@ -224,23 +217,67 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
                           className="w-full rounded border border-slate-200 px-2 py-1 outline-none focus:border-red-500"
                           placeholder="Màu sắc"
                         />
-                        {activeVariantFields.map((field: any) => (
-                          <input
-                            key={field.key}
-                            type="text"
-                            value={variant.specs?.[field.key] || ''}
-                            onChange={(e) =>
-                              patchVariant(index, {
-                                specs: {
-                                  ...(variant.specs || {}),
-                                  [field.key]: e.target.value,
-                                },
-                              })
-                            }
-                            className="w-full rounded border border-slate-200 px-2 py-1 outline-none focus:border-red-500"
-                            placeholder={field.label || field.key}
-                          />
-                        ))}
+                        {activeVariantFields.map((field: any) => {
+                          const optionsList = field.options
+                            ? field.options.split(',').map((x: string) => x.trim()).filter(Boolean)
+                            : [];
+                          const datalistId = `suggestions-${field.key}-${index}`;
+                          return (
+                            <div key={field.key} className="w-full">
+                              <input
+                                type={field.type === 'number' && !field.unit ? 'number' : 'text'}
+                                list={optionsList.length > 0 ? datalistId : undefined}
+                                value={variant.specs?.[field.key] || ''}
+                                onChange={(e) =>
+                                  patchVariant(index, {
+                                    specs: {
+                                      ...(variant.specs || {}),
+                                      [field.key]: e.target.value,
+                                    },
+                                  })
+                                }
+                                className="w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-red-500"
+                                placeholder={`${field.label || field.key}${field.unit ? ` (${field.unit})` : ''}`}
+                              />
+                              {optionsList.length > 0 && (
+                                <datalist id={datalistId}>
+                                  {optionsList.map((opt: string) => (
+                                    <option key={opt} value={specOptionValue(opt, field.unit)} />
+                                  ))}
+                                </datalist>
+                              )}
+                              {optionsList.length > 0 && (
+                                <div className={`${readOnly ? 'hidden ' : ''}mt-1 flex flex-wrap gap-1`}>
+                                  {optionsList.map((opt: string) => {
+                                    const value = specOptionValue(opt, field.unit);
+                                    const selected = String(variant.specs?.[field.key] || '') === value;
+                                    return (
+                                      <button
+                                        key={opt}
+                                        type="button"
+                                        onClick={() =>
+                                          patchVariant(index, {
+                                            specs: {
+                                              ...(variant.specs || {}),
+                                              [field.key]: value,
+                                            },
+                                          })
+                                        }
+                                        className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold transition ${
+                                          selected
+                                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                                            : 'border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                        }`}
+                                      >
+                                        {value}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                       <div className="mt-1 flex items-center gap-2">
                         {variant.imageUrl ? (
@@ -385,18 +422,6 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
                           })
                         }
                         className="w-24 rounded border border-slate-200 px-2 py-1 outline-none focus:border-red-500"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="number"
-                        value={variant.stockQuantity || 0}
-                        onChange={(e) =>
-                          patchVariant(index, {
-                            stockQuantity: Number(e.target.value),
-                          })
-                        }
-                        className="w-16 rounded border border-slate-200 px-2 py-1 outline-none focus:border-red-500"
                       />
                     </td>
                     <td className="px-4 py-3 text-center">

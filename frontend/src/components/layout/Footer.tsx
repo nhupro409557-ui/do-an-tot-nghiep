@@ -46,13 +46,27 @@ const footerGroups = [
 
 const paymentMethods = ['COD', 'VNPAY', 'MOMO', 'Visa', 'Mastercard'];
 
+let cachedStoreInfo: StoreInfo | null = null;
+
 export function Footer() {
-  const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
+  const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(cachedStoreInfo);
+  const [storeInfoLoading, setStoreInfoLoading] = useState(!cachedStoreInfo);
 
   useEffect(() => {
+    if (cachedStoreInfo) return;
+    let isActive = true;
     storeInfoApi.getStoreInfo()
-      .then(setStoreInfo)
-      .catch(console.error);
+      .then((value) => {
+        cachedStoreInfo = value;
+        if (isActive) setStoreInfo(value);
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (isActive) setStoreInfoLoading(false);
+      });
+    return () => {
+      isActive = false;
+    };
   }, []);
 
   const storeName = storeInfo?.name || 'ElectroMart Vietnam';
@@ -67,10 +81,18 @@ export function Footer() {
               <img src={emvLogo} alt={storeName} className="h-12 w-[110px] object-contain brightness-0 invert" />
             </Link>
             <p className="mt-5 text-sm leading-relaxed text-slate-500">
-              {storeInfo?.description || 'Hệ thống bán lẻ điện thoại, laptop và phụ kiện chính hãng. Mang đến trải nghiệm mua sắm thông minh với hệ thống tích điểm và ưu đãi cá nhân hóa.'}
+              {storeInfoLoading
+                ? <span className="block h-16 animate-pulse rounded-lg bg-slate-100" aria-label="Đang tải thông tin cửa hàng" />
+                : storeInfo?.description || 'Hệ thống bán lẻ điện thoại, laptop và phụ kiện chính hãng. Mang đến trải nghiệm mua sắm thông minh với hệ thống tích điểm và ưu đãi cá nhân hóa.'}
             </p>
 
-            <div className="mt-6 flex flex-col gap-4 text-sm">
+            {storeInfoLoading ? (
+              <div className="mt-6 flex animate-pulse flex-col gap-4" aria-label="Đang tải thông tin liên hệ">
+                <div className="h-10 w-52 rounded-full bg-slate-100" />
+                <div className="h-10 w-64 rounded-full bg-slate-100" />
+                <div className="h-12 w-full rounded-lg bg-slate-100" />
+              </div>
+            ) : <div className="mt-6 flex flex-col gap-4 text-sm">
               <a href={`tel:${hotlineClean}`} className="group flex items-center gap-3 font-bold text-slate-700 transition hover:text-[#d70018]">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-[#d70018] transition-colors group-hover:bg-[#d70018] group-hover:text-white">
                   <Phone className="h-4 w-4" />
@@ -89,7 +111,7 @@ export function Footer() {
                 </div>
                 <span className="mt-2 leading-relaxed">{storeInfo?.address || 'Hệ thống mô phỏng, hỗ trợ vận hành bán lẻ điện tử.'}</span>
               </div>
-            </div>
+            </div>}
           </div>
 
           <div className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-4 lg:pt-2">

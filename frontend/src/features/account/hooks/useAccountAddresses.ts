@@ -37,7 +37,7 @@ export function useAccountAddresses({ userId, addresses }: UseAccountAddressesPa
       return;
     }
     if (!addressData || !addressData.provinceId || !addressData.wardId || !addressData.street?.trim()) {
-      alert('Vui lòng chọn đầy đủ tỉnh/thành phố, quận/huyện, phường/xã và nhập địa chỉ cụ thể.');
+      alert('Vui lòng chọn đầy đủ tỉnh/thành phố, phường/xã và nhập địa chỉ cụ thể.');
       return;
     }
 

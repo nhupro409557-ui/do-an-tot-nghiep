@@ -315,6 +315,7 @@ async def list_admin_image_comments(session: AsyncSession) -> list[dict]:
                 pic.id::text,
                 pic.product_id::text AS "productId",
                 p.name AS "productName",
+                p.sku AS "productSku",
                 pic.image_url AS "imageUrl",
                 pic.user_name AS "userName",
                 CASE WHEN pic.is_retracted THEN 'Bình luận này đã bị thu hồi' ELSE pic.body END AS content,

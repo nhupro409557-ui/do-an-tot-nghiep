@@ -12,6 +12,7 @@ class FlashSalePayload(BaseModel):
     startsAt: datetime | None = None
     endsAt: datetime | None = None
     quantityLimit: int | None = Field(default=None, ge=1)
+    perUserLimit: int | None = Field(default=None, ge=1)
     status: str = Field(default="ACTIVE")
 
     @model_validator(mode="after")

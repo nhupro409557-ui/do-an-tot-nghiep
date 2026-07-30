@@ -54,32 +54,32 @@ async def suggest_admin_products(
     )
 
 
-@router.get("/attached-services", dependencies=[Depends(require_permission("product:read"))])
+@router.get("/attached-services", dependencies=[Depends(require_permission("service:read"))])
 async def list_attached_services(session: AsyncSession = Depends(get_session)) -> list[dict]:
     return await attached_service.list_attached_services(session)
 
 
-@router.post("/attached-services", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("product:create"))])
+@router.post("/attached-services", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_permission("service:create"))])
 async def create_attached_service(payload: AttachedServicePayload, session: AsyncSession = Depends(get_session)) -> dict:
     return await attached_service.create_attached_service(session, payload)
 
 
-@router.patch("/attached-services/{service_id}", dependencies=[Depends(require_permission("product:update"))])
+@router.patch("/attached-services/{service_id}", dependencies=[Depends(require_permission("service:update"))])
 async def update_attached_service(service_id: UUID, payload: AttachedServicePayload, session: AsyncSession = Depends(get_session)) -> dict:
     return await attached_service.update_attached_service(session, service_id, payload)
 
 
-@router.delete("/attached-services/{service_id}", dependencies=[Depends(require_permission("product:update"))])
+@router.delete("/attached-services/{service_id}", dependencies=[Depends(require_permission("service:delete"))])
 async def delete_attached_service(service_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
     return await attached_service.delete_attached_service(session, service_id)
 
 
-@router.patch("/attached-services/{service_id}/deactivate", dependencies=[Depends(require_permission("product:update"))])
+@router.patch("/attached-services/{service_id}/deactivate", dependencies=[Depends(require_permission("service:update"))])
 async def deactivate_attached_service(service_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
     return await attached_service.deactivate_attached_service(session, service_id)
 
 
-@router.patch("/attached-services/{service_id}/reactivate", dependencies=[Depends(require_permission("product:update"))])
+@router.patch("/attached-services/{service_id}/reactivate", dependencies=[Depends(require_permission("service:update"))])
 async def reactivate_attached_service(service_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
     return await attached_service.reactivate_attached_service(session, service_id)
 

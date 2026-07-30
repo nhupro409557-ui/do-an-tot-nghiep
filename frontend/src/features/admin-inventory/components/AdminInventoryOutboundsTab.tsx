@@ -43,6 +43,9 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
 
   // Auxiliary state
   const [scannedInputs, setScannedInputs] = useState<Record<string, string>>({});
+  const [identifierCatalog, setIdentifierCatalog] = useState<Record<string, { imeis: any[]; serialNumbers: any[]; identifierPairs: any[] }>>({});
+  const [openSerialPicker, setOpenSerialPicker] = useState<string | null>(null);
+  const [loadingSerialPicker, setLoadingSerialPicker] = useState<string | null>(null);
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [cancelReasonInput, setCancelReasonInput] = useState('');
 
@@ -56,11 +59,21 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
     void fetchOutbounds();
   }, []);
 
-  const fetchOutbounds = async () => {
+  const fetchOutbounds = async (filters?: {
+    search?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+  }) => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const data = await adminInventoryApi.adminGetOutbounds(searchQuery, statusFilter, dateFrom, dateTo);
+      const data = await adminInventoryApi.adminGetOutbounds(
+        filters?.search ?? searchQuery,
+        filters?.status ?? statusFilter,
+        filters?.from ?? dateFrom,
+        filters?.to ?? dateTo,
+      );
       setOutbounds(Array.isArray(data) ? data : []);
     } catch (err: any) {
       console.error('Lỗi khi tải danh sách phiếu xuất:', err);
@@ -80,9 +93,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
     setStatusFilter('');
     setDateFrom('');
     setDateTo('');
-    setTimeout(() => {
-      void fetchOutbounds();
-    }, 50);
+    void fetchOutbounds({ search: '', status: '', from: '', to: '' });
   };
 
   const loadDetail = async (documentNo: string) => {
@@ -110,8 +121,30 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
             initialInputs[`${line.id}_${idx}_serial`] = '';
           });
 
-          return { ...line, allocations };
+          const shelfAllocations = allocations.map((allocation: any) => (
+            String(allocation.locationCode || '').toUpperCase() === 'MAIN'
+              ? { ...allocation, locationId: '', locationCode: '', locationName: '', imeis: [], secondaryImeis: [], serialNumbers: [] }
+              : allocation
+          ));
+
+          return { ...line, allocations: shelfAllocations };
         });
+
+        const catalogEntries = await Promise.all(data.lines
+          .filter((line: any) => line.tracksImei || line.tracksSerialNumber)
+          .map(async (line: any) => {
+            try {
+              const catalog = await adminInventoryApi.adminListIdentifiers(line.productId, line.variantId || null);
+              return [line.id, {
+                imeis: Array.isArray(catalog?.imeis) ? catalog.imeis : [],
+                serialNumbers: Array.isArray(catalog?.serialNumbers) ? catalog.serialNumbers : [],
+                identifierPairs: Array.isArray(catalog?.identifierPairs) ? catalog.identifierPairs : [],
+              }] as const;
+            } catch {
+              return [line.id, { imeis: [], serialNumbers: [], identifierPairs: [] }] as const;
+            }
+          }));
+        setIdentifierCatalog(Object.fromEntries(catalogEntries));
       }
 
       setSelectedOutbound(data);
@@ -177,10 +210,10 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
     setSelectedOutbound({ ...selectedOutbound, lines: updatedLines });
   };
 
-  const handleAddAllocIdentifier = async (lineId: string, allocIndex: number, type: 'imei' | 'serial') => {
+  const handleAddAllocIdentifier = async (lineId: string, allocIndex: number, type: 'imei' | 'serial', selectedValue?: string) => {
     if (!selectedOutbound) return;
     const inputKey = `${lineId}_${allocIndex}_${type}`;
-    const rawVal = scannedInputs[inputKey] || '';
+    const rawVal = selectedValue ?? scannedInputs[inputKey] ?? '';
     const cleanVal = rawVal.trim();
     if (!cleanVal) return;
 
@@ -268,6 +301,7 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
       [`${lineId}_${allocIndex}_serial`]: '',
     }));
     setErrorMsg(null);
+    setOpenSerialPicker(null);
   };
 
   const handleRemoveAllocIdentifier = (lineId: string, allocIndex: number, type: 'imei' | 'serial', itemIndex: number) => {
@@ -295,6 +329,51 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
       return line;
     });
     setSelectedOutbound({ ...selectedOutbound, lines: updatedLines });
+  };
+
+  const handleRemoveAllocDevice = (lineId: string, allocIndex: number, itemIndex: number) => {
+    if (!selectedOutbound) return;
+    const updatedLines = selectedOutbound.lines.map((line: any) => {
+      if (line.id !== lineId) return line;
+      const allocations = [...line.allocations];
+      const allocation = allocations[allocIndex];
+      const imeis = [...(allocation.imeis || [])];
+      const secondaryImeis = [...(allocation.secondaryImeis || [])];
+      const serialNumbers = [...(allocation.serialNumbers || [])];
+      imeis.splice(itemIndex, 1);
+      secondaryImeis.splice(itemIndex, 1);
+      serialNumbers.splice(itemIndex, 1);
+      allocations[allocIndex] = { ...allocation, imeis, secondaryImeis, serialNumbers };
+      return { ...line, allocations };
+    });
+    setSelectedOutbound({ ...selectedOutbound, lines: updatedLines });
+  };
+
+  const handleToggleDevicePicker = async (line: any, allocationIndex: number) => {
+    const pickerKey = `${line.id}_${allocationIndex}_serial_picker`;
+    if (openSerialPicker === pickerKey) {
+      setOpenSerialPicker(null);
+      return;
+    }
+    setOpenSerialPicker(pickerKey);
+    setLoadingSerialPicker(pickerKey);
+    setErrorMsg(null);
+    try {
+      const catalog = await adminInventoryApi.adminListIdentifiers(line.productId, line.variantId || null);
+      setIdentifierCatalog((current) => ({
+        ...current,
+        [line.id]: {
+          imeis: Array.isArray(catalog?.imeis) ? catalog.imeis : [],
+          serialNumbers: Array.isArray(catalog?.serialNumbers) ? catalog.serialNumbers : [],
+          identifierPairs: Array.isArray(catalog?.identifierPairs) ? catalog.identifierPairs : [],
+        },
+      }));
+    } catch (error: any) {
+      setOpenSerialPicker(null);
+      setErrorMsg(error?.message || 'Không thể tải danh sách máy tại kệ. Vui lòng thử lại.');
+    } finally {
+      setLoadingSerialPicker(null);
+    }
   };
 
   const buildOutboundPayload = () => {
@@ -473,7 +552,8 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
   };
 
   const getLineAvailableLocations = (line: any, alloc: any) => {
-    const candidates = Array.isArray(line.availableLocations) ? line.availableLocations : [];
+    const candidates = (Array.isArray(line.availableLocations) ? line.availableLocations : [])
+      .filter((location: any) => String(location.locationCode || '').toUpperCase() !== 'MAIN');
     if (!alloc?.locationId || candidates.some((loc: any) => loc.locationId === alloc.locationId)) {
       return candidates;
     }
@@ -684,7 +764,24 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                         {allocations.map((alloc: any, allocIdx: number) => {
                           const imeiInputKey = `${line.id}_${allocIdx}_imei`;
                           const serialInputKey = `${line.id}_${allocIdx}_serial`;
+                          const serialPickerKey = `${line.id}_${allocIdx}_serial_picker`;
                           const availableLocations = getLineAvailableLocations(line, alloc);
+                          const availableSerials = (identifierCatalog[line.id]?.serialNumbers || []).filter((item: any) => (
+                            item.status === 'IN_STOCK'
+                            && String(item.locationId || '') === String(alloc.locationId || '')
+                            && !(alloc.serialNumbers || []).includes(item.value)
+                          ));
+                          const serialQuery = String(scannedInputs[serialInputKey] || '').trim().toLowerCase();
+                          const availableDevices = (identifierCatalog[line.id]?.identifierPairs || []).filter((item: any) => (
+                            String(item.locationId || '') === String(alloc.locationId || '')
+                            && !(alloc.serialNumbers || []).includes(item.serialNumber)
+                          ));
+                          const visibleSerials = (line.tracksImei && line.tracksSerialNumber ? availableDevices : availableSerials)
+                            .filter((item: any) => !serialQuery || String(item.value || '').toLowerCase().includes(serialQuery))
+                            .slice(0, 10);
+                          const visibleDevices = availableDevices
+                            .filter((item: any) => !serialQuery || String(item.serialNumber || '').toLowerCase().includes(serialQuery))
+                            .slice(0, 10);
 
                           return (
                             <div key={allocIdx} className="rounded-md border border-slate-100 bg-slate-50/30 p-3 space-y-2">
@@ -697,7 +794,12 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                                   ) : (
                                     <select
                                       value={alloc.locationId || ''}
-                                      onChange={(e) => updateOutboundAllocation(line.id, allocIdx, { locationId: e.target.value })}
+                                      onChange={(e) => updateOutboundAllocation(line.id, allocIdx, {
+                                        locationId: e.target.value,
+                                        imeis: [],
+                                        secondaryImeis: [],
+                                        serialNumbers: [],
+                                      })}
                                       className="w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs outline-none transition focus:border-blue-500 bg-white"
                                     >
                                       <option value="">-- Chọn kệ đang có sản phẩm --</option>
@@ -741,13 +843,25 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                               {hasIdentifier && (
                                 <div className="space-y-2 pt-1 border-t border-dashed border-slate-100">
                                   {!isCompleted && (
+                                    <>
+                                    {line.tracksImei && line.tracksSerialNumber && (
+                                      <button
+                                        type="button"
+                                        disabled={!alloc.locationId}
+                                        onClick={() => void handleToggleDevicePicker(line, allocIdx)}
+                                        className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                      >
+                                        <Search className="h-4 w-4" /> Tìm máy theo IMEI hoặc Serial
+                                      </button>
+                                    )}
                                     <div className="flex flex-wrap gap-2">
                                       {line.tracksImei && (
                                         <div className="flex-1 min-w-[150px] flex gap-1">
                                           <input
                                             type="text"
-                                            placeholder="Quét/Nhập IMEI..."
+                                            placeholder={line.tracksSerialNumber ? 'Nhập IMEI → tự điền Serial' : 'Quét/Nhập IMEI...'}
                                             value={scannedInputs[imeiInputKey] || ''}
+                                            disabled={line.tracksSerialNumber && !alloc.locationId}
                                             onChange={(e) => setScannedInputs(prev => ({ ...prev, [imeiInputKey]: e.target.value }))}
                                             onKeyDown={(e) => {
                                               if (e.key === 'Enter') {
@@ -755,12 +869,14 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                                                 handleAddAllocIdentifier(line.id, allocIdx, 'imei');
                                               }
                                             }}
-                                            className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-500 bg-white"
+                                            className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-500 bg-white disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                                           />
                                           <button
                                             type="button"
                                             onClick={() => handleAddAllocIdentifier(line.id, allocIdx, 'imei')}
-                                            className="inline-flex items-center justify-center rounded-md bg-blue-50 px-2 text-blue-700 hover:bg-blue-100"
+                                            disabled={line.tracksSerialNumber && !alloc.locationId}
+                                            aria-label="Tìm máy theo IMEI"
+                                            className="inline-flex items-center justify-center rounded-md bg-blue-50 px-2 text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-40"
                                           >
                                             <Plus className="h-3 w-3" />
                                           </button>
@@ -768,35 +884,101 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                                       )}
 
                                       {line.tracksSerialNumber && (
-                                        <div className="flex-1 min-w-[150px] flex gap-1">
-                                          <input
-                                            type="text"
-                                            placeholder="Quét/Nhập Serial..."
-                                            value={scannedInputs[serialInputKey] || ''}
-                                            onChange={(e) => setScannedInputs(prev => ({ ...prev, [serialInputKey]: e.target.value }))}
-                                            onKeyDown={(e) => {
-                                              if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                handleAddAllocIdentifier(line.id, allocIdx, 'serial');
-                                              }
-                                            }}
-                                            className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-purple-500 bg-white"
-                                          />
+                                        <div className="relative flex-1 min-w-[220px] flex gap-1">
+                                          <div className="relative flex-1">
+                                            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                                            <input
+                                              type="search"
+                                              placeholder={alloc.locationId ? 'Nhập Serial để tìm máy...' : 'Chọn kệ trước'}
+                                              value={scannedInputs[serialInputKey] || ''}
+                                              disabled={!alloc.locationId}
+                                              onFocus={() => setOpenSerialPicker(serialPickerKey)}
+                                              onChange={(e) => {
+                                                setScannedInputs(prev => ({ ...prev, [serialInputKey]: e.target.value }));
+                                                setOpenSerialPicker(serialPickerKey);
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  e.preventDefault();
+                                                  const singleResult = line.tracksImei ? visibleDevices[0]?.serialNumber : visibleSerials[0]?.value;
+                                                  if ((line.tracksImei ? visibleDevices : visibleSerials).length === 1 && singleResult) {
+                                                    void handleAddAllocIdentifier(line.id, allocIdx, 'serial', singleResult);
+                                                  }
+                                                }
+                                                if (e.key === 'Escape') setOpenSerialPicker(null);
+                                              }}
+                                              className="h-9 w-full rounded-md border border-slate-200 bg-white py-1 pl-8 pr-2 text-xs outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                                            />
+                                            {openSerialPicker === serialPickerKey && alloc.locationId && (
+                                              <div className="mt-1 max-h-60 overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-sm">
+                                                <div className="px-2 py-1.5 text-[11px] font-bold text-slate-500">
+                                                  Chọn máy theo serial tại {availableLocations.find((location: any) => String(location.locationId) === String(alloc.locationId))?.locationCode || 'kệ hiện tại'}
+                                                </div>
+                                                {loadingSerialPicker === serialPickerKey ? (
+                                                  <div className="px-3 py-4 text-center text-xs font-semibold text-slate-500">Đang tải danh sách máy...</div>
+                                                ) : (line.tracksImei ? visibleDevices : visibleSerials).length > 0 ? (line.tracksImei ? visibleDevices : visibleSerials).map((item: any) => (
+                                                  <button
+                                                    key={item.id || item.value}
+                                                    type="button"
+                                                    onMouseDown={(event) => event.preventDefault()}
+                                                    onClick={() => void handleAddAllocIdentifier(line.id, allocIdx, 'serial', line.tracksImei ? item.serialNumber : item.value)}
+                                                    className="flex min-h-10 w-full cursor-pointer items-center justify-between rounded px-2 py-2 text-left text-xs transition hover:bg-purple-50 focus:bg-purple-50 focus:outline-none"
+                                                  >
+                                                    <span>
+                                                      <span className="block font-mono font-bold text-slate-800">{line.tracksImei ? item.serialNumber : item.value}</span>
+                                                      {line.tracksImei && <span className="mt-0.5 block font-mono text-[10px] text-slate-500">IMEI: {item.imei1}{item.imei2 ? ` · IMEI 2: ${item.imei2}` : ''}</span>}
+                                                    </span>
+                                                    <span className="ml-3 text-[10px] text-slate-500">{item.locationCode}</span>
+                                                  </button>
+                                                )) : (
+                                                  <div className="px-3 py-4 text-center text-xs text-slate-500">
+                                                    {(line.tracksImei ? availableDevices : availableSerials).length === 0 ? 'Kệ này không có máy khả dụng.' : 'Không tìm thấy máy phù hợp.'}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
                                           <button
                                             type="button"
                                             onClick={() => handleAddAllocIdentifier(line.id, allocIdx, 'serial')}
-                                            className="inline-flex items-center justify-center rounded-md bg-purple-50 px-2 text-purple-700 hover:bg-purple-100"
+                                            disabled={!alloc.locationId}
+                                            aria-label="Thêm serial đã chọn"
+                                            className="inline-flex h-9 min-w-9 self-start items-center justify-center rounded-md bg-purple-50 px-2 text-purple-700 hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-40"
                                           >
                                             <Plus className="h-3 w-3" />
                                           </button>
                                         </div>
                                       )}
                                     </div>
+                                    </>
+                                  )}
+
+                                  {!isCompleted && line.tracksSerialNumber && alloc.locationId && (
+                                    <div className="text-[11px] text-slate-500">
+                                      Có {line.tracksImei ? availableDevices.length : availableSerials.length} {line.tracksImei ? 'máy' : 'serial'} khả dụng tại kệ này. {line.tracksImei ? 'Nhập IMEI để tự lấy serial, hoặc nhập serial để tự lấy IMEI.' : 'Nhập vài ký tự để tìm và chọn nhanh.'}
+                                    </div>
                                   )}
 
                                   {/* List of scanned identifiers */}
                                   <div className="flex flex-wrap gap-1">
-                                    {(alloc.imeis || []).map((imei: string, i: number) => (
+                                    {line.tracksImei && line.tracksSerialNumber ? (alloc.serialNumbers || []).map((serial: string, i: number) => (
+                                      <span key={`device-${i}`} className="inline-flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-800">
+                                        <span className="font-bold">Máy {i + 1}</span>
+                                        <span>IMEI: {alloc.imeis?.[i] || '-'}</span>
+                                        {alloc.secondaryImeis?.[i] && <span>IMEI 2: {alloc.secondaryImeis[i]}</span>}
+                                        <span>SN: {serial}</span>
+                                        {!isCompleted && (
+                                          <button
+                                            type="button"
+                                            aria-label={`Xóa máy ${i + 1}`}
+                                            onClick={() => handleRemoveAllocDevice(line.id, allocIdx, i)}
+                                            className="inline-flex h-5 w-5 items-center justify-center rounded text-indigo-500 hover:bg-indigo-100 hover:text-indigo-900"
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </button>
+                                        )}
+                                      </span>
+                                    )) : (alloc.imeis || []).map((imei: string, i: number) => (
                                       <span key={`imei-${i}`} className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 border border-blue-100">
                                         IMEI: {imei}
                                         {!isCompleted && (
@@ -810,12 +992,12 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
                                         )}
                                       </span>
                                     ))}
-                                    {(alloc.secondaryImeis || []).map((imei: string, i: number) => (
+                                    {!line.tracksSerialNumber && (alloc.secondaryImeis || []).map((imei: string, i: number) => (
                                       <span key={`imei2-${i}`} className="inline-flex items-center gap-1 rounded bg-cyan-50 px-2 py-0.5 text-[10px] font-semibold text-cyan-700 border border-cyan-100">
                                         IMEI2: {imei}
                                       </span>
                                     ))}
-                                    {(alloc.serialNumbers || []).map((serial: string, i: number) => (
+                                    {!line.tracksImei && (alloc.serialNumbers || []).map((serial: string, i: number) => (
                                       <span key={`serial-${i}`} className="inline-flex items-center gap-1 rounded bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 border border-purple-100">
                                         SN: {serial}
                                         {!isCompleted && (
@@ -836,8 +1018,9 @@ export default function AdminInventoryOutboundsTab(props: AdminInventoryOutbound
 
                                   <div className="text-[10px] text-slate-500 font-semibold">
                                     Đã quét: {
-                                      (line.tracksImei ? (alloc.imeis || []).length : 0) +
-                                      (line.tracksSerialNumber ? (alloc.serialNumbers || []).length : 0)
+                                      line.tracksImei && line.tracksSerialNumber
+                                        ? Math.max((alloc.imeis || []).length, (alloc.serialNumbers || []).length)
+                                        : (line.tracksImei ? (alloc.imeis || []).length : (alloc.serialNumbers || []).length)
                                     } / {alloc.quantity}
                                   </div>
                                 </div>

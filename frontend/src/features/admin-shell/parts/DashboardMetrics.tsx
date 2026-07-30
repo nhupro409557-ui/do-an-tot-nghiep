@@ -206,7 +206,8 @@ export function VoucherConditions({ voucher }: { voucher: any }) {
     Number(voucher.maxDiscount || 0) > 0
       ? `Giảm tối đa ${currency.format(Number(voucher.maxDiscount || 0))}`
       : '',
-    voucher.stackable ? 'Cho cộng dồn' : 'Không cộng dồn',
+    voucher.stackable ? 'Có áp dụng Flash Sale' : 'Không áp dụng Flash Sale',
+    voucher.applyOutsideScope ? 'Có áp dụng ngoài phạm vi' : 'Không áp dụng ngoài phạm vi',
     Number(voucher.validityDaysAfterClaim || 0) > 0
       ? `Hạn sau lưu: ${voucher.validityDaysAfterClaim} ngày`
       : '',

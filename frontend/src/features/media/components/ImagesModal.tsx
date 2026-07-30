@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { Check, Heart, MessageCircle, Send, Share2, X, Play, Pause } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Heart, MessageCircle, MousePointer2, Pause, Rotate3D, Send, Share2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { publicApi } from '../../../services/publicApi';
 import { ImageWithFallback } from '../../../components/ui/ImageWithFallback';
@@ -47,26 +47,26 @@ interface ImagesModalProps {
   playlist: GalleryItem[];
   initialIndex?: number;
   onClose: () => void;
+  onMetricsChange?: (productId: string, metrics: { favoriteCount?: number; viewCount?: number }) => void;
 }
 
 function priceOf(product: any) {
   return Number(product?.discountPrice || product?.price || 0).toLocaleString('vi-VN');
 }
 
-function likeCountOf(item: any, index: number) {
+function likeCountOf(item: any) {
   if (typeof item?.product?.favoriteCount === 'number') return item.product.favoriteCount;
   if (typeof item?.favoriteCount === 'number') return item.favoriteCount;
-  const seed = String(item.id || item.productName || index).split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return Math.floor(12 + (seed % 88));
+  return 0;
 }
 
-export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClose }: ImagesModalProps) {
+export default function ImagesModal({ isOpen, playlist, initialIndex = 0, onClose, onMetricsChange }: ImagesModalProps) {
   if (!isOpen || playlist.length === 0) return null;
   const modalKey = `${initialIndex}-${playlist.map((item) => item.id).join('|')}`;
-  return <ImagesModalContent key={modalKey} playlist={playlist} initialIndex={initialIndex} onClose={onClose} />;
+  return <ImagesModalContent key={modalKey} playlist={playlist} initialIndex={initialIndex} onClose={onClose} onMetricsChange={onMetricsChange} />;
 }
 
-function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<ImagesModalProps, 'isOpen'>) {
+function ImagesModalContent({ playlist, initialIndex = 0, onClose, onMetricsChange }: Omit<ImagesModalProps, 'isOpen'>) {
   const { user } = useAuth();
   const [showComments, setShowComments] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -81,6 +81,8 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
   const [replyTarget, setReplyTarget] = useState<CommentItem | null>(null);
   const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
+  const [favoriteCounts, setFavoriteCounts] = useState<Record<string, number>>({});
+  const [isLikeUpdating, setIsLikeUpdating] = useState(false);
 
   // 360 Spin / 3D Carousel states
   const [isDragging, setIsDragging] = useState(false);
@@ -141,10 +143,9 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
   }, [isCarouselMode, playlist]);
 
   const N = displayPlaylist.length;
-  const radius = N <= 1 ? 0 : Math.round((cardDim.w / 2 + 60) / Math.tan(Math.PI / N));
   const initialRotationOffset = N <= 1 ? 0 : -initialIndex * (360 / N);
   const effectiveRotationY = rotationY + initialRotationOffset;
-  const effectiveZoom = zoom ?? (isCarouselMode ? -radius : 0);
+  const effectiveZoom = zoom ?? 0;
 
   const activeCardIndex = useMemo(() => {
     if (N <= 1) return 0;
@@ -158,11 +159,51 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
   const currentItem = isCarouselMode ? displayPlaylist[activeIdx] || null : playlist[singleImageIndex] || null;
 
   useEffect(() => {
+    if (!user) {
+      setLikedIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    publicApi.listFavorites().then((favorites) => {
+      if (cancelled) return;
+      const nextLikedIds = new Set<string>();
+      const nextCounts: Record<string, number> = {};
+      for (const product of favorites || []) {
+        if (!product?.id) continue;
+        nextLikedIds.add(String(product.id));
+        if (typeof product.favoriteCount === 'number') nextCounts[String(product.id)] = product.favoriteCount;
+      }
+      setLikedIds(nextLikedIds);
+      setFavoriteCounts((current) => ({ ...current, ...nextCounts }));
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
     if (!currentItem?.productId) return;
     publicApi.listProductImageComments(currentItem.productId)
       .then((data) => setImageComments(data || []))
       .catch(() => setImageComments([]));
   }, [currentItem?.productId]);
+
+  useEffect(() => {
+    if (!currentItem?.productId) return;
+    let cancelled = false;
+    publicApi.recordProductViewHeartbeat(currentItem.productId, {
+      activeSeconds: 0,
+      scrollDepth: 1,
+      source: 'image_gallery',
+      clientTimestamp: Date.now(),
+    }).then((result) => {
+      if (cancelled || typeof result?.viewCount !== 'number') return;
+      onMetricsChange?.(currentItem.productId!, { viewCount: result.viewCount });
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentItem?.productId, onMetricsChange]);
 
   const comments = useMemo(() => {
     return imageComments.filter((comment) => String(comment.content || '').trim() !== '');
@@ -181,51 +222,67 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
 
   const isLiked = currentItem?.productId ? likedIds.has(currentItem.productId) : false;
 
-  const handleToggleLike = useCallback((event: React.MouseEvent) => {
+  const handleToggleLike = useCallback(async (event: React.MouseEvent) => {
     event.stopPropagation();
     if (!user) return alert('Vui lòng đăng nhập để lưu sản phẩm yêu thích.');
-    if (!currentItem?.productId) return;
+    if (!currentItem?.productId || isLikeUpdating) return;
 
     const productId = currentItem.productId;
-    setLikedIds((prev) => {
-      const next = new Set(prev);
-      next.has(productId) ? next.delete(productId) : next.add(productId);
-      return next;
-    });
-
-    publicApi.toggleFavorite(productId).catch(() => {
+    setIsLikeUpdating(true);
+    try {
+      const result = await publicApi.toggleFavorite(productId);
       setLikedIds((prev) => {
         const next = new Set(prev);
-        next.has(productId) ? next.delete(productId) : next.add(productId);
+        if (result?.favorited) next.add(productId);
+        else next.delete(productId);
         return next;
       });
-    });
-  }, [currentItem?.productId, user]);
+      const currentCount = favoriteCounts[productId]
+        ?? Number(likeCountOf(currentItem) || 0);
+      const nextCount = typeof result?.favoriteCount === 'number'
+        ? result.favoriteCount
+        : Math.max(0, currentCount + (result?.favorited ? 1 : -1));
+      setFavoriteCounts((prev) => ({ ...prev, [productId]: nextCount }));
+      onMetricsChange?.(productId, { favoriteCount: nextCount });
+    } catch {
+      alert('Không thể cập nhật lượt thích. Vui lòng thử lại.');
+    } finally {
+      setIsLikeUpdating(false);
+    }
+  }, [currentItem, favoriteCounts, isLikeUpdating, onMetricsChange, user]);
 
   const baseLikes = useMemo(() => {
     if (!currentItem) return 0;
-    return Number(likeCountOf(currentItem, activeIdx) || 0);
-  }, [currentItem, activeIdx]);
+    if (currentItem.productId && favoriteCounts[currentItem.productId] !== undefined) return favoriteCounts[currentItem.productId];
+    return Number(likeCountOf(currentItem) || 0);
+  }, [currentItem, favoriteCounts]);
 
-  const displayLikes = isLiked ? baseLikes + 1 : baseLikes;
+  const displayLikes = baseLikes;
 
   useEffect(() => {
     if (!isCarouselMode || !isAutoPlaying || reducedMotion || isDragging || N <= 1) return;
 
-    let lastTime = performance.now();
-    const animate = (time: number) => {
-      const delta = Math.min(50, time - lastTime);
-      lastTime = time;
-      setRotationY((prev) => prev - delta * 0.006);
-      animationRef.current = requestAnimationFrame(animate);
-    };
+    const anglePerCard = 360 / N;
+    animationRef.current = window.setInterval(() => {
+      setRotationY((current) => current - anglePerCard);
+    }, 1800);
 
-    animationRef.current = requestAnimationFrame(animate);
     return () => {
-      if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
+      if (animationRef.current !== null) window.clearInterval(animationRef.current);
       animationRef.current = null;
     };
   }, [isCarouselMode, isAutoPlaying, reducedMotion, isDragging, N]);
+
+  const handleToggleAutoPlay = useCallback(() => {
+    if (reducedMotion) return;
+    setIsAutoPlaying((playing) => !playing);
+  }, [reducedMotion]);
+
+  const handleRotateStep = useCallback((direction: -1 | 1) => {
+    if (!isCarouselMode || N <= 1) return;
+    setIsAutoPlaying(false);
+    setRotationY((current) => current + direction * (360 / N));
+  }, [isCarouselMode, N]);
 
   useEffect(() => {
     if (!isCarouselMode) return;
@@ -236,7 +293,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
       e.preventDefault();
       setZoom((prev) => {
         const next = (prev ?? effectiveZoom) - e.deltaY * 0.16;
-        return Math.min(450, Math.max(-2200, next));
+        return Math.min(280, Math.max(-900, next));
       });
     };
 
@@ -355,7 +412,7 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
   }
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 px-3 py-4 backdrop-blur-md">
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/95 p-2 backdrop-blur-xl sm:p-4">
       <button type="button"
         onClick={onClose}
         className="absolute right-6 top-6 z-[60] rounded-full bg-zinc-900/60 border border-white/10 p-3 text-white transition-all duration-300 hover:bg-zinc-800/80 hover:scale-105 active:scale-95 shadow-lg backdrop-blur-md cursor-pointer"
@@ -364,20 +421,9 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
         <X className="h-5 w-5" />
       </button>
 
-      {isCarouselMode && (
-      <button
-        type="button"
-        onClick={() => setIsAutoPlaying(!isAutoPlaying)}
-        className="absolute left-6 top-6 z-[60] flex items-center gap-2 rounded-full bg-zinc-900/60 border border-white/10 px-4 py-2.5 text-xs font-bold text-white shadow-lg backdrop-blur-md transition-all duration-300 hover:bg-zinc-800/80 hover:scale-105 active:scale-95 cursor-pointer"
-      >
-        {isAutoPlaying ? <Pause className="h-4 w-4 text-red-500 animate-pulse" /> : <Play className="h-4 w-4 text-green-400" />}
-        <span className="text-white">{isAutoPlaying ? 'Tạm dừng 360' : 'Tự xoay 360'}</span>
-      </button>
-      )}
-
-      <div className="relative h-[92vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-zinc-950 border border-white/5 shadow-2xl">
+      <div className="relative h-[96dvh] w-full max-w-6xl overflow-hidden rounded-[1.5rem] border border-white/10 bg-slate-950 shadow-2xl shadow-black/60 sm:h-[92vh] sm:rounded-[2rem]">
         <div
-          className="relative h-full w-full touch-none select-none overflow-hidden cursor-grab active:cursor-grabbing"
+          className={`relative h-full w-full select-none overflow-hidden ${isCarouselMode ? 'touch-none cursor-grab active:cursor-grabbing' : ''}`}
           role="application"
           aria-label={currentItem?.productName || 'Ảnh sản phẩm'}
           onMouseDown={(e) => handleStart(e.clientX)}
@@ -395,11 +441,37 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
             />
           )}
 
-          <div className="absolute inset-0 bg-black/40 pointer-events-none" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(30,41,59,0.35),rgba(2,6,23,0.9)_70%)] pointer-events-none" />
+
+          {isCarouselMode && (
+            <div
+              className="absolute left-3 top-3 z-40 flex items-center gap-1.5 rounded-2xl border border-white/15 bg-slate-900/80 p-1.5 shadow-xl backdrop-blur-xl sm:left-5 sm:top-5"
+              onMouseDown={(event) => event.stopPropagation()}
+              onTouchStart={(event) => event.stopPropagation()}
+            >
+              <button type="button" onClick={(event) => { event.stopPropagation(); handleRotateStep(1); }} className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-200 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400" aria-label="Xoay sang ảnh trước">
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={(event) => { event.stopPropagation(); handleToggleAutoPlay(); }}
+                disabled={reducedMotion}
+                aria-pressed={isAutoPlaying}
+                title={reducedMotion ? 'Tự xoay đã tắt theo cài đặt giảm chuyển động của thiết bị' : undefined}
+                className={`flex h-10 items-center gap-2 rounded-xl px-3 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${reducedMotion ? 'cursor-not-allowed text-slate-500' : isAutoPlaying ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400' : 'bg-white/10 text-white hover:bg-white/15'}`}
+              >
+                {isAutoPlaying ? <Pause className="h-4 w-4" /> : <Rotate3D className="h-4 w-4" />}
+                <span>{isAutoPlaying ? 'Tạm dừng' : 'Xoay 360°'}</span>
+              </button>
+              <button type="button" onClick={(event) => { event.stopPropagation(); handleRotateStep(-1); }} className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-200 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400" aria-label="Xoay sang ảnh tiếp theo">
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </div>
+          )}
 
           <div
             ref={containerRef}
-            className="absolute inset-0 flex items-center justify-center pb-24"
+            className="absolute inset-0 flex items-center justify-center pb-40 sm:pb-28"
             style={{ perspective: '1200px' }}
           >
             <div
@@ -408,44 +480,28 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                 width: `${cardDim.w}px`,
                 height: `${cardDim.h}px`,
                 transformStyle: 'preserve-3d',
-                transform: `translateZ(${effectiveZoom}px) rotateY(${effectiveRotationY}deg)`,
+                transform: `translateZ(${effectiveZoom}px)`,
                 transition: isDragging || isAutoPlaying || reducedMotion ? 'none' : 'transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1)',
               }}
             >
               {displayPlaylist.map((item, cardIndex) => {
-                const cardAngle = cardIndex * (360 / N);
-                let globalAngle = (effectiveRotationY + cardAngle) % 360;
-                if (globalAngle < 0) globalAngle += 360;
-                let diffFromCenter = globalAngle;
-                if (diffFromCenter > 180) diffFromCenter = 360 - diffFromCenter;
+                const anglePerCard = 360 / N;
+                const activePosition = -effectiveRotationY / anglePerCard;
+                let depthOffset = cardIndex - activePosition;
+                depthOffset = ((depthOffset + N / 2) % N + N) % N - N / 2;
 
-                const isCulled = diffFromCenter > 135;
-
-                if (isCulled) {
-                  return (
-                    <div
-                      key={item.displayId || item.id}
-                      className="absolute top-0 left-0"
-                      style={{
-                        width: `${cardDim.w}px`,
-                        height: `${cardDim.h}px`,
-                        transform: `rotateY(${cardAngle}deg) translateZ(${radius}px)`,
-                        visibility: 'hidden',
-                        pointerEvents: 'none'
-                      }}
-                    />
-                  );
-                }
-
-                const blurDiff = Math.max(0, diffFromCenter - 80);
-                const blurRatio = Math.min(1, blurDiff / 55);
-                const blurAmount = blurRatio * 8;
-                const opacAmount = 1 - (blurRatio * 0.8);
+                const depth = Math.abs(depthOffset);
+                const isCulled = depth > 2.1;
+                const horizontalOffset = depthOffset * cardDim.w * 0.82;
+                const translateZ = -depth * 320;
+                const scale = Math.max(0.64, 1 - depth * 0.16);
+                const opacity = isCulled ? 0 : Math.max(0.12, 1 - depth * 0.36);
+                const blurAmount = Math.max(0, depth - 0.6) * 3;
 
                 return (
                 <div
                   key={item.displayId || item.id}
-                  className={`absolute top-0 left-0 flex flex-col items-center justify-center transition-all duration-300 ${
+                  className={`absolute left-0 top-0 flex flex-col items-center justify-center ${isDragging ? '' : 'transition-all duration-500'} ${
                     cardIndex === activeIdx
                       ? 'scale-100 z-30'
                       : 'scale-95 z-10'
@@ -453,10 +509,12 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                   style={{
                     width: `${cardDim.w}px`,
                     height: `${cardDim.h}px`,
-                    transform: `rotateY(${cardAngle}deg) translateZ(${radius}px)`,
-                    opacity: opacAmount,
+                    transform: `translate3d(${horizontalOffset}px, 0, ${translateZ}px) rotateY(${-depthOffset * 9}deg) scale(${scale})`,
+                    opacity,
                     filter: `blur(${blurAmount}px)`,
                     backfaceVisibility: 'hidden',
+                    pointerEvents: isCulled ? 'none' : 'auto',
+                    zIndex: Math.max(1, Math.round(30 - depth * 10)),
                   }}
                 >
                   <div className="h-full w-full relative transition-transform duration-300 flex items-center justify-center">
@@ -487,14 +545,14 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
             )}
           </div>
 
-          <div className="hidden">
-            <div className="hidden rounded-full bg-zinc-950/80 border border-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white/80 shadow-xl backdrop-blur-md">
-              KÉO ĐỂ XOAY 3D • CUỘN ĐỂ PHÓNG TO
+          {isCarouselMode && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-40 z-30 flex justify-center sm:bottom-28">
+              <div className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/70 px-3 py-2 text-[11px] font-semibold text-slate-300 shadow-lg backdrop-blur-md">
+                <MousePointer2 className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Kéo để xoay · Cuộn để phóng to · {activeIdx + 1}/{N}</span>
+              </div>
             </div>
-            <div className="rounded-full bg-zinc-950/80 border border-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white/80 shadow-xl backdrop-blur-md">
-              {isCarouselMode ? 'Kéo để xoay 3D - cuộn để phóng to' : 'Chế độ xem ảnh sản phẩm'}
-            </div>
-          </div>
+          )}
 
           <div className="pointer-events-none absolute inset-0 z-20 bg-gradient-to-t from-zinc-950/90 via-transparent to-transparent" />
 
@@ -533,11 +591,13 @@ function ImagesModalContent({ playlist, initialIndex = 0, onClose }: Omit<Images
                   <button
                     type="button"
                     onClick={handleToggleLike}
+                    disabled={isLikeUpdating}
+                    aria-busy={isLikeUpdating}
                     className={`group flex items-center gap-2 px-3 py-1.5 rounded-full border text-white transition-all duration-300 cursor-pointer ${
                       isLiked
                         ? 'bg-red-500/10 border-red-500/40 text-red-400'
                         : 'bg-white/5 border-white/10 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400'
-                    }`}
+                    } disabled:cursor-wait disabled:opacity-60`}
                   >
                     <Heart className={`h-4 w-4 shrink-0 transition group-hover:scale-110 ${isLiked ? 'fill-red-500 text-red-500' : ''}`} />
                     <span className="text-xs font-bold">{displayLikes}</span>

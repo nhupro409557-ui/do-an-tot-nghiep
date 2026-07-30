@@ -1,4 +1,5 @@
-import { LogOut, Star } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Award, LogOut, Star } from 'lucide-react';
 
 type AccountDashboardHeaderProps = {
   avatarUrl?: string;
@@ -25,56 +26,70 @@ export function AccountDashboardHeader({
   nextTierInfo,
   onSignOut,
 }: AccountDashboardHeaderProps) {
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const avatarLetter = displayName?.charAt(0) || email?.charAt(0) || 'U';
   const currentTier = tier || 'S-New';
 
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [avatarUrl]);
+
   return (
-    <div className="bg-white rounded-xl shadow-sm p-6 mb-4 flex flex-col md:flex-row gap-6 md:items-center">
-      <div className="flex gap-4 items-center flex-1 md:border-r border-gray-100 md:pr-6">
-        {avatarUrl ? (
-          <img src={avatarUrl} alt="Ảnh đại diện" className="w-16 h-16 rounded-full object-cover shrink-0 border border-gray-100" />
-        ) : (
-          <div className="w-16 h-16 bg-yellow-400 rounded-full flex items-center justify-center text-xl font-bold text-yellow-950 shrink-0">
-            {avatarLetter.toUpperCase()}
-          </div>
-        )}
-        <div className="flex-1 min-w-0">
-          <h2 className="text-lg font-bold text-gray-800 truncate">{displayName || 'Khách hàng'}</h2>
-          <p className="text-sm text-gray-500 mb-1 truncate">{email}</p>
-          <div className="flex flex-wrap gap-2">
-            <span className="bg-[#d70018] text-white px-2 py-0.5 rounded text-xs font-bold leading-tight">{currentTier}</span>
-            {verificationRole && (
-              <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs font-bold leading-tight">
-                {verificationRole === 'student' ? 'Sinh viên' : 'Giảng viên'}
-              </span>
-            )}
+    <section className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="absolute inset-x-0 top-0 h-1 bg-[#d70018]" />
+      <div className="flex flex-col gap-6 p-5 sm:p-6 lg:flex-row lg:items-center lg:p-7">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          {avatarUrl && !avatarFailed ? (
+            <img
+              src={avatarUrl}
+              alt="Ảnh đại diện"
+              onError={() => setAvatarFailed(true)}
+              className="h-16 w-16 shrink-0 rounded-2xl border-2 border-white object-cover shadow-sm ring-1 ring-slate-200 sm:h-20 sm:w-20"
+            />
+          ) : (
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-2xl font-bold text-[#d70018] ring-1 ring-red-100 sm:h-20 sm:w-20">
+              {avatarLetter.toUpperCase()}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="mb-1 text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Tài khoản của tôi</p>
+            <h1 className="truncate text-xl font-bold text-slate-900 sm:text-2xl">{displayName || 'Khách hàng'}</h1>
+            <p className="mb-3 truncate text-sm text-slate-500" title={email || undefined}>{email}</p>
+            <div className="flex flex-wrap gap-2">
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-bold text-[#d70018] ring-1 ring-red-100"><Award className="h-3.5 w-3.5" />{currentTier}</span>
+              {verificationRole && (
+                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 ring-1 ring-blue-100">
+                  {verificationRole === 'student' ? 'Sinh viên' : 'Giảng viên'}
+                </span>
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex-[2] md:px-6">
-        <div className="bg-gradient-to-br from-slate-900 to-slate-700 rounded-xl shadow-lg p-5 text-white w-full max-w-md">
-          <div className="flex justify-between items-start mb-2">
-            <span className="text-[10px] bg-yellow-500 text-yellow-950 px-2 py-0.5 rounded-full font-bold">{currentTier}</span>
-            <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
+        <div className="flex-[1.4] lg:px-4">
+          <div className="w-full rounded-2xl bg-slate-900 p-5 text-white shadow-sm ring-1 ring-slate-800">
+            <div className="mb-2 flex items-start justify-between">
+              <span className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-200">Hạng {currentTier}</span>
+              <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
+            </div>
+            <div className="mb-3 flex items-end gap-2">
+              <p className="text-2xl font-bold leading-none">{points.toLocaleString('vi-VN')} <span className="text-sm font-normal opacity-70">Điểm</span></p>
+            </div>
+            <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-white/15">
+              <div className="h-full rounded-full bg-yellow-400 transition-all duration-1000 ease-out" style={{ width: `${Math.min(100, Math.max(0, nextTierInfo.percentage))}%` }} />
+            </div>
+            <p className="text-[11px] font-medium opacity-80">
+              {nextTierInfo.needed > 0 ? <>Còn <strong className="text-yellow-400">{nextTierInfo.needed.toLocaleString('vi-VN')}đ doanh số</strong> để lên hạng {nextTierInfo.name}</> : <span className="text-yellow-400">Bạn đã đạt hạng cao nhất!</span>}
+            </p>
           </div>
-          <div className="flex items-end gap-2 mb-3">
-            <p className="text-2xl font-bold leading-none">{points.toLocaleString('vi-VN')} <span className="text-sm font-normal opacity-70">Điểm</span></p>
-          </div>
-          <div className="w-full bg-white/20 h-2 rounded-full mb-2 overflow-hidden shadow-inner">
-            <div className="bg-yellow-400 h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${Math.min(100, Math.max(0, nextTierInfo.percentage))}%` }} />
-          </div>
-          <p className="text-[11px] opacity-80 font-medium">
-            {nextTierInfo.needed > 0 ? <>Còn <strong className="text-yellow-400">{nextTierInfo.needed.toLocaleString('vi-VN')} điểm</strong> để lên hạng {nextTierInfo.name}</> : <span className="text-yellow-400">Bạn đã đạt hạng cao nhất!</span>}
-          </p>
+        </div>
+
+        <div className="flex shrink-0 lg:justify-end">
+          <button type="button" onClick={onSignOut} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-[#d70018] focus:outline-none focus:ring-2 focus:ring-red-200 lg:w-auto">
+            <LogOut className="h-4 w-4" /> Đăng xuất
+          </button>
         </div>
       </div>
-
-      <div className="flex-1 md:pl-6 md:border-l border-gray-100 flex justify-end">
-        <button type="button" onClick={onSignOut} className="inline-flex items-center justify-center gap-2 text-sm font-medium text-red-600 hover:text-white hover:bg-red-600 border border-red-600 transition-colors px-4 py-2 rounded-lg w-full">
-          <LogOut className="w-4 h-4" /> Đăng xuất
-        </button>
-      </div>
-    </div>
+    </section>
   );
 }

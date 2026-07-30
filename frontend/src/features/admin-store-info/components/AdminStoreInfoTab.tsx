@@ -3,8 +3,12 @@ import { Store, Phone, Mail, MapPin, Info, Save, Edit, X } from 'lucide-react';
 import { storeInfoApi, type StoreInfo } from '../../../services/storeInfoApi';
 import { notifyAdmin } from '../../admin-shell/utils/adminNotice';
 import { LocationPicker } from '../../shipping/components/LocationPicker';
+import { useAuth } from '../../../context/AuthContext';
+import { AdminStorePoliciesSection } from './AdminStorePoliciesSection';
 
 export default function AdminStoreInfoTab() {
+  const { usePermission } = useAuth();
+  const canUpdateStoreInfo = usePermission('store_info:update');
   const [storeInfo, setStoreInfo] = useState<StoreInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -154,13 +158,13 @@ export default function AdminStoreInfoTab() {
                 <p className="text-xs text-slate-500">Thông tin liên hệ chính thức và cấu hình vị trí của hệ thống.</p>
               </div>
             </div>
-            <button
+            {canUpdateStoreInfo && <button
               onClick={() => setIsEditing(true)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 transition shadow-sm hover:text-[#d70018]"
             >
               <Edit className="h-4 w-4" />
               Chỉnh sửa
-            </button>
+            </button>}
           </div>
           <table className="w-full border-collapse text-left text-sm text-slate-600">
             <tbody>
@@ -214,6 +218,7 @@ export default function AdminStoreInfoTab() {
             </div>
           </div>
         )}
+        <AdminStorePoliciesSection />
       </div>
     );
   }

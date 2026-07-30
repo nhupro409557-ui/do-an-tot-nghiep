@@ -103,7 +103,7 @@ export default function AdminReviewsTab(props: AdminReviewsTabProps) {
                 {canUpdateReview && <button type="button" onClick={() => updateReviewStatus(review, 'REJECTED')} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 transition hover:bg-amber-100">Từ chối</button>}
                 {canUpdateReview && <button type="button" onClick={() => replyToReview(review)} className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100">Phản hồi</button>}
                 {canUpdateReview && <button type="button" onClick={() => flagReview(review)} className="rounded-md border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700 transition hover:bg-orange-100">Báo xấu</button>}
-                {canUpdateReview && <button type="button" onClick={() => markReviewSpam(review)} className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100">Spam</button>}
+                {canUpdateReview && <button type="button" onClick={() => markReviewSpam(review)} className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100">Đánh dấu rác</button>}
                 {canDeleteReview && <button type="button" onClick={() => deleteReview(review)} className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100">Xóa</button>}
               </div>
             </td>

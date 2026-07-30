@@ -14,6 +14,13 @@ async def get_inventory_idempotency_response(session: AsyncSession, key: str) ->
     return dict(row["response_payload"]) if row else None
 
 
+async def delete_inventory_idempotency_response(session: AsyncSession, key: str) -> None:
+    await session.execute(
+        text("DELETE FROM product_inventory_idempotency WHERE idempotency_key = :key"),
+        {"key": key},
+    )
+
+
 async def list_product_variant_ids(session: AsyncSession, product_id: UUID) -> list[dict]:
     rows = (
         await session.execute(

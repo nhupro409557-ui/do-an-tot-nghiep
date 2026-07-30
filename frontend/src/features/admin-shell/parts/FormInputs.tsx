@@ -14,6 +14,8 @@ export function Input({
   error,
   min,
   max,
+  name,
+  autoComplete,
 }: {
   label: string;
   value: string | number;
@@ -27,6 +29,8 @@ export function Input({
   error?: string;
   min?: string | number;
   max?: string | number;
+  name?: string;
+  autoComplete?: string;
 }) {
   return (
     <label className="block w-full sm:w-auto">
@@ -40,6 +44,8 @@ export function Input({
         onBlur={onBlur}
         min={min}
         max={max}
+        name={name}
+        autoComplete={autoComplete}
         onChange={(event) => onChange(event.target.value)}
         className={`h-10 w-full rounded-xl border ${
           error ? 'border-red-500 focus:border-red-500 focus:ring-red-100' : 'border-slate-200 focus:border-indigo-500 focus:ring-indigo-100'
@@ -57,6 +63,7 @@ export function Select({
   options,
   disabled = false,
   noLabel = false,
+  minWidthClass = 'min-w-44',
 }: {
   label: string;
   value: string;
@@ -64,6 +71,7 @@ export function Select({
   options: [string, string][];
   disabled?: boolean;
   noLabel?: boolean;
+  minWidthClass?: string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -73,7 +81,7 @@ export function Select({
     if (!open) return undefined;
 
     const handleClickOutside = (event: MouseEvent) => {
-      if (!wrapperRef.current?.contains(event.target as Node)) {
+      if (wrapperRef.current?.contains(event.target as Node) === false) {
         setOpen(false);
       }
     };
@@ -107,7 +115,7 @@ export function Select({
         aria-expanded={open}
         aria-label={noLabel ? label : undefined}
         onClick={() => setOpen((current) => !current)}
-        className="flex h-10 w-full min-w-44 items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        className={`flex h-10 w-full ${minWidthClass} items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`}
       >
         <span className="truncate">{selectedLabel}</span>
         <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />

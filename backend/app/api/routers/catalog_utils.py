@@ -142,6 +142,7 @@ def build_flash_sale_meta(item: dict, base_price: float) -> dict | None:
     starts_at_value = starts_at.isoformat() if hasattr(starts_at, "isoformat") else starts_at
     ends_at_value = ends_at.isoformat() if hasattr(ends_at, "isoformat") else ends_at
     quantity_limit = item.get("flashSaleQuantityLimit")
+    per_user_limit = item.get("flashSalePerUserLimit")
     sold_quantity = int(item.get("flashSaleSoldQuantity") or 0)
     remaining_quantity = None
     if quantity_limit is not None:
@@ -159,6 +160,7 @@ def build_flash_sale_meta(item: dict, base_price: float) -> dict | None:
         "soldQuantity": sold_quantity,
         "remainingQuantity": remaining_quantity,
         "isLimited": quantity_limit is not None,
+        "perUserLimit": int(per_user_limit) if per_user_limit is not None else None,
     }
 
 def apply_flash_sale_to_variant(variant: dict, flash_sale: dict) -> dict:
@@ -257,6 +259,7 @@ def product_row(row) -> dict:
         "rating": float(item["rating"]) if item.get("rating") is not None else None,
         "reviewCount": item.get("reviewCount") or 0,
         "favoriteCount": item.get("favoriteCount") or 0,
+        "viewCount": item.get("viewCount") or 0,
         "soldCount": item.get("soldCount") or 0,
         "isActive": True,
         "isFeatured": item.get("isFeatured"),
@@ -283,7 +286,9 @@ def ranking_row(row) -> dict:
     period_like_count = int(row_dict.get("periodLikeCount") or 0)
     previous_period_like_count = int(row_dict.get("previousPeriodLikeCount") or 0)
     period_review_count = int(row_dict.get("periodReviewCount") or 0)
+    period_rating = float(row_dict.get("periodRating") or 0)
     previous_period_review_count = int(row_dict.get("previousPeriodReviewCount") or 0)
+    previous_period_rating = float(row_dict.get("previousPeriodRating") or 0)
     
     period_sold = int(row_dict.get("periodSoldCount") or 0)
     period_revenue = float(row_dict.get("periodRevenue") or 0)
@@ -350,7 +355,9 @@ def ranking_row(row) -> dict:
     item["periodLikeCount"] = period_like_count
     item["previousPeriodLikeCount"] = previous_period_like_count
     item["periodReviewCount"] = period_review_count
+    item["periodRating"] = period_rating
     item["previousPeriodReviewCount"] = previous_period_review_count
+    item["previousPeriodRating"] = previous_period_rating
     item["likeCount"] = favorite_count
     item["trendScore"] = trend_score
     item["previousTrendScore"] = previous_trend_score
@@ -545,6 +552,8 @@ def build_product_image_collection(products: list[dict], q: str | None = None, c
                 "mainUrl": product.get("imageUrl") if is_real_product_image_url(product.get("imageUrl")) else image_entries[0]["url"],
                 "imageCount": len(image_entries),
                 "trendScore": approximate_trend_score(product),
+                "favoriteCount": product.get("favoriteCount") or 0,
+                "viewCount": product.get("viewCount") or 0,
                 "product": product,
                 "images": [
                     {
@@ -554,6 +563,8 @@ def build_product_image_collection(products: list[dict], q: str | None = None, c
                         "productName": product.get("name"),
                         "brand": product.get("brand"),
                         "category": category_name,
+                        "favoriteCount": product.get("favoriteCount") or 0,
+                        "viewCount": product.get("viewCount") or 0,
                         "product": product,
                         "variantColorName": image.get("variantColorName"),
                         "variantColorCode": image.get("variantColorCode"),

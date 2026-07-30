@@ -3,6 +3,8 @@ import { AdminBadge, AdminPanel, AdminTable, SearchBox } from '../../admin-shell
 import { CheckCircle2, Download, Eye, FileSpreadsheet, FileText, PackageCheck, Pencil, Plus, Printer, RotateCcw, ScanLine, Trash2, XCircle } from 'lucide-react';
 import { compactId, currency } from '../../admin-shell/components/AdminDashboardConfig';
 import { adminInventoryApi } from '../services/adminInventoryApi';
+import PurchaseOrdersPanel from './PurchaseOrdersPanel';
+import ReceiptQualityModal from './ReceiptQualityModal';
 
 type AdminInventoryReceiptsTabProps = Record<string, any>;
 
@@ -1139,12 +1141,12 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
                 {line.tracksImei && (
                   <div className="mt-3">
                     <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
-                      <FileSpreadsheet className="h-4 w-4" /> Import IMEI1
+                      <FileSpreadsheet className="h-4 w-4" /> Nhập IMEI1 từ tệp
                       <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFileInput(event, line.id, 'imei')} />
                     </label>
                     <textarea className="mt-2 min-h-28 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500" placeholder="Dán danh sách IMEI1, mỗi máy một dòng" value={inputs[line.id] || ''} onChange={(event) => setInputs((current) => ({ ...current, [line.id]: event.target.value }))} />
                     <label className="mt-3 inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
-                      <FileSpreadsheet className="h-4 w-4" /> Import IMEI2 tùy chọn
+                      <FileSpreadsheet className="h-4 w-4" /> Nhập IMEI2 từ tệp (tùy chọn)
                       <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFileInput(event, line.id, 'imei2')} />
                     </label>
                     <textarea className="mt-2 min-h-24 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500" placeholder="Dán danh sách IMEI2 nếu có, cùng thứ tự với IMEI1" value={secondaryImeiInputs[line.id] || ''} onChange={(event) => setSecondaryImeiInputs((current) => ({ ...current, [line.id]: event.target.value }))} />
@@ -1153,7 +1155,7 @@ function ImeiReceiptModal({ receipt, onClose, onSubmit }: { receipt: any; onClos
                 {line.tracksSerialNumber && (
                   <div className="mt-3">
                     <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
-                      <FileSpreadsheet className="h-4 w-4" /> Import serial
+                      <FileSpreadsheet className="h-4 w-4" /> Nhập số sê-ri từ tệp
                       <input type="file" accept=".xlsx,.xls,.csv,.txt" className="hidden" onChange={(event) => handleFileInput(event, line.id, 'serial')} />
                     </label>
                     <textarea className="mt-2 min-h-28 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-cyan-500" placeholder="Dán danh sách serial number" value={serialInputs[line.id] || ''} onChange={(event) => setSerialInputs((current) => ({ ...current, [line.id]: event.target.value }))} />
@@ -1217,7 +1219,7 @@ export default function AdminInventoryReceiptsTab(props: AdminInventoryReceiptsT
     openReceiptDialog,
     openReceiptEditDialog,
     updateReceiptStatus,
-    updateReceiptQuality,
+    submitReceiptQuality,
     reverseReceipt,
     deleteDraftReceipt,
     openReceiptImeiDialog,
@@ -1237,8 +1239,11 @@ export default function AdminInventoryReceiptsTab(props: AdminInventoryReceiptsT
     inventoryLocations,
     setTab,
     uploadFiles,
+    products,
+    suppliers,
   } = props;
   const [viewReceipt, setViewReceipt] = useState<any | null>(null);
+  const [qualityReceipt, setQualityReceipt] = useState<any | null>(null);
   const visibleReceipts = inventoryReceipts || [];
   const latestMonthlyReport = inventoryReceiptReport?.monthly?.[0] || {};
   const latestDailyReport = inventoryReceiptReport?.daily?.[0] || {};
@@ -1257,6 +1262,7 @@ export default function AdminInventoryReceiptsTab(props: AdminInventoryReceiptsT
 
   return (
     <>
+      <PurchaseOrdersPanel products={products || []} suppliers={suppliers || []} isSuperAdmin={isSuperAdmin} />
       <AdminPanel
         title="Quản lý nhập kho"
         action={
@@ -1442,11 +1448,8 @@ export default function AdminInventoryReceiptsTab(props: AdminInventoryReceiptsT
                     )}
                     {!['COMPLETED', 'CANCELLED', 'REVERSED'].includes(status) && (
                       <div className="flex flex-wrap gap-1.5">
-                        <button type="button" onClick={() => updateReceiptQuality(receipt, 'PASSED')} className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100">
-                          QC đạt
-                        </button>
-                        <button type="button" onClick={() => updateReceiptQuality(receipt, 'FAILED')} className="inline-flex h-8 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 text-xs font-bold text-red-700 transition hover:bg-red-100">
-                          QC lỗi
+                        <button type="button" onClick={() => setQualityReceipt(receipt)} className="inline-flex h-8 items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100">
+                          Kiểm tra QC
                         </button>
                       </div>
                     )}
@@ -1506,6 +1509,18 @@ export default function AdminInventoryReceiptsTab(props: AdminInventoryReceiptsT
           receipt={imeiReceipt}
           onClose={() => setImeiReceipt(null)}
           onSubmit={submitReceiptImeis}
+        />
+      )}
+      {qualityReceipt && (
+        <ReceiptQualityModal
+          receipt={qualityReceipt}
+          locations={inventoryLocations || []}
+          onClose={() => setQualityReceipt(null)}
+          onSubmit={async (referenceCode: string, payload: any) => {
+            await submitReceiptQuality(referenceCode, payload);
+            setQualityReceipt(null);
+          }}
+          uploadFiles={uploadFiles}
         />
       )}
       {viewReceipt && (

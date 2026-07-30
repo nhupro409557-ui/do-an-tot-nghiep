@@ -87,7 +87,9 @@ export function NotificationDropdown() {
     <div className="relative" ref={dropdownRef}>
       <button type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex flex-col items-center p-1 hover:text-white/85 relative transition-colors"
+        aria-label={unreadCount > 0 ? `Thông báo, ${unreadCount} chưa đọc` : 'Thông báo'}
+        aria-expanded={isOpen}
+        className="relative flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg p-1 transition-colors hover:bg-white/10 hover:text-white/85"
       >
         <Bell className="w-6 h-6" />
         <span className="mt-1 hidden lg:block text-xs">Thông báo</span>

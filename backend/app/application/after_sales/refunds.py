@@ -1,11 +1,14 @@
 from decimal import Decimal
 from uuid import UUID, uuid4
+from decimal import Decimal
 
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.after_sales.common import money
-from app.infrastructure.database.repositories import after_sales_repo
+from app.infrastructure.database.repositories import after_sales_repo, used_product_repo
+from app.application.after_sales.return_inventory import ensure_return_to_stock_inbound
 
 
 async def create_refunds(
@@ -99,7 +102,19 @@ async def create_refunds(
 
     import json
 
-    if location_id:
+    return_to_stock_document_id = None
+    if request.get("inventory_disposition") == "NEW_STOCK":
+        return_to_stock_document_id = await ensure_return_to_stock_inbound(
+            session,
+            request=request,
+            items=items,
+            actor_id=processed_by,
+            note=processed_note,
+        )
+
+    # Nhánh cũ chỉ dành cho dữ liệu chưa có phiếu nhập chuẩn. Hồ sơ mới luôn đi qua
+    # phiếu Nháp ở trên và chỉ tăng tồn khi kho duyệt, hoàn tất phiếu.
+    if location_id and request.get("inventory_disposition") == "NEW_STOCK" and not return_to_stock_document_id:
         inbound_doc_id = uuid4()
         inbound_doc_no = f"AS-IN-{reference_code}"
         await session.execute(
@@ -333,10 +348,17 @@ async def create_refunds(
             )
 
             if item.get("used_device_id"):
-                await session.execute(
-                    text("UPDATE used_devices SET status = 'RETURNED_QC', updated_at = NOW() WHERE id = :uid"),
-                    {"uid": item["used_device_id"]},
+                transitioned = await used_product_repo.transition_after_sales_device(
+                    session,
+                    device_id=item["used_device_id"],
+                    target_status="RETURNED_QC",
+                    allowed_statuses={"SOLD", "RETURNED_QC"},
+                    event_type="DEVICE_REFUND_RETURNED_QC",
+                    note=f"Thiết bị hoàn về QC theo hồ sơ {request['request_code']}.",
+                    metadata={"requestId": str(request["id"]), "requestCode": request["request_code"]},
                 )
+                if not transitioned:
+                    raise HTTPException(status_code=409, detail="Trạng thái thiết bị cũ không hợp lệ để hoàn tiền và nhập QC.")
 
     order_item_count = int(
         await session.scalar(
@@ -388,6 +410,7 @@ async def issue_compensation_voucher(session: AsyncSession, *, request: dict, am
 
     voucher_id = uuid4()
     user_voucher_id = uuid4()
+    reference_code = request.get("request_code") or f"RETURN-{request['id']}"
     ref_clean = reference_code.replace('-', '').replace('_', '').upper()
     code = f"BD{ref_clean}"
     await session.execute(

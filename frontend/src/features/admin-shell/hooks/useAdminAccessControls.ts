@@ -34,6 +34,11 @@ export function useAdminAccessControls(
   const canUpdateContent = usePermission('content:update');
   const canDeleteContent = usePermission('content:delete');
   const canReadPaymentMethods = useAnyPermission(['payment_method:read']);
+  const canReadAfterSales = usePermission('after_sales:read');
+  const canReadPayables = usePermission('payable:read');
+  const canReadStoreInfo = usePermission('store_info:read');
+  const canReadServices = usePermission('service:read');
+  const canReadFlashSales = usePermission('flash_sale:read');
 
   const tabAccess = useMemo<Record<AdminTab, boolean>>(() => ({
     overview: canReadOverview,
@@ -42,14 +47,14 @@ export function useAdminAccessControls(
     categories: canReadCategories,
     brands: canReadBrands,
     suppliers: canReadSuppliers,
-    services: canManageProducts,
+    services: canReadServices,
     orders: canReadOrders,
-    afterSales: canReadOrders && canReadInventory,
+    afterSales: canReadAfterSales,
     vouchers: canReadVouchers,
-    flashSales: canManageProducts || canManageVouchers,
+    flashSales: canReadFlashSales,
     customers: canReadCustomers,
     inventoryReceipts: canManageInventory,
-    accountPayables: canReadInventory,
+    accountPayables: canReadPayables,
     inventory: canReadInventory,
     inventoryOutbounds: canReadInventory,
     reviews: canReadReviews,
@@ -60,7 +65,7 @@ export function useAdminAccessControls(
     aiCatalogIndex: isSuperAdmin,
     permissions: canManageRoles,
     paymentMethods: canReadPaymentMethods,
-    storeInfo: canReadOverview,
+    storeInfo: canReadStoreInfo,
   }), [
     canManageRoles,
     canReadAudit,
@@ -82,6 +87,11 @@ export function useAdminAccessControls(
     canManageReviews,
     canManageVouchers,
     canReadPaymentMethods,
+    canReadAfterSales,
+    canReadPayables,
+    canReadStoreInfo,
+    canReadServices,
+    canReadFlashSales,
     isSuperAdmin,
   ]);
 

@@ -107,7 +107,15 @@ async def consume_inventory_lots_fifo(
         remaining -= take_quantity
 
     if remaining > 0:
-        raise ValueError("Không đủ tồn kho khả dụng ở các kệ để xuất kho.")
+        consumed.append(
+            {
+                "lotId": None,
+                "lotCode": "UNTRACKED",
+                "quantity": remaining,
+                "note": "Xuất theo tồn kệ thực tế; phần hàng cũ chưa có dữ liệu lô FIFO.",
+            }
+        )
+    return consumed
 
 
 async def deduct_inventory_levels_fifo(

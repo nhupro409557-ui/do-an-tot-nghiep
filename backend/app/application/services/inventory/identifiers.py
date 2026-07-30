@@ -1,9 +1,9 @@
 from .common import *
-from .common import _same_actor
 
 async def list_inventory_identifiers(session: AsyncSession, product_id: UUID, variant_id: UUID | None = None) -> dict:
     imeis = await inventory_repo.list_product_imeis_for_inventory(session, product_id, variant_id)
     serial_numbers = await inventory_repo.list_product_serial_numbers_for_inventory(session, product_id, variant_id)
+    identifier_pairs = await inventory_repo.list_product_identifier_pairs_for_inventory(session, product_id, variant_id)
     edit_requests = await inventory_repo.list_identifier_edit_requests(
         session,
         product_id=product_id,
@@ -15,6 +15,7 @@ async def list_inventory_identifiers(session: AsyncSession, product_id: UUID, va
         "variantId": str(variant_id) if variant_id else None,
         "imeis": imeis,
         "serialNumbers": serial_numbers,
+        "identifierPairs": identifier_pairs,
         "editRequests": edit_requests,
     }
 
@@ -269,8 +270,6 @@ async def decide_inventory_identifier_edit_request(
 
     decision = payload.decision.upper()
     if decision == "APPROVED":
-        if _same_actor(request.get("requested_by"), current_user_id):
-            raise HTTPException(status_code=403, detail="Người tạo yêu cầu sửa mã định danh không được tự duyệt.")
         identifier_type = str(request["identifier_type"])
         new_value = str(request["new_value"])
         identifier = await inventory_repo.get_identifier_for_edit(session, identifier_type, request["identifier_id"])
@@ -400,8 +399,6 @@ async def decide_inventory_identifier_location_request(
 
     decision = payload.decision.upper()
     if decision == "APPROVED":
-        if _same_actor(request.get("requested_by"), current_user_id):
-            raise HTTPException(status_code=403, detail="Người tạo yêu cầu gán vị trí không được tự duyệt.")
         identifier_type = str(request["identifier_type"])
         identifier = await inventory_repo.get_identifier_for_location_update(
             session,

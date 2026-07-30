@@ -11,6 +11,7 @@ const initialBrandForm = {
   order: 0,
   isActive: true,
   landingTitle: '',
+  version: null as number | null,
 };
 
 type UseAdminBrandsLogicParams = {
@@ -89,6 +90,7 @@ export function useAdminBrandsLogic({ brands, reloadCurrentTab }: UseAdminBrands
     try {
       const result = await brandApi.adminImportBrands(file, brandImportMode);
       setActiveBrandImportJob({ id: result.jobId, status: result.status, progress: 0, totalRows: 0, processedRows: 0, importedRows: 0, updatedRows: 0, skippedRows: 0 });
+      setBrandImportJobs((items) => [{ id: result.jobId, status: result.status, sourceFilename: file.name, progress: 0 }, ...items]);
       await reloadCurrentTab();
       notifyAdmin(`Đã đưa file vào hàng đợi xử lý. Mã lịch sử: ${result.jobId}`, 'info');
     } catch (error) {
@@ -108,6 +110,7 @@ export function useAdminBrandsLogic({ brands, reloadCurrentTab }: UseAdminBrands
       order: Number(brand.order || 0),
       isActive: brand.isActive !== false,
       landingTitle: brand.landingTitle || '',
+      version: Number(brand.version || 1),
     });
   }
 
@@ -117,20 +120,25 @@ export function useAdminBrandsLogic({ brands, reloadCurrentTab }: UseAdminBrands
   }
 
   async function reactivateBrand(brand: any) {
-    await brandApi.adminUpdateBrandStatus(brand.id, true);
+    await brandApi.adminUpdateBrandStatus(brand.id, true, Number(brand.version || 1));
     await reloadCurrentTab();
   }
 
   async function hideBrand(brand: any) {
     if (!window.confirm(`Ẩn thương hiệu ${brand.name}? Thương hiệu sẽ không hiển thị ở storefront.`)) return;
-    await brandApi.adminUpdateBrandStatus(brand.id, false);
+    await brandApi.adminUpdateBrandStatus(brand.id, false, Number(brand.version || 1));
     await reloadCurrentTab();
   }
 
   async function bulkUpdateBrandStatus(isActive: boolean) {
     if (!selectedBrandIds.length) return;
     if (!window.confirm(`${isActive ? 'Khôi phục' : 'Ẩn'} ${selectedBrandIds.length} thương hiệu đã chọn?`)) return;
-    const result = await brandApi.adminUpdateBrandsStatus(selectedBrandIds, isActive);
+    const versions = Object.fromEntries(
+      brands
+        .filter((brand) => selectedBrandIds.includes(String(brand.id)))
+        .map((brand) => [String(brand.id), Number(brand.version || 1)])
+    );
+    const result = await brandApi.adminUpdateBrandsStatus(selectedBrandIds, isActive, versions);
     setSelectedBrandIds([]);
     await reloadCurrentTab();
     notifyAdmin(`Đã cập nhật ${result.updated} thương hiệu. Lỗi: ${result.failed.length}.`, result.failed.length ? 'info' : 'success');

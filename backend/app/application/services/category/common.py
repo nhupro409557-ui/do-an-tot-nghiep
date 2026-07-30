@@ -250,6 +250,8 @@ async def deactivate_products_in_category_branch(session: AsyncSession, category
     if not product_ids:
         return 0
     await category_repo.hide_products_by_category(session, product_ids)
+    from app.infrastructure.database.repositories import used_product_repo
+    await used_product_repo.hide_listings_by_products(session, product_ids)
     return len(product_ids)
 
 

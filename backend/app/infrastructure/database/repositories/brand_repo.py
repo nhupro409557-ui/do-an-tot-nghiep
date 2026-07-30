@@ -39,9 +39,31 @@ async def hide_products_by_brand(session: AsyncSession, product_ids: list[UUID])
         text("UPDATE product_variants SET is_active = FALSE, updated_at = NOW() WHERE product_id IN :ids").bindparams(bindparam("ids", expanding=True)),
         {"ids": product_ids},
     )
+    await session.execute(
+        text(
+            """
+            UPDATE used_device_listings
+            SET status = 'HIDDEN', updated_at = NOW()
+            WHERE device_id IN (
+                SELECT id FROM used_devices WHERE product_id IN :ids
+            ) AND status = 'PUBLISHED'
+            """
+        ).bindparams(bindparam("ids", expanding=True)),
+        {"ids": product_ids},
+    )
+    await session.execute(
+        text(
+            """
+            UPDATE used_devices
+            SET status = 'READY_FOR_PRICING', updated_at = NOW()
+            WHERE product_id IN :ids AND status = 'READY_FOR_SALE'
+            """
+        ).bindparams(bindparam("ids", expanding=True)),
+        {"ids": product_ids},
+    )
 
 
-async def restore_products_hidden_by_brand(session: AsyncSession, brand_id: UUID) -> int:
+async def restore_products_hidden_by_brand(session: AsyncSession, brand_id: UUID) -> list[UUID]:
     result = await session.execute(
         text(
             """
@@ -89,7 +111,7 @@ async def restore_products_hidden_by_brand(session: AsyncSession, brand_id: UUID
             ).bindparams(bindparam("ids", expanding=True)),
             {"ids": product_ids},
         )
-    return len(product_ids)
+    return product_ids
 
 
 async def increment_status_job_processed(session: AsyncSession, *, job_id: UUID, count: int) -> None:
@@ -166,6 +188,23 @@ async def brand_slug_exists(session: AsyncSession, *, slug: str, exclude_id: UUI
     return bool(row)
 
 
+async def brand_name_exists(session: AsyncSession, *, name: str, exclude_id: UUID | None = None) -> bool:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT id
+                FROM brands
+                WHERE lower(name) = lower(:name)
+                  AND id != COALESCE(:exclude_id, '00000000-0000-0000-0000-000000000000'::uuid)
+                """
+            ),
+            {"name": name.strip(), "exclude_id": exclude_id},
+        )
+    ).first()
+    return bool(row)
+
+
 async def get_redirect_new_slug(session: AsyncSession, slug: str) -> str | None:
     return (
         await session.execute(
@@ -221,6 +260,7 @@ async def list_admin_brands(session: AsyncSession, *, page: int, limit: int, sea
                 b.landing_title AS "landingTitle",
                 b.sort_order AS "order",
                 b.is_active AS "isActive",
+                COALESCE(b.version, 1) AS version,
                 b.updated_at AS "updatedAt",
                 COUNT(DISTINCT p.id) AS "productCount",
                 COALESCE(
@@ -323,6 +363,56 @@ async def update_brand(session: AsyncSession, *, brand_id: UUID, code: str, slug
     )
 
 
+async def get_brand_for_update(session: AsyncSession, brand_id: UUID) -> dict | None:
+    row = (await session.execute(text("""
+        SELECT slug, name, is_active, COALESCE(version, 1) AS version
+        FROM brands
+        WHERE id = :id
+        FOR UPDATE
+    """), {"id": brand_id})).mappings().first()
+    return dict(row) if row else None
+
+
+async def update_brand_record(
+    session: AsyncSession,
+    *,
+    brand_id: UUID,
+    expected_version: int,
+    code: str,
+    slug: str,
+    name: str,
+    logo_url: str | None,
+    logo_alt_text: str | None,
+    landing_title: str | None,
+    sort_order: int,
+    is_active: bool,
+) -> int:
+    result = await session.execute(
+        text(
+            """
+            UPDATE brands
+            SET code = :code, slug = :slug, name = :name, logo_url = :logo_url, logo_alt_text = :logo_alt_text,
+                landing_title = :landing_title, sort_order = :sort_order,
+                is_active = :is_active, version = version + 1, updated_at = NOW()
+            WHERE id = :id AND version = :expected_version
+            """
+        ),
+        {
+            "id": brand_id,
+            "expected_version": expected_version,
+            "code": code,
+            "slug": slug,
+            "name": name,
+            "logo_url": logo_url,
+            "logo_alt_text": logo_alt_text,
+            "landing_title": landing_title,
+            "sort_order": sort_order,
+            "is_active": is_active,
+        },
+    )
+    return int(result.rowcount or 0)
+
+
 async def list_brand_import_jobs(session: AsyncSession) -> list[dict]:
     result = await session.execute(
         text(
@@ -383,12 +473,41 @@ async def get_brand_import_job(session: AsyncSession, job_id: UUID) -> dict | No
     return dict(row) if row else None
 
 
-async def update_brand_status(session: AsyncSession, *, brand_id: UUID, is_active: bool) -> int:
-    result = await session.execute(
-        text("UPDATE brands SET is_active = :is_active, updated_at = NOW() WHERE id = :id"),
-        {"id": brand_id, "is_active": is_active},
-    )
+async def update_brand_status(
+    session: AsyncSession,
+    *,
+    brand_id: UUID,
+    is_active: bool,
+    expected_version: int | None = None,
+) -> int:
+    if expected_version is not None:
+        result = await session.execute(
+            text(
+                """
+                UPDATE brands
+                SET is_active = :is_active,
+                    version = version + 1,
+                    updated_at = NOW()
+                WHERE id = :id AND version = :expected_version
+                """
+            ),
+            {"id": brand_id, "is_active": is_active, "expected_version": expected_version},
+        )
+    else:
+        result = await session.execute(
+            text(
+                """
+                UPDATE brands
+                SET is_active = :is_active,
+                    version = version + 1,
+                    updated_at = NOW()
+                WHERE id = :id
+                """
+            ),
+            {"id": brand_id, "is_active": is_active},
+        )
     return int(result.rowcount or 0)
+
 
 
 async def create_brand_status_job(
@@ -412,7 +531,7 @@ async def create_brand_status_job(
 async def list_brands_by_ids(session: AsyncSession, brand_ids: list[UUID]) -> list[dict]:
     rows = (
         await session.execute(
-            text("SELECT id, slug FROM brands WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)),
+            text("SELECT id, slug, COALESCE(version, 1) AS version FROM brands WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)),
             {"ids": brand_ids},
         )
     ).mappings().all()
@@ -421,9 +540,10 @@ async def list_brands_by_ids(session: AsyncSession, brand_ids: list[UUID]) -> li
 
 async def update_brands_status(session: AsyncSession, *, brand_ids: list[UUID], is_active: bool) -> None:
     await session.execute(
-        text("UPDATE brands SET is_active = :is_active, updated_at = NOW() WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)),
+        text("UPDATE brands SET is_active = :is_active, version = version + 1, updated_at = NOW() WHERE id IN :ids").bindparams(bindparam("ids", expanding=True)),
         {"ids": brand_ids, "is_active": is_active},
     )
+
 
 
 async def list_brand_status_jobs(session: AsyncSession) -> list[dict]:

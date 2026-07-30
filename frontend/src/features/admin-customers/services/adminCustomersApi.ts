@@ -14,6 +14,8 @@ export const adminCustomersApi = {
   adminGetCustomerOverview: (id: string) => request<any>(`/admin/customers/${encodeURIComponent(id)}/overview`),
   adminGetCustomerOrders: (id: string) => request<any[]>(`/admin/customers/${encodeURIComponent(id)}/orders`),
   adminGetCustomerLoyaltyHistory: (id: string) => request<any[]>(`/admin/customers/${encodeURIComponent(id)}/loyalty-history`),
+  adminGetCustomerLoyaltyHistoryPage: (id: string, page = 1, limit = 20) => request<{ items: any[]; page: number; limit: number; total: number }>(`/admin/customers/${encodeURIComponent(id)}/loyalty-history-page?page=${page}&limit=${limit}`),
+  adminGetCustomerLoyaltyAllocations: (id: string, transactionId: string) => request<any[]>(`/admin/customers/${encodeURIComponent(id)}/loyalty-history/${encodeURIComponent(transactionId)}/allocations`),
   adminGetCustomerNotes: (id: string) => request<any[]>(`/admin/customers/${encodeURIComponent(id)}/notes`),
   adminGetCustomerAuditLogs: (id: string) => request<any[]>(`/admin/customers/${encodeURIComponent(id)}/audit-logs`),
   adminUpdateCustomerTags: (id: string, tags: string[]) => request<any>(`/admin/customers/${encodeURIComponent(id)}/tags`, {
@@ -53,8 +55,8 @@ export const adminCustomersApi = {
     body: JSON.stringify(data),
   }),
   adminGetUserPermissions: (id: string) => request<any>(`/admin/users/${encodeURIComponent(id)}/permissions`),
-  adminUpdateUserPermissions: (id: string, permissionCodes: string[]) => request<any>(`/admin/users/${encodeURIComponent(id)}/permissions`, {
+  adminUpdateUserPermissions: (id: string, permissionCodes: string[], deniedPermissionCodes: string[] = []) => request<any>(`/admin/users/${encodeURIComponent(id)}/permissions`, {
     method: 'PUT',
-    body: JSON.stringify({ permissionCodes }),
+    body: JSON.stringify({ permissionCodes, deniedPermissionCodes }),
   }),
 };

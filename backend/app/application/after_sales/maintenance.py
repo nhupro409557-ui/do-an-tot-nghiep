@@ -9,6 +9,44 @@ from app.infrastructure.database.repositories import after_sales_repo
 
 
 async def run_maintenance(session: AsyncSession) -> dict:
+    exchange_payment_expired = await session.execute(
+        text(
+            """
+            UPDATE return_requests
+            SET status='CLOSED_EXPIRED',
+                payment_status='TIMEOUT',
+                closed_at=NOW(),
+                updated_at=NOW()
+            WHERE status='WAITING_FOR_EXCHANGE_PAYMENT'
+              AND payment_due_at <= NOW()
+            RETURNING id, request_code, user_id
+            """
+        )
+    )
+    expired_exchange_rows = exchange_payment_expired.mappings().all()
+    for row in expired_exchange_rows:
+        await after_sales_repo.release_allocations(session, kind="RETURN", request_id=row["id"])
+        await after_sales_repo.insert_event(
+            session,
+            kind="RETURN",
+            reference_id=row["id"],
+            old_status="WAITING_FOR_EXCHANGE_PAYMENT",
+            new_status="CLOSED_EXPIRED",
+            actor_id=None,
+            note="Hồ sơ đổi trả đã hết hạn thanh toán chênh lệch.",
+            metadata={"reason": "EXCHANGE_PAYMENT_TIMEOUT"},
+        )
+        await after_sales_repo.notify(
+            session,
+            user_id=row["user_id"],
+            type_value="after_sales",
+            title="Hồ sơ đổi trả đã hết hạn thanh toán",
+            message=f"Yêu cầu {row['request_code']} đã bị đóng vì quá hạn thanh toán chênh lệch.",
+            entity_type="RETURN",
+            entity_id=row["id"],
+            immediate=True,
+            key=f"RETURN:{row['id']}:EXCHANGE_PAYMENT_TIMEOUT",
+        )
     released = await session.execute(
         text(
             """
@@ -72,11 +110,24 @@ async def run_maintenance(session: AsyncSession) -> dict:
         if not locked_request or locked_request["status"] != "WAITING_FOR_STOCK":
             continue
         items = await after_sales_repo.get_request_items(session, kind=row.kind, request_id=row.id)
-        if await after_sales_repo.create_allocations(session, kind=row.kind, request_id=row.id, items=items):
+        if locked_request.get("exchange_product_id"):
+            allocated = await after_sales_repo.create_exchange_allocation(session, request=locked_request)
+        else:
+            allocated = await after_sales_repo.create_allocations(session, kind=row.kind, request_id=row.id, items=items)
+        if allocated:
             table = "return_requests" if row.kind == "RETURN" else "warranty_requests"
-            next_status = "QC_APPROVED" if row.kind == "RETURN" else "REPLACEMENT_APPROVED"
+            if row.kind == "RETURN" and locked_request.get("exchange_product_id"):
+                next_status = (
+                    "WAITING_FOR_EXCHANGE_PAYMENT"
+                    if float(locked_request.get("balance_amount") or 0) > 0
+                    else "EXCHANGE_PROCESSING"
+                )
+                extra_sql = ", payment_due_at = COALESCE(payment_due_at, NOW() + INTERVAL '24 hours')" if next_status == "WAITING_FOR_EXCHANGE_PAYMENT" else ""
+            else:
+                next_status = "QC_APPROVED" if row.kind == "RETURN" else "REPLACEMENT_APPROVED"
+                extra_sql = ""
             await session.execute(
-                text(f"UPDATE {table} SET status=:status, updated_at=NOW() WHERE id=:id AND status='WAITING_FOR_STOCK'"),
+                text(f"UPDATE {table} SET status=:status, updated_at=NOW(){extra_sql} WHERE id=:id AND status='WAITING_FOR_STOCK'"),
                 {"status": next_status, "id": row.id},
             )
             allocated_waiting += 1
@@ -113,6 +164,7 @@ async def run_maintenance(session: AsyncSession) -> dict:
     await session.commit()
     return {
         "releasedAllocations": len(released.all()),
+        "expiredExchangePayments": len(expired_exchange_rows),
         "expiredRequests": expired_requests,
         "slaBreaches": sla,
         "allocatedWaitingRequests": allocated_waiting,

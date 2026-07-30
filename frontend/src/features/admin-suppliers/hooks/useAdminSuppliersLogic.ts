@@ -114,6 +114,8 @@ export function useAdminSuppliersLogic({ suppliers, reloadCurrentTab }: UseAdmin
   }
 
   function editSupplier(supplier: any) {
+    setFormErrors({});
+    setSupplierCodeStatus('idle');
     setSupplierViewOnly(false);
     setEditingSupplierId(supplier.id);
     setSupplierForm({

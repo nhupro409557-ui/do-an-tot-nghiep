@@ -50,6 +50,7 @@ export function AdminEnterpriseShell({
 }: AdminEnterpriseShellProps) {
   const { user, userData } = useAuth();
   const [accountOpen, setAccountOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const userInitial = user?.displayName?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || 'A';
   const adminName = userData?.displayName || user?.displayName || 'Admin';
   const adminEmail = user?.email || '';
@@ -57,7 +58,7 @@ export function AdminEnterpriseShell({
 
   const groupedTabs = useMemo(
     () => tabs.reduce<Record<string, AdminShellTab[]>>((groups, tab) => {
-      const groupName = tab.group || 'Khac';
+      const groupName = tab.group || 'Khác';
       groups[groupName] = [...(groups[groupName] || []), tab];
       return groups;
     }, {}),
@@ -67,11 +68,12 @@ export function AdminEnterpriseShell({
   function handleTabChange(tabId: string) {
     onTabChange(tabId);
     onQueryChange('');
+    setMobileMenuOpen(false);
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f5f7fb]">
-      <aside className={`${collapsed ? 'w-[84px]' : 'w-[272px]'} hidden h-screen shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-200 lg:flex`}>
+    <div className="flex h-dvh overflow-hidden bg-[#f5f7fb]">
+      <aside className={`${collapsed ? 'w-[84px]' : 'w-[272px]'} hidden h-dvh shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-200 lg:flex`}>
         <div className="border-b border-slate-200 px-4 py-3">
           <div className="flex items-center justify-between gap-2">
             <a href="/" className="flex min-w-0 items-center gap-3 transition hover:opacity-80">
@@ -90,7 +92,7 @@ export function AdminEnterpriseShell({
               )}
             </a>
             {!collapsed && (
-              <a href="/" title="Tro ve trang chu" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
+              <a href="/" title="Trở về trang chủ" aria-label="Trở về trang chủ" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">
                 <Home className="h-4 w-4" />
               </a>
             )}
@@ -106,6 +108,7 @@ export function AdminEnterpriseShell({
                   type="button"
                   title={tab.label}
                   onClick={() => handleTabChange(tab.id)}
+                  aria-pressed={activeTab === tab.id}
                   className={`flex h-11 w-full items-center justify-center rounded-lg transition ${activeTab === tab.id ? 'bg-red-50 text-[#d70018]' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}
                 >
                   {tab.icon}
@@ -123,6 +126,7 @@ export function AdminEnterpriseShell({
                         key={tab.id}
                         type="button"
                         onClick={() => handleTabChange(tab.id)}
+                        aria-pressed={activeTab === tab.id}
                         className={`flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold transition ${activeTab === tab.id ? 'bg-red-50 text-[#d70018]' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'}`}
                       >
                         <span className="shrink-0">{tab.icon}</span>
@@ -149,25 +153,39 @@ export function AdminEnterpriseShell({
         </div>
       </aside>
 
-      <div className="flex h-screen min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex h-dvh min-w-0 flex-1 flex-col overflow-hidden">
         <header className="border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-3">
-              <button type="button" onClick={onToggleCollapsed} title={collapsed ? 'Mở rộng menu' : 'Thu gọn menu'} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-600 transition hover:bg-slate-100 hover:text-slate-950">
-                <Menu className="h-5 w-5 lg:hidden" />
-                {collapsed ? <PanelLeftOpen className="hidden h-5 w-5 lg:block" /> : <PanelLeftClose className="hidden h-5 w-5 lg:block" />}
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((open) => !open)}
+                title={mobileMenuOpen ? 'Đóng menu quản trị' : 'Mở menu quản trị'}
+                aria-expanded={mobileMenuOpen}
+                aria-controls="admin-mobile-navigation"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-red-200 lg:hidden"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={onToggleCollapsed}
+                title={collapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
+                className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-red-200 lg:inline-flex"
+              >
+                {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
               </button>
               <div className="min-w-0 text-xs font-semibold text-slate-500">
                 <span>Admin</span>
                 <span className="mx-2 text-slate-300">/</span>
                 <span>Bảng điều khiển</span>
                 <span className="mx-2 text-slate-300">/</span>
-                <span className="text-slate-800">{title}</span>
+                <span className="inline-block max-w-[42vw] truncate align-bottom text-slate-800 sm:max-w-none">{title}</span>
               </div>
             </div>
 
-            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
-              <label className="relative block min-w-0 sm:w-[340px]">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+              <label className="relative block w-full min-w-0 sm:w-[340px] sm:flex-1 xl:flex-none">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
                   value={query}
@@ -181,10 +199,10 @@ export function AdminEnterpriseShell({
                   </button>
                 )}
               </label>
-              <button type="button" title="Làm mới dữ liệu" onClick={onRefresh} className="inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-slate-700 transition hover:bg-slate-50">
+              <button type="button" title="Làm mới dữ liệu" aria-label="Làm mới dữ liệu" onClick={onRefresh} className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-red-200">
                 <RefreshCw className={`h-5 w-5 ${busy ? 'animate-spin' : ''}`} />
               </button>
-              <button type="button" title="Thông báo" className="relative inline-flex h-11 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-slate-700 transition hover:bg-slate-50">
+              <button type="button" title="Thông báo" aria-label="Thông báo quản trị" className="relative inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-red-200">
                 <Bell className="h-5 w-5" />
                 <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#d70018]" />
               </button>
@@ -192,10 +210,12 @@ export function AdminEnterpriseShell({
                 <button
                   type="button"
                   onClick={() => setAccountOpen((value) => !value)}
-                  className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  aria-label={`Tài khoản quản trị ${roleLabel}`}
+                  aria-expanded={accountOpen}
+                  className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-red-200"
                 >
                   <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-sky-600 text-xs font-bold text-white">{userInitial}</span>
-                  <span>{roleLabel}</span>
+                  <span className="hidden sm:inline">{roleLabel}</span>
                   <ChevronDown className="h-4 w-4 text-slate-400" />
                 </button>
                 {accountOpen && (
@@ -215,25 +235,40 @@ export function AdminEnterpriseShell({
           </div>
         </header>
 
-        {!collapsed && (
-          <div className="border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => handleTabChange(tab.id)}
-                  className={`flex min-h-10 items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold transition ${activeTab === tab.id ? 'bg-red-50 text-[#d70018]' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-                >
-                  <span className="shrink-0">{tab.icon}</span>
-                  <span className="truncate">{tab.label}</span>
-                </button>
+        {mobileMenuOpen && (
+          <div id="admin-mobile-navigation" className="border-b border-slate-200 bg-white px-4 py-3 shadow-sm lg:hidden">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Điều hướng quản trị</div>
+                <div className="mt-0.5 text-xs text-slate-400">Chọn phân hệ cần làm việc</div>
+              </div>
+              <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">{tabs.length} chức năng</span>
+            </div>
+            <div className="admin-sidebar-menu-scroll max-h-[48dvh] space-y-4 overflow-y-auto pr-1">
+              {Object.entries(groupedTabs).map(([groupLabel, groupTabs]) => (
+                <section key={groupLabel} aria-label={groupLabel}>
+                  <div className="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-wide text-slate-400">{groupLabel}</div>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {groupTabs.map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => handleTabChange(tab.id)}
+                        aria-pressed={activeTab === tab.id}
+                        className={`flex min-h-11 items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-red-200 ${activeTab === tab.id ? 'bg-red-50 text-[#d70018]' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                      >
+                        <span className="shrink-0">{tab.icon}</span>
+                        <span className="truncate">{tab.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           </div>
         )}
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className="admin-workspace flex-1 overflow-y-auto p-4 sm:p-6">
           <section className="mb-5 rounded-lg border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">

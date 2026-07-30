@@ -1,103 +1,125 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
-import { X, Send, Sparkles, ShoppingCart, Minus } from 'lucide-react';
+import { ImageOff, X, Send, Sparkles, ShoppingCart, Minus, ThumbsDown, ThumbsUp, PhoneCall, RotateCcw } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
-import { getAccessToken } from '../../services/authDb';
+import {
+  askAIAssistant,
+  createAIConversation,
+  submitAIAssistantFeedback,
+  type AIAssistantAnswerMode,
+  type AIConversationSession,
+  type AIAssistantRequest,
+} from '../../services/aiAssistantApi';
 import robotAvatar from '../../assets/chatbot-robot.png';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001/api';
 
 type Message = {
   id: string;
   sender: 'ai' | 'user';
-  text: React.ReactNode;
+  text: string;
   products?: any[];
+  answerMode?: AIAssistantAnswerMode;
+  responseId?: string;
+  feedback?: 'helpful' | 'not_helpful';
+  handover?: {
+    phone?: string | null;
+    email?: string | null;
+    supportRequestCode?: string | null;
+  } | null;
 };
 
-const productSpecs: Record<string, any> = {
-  'iPhone 15 Pro Max': {
-    screen: '6.7 inch, Super Retina XDR OLED',
-    cpu: 'Apple A17 Pro',
-    ram: '8 GB',
-    camera: 'Chinh 48 MP va phu 12 MP',
-    price: '29.990.000d',
-  },
-  'S24 Ultra': {
-    screen: '6.8 inch, Dynamic AMOLED 2X',
-    cpu: 'Snapdragon 8 Gen 3 for Galaxy',
-    ram: '12 GB',
-    camera: 'Chinh 200 MP va phu 50 MP, 12 MP, 10 MP',
-    price: '28.990.000d',
-  },
+const initialMessages = (): Message[] => [{
+  id: '1',
+  sender: 'ai',
+  text: 'Chào bạn! 👋 Mình là trợ lý AI của ElectroMart. Mình có thể tư vấn sản phẩm, chính sách, đơn hàng và điểm tích lũy cho bạn.',
+}];
+
+const conversationStorageKey = (userId?: string) => `electromart_ai_conversation_${userId || 'guest'}`;
+const messagesStorageKey = (userId?: string) => `electromart_ai_messages_${userId || 'guest'}`;
+
+const loadStoredMessages = (userId?: string): Message[] => {
+  try {
+    const stored = sessionStorage.getItem(messagesStorageKey(userId));
+    const parsed = stored ? JSON.parse(stored) : null;
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : initialMessages();
+  } catch {
+    return initialMessages();
+  }
+};
+
+const loadStoredConversation = (userId?: string): AIConversationSession | null => {
+  try {
+    const stored = sessionStorage.getItem(conversationStorageKey(userId));
+    const parsed = stored ? JSON.parse(stored) : null;
+    if (
+      typeof parsed?.conversation_id !== 'string'
+      || typeof parsed?.conversation_token !== 'string'
+      || typeof parsed?.expires_at !== 'string'
+      || Date.parse(parsed.expires_at) <= Date.now() + 60_000
+    ) {
+      return null;
+    }
+    return parsed as AIConversationSession;
+  } catch {
+    return null;
+  }
 };
 
 const quickActions = [
-  { label: '🛡️ Chính sách bảo hành', text: 'Chính sách bảo hành' },
-  { label: '💻 Tư vấn laptop', text: 'Tư vấn laptop cho sinh viên IT' },
-  { label: '📦 Tra đơn hàng', text: 'Đơn hàng của tôi ở đâu?' },
+  { label: 'Chính sách bảo hành', text: 'Chính sách bảo hành' },
+  { label: 'Tư vấn laptop', text: 'Tư vấn laptop cho sinh viên IT' },
+  { label: 'Tra đơn hàng', text: 'Đơn hàng của tôi ở đâu?' },
 ];
 
-function fallbackResponse(userText: string) {
-  const textLower = userText.toLowerCase();
+const ProductThumbnail = ({ src }: { src?: string }) => {
+  const [failed, setFailed] = useState(!src);
 
-  if (textLower.includes('bao hanh') || textLower.includes('bảo hành')) {
-    return 'Sản phẩm được bảo hành chính hãng 12 tháng. Email xác nhận đơn hàng và thông báo bảo mật luôn được gửi để bảo đảm quyền lợi của bạn.';
-  }
+  return (
+    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white text-gray-400">
+      {failed ? (
+        <ImageOff className="h-5 w-5" aria-hidden="true" />
+      ) : (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          className="h-full w-full object-contain"
+          onError={() => setFailed(true)}
+        />
+      )}
+    </span>
+  );
+};
 
-  if (textLower.includes('giao hang') || textLower.includes('giao hàng')) {
-    return 'Đơn hàng từ 1.000.000đ được hỗ trợ giao hàng. Đơn nội thành có thể xử lý nhanh tùy khu vực.';
-  }
-
-  if (textLower.includes('so sanh') || textLower.includes('so sánh') || textLower.includes('s24')) {
-    const prod1 = productSpecs['iPhone 15 Pro Max'];
-    const prod2 = productSpecs['S24 Ultra'];
-    return (
-      <div className="text-sm">
-        <p className="mb-2">
-          Bảng so sánh nhanh giữa <strong>iPhone 15 Pro Max</strong> và <strong>S24 Ultra</strong>:
-        </p>
-        <div className="overflow-x-auto rounded-lg border border-gray-200">
-          <table className="min-w-full text-left text-xs">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border-b border-r px-2 py-1">Thông số</th>
-                <th className="border-b border-r px-2 py-1 text-red-600">iPhone 15 Pro Max</th>
-                <th className="border-b px-2 py-1 text-red-500">S24 Ultra</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white">
-              <tr><td className="border-b border-r bg-gray-50 px-2 py-1 font-medium">Màn hình</td><td className="border-b border-r px-2 py-1">{prod1.screen}</td><td className="border-b px-2 py-1">{prod2.screen}</td></tr>
-              <tr><td className="border-b border-r bg-gray-50 px-2 py-1 font-medium">Chipset</td><td className="border-b border-r px-2 py-1">{prod1.cpu}</td><td className="border-b px-2 py-1">{prod2.cpu}</td></tr>
-              <tr><td className="border-b border-r bg-gray-50 px-2 py-1 font-medium">RAM</td><td className="border-b border-r px-2 py-1">{prod1.ram}</td><td className="border-b px-2 py-1">{prod2.ram}</td></tr>
-              <tr><td className="border-b border-r bg-gray-50 px-2 py-1 font-medium">Camera</td><td className="border-b border-r px-2 py-1">{prod1.camera}</td><td className="border-b px-2 py-1">{prod2.camera}</td></tr>
-              <tr><td className="border-b border-r bg-gray-50 px-2 py-1 font-medium">Giá</td><td className="border-b border-r px-2 py-1 font-bold text-red-600">{prod1.price}</td><td className="border-b px-2 py-1 font-bold text-red-500">{prod2.price}</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  }
-
-  return 'Mình chỉ hỗ trợ tư vấn mua sắm điện thoại, laptop, phụ kiện, đơn hàng và chính sách của cửa hàng.';
-}
+const cleanAssistantAnswer = (answer: string) => answer
+  .replace(/\*\*(.*?)\*\*/g, '$1')
+  .replace(/`([^`]+)`/g, '$1')
+  .trim();
 
 export const AIChatWidget = () => {
+  const location = useLocation();
   const { items } = useCart();
   const { user, userData } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [conversationId] = useState(() => crypto.randomUUID());
+  const [conversation, setConversation] = useState<AIConversationSession | null>(() => loadStoredConversation(user?.uid));
+  const [messageOwnerKey, setMessageOwnerKey] = useState(() => user?.uid || 'guest');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      sender: 'ai',
-      text: 'Chào bạn! 👋 Mình là trợ lý AI của Echophone. Mình có thể tư vấn sản phẩm, chính sách, đơn hàng và điểm tích lũy cho bạn.',
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>(() => loadStoredMessages(user?.uid));
+
+  useEffect(() => {
+    setMessageOwnerKey(user?.uid || 'guest');
+    const storedConversation = loadStoredConversation(user?.uid);
+    setConversation(storedConversation);
+    setMessages(storedConversation ? loadStoredMessages(user?.uid) : initialMessages());
+  }, [user?.uid]);
+
+  useEffect(() => {
+    sessionStorage.setItem(`electromart_ai_messages_${messageOwnerKey}`, JSON.stringify(messages));
+  }, [messageOwnerKey, messages]);
 
   const currentContext = {
     viewing: items[0]?.name || 'Danh mục sản phẩm',
@@ -110,7 +132,7 @@ export const AIChatWidget = () => {
     }
   }, [messages, isOpen, isTyping]);
 
-  const dynamicContext = () => ({
+  const dynamicContext = (): AIAssistantRequest['dynamic_context'] => ({
     cart_items: items.map((item) => ({
       product_id: item.productId,
       name: item.name,
@@ -135,27 +157,22 @@ export const AIChatWidget = () => {
   });
 
   const requestBackendAnswer = async (text: string) => {
-    const token = getAccessToken();
-    const response = await fetch(`${API_BASE_URL}/ai-assistant/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        conversation_id: conversationId,
-        message: text,
-        dynamic_context: dynamicContext(),
-        model_provider: 'GEMINI',
-        model_name: 'gemini-flash-latest',
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('AI backend unavailable');
+    let activeConversation = conversation;
+    if (!activeConversation || Date.parse(activeConversation.expires_at) <= Date.now() + 60_000) {
+      activeConversation = await createAIConversation();
+      sessionStorage.setItem(conversationStorageKey(user?.uid), JSON.stringify(activeConversation));
+      setConversation(activeConversation);
     }
-
-    return await response.json() as { answer: string; recommended_products?: any[] };
+    const productRouteMatch = location.pathname.match(/^\/product\/([^/]+)\/?$/);
+    return askAIAssistant({
+      conversation_id: activeConversation.conversation_id,
+      conversation_token: activeConversation.conversation_token,
+      message: text,
+      dynamic_context: dynamicContext(),
+      page_context: productRouteMatch
+        ? { product_id: decodeURIComponent(productRouteMatch[1]), cart_item_ids: [] }
+        : undefined,
+    });
   };
 
   const handleSendMessage = async (text: string) => {
@@ -170,18 +187,71 @@ export const AIChatWidget = () => {
       setMessages((prev) => [...prev, {
         id: (Date.now() + 1).toString(),
         sender: 'ai',
-        text: data.answer,
+        text: cleanAssistantAnswer(data.answer),
         products: data.recommended_products || [],
+        answerMode: data.answer_mode,
+        responseId: data.response_id,
+        handover: data.handover ? {
+          phone: data.handover.phone,
+          email: data.handover.email,
+          supportRequestCode: data.handover.support_request_code,
+        } : null,
       }]);
     } catch {
-      setMessages((prev) => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', text: fallbackResponse(text) }]);
+      setMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
+        sender: 'ai',
+        text: 'Trợ lý đang tạm thời chưa kết nối được. Bạn vui lòng thử lại sau ít phút.',
+      }]);
     } finally {
       setIsTyping(false);
     }
   };
 
+  const startNewConversation = () => {
+    sessionStorage.removeItem(conversationStorageKey(user?.uid));
+    setConversation(null);
+    setMessages(initialMessages());
+    setInputText('');
+  };
+
+  const handleFeedback = async (messageId: string, responseId: string, helpful: boolean) => {
+    if (!conversation) return;
+    try {
+      const result = await submitAIAssistantFeedback({
+        response_id: responseId,
+        conversation_id: conversation.conversation_id,
+        conversation_token: conversation.conversation_token,
+        helpful,
+      });
+      setMessages((current) => {
+        const feedback: Message['feedback'] = helpful ? 'helpful' : 'not_helpful';
+        const updated = current.map((message) => (
+          message.id === messageId
+          ? { ...message, feedback }
+          : message
+        ));
+        if (!helpful && result.handover_recommended && result.handover) {
+          return [...updated, {
+            id: `${Date.now()}-handover`,
+            sender: 'ai',
+            text: result.handover.display_text || 'Bạn có muốn liên hệ bộ phận chăm sóc khách hàng không?',
+            handover: {
+              phone: result.handover.phone,
+              email: result.handover.email,
+              supportRequestCode: result.handover.support_request_code,
+            },
+          }];
+        }
+        return updated;
+      });
+    } catch {
+      // Không làm gián đoạn cuộc trò chuyện nếu dịch vụ ghi nhận phản hồi tạm lỗi.
+    }
+  };
+
   return (
-    <div className="fixed bottom-20 right-3 z-[60] md:bottom-24 md:right-5 lg:bottom-6 lg:right-6">
+    <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+7rem)] right-4 z-[60] md:bottom-24 md:right-5 lg:bottom-6 lg:right-6">
       <LazyMotion features={domAnimation}>
         <AnimatePresence>
           {isOpen && (
@@ -190,7 +260,7 @@ export const AIChatWidget = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.92 }}
             transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-            className="absolute bottom-16 right-0 flex h-[min(520px,calc(100dvh-8.5rem))] w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl md:bottom-[4.5rem] md:h-[500px] md:w-[380px] md:rounded-3xl lg:bottom-20 lg:h-[540px] lg:w-[400px]"
+            className="absolute bottom-16 right-0 flex h-[min(500px,calc(100dvh-13rem))] w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl md:bottom-[4.5rem] md:h-[500px] md:w-[380px] md:rounded-3xl lg:bottom-20 lg:h-[540px] lg:w-[400px]"
             style={{ boxShadow: '0 25px 60px -15px rgba(220, 38, 38, 0.25), 0 10px 30px -10px rgba(0,0,0,0.1)' }}
           >
             {/* Header */}
@@ -205,7 +275,7 @@ export const AIChatWidget = () => {
                       <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-red-500"></div>
                     </div>
                     <div>
-                      <h3 className="font-bold text-white text-sm tracking-wide">Echo Assistant</h3>
+                      <h3 className="font-bold text-white text-sm tracking-wide">ElectroMart Assistant</h3>
                       <p className="text-[11px] text-red-100 flex items-center gap-1">
                         <Sparkles className="w-3 h-3" />
                         Trợ lý AI thông minh
@@ -213,10 +283,13 @@ export const AIChatWidget = () => {
                     </div>
                   </div>
                   <div className="flex items-center self-center gap-1">
-                    <button type="button" onClick={() => setIsOpen(false)} className="w-8 h-8 rounded-full inline-flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors">
+                    <button type="button" onClick={startNewConversation} aria-label="Bắt đầu cuộc trò chuyện mới" title="Cuộc trò chuyện mới" className="inline-flex h-11 w-11 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white">
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+                    <button type="button" onClick={() => setIsOpen(false)} aria-label="Thu nhỏ cửa sổ trò chuyện" className="inline-flex h-11 w-11 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white">
                       <Minus className="w-4 h-4" />
                     </button>
-                    <button type="button" onClick={() => setIsOpen(false)} className="w-8 h-8 rounded-full inline-flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors">
+                    <button type="button" onClick={() => setIsOpen(false)} aria-label="Đóng cửa sổ trò chuyện" className="inline-flex h-11 w-11 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -255,18 +328,24 @@ export const AIChatWidget = () => {
                         ? 'bg-gradient-to-br from-red-600 to-red-500 text-white rounded-2xl rounded-br-sm shadow-md shadow-red-100'
                         : 'bg-white text-gray-700 border border-gray-100 rounded-2xl rounded-bl-sm shadow-sm'
                     }`}>
-                      <div className="leading-relaxed">{msg.text}</div>
+                      <div className="whitespace-pre-wrap leading-relaxed">{msg.text}</div>
+                      {msg.answerMode === 'DATABASE_FALLBACK' && (
+                        <div className="mt-2 text-[10px] font-medium text-amber-700">
+                          Trả lời từ dữ liệu cửa hàng do AI đang tạm bận
+                        </div>
+                      )}
                       {msg.products && msg.products.length > 0 && (
                         <div className="mt-3 space-y-2">
                           {msg.products.map((product) => (
                             <a
                               key={product.id || product.slug || product.name}
-                              href={`/products/${product.slug || product.id}`}
+                              href={product.isUsed
+                                ? `/used-products/${product.slug || product.id}`
+                                : `/products/${product.slug || product.id}`}
+                              aria-label={`Xem sản phẩm ${product.name}`}
                               className="flex gap-2 rounded-xl border border-gray-100 bg-gray-50 p-2.5 text-left hover:bg-red-50 hover:border-red-100 transition-colors"
                             >
-                              {product.imageUrl && (
-                                <img src={product.imageUrl} alt={product.name} className="h-12 w-12 shrink-0 rounded-lg object-contain bg-white" />
-                              )}
+                              <ProductThumbnail src={product.imageUrl} />
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-xs font-bold text-gray-900">{product.name}</span>
                                 <span className="block text-xs text-red-600 font-semibold mt-0.5">
@@ -275,6 +354,51 @@ export const AIChatWidget = () => {
                               </span>
                             </a>
                           ))}
+                        </div>
+                      )}
+                      {msg.handover?.phone && (
+                        <a
+                          href={`tel:${msg.handover.phone.replace(/[\s.-]/g, '')}`}
+                          className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-emerald-700"
+                        >
+                          <PhoneCall className="h-4 w-4" />
+                          Gọi CSKH: {msg.handover.phone}
+                        </a>
+                      )}
+                      {!msg.handover?.phone && msg.handover?.email && (
+                        <a
+                          href={`mailto:${msg.handover.email}`}
+                          className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-emerald-700"
+                        >
+                          Liên hệ CSKH: {msg.handover.email}
+                        </a>
+                      )}
+                      {msg.handover?.supportRequestCode && (
+                        <div className="mt-2 text-[11px] font-semibold text-emerald-700">
+                          Mã hỗ trợ: {msg.handover.supportRequestCode}
+                        </div>
+                      )}
+                      {msg.sender === 'ai' && msg.responseId && (
+                        <div className="mt-2 flex items-center gap-1 border-t border-gray-100 pt-2 text-[10px] text-gray-500">
+                          <span className="mr-1">Câu trả lời hữu ích?</span>
+                          <button
+                            type="button"
+                            aria-label="Câu trả lời hữu ích"
+                            disabled={Boolean(msg.feedback)}
+                            onClick={() => void handleFeedback(msg.id, msg.responseId!, true)}
+                            className={`rounded p-1 transition-colors ${msg.feedback === 'helpful' ? 'bg-emerald-100 text-emerald-700' : 'hover:bg-gray-100'} disabled:cursor-default`}
+                          >
+                            <ThumbsUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Câu trả lời chưa hữu ích"
+                            disabled={Boolean(msg.feedback)}
+                            onClick={() => void handleFeedback(msg.id, msg.responseId!, false)}
+                            className={`rounded p-1 transition-colors ${msg.feedback === 'not_helpful' ? 'bg-rose-100 text-rose-700' : 'hover:bg-gray-100'} disabled:cursor-default`}
+                          >
+                            <ThumbsDown className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       )}
                     </div>
@@ -306,7 +430,7 @@ export const AIChatWidget = () => {
                   <button type="button"
                     key={action.text}
                     onClick={() => handleSendMessage(action.text)}
-                    className="text-xs font-semibold bg-white border border-red-100 text-red-700 px-3.5 py-2 rounded-full hover:bg-red-50 hover:border-red-200 transition-all shadow-sm"
+                    className="min-h-11 rounded-full border border-red-100 bg-white px-3.5 py-2 text-xs font-semibold text-red-700 shadow-sm transition-all hover:border-red-200 hover:bg-red-50"
                   >
                     {action.label}
                   </button>
@@ -327,7 +451,8 @@ export const AIChatWidget = () => {
               />
               <button type="button"
                 onClick={() => handleSendMessage(inputText)}
-                className="bg-gradient-to-r from-red-600 to-red-500 text-white w-10 h-10 rounded-full shrink-0 inline-flex items-center justify-center hover:from-red-700 hover:to-red-600 transition-all shadow-md shadow-red-200 disabled:opacity-40 disabled:shadow-none"
+                aria-label="Gửi tin nhắn"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-red-600 to-red-500 text-white shadow-md shadow-red-200 transition-all hover:from-red-700 hover:to-red-600 disabled:opacity-40 disabled:shadow-none"
                 disabled={!inputText.trim()}
               >
                 <Send className="w-4 h-4" />
@@ -336,7 +461,7 @@ export const AIChatWidget = () => {
 
             {/* Powered by */}
             <div className="pb-2.5 pt-1 bg-white text-center shrink-0">
-              <span className="text-[10px] text-gray-400">Powered by Echophone AI ✨</span>
+              <span className="text-[10px] text-gray-400">Được hỗ trợ bởi ElectroMart AI</span>
             </div>
             </m.div>
           )}
@@ -346,6 +471,8 @@ export const AIChatWidget = () => {
       {/* Floating Button */}
       <button type="button"
         onClick={() => setIsOpen(!isOpen)}
+        aria-label={isOpen ? 'Đóng trợ lý AI' : 'Mở trợ lý AI'}
+        aria-expanded={isOpen}
         className="absolute bottom-0 right-0 group z-50"
       >
         <div className="relative">
@@ -354,7 +481,7 @@ export const AIChatWidget = () => {
             <div className="absolute inset-0 rounded-full bg-red-500/30 animate-ping"></div>
           )}
           {/* Main button */}
-          <div className={`relative inline-flex h-12 w-12 items-center justify-center rounded-full shadow-xl transition-all duration-300 md:h-14 md:w-14 lg:h-16 lg:w-16 ${
+          <div className={`relative inline-flex h-11 w-11 items-center justify-center rounded-full shadow-xl transition-all duration-300 md:h-14 md:w-14 lg:h-16 lg:w-16 ${
             isOpen
               ? 'bg-gradient-to-br from-red-600 to-red-500 scale-90'
               : 'bg-gradient-to-br from-red-600 to-rose-500 hover:scale-110 hover:shadow-2xl hover:shadow-red-300/40'
@@ -362,7 +489,7 @@ export const AIChatWidget = () => {
             {isOpen ? (
               <X className="w-6 h-6 text-white" />
             ) : (
-              <img src={robotAvatar} alt="Chat" className="h-9 w-9 rounded-full object-cover ring-1 ring-white/20 md:h-10 md:w-10 lg:h-12 lg:w-12" />
+              <img src={robotAvatar} alt="" className="h-8 w-8 rounded-full object-cover ring-1 ring-white/20 md:h-10 md:w-10 lg:h-12 lg:w-12" />
             )}
           </div>
           {/* Unread badge (when closed) */}

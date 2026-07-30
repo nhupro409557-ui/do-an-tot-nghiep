@@ -28,9 +28,9 @@ export default function AdminServicesTab(props: AdminServicesTabProps) {
     warrantyDurationOptions,
     usePermission,
   } = props;
-  const canCreateService = usePermission('product:create');
-  const canUpdateService = usePermission('product:update');
-  const canDeleteService = usePermission('product:delete');
+  const canCreateService = usePermission('service:create');
+  const canUpdateService = usePermission('service:update');
+  const canDeleteService = usePermission('service:delete');
 
   return (
     <AdminPanel

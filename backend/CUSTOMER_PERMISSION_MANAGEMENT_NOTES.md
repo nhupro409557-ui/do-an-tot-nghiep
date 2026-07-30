@@ -4,7 +4,6 @@
 
 - Chuẩn hóa thông báo lỗi quyền không hợp lệ, không tìm thấy tài khoản/vai trò và hạn chế thao tác với Super Admin/Staff Admin sang tiếng Việt có dấu.
 - Giữ nguyên role code và permission code trong payload/API để không ảnh hưởng kiểm tra quyền hiện tại.
-- Verification: `py_compile` và test phân quyền admin liên quan pass.
 
 ## Cập nhật 2026-06-29 - Bổ sung test staff và phân quyền admin
 
@@ -12,7 +11,6 @@
 - Test xác nhận customer bị chặn khỏi API phân quyền, admin không được xem/cập nhật quyền của chính mình, quyền không tồn tại trả `400`, staff role không được cập nhật qua role permissions vì dùng per-account permissions.
 - Test assert trực tiếp `users`, `user_permissions`, `role_permissions`.
 - Ghi nhận hành vi hiện tại: `create_staff_account` bỏ qua `permissionCodes` trong payload tạo mới và trả `extraPermissionCodes = []`; quyền được cấp qua endpoint `/users/{id}/permissions`.
-- Verification: `pytest backend/tests/test_14_admin_staff_permissions_flow.py -q` pass.
 
 ## Phạm vi hiện tại
 

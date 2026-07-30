@@ -18,6 +18,14 @@ export interface CartItem {
   imageUrl: string;
   quantity: number;
   originalPrice?: number;
+  categoryId?: string | null;
+  category_id?: string | null;
+  brandId?: string | null;
+  brand_id?: string | null;
+  isFlashSale?: boolean;
+  is_flash_sale?: boolean;
+  flashSaleId?: string;
+  flashSalePerUserLimit?: number | null;
 
   // Dịch vụ đi kèm
   attachedServices?: AttachedServiceItem[];
@@ -211,44 +219,21 @@ export function getNormalizedCartItems(items: CartItem[]): CartItem[] {
     const hasParentInCart = parentProductId && mainProductIds.has(parentProductId);
 
     if (hasParentInCart) {
-      // Có sản phẩm chính -> được hưởng ưu đãi mua kèm tối đa là 1 chiếc
-      const discountQty = 1;
-      const normalQty = totalQty - discountQty;
-
-      // Tự động kiểm tra và giảm giá nếu giá mua kèm ưu đãi đang bị 0đ hoặc không hợp lệ
-      let finalPrice = Number(group[0].price || 0);
+      // Có sản phẩm chính -> ưu đãi mua kèm nhưng backend chưa xác nhận offer nên không tự giảm giá.
       const baseOriginalPrice = Number(group[0].originalPrice || 0);
+      const finalPrice = baseOriginalPrice || Number(group[0].price || 0);
 
-      // Nếu giá bán kèm là 0 hoặc bằng giá gốc, và có giá gốc hợp lệ -> tự giảm giá (mặc định giảm 25%)
-      if (finalPrice <= 0 && baseOriginalPrice > 0) {
-        finalPrice = Math.round(baseOriginalPrice * 0.75); // Tự động giảm giá 25%
-      }
-
-      // Dòng 1: Mua kèm giảm giá (tối đa 1 chiếc)
       normalized.push({
         ...group[0],
-        cartItemId: `${group[0].cartItemId}-accessory`, // ID hiển thị đặc trưng
-        productId: `${productId}-accessory`, // ID hiển thị để UI render/tương tác
-        name: `${group[0].name} (Sản phẩm mua kèm được giảm giá)`,
-        quantity: discountQty,
-        price: finalPrice, // Giá ưu đãi bán kèm đã tự động xử lý
-        originalPrice: baseOriginalPrice,
+        cartItemId: `${group[0].cartItemId}-normal`,
+        productId: `${productId}-normal`,
+        name: group[0].name.replace(' (Sản phẩm mua kèm được giảm giá)', ''),
+        quantity: totalQty,
+        price: finalPrice,
+        originalPrice: undefined,
+        isAccessory: false,
+        parentProductId: undefined,
       });
-
-      // Dòng 2: Bình thường (số lượng còn lại, nếu có)
-      if (normalQty > 0) {
-        normalized.push({
-          ...group[0],
-          cartItemId: `${group[0].cartItemId}-normal`, // ID hiển thị đặc trưng
-          productId: `${productId}-normal`, // ID hiển thị để UI render/tương tác
-          name: group[0].name.replace(' (Sản phẩm mua kèm được giảm giá)', ''),
-          quantity: normalQty,
-          price: baseOriginalPrice || group[0].price, // Sử dụng giá gốc
-          originalPrice: undefined,
-          isAccessory: false,
-          parentProductId: undefined,
-        });
-      }
     } else {
       // Không có sản phẩm chính -> tính theo giá gốc cho toàn bộ số lượng
       const baseOriginalPrice = Number(group[0].originalPrice || 0);

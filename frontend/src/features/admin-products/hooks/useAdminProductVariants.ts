@@ -71,6 +71,28 @@ export function useAdminProductVariants({
         attributes[optionName] = value;
       }
     });
+
+    const addLegacyAttribute = (aliases: string[], label: string, value: unknown) => {
+      const normalizedAliases = new Set(aliases.map(normalizeOptionKey));
+      const alreadyRepresented = Object.keys(attributes).some((name) =>
+        normalizedAliases.has(normalizeOptionKey(name))
+      );
+      const normalizedValue = String(value || '').trim();
+      if (!alreadyRepresented && normalizedValue) {
+        attributes[label] = normalizedValue;
+      }
+    };
+    addLegacyAttribute(
+      ['storage', 'Bộ nhớ trong', 'Bộ nhớ', 'Dung lượng', 'ROM'],
+      'Bộ nhớ trong',
+      variant.storage
+    );
+    addLegacyAttribute(['ram', 'Bộ nhớ RAM'], 'RAM', variant.ram);
+    addLegacyAttribute(
+      ['configuration', 'Cấu hình', 'Phiên bản'],
+      'Cấu hình',
+      variant.configuration
+    );
     return attributes;
   }
 
@@ -95,7 +117,6 @@ export function useAdminProductVariants({
           ...emptyVariant,
           price: prev.price,
           salePrice: prev.discountPrice,
-          stockQuantity: 0,
           isDefault: prev.variants.length === 0,
         },
       ],

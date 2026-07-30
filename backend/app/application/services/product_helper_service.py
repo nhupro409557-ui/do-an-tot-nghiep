@@ -156,7 +156,7 @@ def validate_optimized_media(payload: object) -> None:
     if len(images) > 20:
         raise HTTPException(status_code=400, detail="Không thể tải lên quá 20 ảnh.")
     for image in images:
-        if image and not (image.startswith("http") or image.startswith("/images/") or image.startswith("data:")):
+        if image and not (image.startswith("/images/") or "/uploads/" in image or image.startswith("data:")):
             raise HTTPException(status_code=400, detail=f"Định dạng URL ảnh không hợp lệ: {image}")
 
 
@@ -164,13 +164,192 @@ async def resolve_catalog_labels(session: AsyncSession, payload: object) -> tupl
     category = getattr(payload, "category", None) or "ACCESSORY"
     brand = getattr(payload, "brand", None) or "Khac"
     category_id = getattr(payload, "categoryId", None)
+    subcategory_id = getattr(payload, "subcategoryId", None)
     brand_id = getattr(payload, "brandId", None)
     if category_id:
         category_name = await product_repo.get_category_name(session, category_id)
-        if category_name:
-            category = category_name
+        if not category_name:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "CATEGORY_NOT_FOUND",
+                    "message": "Danh mục sản phẩm không tồn tại."
+                }
+            )
+        category = category_name
+    if subcategory_id:
+        from sqlalchemy import text
+        sub_row = await session.execute(
+            text("SELECT name, parent_id FROM categories WHERE id = :id AND is_deleted IS NOT TRUE"),
+            {"id": subcategory_id}
+        )
+        sub = sub_row.first()
+        if not sub:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "SUBCATEGORY_NOT_FOUND",
+                    "message": "Danh mục phụ không tồn tại."
+                }
+            )
+        if category_id and sub[1] != category_id:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "SUBCATEGORY_INVALID",
+                    "message": "Danh mục phụ không thuộc danh mục chính đã chọn."
+                }
+            )
     if brand_id:
         brand_name = await product_repo.get_brand_name(session, brand_id)
-        if brand_name:
-            brand = brand_name
+        if not brand_name:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "BRAND_NOT_FOUND",
+                    "message": "Thương hiệu sản phẩm không tồn tại."
+                }
+            )
+        brand = brand_name
     return category, brand
+
+
+async def get_merged_spec_fields(session: AsyncSession, category_id: UUID | None, subcategory_id: UUID | None) -> list[dict]:
+    leaf_id = subcategory_id or category_id
+    if not leaf_id:
+        return []
+    spec_fields = []
+    current_id = leaf_id
+    visited = set()
+    while current_id and current_id not in visited:
+        visited.add(current_id)
+        from sqlalchemy import text
+        row = await session.execute(
+            text("SELECT parent_id, spec_fields FROM categories WHERE id = :id AND is_deleted IS NOT TRUE"),
+            {"id": current_id}
+        )
+        res = row.first()
+        if not res:
+            break
+        parent_id, own_specs = res
+        spec_fields = (own_specs or []) + spec_fields
+        current_id = parent_id
+    return spec_fields
+
+
+def _numeric_spec_value(value: str, unit: str | None) -> str:
+    import re
+
+    text_value = str(value or "").strip()
+    if not unit:
+        return text_value
+    escaped_unit = re.escape(str(unit).strip())
+    return re.sub(rf"\s*{escaped_unit}\s*$", "", text_value, flags=re.IGNORECASE).strip()
+
+
+def _variant_field_value(variant: object, key: str, label: str | None) -> object:
+    if isinstance(variant, dict):
+        sources = [
+            variant.get("specs") or {},
+            variant.get("attributes") or {},
+            variant,
+        ]
+    else:
+        sources = [
+            getattr(variant, "specs", {}) or {},
+            getattr(variant, "attributes", {}) or {},
+            variant,
+        ]
+    normalized_key = normalized_option_key(key)
+    normalized_label = normalized_option_key(label or "")
+    for source in sources:
+        if isinstance(source, dict):
+            if key in source:
+                return source.get(key)
+            if label and label in source:
+                return source.get(label)
+            for source_key, value in source.items():
+                normalized_source_key = normalized_option_key(source_key)
+                if normalized_source_key == normalized_key or (
+                    normalized_label and normalized_source_key == normalized_label
+                ):
+                    return value
+        else:
+            for attr in {key, normalized_key}:
+                if hasattr(source, attr):
+                    return getattr(source, attr)
+    return None
+
+
+async def validate_product_specifications(
+    session: AsyncSession,
+    category_id: UUID | None,
+    subcategory_id: UUID | None,
+    specifications: dict,
+    variants: list = None
+) -> None:
+    spec_fields = await get_merged_spec_fields(session, category_id, subcategory_id)
+    if not spec_fields:
+        return
+    raw_variant_keys = specifications.get("_variantSpecKeys") or specifications.get("variantSpecKeys") or []
+    if isinstance(raw_variant_keys, str):
+        raw_variant_keys = [raw_variant_keys]
+    selected_variant_keys = {
+        normalized_option_key(item)
+        for item in raw_variant_keys
+        if str(item or "").strip()
+    }
+    for field in spec_fields:
+        key = field.get("key")
+        label = field.get("label") or key
+        required = bool(field.get("required"))
+        field_type = field.get("type", "text")
+        unit = field.get("unit")
+        selected_as_variant = bool(field.get("variant")) and normalized_option_key(key) in selected_variant_keys
+        
+        val = specifications.get(key)
+        is_field_in_variants = False
+        if selected_as_variant and not variants and required:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Thông số biến thể '{label}' là bắt buộc."
+            )
+        if variants:
+            for variant in variants:
+                var_val = _variant_field_value(variant, key, label)
+                if selected_as_variant or var_val is not None:
+                    is_field_in_variants = True
+                    if var_val is None or str(var_val).strip() == "":
+                        if required:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Thông số biến thể '{label}' là bắt buộc."
+                            )
+                        continue
+                    var_val_str = str(var_val).strip()
+                    if field_type == "number":
+                        try:
+                            float(_numeric_spec_value(var_val_str, unit))
+                        except ValueError:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Thông số biến thể '{label}' phải là một số hợp lệ."
+                            )
+
+        if not is_field_in_variants:
+            if val is None or str(val).strip() == "":
+                if required:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Thông số '{label}' là bắt buộc."
+                    )
+                continue
+            val_str = str(val).strip()
+            if field_type == "number":
+                try:
+                    float(_numeric_spec_value(val_str, unit))
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Thông số '{label}' phải là một số hợp lệ."
+                    )

@@ -96,6 +96,7 @@ export function ProductPurchaseActions({
               Giảm {activeFlashSale.discountType === 'PERCENT' ? `${activeFlashSale.discountValue}%` : formatPrice(displayOriginalPrice ? displayOriginalPrice - displayPrice : 0)}
               {activeFlashSale.endsAt ? ` · Kết thúc ${new Date(activeFlashSale.endsAt).toLocaleString('vi-VN')}` : ' · Không có thời hạn'}
               {flashSaleRemainingText}
+              {activeFlashSale.perUserLimit ? ` · Tối đa ${activeFlashSale.perUserLimit} sản phẩm/khách` : ''}
             </div>
           </div>
         )}

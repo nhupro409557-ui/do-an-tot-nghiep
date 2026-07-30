@@ -2,7 +2,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.infrastructure.database.models import StoreInfo
+from app.infrastructure.database.models import StoreInfo, StorePolicy
 
 
 async def get_store_info(session: AsyncSession) -> StoreInfo | None:
@@ -21,6 +21,23 @@ async def update_store_info(session: AsyncSession, params: dict) -> int:
     stmt = (
         update(StoreInfo)
         .values(**params_cleaned)
+    )
+    result = await session.execute(stmt)
+    return int(result.rowcount or 0)
+
+
+async def list_store_policies(session: AsyncSession) -> list[StorePolicy]:
+    result = await session.execute(select(StorePolicy).order_by(StorePolicy.title.asc()))
+    return list(result.scalars().all())
+
+
+async def update_store_policy(session: AsyncSession, code: str, params: dict) -> int:
+    allowed = {key: value for key, value in params.items() if key in {"title", "content", "is_active"}}
+    allowed["updated_at"] = datetime.now(timezone.utc)
+    stmt = (
+        update(StorePolicy)
+        .where(StorePolicy.code == code.upper())
+        .values(**allowed, version=StorePolicy.version + 1)
     )
     result = await session.execute(stmt)
     return int(result.rowcount or 0)

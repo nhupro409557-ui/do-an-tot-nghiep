@@ -30,8 +30,22 @@ class CompleteOrderCarrierMixin:
             order = await commerce_repo.get_order_for_update(self._session, order_id)
             if order is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
-            if order.status in {"CANCELLED", "REFUNDED", "RETURNED"}:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Không thể tạo vận đơn cho đơn đã đóng.")
+            if order.status not in {"PROCESSING", "SHIPPED"}:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Chỉ có thể tạo vận đơn khi đơn hàng ở trạng thái PROCESSING hoặc SHIPPED (trạng thái hiện tại: {order.status})."
+                )
+
+            outbound_res = await self._session.execute(
+                text("SELECT id, status FROM inventory_documents WHERE order_id = :order_id AND document_type = 'OUTBOUND'"),
+                {"order_id": order.id}
+            )
+            outbound_row = outbound_res.mappings().first()
+            if outbound_row and outbound_row["status"] != "COMPLETED":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Chỉ được tạo vận đơn khi phiếu xuất kho liên kết đã hoàn tất (COMPLETED)."
+                )
 
             shipment = await self._shipping_gateway.register_shipment(
                 provider=provider or order.shipping_provider,
@@ -109,6 +123,13 @@ class CompleteOrderCarrierMixin:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
             if not order.tracking_code:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đơn hàng chưa có mã vận đơn.")
+
+            if event_code in {"HANDED_TO_CARRIER", "IN_TRANSIT", "DELIVERED", "DELIVERY_FAILED"} and order.status != "SHIPPED":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Chỉ cập nhật tiến trình giao hàng khi đơn đang ở trạng thái SHIPPED.",
+                )
+
             await self._insert_shipment_event(
                 order=order,
                 event_code=event_code,
@@ -123,6 +144,14 @@ class CompleteOrderCarrierMixin:
                 changed_by="mock-carrier",
                 note=note or titles[event_code],
             )
+
+            if event_code == "DELIVERED":
+                await self.execute(
+                    order_id=order.id,
+                    status_value="COMPLETED",
+                    internal_note="Đơn hàng được hoàn tất từ sự kiện giao hàng DELIVERED.",
+                    changed_by="mock-carrier",
+                )
         response = await self.quote_carrier_shipment(order_id=order_id, provider=None)
         response.carrier_status = event_code
         response.message = titles[event_code]
@@ -171,7 +200,7 @@ class CompleteOrderCarrierMixin:
             },
         )
 
-    def _insert_order_history(
+    async def _insert_order_history(
         self,
         *,
         order: Order,

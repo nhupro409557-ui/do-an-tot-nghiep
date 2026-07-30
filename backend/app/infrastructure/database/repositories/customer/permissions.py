@@ -33,6 +33,14 @@ async def ensure_user_permissions_table(session: AsyncSession) -> None:
         )
     )
     await session.execute(text("CREATE INDEX IF NOT EXISTS idx_user_permissions_permission_id ON user_permissions(permission_id)"))
+    await session.execute(text("""
+        CREATE TABLE IF NOT EXISTS user_permission_denials (
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            permission_id UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
+            denied_at TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (user_id, permission_id)
+        )
+    """))
 
 
 async def list_known_permission_codes(session: AsyncSession, codes: list[str]) -> list[str]:
@@ -75,6 +83,28 @@ async def list_user_extra_permissions(session: AsyncSession, user_id: UUID) -> l
         ),
         {"user_id": user_id},
     )
+    return [str(code) for code in result.scalars().all()]
+
+
+async def replace_user_denied_permissions(session: AsyncSession, user_id: UUID, codes: list[str]) -> None:
+    await session.execute(text("DELETE FROM user_permission_denials WHERE user_id = :user_id"), {"user_id": user_id})
+    if codes:
+        await session.execute(
+            text("""
+                INSERT INTO user_permission_denials (user_id, permission_id)
+                SELECT :user_id, id FROM permissions WHERE code IN :codes
+                ON CONFLICT DO NOTHING
+            """).bindparams(bindparam("codes", expanding=True)),
+            {"user_id": user_id, "codes": codes},
+        )
+
+
+async def list_user_denied_permissions(session: AsyncSession, user_id: UUID) -> list[str]:
+    result = await session.execute(text("""
+        SELECT p.code FROM user_permission_denials upd
+        JOIN permissions p ON p.id = upd.permission_id
+        WHERE upd.user_id = :user_id ORDER BY p.code
+    """), {"user_id": user_id})
     return [str(code) for code in result.scalars().all()]
 
 

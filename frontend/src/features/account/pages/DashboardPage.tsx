@@ -24,7 +24,7 @@ export default function DashboardPage() {
   const [isDashboardMenuOpen, setIsDashboardMenuOpen] = useState(false);
   const addresses = useMemo<AccountAddress[]>(() => userData?.addresses || [], [userData]);
 
-  const { orders } = useAccountOrders(user?.uid);
+  const { orders, loading: ordersLoading } = useAccountOrders(user?.uid, activeTab);
   const { favorites, removeFavorite } = useAccountFavorites(user?.uid);
   const { authSessions, revokeSession } = useAccountSessions(user?.uid, activeTab, navigate);
   const {
@@ -74,7 +74,7 @@ export default function DashboardPage() {
   } = useAccountAddresses({ userId: user?.uid, addresses });
 
   const points = userData?.points || 0;
-  const nextTierInfo = getNextTierInfo(points);
+  const nextTierInfo = getNextTierInfo(userData?.tierPeriodSpendAmount || 0);
 
   // Auto switch tab and action based on URL query params
   useEffect(() => {
@@ -90,7 +90,7 @@ export default function DashboardPage() {
     }
   }, [searchParams, loading, user]);
 
-  if (loading || !user) return <div className="text-center py-20">Đang tải...</div>;
+  if (loading || !user) return <div className="min-h-[50vh] py-20 text-center text-sm font-medium text-slate-500">Đang tải tài khoản...</div>;
 
   const handleOpenFavoriteProduct = (product: any) => {
     navigate(`/product/${product.slug || product.id}`);
@@ -110,7 +110,8 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-[1200px]">
+    <main className="min-h-screen bg-slate-50/80">
+      <div className="mx-auto max-w-[1280px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
       <DeleteAccountModal
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
@@ -130,7 +131,7 @@ export default function DashboardPage() {
         onSignOut={() => signOut()}
       />
 
-      <div className="flex flex-col lg:flex-row gap-6 mt-6">
+      <div className="mt-6 flex flex-col gap-6 lg:flex-row lg:items-start">
         <AccountDashboardSidebar
           activeTab={activeTab}
           items={accountNavItems}
@@ -143,8 +144,18 @@ export default function DashboardPage() {
           activeTab={activeTab}
           addresses={addresses}
           orders={orders}
+          ordersLoading={ordersLoading}
           favorites={favorites}
           points={points}
+          loyaltyPeriod={{
+            startedAt: userData?.tierPeriodStartedAt,
+            endsAt: userData?.tierPeriodEndsAt,
+            spendAmount: userData?.tierPeriodSpendAmount,
+            expiringSoon: userData?.pointsExpiringSoon,
+            nearestExpirationAt: userData?.nearestPointsExpirationAt,
+            nearestExpirationAmount: userData?.nearestPointsExpirationAmount,
+            tier: userData?.tier,
+          }}
           nextTierInfo={nextTierInfo}
           userEmail={user.email}
           addressDraft={addressDraft}
@@ -189,6 +200,7 @@ export default function DashboardPage() {
           onRemoveFavorite={removeFavorite}
         />
       </div>
-    </div>
+      </div>
+    </main>
   );
 }

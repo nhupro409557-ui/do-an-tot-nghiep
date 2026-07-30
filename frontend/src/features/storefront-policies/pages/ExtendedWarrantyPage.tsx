@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { LiveStorePolicySummary } from '../components/LiveStorePolicySummary';
 import {
   ChevronDown, ChevronUp, ShieldPlus, Star, Droplets, Clock,
   AlertTriangle, BadgeCheck, ArrowRight, Package, RefreshCw, Archive,
@@ -630,6 +631,7 @@ export default function ExtendedWarrantyPage() {
 
       {/* Content */}
       <div className="mx-auto max-w-5xl px-4 py-10 lg:px-6">
+        <LiveStorePolicySummary codes={['WARRANTY']} tone="indigo" />
         <div className="space-y-3">
           {EXTENDED_WARRANTY_PAGE_SECTIONS.map((section) => {
             const isOpen = expanded === section.id;

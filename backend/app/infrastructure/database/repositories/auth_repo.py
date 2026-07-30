@@ -475,11 +475,21 @@ async def list_permissions_for_user(session: AsyncSession, user_id: UUID) -> lis
                 WHERE u.id = :user_id
                   AND u.status = 'ACTIVE'
             ) effective_permissions
+            WHERE NOT EXISTS (
+                SELECT 1 FROM user_permission_denials upd
+                JOIN permissions denied ON denied.id = upd.permission_id
+                WHERE upd.user_id = :user_id AND denied.code = effective_permissions.code
+            )
             ORDER BY code
             """
         ),
         {"user_id": user_id},
     )
+    return [str(code) for code in result.scalars().all()]
+
+
+async def list_all_permission_codes(session: AsyncSession) -> list[str]:
+    result = await session.execute(text("SELECT code FROM permissions ORDER BY code"))
     return [str(code) for code in result.scalars().all()]
 
 

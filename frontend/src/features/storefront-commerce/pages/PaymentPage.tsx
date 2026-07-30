@@ -57,7 +57,7 @@ export default function PaymentPage() {
   }, [payment]);
 
   const terminal = useMemo(
-    () => payment && ['PAID', 'FAILED', 'EXPIRED', 'REFUNDED'].includes(payment.status),
+    () => payment && ['PAID', 'PAID_LATE', 'FAILED', 'EXPIRED', 'REFUNDED'].includes(payment.status),
     [payment],
   );
 
@@ -141,7 +141,7 @@ export default function PaymentPage() {
         <div className="text-xs font-black uppercase tracking-[0.2em]" style={{ color: providerColor }}>{providerName}</div>
         <h1 className="mt-2 text-2xl font-bold text-slate-900">Thanh toán đơn {payment?.order_code || payment?.orderCode}</h1>
         <p className="mt-2 text-sm text-slate-500">
-          {isSePay ? 'Bạn sẽ được chuyển sang cổng SePay sandbox để hoàn tất thanh toán thử nghiệm.' : 'Đây là môi trường thử nghiệm, không phát sinh tiền thật.'}
+          {isSePay ? 'Bạn sẽ được chuyển sang cổng SePay sandbox để hoàn tất thanh toán thử nghiệm; không phát sinh tiền thật.' : 'Đây là môi trường thanh toán sandbox của đồ án, không phát sinh tiền thật.'}
         </p>
       </div>
 
@@ -224,7 +224,7 @@ export default function PaymentPage() {
               </div>
 
               <div className="text-[11px] text-center text-slate-500 italic mt-3 leading-relaxed">
-                ⚠️ Lưu ý: Vui lòng chuyển khoản đúng số tiền và ghi chính xác nội dung chuyển khoản ở trên để đơn hàng được duyệt tự động.
+                Lưu ý: Đây là QR sandbox phục vụ demo luận văn. Không chuyển tiền thật; hệ thống chỉ dùng dữ liệu thử nghiệm để mô phỏng xác nhận thanh toán.
               </div>
             </div>
           ) : (
@@ -260,6 +260,14 @@ export default function PaymentPage() {
         <div className="mt-6 rounded-xl bg-emerald-50 p-5 text-center text-emerald-700">
           <CheckCircle2 className="mx-auto mb-2" size={38} />
           <div className="font-bold">{providerName} đã xác nhận thanh toán.</div>
+        </div>
+      )}
+
+      {payment?.status === 'PAID_LATE' && (
+        <div className="mt-6 rounded-xl bg-amber-50 p-5 text-center text-amber-700">
+          <Clock3 className="mx-auto mb-2" size={38} />
+          <div className="font-bold">Thanh toán được ghi nhận sau khi đơn đã đóng.</div>
+          <div className="mt-1 text-sm">Cửa hàng sẽ đối soát và xử lý thủ công.</div>
         </div>
       )}
 

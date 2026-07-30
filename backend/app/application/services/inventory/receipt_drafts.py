@@ -1,4 +1,5 @@
 from .common import *
+from app.infrastructure.database.repositories import purchase_order_repo
 
 async def create_inventory_receipt(
     session: AsyncSession,
@@ -12,7 +13,10 @@ async def create_inventory_receipt(
         await inventory_repo.delete_old_inventory_idempotency(session)
         existing = await inventory_repo.get_inventory_idempotency_response(session, idem_key)
         if existing:
-            return existing
+            existing_receipt = await inventory_repo.get_inventory_receipt_for_update(session, reference_code)
+            if existing_receipt:
+                return existing
+            await inventory_repo.delete_inventory_idempotency_response(session, idem_key)
 
     requested_status = payload.status if payload.status in RECEIPT_STATUSES else "DRAFT"
     if requested_status != "DRAFT":
@@ -54,6 +58,10 @@ async def create_inventory_receipt(
         payload.lines,
         prepared_lines,
         quarantine=bool(receipt_metadata.get("quarantine")),
+        purchase_order_id=payload.purchaseOrderId,
+        supplier_id=payload.supplierId,
+        discount_amount=float(payload.discountAmount or 0),
+        shipping_fee=float(payload.shippingFee or 0),
     )
 
     response_payload = {
@@ -141,6 +149,10 @@ async def update_inventory_receipt(
         payload.lines,
         prepared_lines,
         quarantine=bool(receipt_metadata.get("quarantine")),
+        purchase_order_id=payload.purchaseOrderId,
+        supplier_id=payload.supplierId,
+        discount_amount=float(payload.discountAmount or 0),
+        shipping_fee=float(payload.shippingFee or 0),
     )
     await inventory_repo.insert_inventory_receipt_audit_log(
         session,
@@ -203,10 +215,58 @@ async def update_inventory_receipt_quality(
     )
     if payload.lines:
         existing_lines = await inventory_repo.list_inventory_receipt_lines(session, receipt["id"])
-        existing_line_ids = {UUID(str(l["id"])) for l in existing_lines}
+        existing_by_id = {UUID(str(l["id"])): l for l in existing_lines}
+        payload_line_ids = [item.lineId for item in payload.lines]
+        if len(set(payload_line_ids)) != len(payload_line_ids):
+            raise HTTPException(status_code=400, detail="Danh sách QC có dòng bị trùng.")
+        if quality_status in {"PASSED", "FAILED"} and set(payload_line_ids) != set(existing_by_id):
+            raise HTTPException(status_code=400, detail="Phải kiểm tra QC đầy đủ tất cả dòng trước khi kết luận.")
+        total_failed_quantity = 0
         for l_payload in payload.lines:
-            if l_payload.lineId not in existing_line_ids:
+            existing_line = existing_by_id.get(l_payload.lineId)
+            if not existing_line:
                 raise HTTPException(status_code=400, detail=f"Dòng ID {l_payload.lineId} không thuộc phiếu nhập này.")
+            received_quantity = int(existing_line.get("receivedQuantity") or 0)
+            if received_quantity <= 0:
+                raise HTTPException(status_code=400, detail=f"Dòng {l_payload.lineId}: chưa có số lượng thực nhận để kiểm tra QC.")
+            if l_payload.passedQuantity + l_payload.failedQuantity != received_quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dòng {l_payload.lineId}: số lượng đạt và lỗi phải bằng số lượng thực nhận ({received_quantity}).",
+                )
+            if l_payload.failedQuantity > 0 and l_payload.actionType in {None, "NONE"}:
+                raise HTTPException(status_code=400, detail=f"Dòng {l_payload.lineId}: hàng lỗi phải có hướng xử lý.")
+            if l_payload.failedQuantity > 0 and not l_payload.failedLocationId:
+                raise HTTPException(status_code=400, detail=f"Dòng {l_payload.lineId}: hàng lỗi phải có kệ cách ly.")
+            failed_imeis = _clean_imeis(l_payload.failedImeis)
+            failed_serials = _clean_serial_numbers(l_payload.failedSerialNumbers)
+            total_failed_quantity += l_payload.failedQuantity
+            if existing_line.get("tracksImei") and len(failed_imeis) != l_payload.failedQuantity:
+                raise HTTPException(status_code=400, detail=f"Dòng {l_payload.lineId}: số IMEI lỗi phải bằng số lượng lỗi.")
+            if existing_line.get("tracksSerialNumber") and len(failed_serials) != l_payload.failedQuantity:
+                raise HTTPException(status_code=400, detail=f"Dòng {l_payload.lineId}: số serial lỗi phải bằng số lượng lỗi.")
+            if any(value not in (existing_line.get("imeis") or []) for value in failed_imeis):
+                raise HTTPException(status_code=400, detail=f"Dòng {l_payload.lineId}: IMEI lỗi không thuộc dòng phiếu.")
+            if any(value not in (existing_line.get("serialNumbers") or []) for value in failed_serials):
+                raise HTTPException(status_code=400, detail=f"Dòng {l_payload.lineId}: serial lỗi không thuộc dòng phiếu.")
+            if l_payload.failedLocationId:
+                failed_location = await _get_active_inventory_location(session, l_payload.failedLocationId, "Kệ cách ly")
+                _ensure_receipt_quarantine_location(failed_location, 1)
+            quality_images = []
+            for image in l_payload.images:
+                if isinstance(image, str):
+                    url = image.strip()
+                    caption = None
+                else:
+                    url = str(image.get("url") or "").strip()
+                    caption = str(image.get("caption") or "").strip() or None
+                if not url:
+                    raise HTTPException(status_code=400, detail=f"Dòng {l_payload.lineId}: ảnh QC thiếu đường dẫn.")
+                if len(url) > 1000:
+                    raise HTTPException(status_code=400, detail=f"Dòng {l_payload.lineId}: đường dẫn ảnh QC quá dài.")
+                if caption and len(caption) > 200:
+                    raise HTTPException(status_code=400, detail=f"Dòng {l_payload.lineId}: chú thích ảnh QC tối đa 200 ký tự.")
+                quality_images.append({"url": url, "caption": caption})
             await inventory_repo.update_inventory_receipt_line_quality(
                 session,
                 line_id=l_payload.lineId,
@@ -214,9 +274,18 @@ async def update_inventory_receipt_quality(
                 failed_quantity=l_payload.failedQuantity,
                 notes=l_payload.notes,
                 action_type=l_payload.actionType,
-                images=l_payload.images,
+                images=quality_images,
                 checked_by=current_user_id,
+                failed_location_id=l_payload.failedLocationId,
+                failed_imeis=failed_imeis,
+                failed_serial_numbers=failed_serials,
             )
+        if quality_status == "PASSED" and total_failed_quantity > 0:
+            raise HTTPException(status_code=400, detail="Không thể kết luận QC đạt khi vẫn có hàng lỗi.")
+        if quality_status == "FAILED" and total_failed_quantity == 0:
+            raise HTTPException(status_code=400, detail="Không thể kết luận QC không đạt khi không có hàng lỗi.")
+    elif quality_status in {"PASSED", "FAILED"}:
+        raise HTTPException(status_code=400, detail="Phải kiểm tra QC chi tiết tất cả dòng trước khi kết luận.")
     await inventory_repo.insert_inventory_receipt_audit_log(
         session,
         actor_id=current_user_id,
@@ -342,6 +411,7 @@ async def delete_inventory_receipt(
     previous_lines = await inventory_repo.list_inventory_receipt_lines(session, receipt["id"])
     await inventory_repo.delete_inventory_receipt_lines(session, receipt["id"])
     await inventory_repo.delete_inventory_receipt_document(session, receipt["id"])
+    await inventory_repo.delete_inventory_idempotency_response(session, reference_code)
     await inventory_repo.insert_inventory_receipt_audit_log(
         session,
         actor_id=current_user_id,
@@ -373,8 +443,29 @@ async def _validate_and_store_receipt_lines(
     prepared_lines: list[dict],
     *,
     quarantine: bool = False,
+    purchase_order_id: UUID | None = None,
+    supplier_id: UUID | None = None,
+    discount_amount: float = 0,
+    shipping_fee: float = 0,
 ) -> None:
-    seen_keys: set[tuple[str, str]] = set()
+    gross_total = sum(int(line.quantity) * float(line.unitCost or 0) for line in lines)
+    if discount_amount > gross_total:
+        raise HTTPException(status_code=400, detail="Chiết khấu phiếu nhập không được lớn hơn tiền hàng.")
+    if gross_total <= 0 and (discount_amount > 0 or shipping_fee > 0):
+        raise HTTPException(status_code=400, detail="Không thể phân bổ chiết khấu hoặc phí nhập khi tiền hàng bằng 0.")
+    purchase_order = None
+    purchase_lines: dict[str, dict] = {}
+    if purchase_order_id:
+        purchase_order = await purchase_order_repo.get_purchase_order(session, purchase_order_id, for_update=True)
+        if not purchase_order:
+            raise HTTPException(status_code=404, detail="Không tìm thấy đơn mua hàng được liên kết.")
+        if purchase_order["status"] not in {"APPROVED", "PARTIALLY_RECEIVED"}:
+            raise HTTPException(status_code=400, detail="Chỉ được nhập kho từ đơn mua đã duyệt và còn hàng chưa nhận.")
+        if supplier_id and str(purchase_order["supplierId"]) != str(supplier_id):
+            raise HTTPException(status_code=400, detail="Nhà cung cấp trên phiếu nhập không khớp đơn mua hàng.")
+        purchase_lines = {str(item["id"]): item for item in purchase_order["lines"]}
+    seen_keys: set[tuple[str, str, str]] = set()
+    purchase_received_by_line: dict[str, int] = {}
     requested_volume_by_location: dict[str, float] = {}
     assigned_skus_by_location: dict[str, set[str]] = {}
     for index, line in enumerate(lines, start=1):
@@ -421,12 +512,31 @@ async def _validate_and_store_receipt_lines(
         )
         if not row:
             raise HTTPException(status_code=404, detail=f"Dòng {index}: không tìm thấy biến thể hợp lệ.")
-        key = (str(product_id), str(actual_variant_id))
-        if key in seen_keys:
-            raise HTTPException(status_code=400, detail=f"Dòng {index}: sản phẩm/biến thể bị trùng trong phiếu nhập.")
-        seen_keys.add(key)
-
         quantity = int(line.quantity)
+        purchase_line = None
+        if purchase_order:
+            if not line.purchaseOrderLineId:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: phải chọn dòng đơn mua hàng tương ứng.")
+            purchase_line = purchase_lines.get(str(line.purchaseOrderLineId))
+            if not purchase_line:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: dòng đơn mua không thuộc đơn đã chọn.")
+            if str(purchase_line["productId"]) != str(product_id) or str(purchase_line.get("variantId") or "") != str(actual_variant_id or ""):
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: sản phẩm/biến thể không khớp dòng đơn mua.")
+            purchase_line_key = str(line.purchaseOrderLineId)
+            accumulated_quantity = purchase_received_by_line.get(purchase_line_key, 0) + quantity
+            if accumulated_quantity > int(purchase_line["remainingQuantity"] or 0):
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: số lượng nhập vượt số còn lại của đơn mua.")
+            purchase_received_by_line[purchase_line_key] = accumulated_quantity
+            if abs(float(line.unitCost or 0) - float(purchase_line["unitCost"] or 0)) > 0.01:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: đơn giá nhập không khớp đơn mua hàng.")
+        quoted_unit_cost = float(line.unitCost or 0)
+        allocated_adjustment = 0.0
+        line_gross = quantity * quoted_unit_cost
+        if gross_total > 0:
+            allocated_adjustment = (shipping_fee - discount_amount) * (line_gross / gross_total)
+        effective_unit_cost = quoted_unit_cost + (allocated_adjustment / quantity)
+        if effective_unit_cost < 0:
+            raise HTTPException(status_code=400, detail=f"Dòng {index}: giá vốn sau phân bổ không hợp lệ.")
         policy_row = await inventory_repo.get_product_inventory_policy(session, product_id)
         tracks_imei = _policy_tracks_imei(policy_row)
         tracks_serial_number = _policy_tracks_serial_number(policy_row)
@@ -434,6 +544,10 @@ async def _validate_and_store_receipt_lines(
         if quarantine:
             _ensure_receipt_quarantine_location(line_location, index)
         line_location_id = line_location["id"]
+        key = (str(product_id), str(actual_variant_id), str(line_location_id))
+        if key in seen_keys:
+            raise HTTPException(status_code=400, detail=f"Dòng {index}: sản phẩm/biến thể đã được phân bổ vào kệ này.")
+        seen_keys.add(key)
         storage_location_code = str(line_location.get("code") or line.storageLocationCode or "").strip()
         storage_location_name = str(line_location.get("name") or line.storageLocationName or "").strip()
         await _ensure_location_has_receipt_capacity(
@@ -456,14 +570,17 @@ async def _validate_and_store_receipt_lines(
             variant_id=actual_variant_id,
             location_id=line_location_id,
             quantity=quantity,
-            unit_cost=line.unitCost,
+            unit_cost=effective_unit_cost,
             note=line.note,
+            reason=line.reason,
             imeis=[],
             tracks_imei=tracks_imei,
             serial_numbers=[],
             tracks_serial_number=tracks_serial_number,
             storage_location_code=storage_location_code or None,
             storage_location_name=storage_location_name or None,
+            purchase_order_line_id=line.purchaseOrderLineId,
+            quoted_unit_cost=quoted_unit_cost,
         )
         prepared_lines.append(
             {
@@ -477,5 +594,8 @@ async def _validate_and_store_receipt_lines(
                 "warehouseLocationId": str(line_location_id),
                 "storageLocationCode": storage_location_code or None,
                 "storageLocationName": storage_location_name or None,
+                "purchaseOrderLineId": str(line.purchaseOrderLineId) if line.purchaseOrderLineId else None,
+                "quotedUnitCost": quoted_unit_cost,
+                "effectiveUnitCost": effective_unit_cost,
             }
         )

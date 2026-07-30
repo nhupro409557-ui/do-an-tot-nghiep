@@ -1,5 +1,155 @@
 from .common import *
 from app.application.services import account_payable_service
+from app.infrastructure.database.repositories import purchase_order_repo
+
+AFTER_SALES_RETURN_TO_STOCK_REASON = "AFTER_SALES_RETURN_TO_STOCK"
+
+
+async def _post_after_sales_return_receipt(
+    session: AsyncSession,
+    document_id: UUID,
+    reference_code: str,
+    location_id: UUID | None,
+) -> list[dict]:
+    """Đưa lại mã máy đã bán vào tồn chỉ khi kho hoàn tất phiếu nhập hậu mãi."""
+    lines = await inventory_repo.list_inventory_receipt_lines(session, document_id)
+    posted_lines: list[dict] = []
+    touched_products: set[UUID] = set()
+    for index, line in enumerate(lines, start=1):
+        product_id = line["productId"]
+        variant_id = line["variantId"]
+        quantity = int(line.get("receivedQuantity") or 0)
+        target_location_id = line.get("locationId") or location_id
+        if quantity <= 0 or not target_location_id:
+            raise HTTPException(status_code=400, detail=f"Dòng {index}: thiếu số lượng hoặc kệ nhận hàng.")
+        target_location = await _get_active_inventory_location(
+            session, target_location_id, f"Dòng {index}: kệ nhận hàng"
+        )
+        if not _location_is_sellable(target_location):
+            raise HTTPException(status_code=400, detail=f"Dòng {index}: hàng đạt QC phải nhập vào kệ bán hàng.")
+
+        imeis = _clean_imeis(line.get("imeis") or [])
+        serial_numbers = _clean_serial_numbers(line.get("serialNumbers") or [])
+        if line.get("tracksImei") and len(imeis) != quantity:
+            raise HTTPException(status_code=400, detail=f"Dòng {index}: số IMEI phải khớp số lượng nhập.")
+        if line.get("tracksSerialNumber") and len(serial_numbers) != quantity:
+            raise HTTPException(status_code=400, detail=f"Dòng {index}: số serial phải khớp số lượng nhập.")
+
+        if imeis:
+            imei_update = await session.execute(
+                text(
+                    """
+                    UPDATE product_imeis pi
+                    SET status = 'IN_STOCK', location_id = :location_id,
+                        sold_at = NULL, sold_order_id = NULL, source_reference = :reference_code,
+                        updated_at = NOW()
+                    WHERE pi.product_id = :product_id
+                      AND pi.variant_id IS NOT DISTINCT FROM :variant_id
+                      AND pi.status IN ('SOLD', 'WARRANTY', 'DEFECTIVE_RETURNED', 'INSPECTION_PENDING')
+                      AND (
+                          pi.imei = ANY(:imeis)
+                          OR pi.imei IN (
+                              SELECT pair.imei2 FROM product_identifier_pairs pair
+                              WHERE pair.product_id = :product_id
+                                AND pair.variant_id IS NOT DISTINCT FROM :variant_id
+                                AND (pair.imei1 = ANY(:imeis) OR pair.imei2 = ANY(:imeis))
+                          )
+                      )
+                    """
+                ),
+                {
+                    "location_id": target_location_id,
+                    "reference_code": reference_code,
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "imeis": imeis,
+                },
+            )
+            if int(imei_update.rowcount or 0) < len(imeis):
+                raise HTTPException(status_code=409, detail=f"Dòng {index}: IMEI không còn ở trạng thái có thể nhập lại.")
+        if serial_numbers:
+            serial_update = await session.execute(
+                text(
+                    """
+                    UPDATE product_serial_numbers
+                    SET status = 'IN_STOCK', location_id = :location_id, sold_at = NULL,
+                        source_reference = :reference_code,
+                        service_payload = COALESCE(service_payload, '{}'::jsonb) - 'soldOrderId' - 'orderId',
+                        updated_at = NOW()
+                    WHERE product_id = :product_id
+                      AND variant_id IS NOT DISTINCT FROM :variant_id
+                      AND serial_number = ANY(:serial_numbers)
+                      AND status IN ('SOLD', 'WARRANTY', 'DEFECTIVE_RETURNED', 'INSPECTION_PENDING')
+                    """
+                ),
+                {
+                    "location_id": target_location_id,
+                    "reference_code": reference_code,
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "serial_numbers": serial_numbers,
+                },
+            )
+            if int(serial_update.rowcount or 0) < len(serial_numbers):
+                raise HTTPException(status_code=409, detail=f"Dòng {index}: serial không còn ở trạng thái có thể nhập lại.")
+
+        row = await inventory_repo.get_variant_inventory_for_update(
+            session, product_id=product_id, variant_id=variant_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Dòng {index}: không tìm thấy tồn kho sản phẩm.")
+        old_quantity = int(row["stock_quantity"] or 0)
+        await inventory_repo.post_inventory_level_receipt(
+            session,
+            product_id=product_id,
+            variant_id=variant_id,
+            location_id=target_location_id,
+            quantity=quantity,
+            unit_cost=line.get("unitCost"),
+        )
+        await inventory_repo.create_inventory_lot_for_receipt(
+            session,
+            document_id=document_id,
+            reference_code=reference_code,
+            product_id=product_id,
+            variant_id=variant_id,
+            location_id=target_location_id,
+            quantity=quantity,
+            unit_cost=line.get("unitCost"),
+        )
+        new_quantity = old_quantity + quantity
+        if variant_id:
+            await inventory_repo.update_variant_stock(session, variant_id=variant_id, quantity=new_quantity)
+            touched_products.add(product_id)
+        else:
+            await session.execute(
+                text("UPDATE products SET stock_quantity = :quantity, updated_at = NOW() WHERE id = :product_id"),
+                {"product_id": product_id, "quantity": new_quantity},
+            )
+        await inventory_repo.insert_inventory_adjustment_log(
+            session,
+            log_id=uuid4(),
+            product_id=product_id,
+            variant_id=variant_id,
+            old_quantity=old_quantity,
+            new_quantity=new_quantity,
+            delta=quantity,
+            transaction_type="RECEIPT",
+            reference_code=reference_code,
+            reason=AFTER_SALES_RETURN_TO_STOCK_REASON,
+            note=line.get("note"),
+            supplier_name="Khách hàng trả hàng",
+            unit_cost=line.get("unitCost"),
+            location_code=target_location["code"],
+            location_name=target_location["name"],
+        )
+        posted_lines.append({
+            "productId": str(product_id), "variantId": str(variant_id) if variant_id else None,
+            "oldQuantity": old_quantity, "newQuantity": new_quantity, "quantity": quantity,
+        })
+    for product_id in touched_products:
+        await sync_parent_price_from_variants(session, product_id)
+    return posted_lines
 
 async def _post_inventory_receipt(
     session: AsyncSession,
@@ -26,6 +176,12 @@ async def _post_inventory_receipt(
         quantity = int(line.get("receivedQuantity") or 0)
         if quantity <= 0:
             raise HTTPException(status_code=400, detail=f"Dòng {index}: số lượng thực nhận phải lớn hơn 0 trước khi hoàn tất.")
+        
+        if receipt_reason_code == "NK_MUA":
+            unit_cost = line.get("unitCost")
+            if unit_cost is None or float(unit_cost) <= 0:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: Đơn giá nhập của sản phẩm mua hàng thương mại phải lớn hơn 0.")
+        
         row = await inventory_repo.get_variant_inventory_for_update(
             session,
             product_id=product_id,
@@ -46,7 +202,7 @@ async def _post_inventory_receipt(
             raise HTTPException(status_code=400, detail=f"Dòng {index}: số serial number phải khớp số lượng thực nhận trước khi hoàn tất.")
 
         imei_statuses = await inventory_repo.list_imei_statuses(session, all_imeis)
-        if tracks_imei and (
+        if receipt_reason_code != AFTER_SALES_RETURN_TO_STOCK_REASON and tracks_imei and (
             len(imei_statuses) != len(all_imeis)
             or any(
                 str(item.get("status")) != "PENDING_INBOUND"
@@ -60,7 +216,7 @@ async def _post_inventory_receipt(
             product_id=product_id,
             serial_numbers=serial_numbers,
         )
-        if tracks_serial_number and (
+        if receipt_reason_code != AFTER_SALES_RETURN_TO_STOCK_REASON and tracks_serial_number and (
             len(serial_statuses) != len(serial_numbers)
             or any(
                 str(item.get("status")) != "PENDING_INBOUND"
@@ -70,51 +226,63 @@ async def _post_inventory_receipt(
         ):
             raise HTTPException(status_code=409, detail=f"Dòng {index}: serial number chưa được giữ chỗ hợp lệ cho phiếu nhập này.")
 
+        passed_quantity = int(line.get("passedQuantity") or 0)
+        failed_quantity = int(line.get("failedQuantity") or 0)
+        has_line_qc = passed_quantity > 0 or failed_quantity > 0
+        if not has_line_qc:
+            passed_quantity = quantity
+        failed_imeis = set(_clean_imeis(line.get("failedImeis") or []))
+        failed_serials = set(_clean_serial_numbers(line.get("failedSerialNumbers") or []))
+        failed_primary_indexes = {position for position, value in enumerate(imeis) if value in failed_imeis}
+        passed_imeis = [value for position, value in enumerate(imeis) if position not in failed_primary_indexes]
+        failed_primary_imeis = [value for position, value in enumerate(imeis) if position in failed_primary_indexes]
+        passed_secondary_imeis = [value for position, value in enumerate(secondary_imeis) if position not in failed_primary_indexes]
+        failed_secondary_imeis = [value for position, value in enumerate(secondary_imeis) if position in failed_primary_indexes]
+        passed_serials = [value for value in serial_numbers if value not in failed_serials]
+        failed_serial_list = [value for value in serial_numbers if value in failed_serials]
+
         line_location_id = line.get("locationId") or location_id
-        line_location = None
-        if line_location_id:
-            line_location = await _get_active_inventory_location(session, line_location_id, f"Dòng {index}: kệ hàng")
-            policy_row = await inventory_repo.get_product_inventory_policy(session, product_id)
+        line_location = await _get_active_inventory_location(session, line_location_id, f"Dòng {index}: kệ hàng") if line_location_id else None
+        failed_location_id = line.get("failedLocationId")
+        failed_location = None
+        if failed_quantity > 0:
+            if not failed_location_id:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: hàng lỗi chưa có kệ cách ly.")
+            failed_location = await _get_active_inventory_location(session, failed_location_id, f"Dòng {index}: kệ cách ly")
+            _ensure_receipt_quarantine_location(failed_location, index)
+
+        policy_row = await inventory_repo.get_product_inventory_policy(session, product_id)
+        allocations = [
+            (line_location, passed_quantity, passed_imeis + passed_secondary_imeis, passed_serials),
+            (failed_location, failed_quantity, failed_primary_imeis + failed_secondary_imeis, failed_serial_list),
+        ]
+        for allocation_location, allocation_quantity, allocation_imeis, allocation_serials in allocations:
+            if allocation_quantity <= 0 or not allocation_location:
+                continue
+            allocation_location_id = allocation_location["id"]
             await _ensure_location_has_receipt_capacity(
-                session,
-                location_id=line_location_id,
-                line_index=index,
-                quantity=quantity,
-                policy_row=policy_row,
-                requested_volume_by_location=requested_volume_by_location,
-                product_id=product_id,
-                variant_id=actual_variant_id,
+                session, location_id=allocation_location_id, line_index=index, quantity=allocation_quantity,
+                policy_row=policy_row, requested_volume_by_location=requested_volume_by_location,
+                product_id=product_id, variant_id=actual_variant_id,
                 assigned_skus_by_location=assigned_skus_by_location,
             )
             await inventory_repo.post_inventory_level_receipt(
-                session,
-                product_id=product_id,
-                variant_id=actual_variant_id,
-                location_id=line_location_id,
-                quantity=quantity,
-                unit_cost=line.get("unitCost"),
+                session, product_id=product_id, variant_id=actual_variant_id,
+                location_id=allocation_location_id, quantity=allocation_quantity, unit_cost=line.get("unitCost"),
             )
             await inventory_repo.create_inventory_lot_for_receipt(
-                session,
-                document_id=document_id,
-                reference_code=reference_code,
-                product_id=product_id,
-                variant_id=actual_variant_id,
-                location_id=line_location_id,
-                quantity=quantity,
-                unit_cost=line.get("unitCost"),
+                session, document_id=document_id, reference_code=reference_code, product_id=product_id,
+                variant_id=actual_variant_id, location_id=allocation_location_id,
+                quantity=allocation_quantity, unit_cost=line.get("unitCost"),
             )
             await inventory_repo.assign_identifier_locations_for_receipt_line(
-                session,
-                product_id=product_id,
-                location_id=line_location_id,
-                imeis=all_imeis,
-                serial_numbers=serial_numbers,
+                session, product_id=product_id, location_id=allocation_location_id,
+                imeis=allocation_imeis, serial_numbers=allocation_serials,
             )
         old_quantity = int(row["stock_quantity"] or 0)
-        sellable_receipt = _location_is_sellable(line_location)
-        new_quantity = old_quantity + quantity if sellable_receipt else old_quantity
-        if sellable_receipt:
+        sellable_quantity = passed_quantity if _location_is_sellable(line_location) else 0
+        new_quantity = old_quantity + sellable_quantity
+        if sellable_quantity > 0:
             await inventory_repo.update_variant_stock(session, variant_id=actual_variant_id, quantity=new_quantity)
         await inventory_repo.insert_inventory_adjustment_log(
             session,
@@ -123,7 +291,7 @@ async def _post_inventory_receipt(
             variant_id=actual_variant_id,
             old_quantity=old_quantity,
             new_quantity=new_quantity,
-            delta=quantity,
+            delta=sellable_quantity,
             transaction_type="RECEIPT",
             reference_code=reference_code,
             reason=receipt_reason_code or "NK_MUA",
@@ -141,6 +309,8 @@ async def _post_inventory_receipt(
                 "oldQuantity": old_quantity,
                 "newQuantity": new_quantity,
                 "quantity": quantity,
+                "passedQuantity": passed_quantity,
+                "failedQuantity": failed_quantity,
                 "imeiCount": len(imeis),
                 "secondaryImeiCount": len(secondary_imeis),
                 "tracksImei": tracks_imei,
@@ -152,7 +322,7 @@ async def _post_inventory_receipt(
     for product_id in touched_products:
         await sync_parent_price_from_variants(session, product_id)
 
-    await inventory_repo.activate_pending_inbound_identifiers(session, reference_code)
+        await inventory_repo.activate_pending_inbound_identifiers(session, reference_code)
     return posted_lines
 
 
@@ -172,6 +342,17 @@ async def _receipt_imei_summary(session: AsyncSession, document_id: UUID) -> dic
         "hasShortage": has_shortage,
         "allImeiComplete": all_complete,
     }
+
+
+def _aggregate_purchase_receipts(lines: list[dict]) -> list[dict]:
+    quantities: dict[str, int] = {}
+    for line in lines:
+        purchase_line_id = line.get("purchaseOrderLineId")
+        if not purchase_line_id:
+            continue
+        key = str(purchase_line_id)
+        quantities[key] = quantities.get(key, 0) + int(line.get("receivedQuantity") or 0)
+    return [{"lineId": line_id, "quantity": quantity} for line_id, quantity in quantities.items()]
 
 
 async def submit_inventory_receipt_imeis(
@@ -262,6 +443,8 @@ async def submit_inventory_receipt_imeis(
                 received_quantity = planned_quantity
             if received_quantity < 0:
                 raise HTTPException(status_code=400, detail=f"Dòng {index}: số lượng thực nhận không thể âm.")
+            if received_quantity > planned_quantity:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: số lượng thực nhận không được vượt số lượng dự kiến ({planned_quantity}).")
 
         if received_quantity < planned_quantity:
             has_shortage = True
@@ -440,8 +623,11 @@ async def update_inventory_receipt_status(
     if target_status == "PROCESSING_IMEI" and len(summary["lines"]) == 0:
         raise HTTPException(status_code=400, detail="Phiếu nhập này không có dòng sản phẩm.")
     if target_status == "APPROVED":
-        _ensure_receipt_approval_allowed(receipt, current_user_id)
-        if summary["trackedLineCount"] > 0 and current_status == "DRAFT":
+        if (
+            receipt.get("reason") != AFTER_SALES_RETURN_TO_STOCK_REASON
+            and summary["trackedLineCount"] > 0
+            and current_status == "DRAFT"
+        ):
             raise HTTPException(status_code=400, detail="Phiếu có sản phẩm cần IMEI/serial number phải qua bước xử lý mã định danh trước khi duyệt.")
         if current_status == "PROCESSING_IMEI" and not summary["allImeiComplete"]:
             raise HTTPException(status_code=400, detail="Phiếu chưa đủ IMEI/serial number. Vui lòng bổ sung hoặc chốt thiếu để chờ duyệt.")
@@ -462,17 +648,43 @@ async def update_inventory_receipt_status(
                     raise HTTPException(status_code=400, detail=f"Dòng {index}: phiếu cách ly phải có kệ nhận hàng.")
                 line_location = await _get_active_inventory_location(session, line_location_id, f"Dòng {index}: kệ cách ly")
                 _ensure_receipt_quarantine_location(line_location, index)
-        posted_lines = await _post_inventory_receipt(
-            session,
-            receipt["id"],
-            receipt["document_no"],
-            receipt.get("reason"),
-            receipt.get("supplier_name"),
-            receipt.get("note"),
-            receipt.get("target_location_id"),
-            receipt.get("locationCode"),
-            receipt.get("locationName"),
-        )
+        for index, line in enumerate(summary["lines"], start=1):
+            received_quantity = int(line.get("receivedQuantity") or 0)
+            passed_quantity = int(line.get("passedQuantity") or 0)
+            failed_quantity = int(line.get("failedQuantity") or 0)
+            has_line_qc = passed_quantity > 0 or failed_quantity > 0
+            if has_line_qc and passed_quantity + failed_quantity != received_quantity:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: kết quả QC không khớp số lượng thực nhận.")
+            if failed_quantity > 0 and not line.get("failedLocationId"):
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: hàng QC lỗi phải có kệ cách ly.")
+        if receipt.get("reason") == AFTER_SALES_RETURN_TO_STOCK_REASON:
+            posted_lines = await _post_after_sales_return_receipt(
+                session,
+                receipt["id"],
+                receipt["document_no"],
+                receipt.get("target_location_id"),
+            )
+        else:
+            posted_lines = await _post_inventory_receipt(
+                session,
+                receipt["id"],
+                receipt["document_no"],
+                receipt.get("reason"),
+                receipt.get("supplier_name"),
+                receipt.get("note"),
+                receipt.get("target_location_id"),
+                receipt.get("locationCode"),
+                receipt.get("locationName"),
+            )
+        purchase_order_id = (receipt.get("metadata") or {}).get("purchaseOrderId")
+        purchase_receipts = _aggregate_purchase_receipts(summary["lines"])
+        if purchase_order_id:
+            if any(not line.get("purchaseOrderLineId") for line in summary["lines"]):
+                raise HTTPException(status_code=400, detail="Mọi dòng phiếu nhập liên kết PO phải có dòng đơn mua tương ứng.")
+            try:
+                await purchase_order_repo.receive_purchase_order_lines(session, UUID(str(purchase_order_id)), purchase_receipts)
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
     await inventory_repo.update_inventory_receipt_status(
         session,
         document_id=receipt["id"],
@@ -518,6 +730,7 @@ async def reverse_inventory_receipt(
         raise HTTPException(status_code=400, detail="Chỉ có thể đảo phiếu nhập đã hoàn tất.")
     if await inventory_repo.inventory_receipt_has_reversal(session, receipt["id"]):
         raise HTTPException(status_code=409, detail="Phiếu nhập này đã có chứng từ đảo.")
+    await account_payable_service.ensure_receipt_reversal_allowed(session, receipt["id"])
 
     document_lines = await inventory_repo.list_inventory_receipt_lines(session, receipt["id"])
     reversal_code = f"REV-{reference_code[:48]}-{datetime.utcnow().strftime('%H%M%S')}"
@@ -542,10 +755,38 @@ async def reverse_inventory_receipt(
             line_location = await inventory_repo.get_inventory_location_by_id(session, line_location_id)
             if not line_location:
                 raise HTTPException(status_code=404, detail=f"Dòng {index}: không tìm thấy kệ nhận hàng của phiếu nhập.")
+        passed_quantity = int(line.get("passedQuantity") or 0)
+        failed_quantity = int(line.get("failedQuantity") or 0)
+        if passed_quantity == 0 and failed_quantity == 0:
+            passed_quantity = quantity
+        failed_location_id = line.get("failedLocationId")
+        failed_location = await inventory_repo.get_inventory_location_by_id(session, failed_location_id) if failed_location_id else None
         sellable_reversal = _location_is_sellable(line_location)
+        sellable_quantity = passed_quantity if sellable_reversal else 0
         old_quantity = int(row["stock_quantity"] or 0)
-        if sellable_reversal and old_quantity < quantity:
+        if sellable_reversal and old_quantity < sellable_quantity:
             raise HTTPException(status_code=400, detail=f"Dòng {index}: tồn kho hiện tại không đủ để đảo phiếu nhập.")
+
+        reversal_allocations = [(line_location_id, passed_quantity), (failed_location_id, failed_quantity)]
+        for allocation_location_id, allocation_quantity in reversal_allocations:
+            if not allocation_location_id or allocation_quantity <= 0:
+                continue
+            stock_level = await inventory_repo.get_inventory_level_for_transfer(
+                session,
+                product_id=product_id,
+                variant_id=variant_id,
+                location_id=allocation_location_id,
+            )
+            on_hand_qty = int(stock_level["onHandQuantity"] or 0) if stock_level else 0
+            reserved_qty = int(stock_level["reservedQuantity"] or 0) if stock_level else 0
+            available_qty = on_hand_qty - reserved_qty
+            if available_qty < allocation_quantity:
+                allocation_location = line_location if allocation_location_id == line_location_id else failed_location
+                loc_code = (allocation_location or {}).get("code") or "Không xác định"
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Dòng {index}: Kệ nhận hàng {loc_code} không đủ tồn khả dụng để đảo. Hiện có {available_qty}, cần {allocation_quantity}."
+                )
 
         imeis = _clean_imeis(line.get("imeis") or [])
         secondary_imeis = _clean_imeis(line.get("secondaryImeis") or [])
@@ -559,11 +800,22 @@ async def reverse_inventory_receipt(
             raise HTTPException(status_code=400, detail=f"Dòng {index}: dữ liệu serial number của phiếu không khớp số lượng thực nhận, không thể đảo tự động.")
 
         reversible_identifier_statuses = {"IN_STOCK", "INSPECTION_PENDING", "RETURNED", "IN_WARRANTY", "DEFECTIVE_RETURNED"}
+        failed_imeis = set(_clean_imeis(line.get("failedImeis") or []))
+        failed_serials = set(_clean_serial_numbers(line.get("failedSerialNumbers") or []))
+        failed_primary_indexes = {position for position, value in enumerate(imeis) if value in failed_imeis}
+        expected_imei_locations = {
+            value: (failed_location_id if position in failed_primary_indexes else line_location_id)
+            for position, value in enumerate(imeis)
+        }
+        expected_imei_locations.update({
+            value: (failed_location_id if position in failed_primary_indexes else line_location_id)
+            for position, value in enumerate(secondary_imeis)
+        })
         imei_statuses = await inventory_repo.list_imei_statuses(session, all_imeis)
         if len(imei_statuses) != len(all_imeis) or any(
             str(item["status"]) not in reversible_identifier_statuses
             or str(item.get("source_reference")) != reference_code
-            or (line_location_id is not None and item.get("location_id") != line_location_id)
+            or (expected_imei_locations.get(str(item.get("imei"))) is not None and item.get("location_id") != expected_imei_locations.get(str(item.get("imei"))))
             for item in imei_statuses
         ):
             raise HTTPException(status_code=400, detail=f"Dòng {index}: chỉ có thể đảo IMEI/IMEI2 còn ở đúng kệ nhận của phiếu nhập.")
@@ -575,35 +827,42 @@ async def reverse_inventory_receipt(
         if len(serial_statuses) != len(serial_numbers) or any(
             str(item["status"]) not in reversible_identifier_statuses
             or str(item.get("source_reference")) != reference_code
-            or (line_location_id is not None and item.get("location_id") != line_location_id)
+            or ((failed_location_id if str(item.get("serial_number")) in failed_serials else line_location_id) is not None
+                and item.get("location_id") != (failed_location_id if str(item.get("serial_number")) in failed_serials else line_location_id))
             for item in serial_statuses
         ):
             raise HTTPException(status_code=400, detail=f"Dòng {index}: chỉ có thể đảo serial number còn ở đúng kệ nhận của phiếu nhập.")
-        new_quantity = old_quantity - quantity if sellable_reversal else old_quantity
+        new_quantity = old_quantity - sellable_quantity if sellable_reversal else old_quantity
         if sellable_reversal:
             await inventory_repo.update_variant_stock(session, variant_id=variant_id, quantity=new_quantity)
-        if line_location_id:
-            await inventory_repo.post_inventory_level_reversal(
-                session,
-                product_id=product_id,
-                variant_id=variant_id,
-                location_id=line_location_id,
-                quantity=quantity,
-            )
+        for allocation_location_id, allocation_quantity in reversal_allocations:
+            if not allocation_location_id or allocation_quantity <= 0:
+                continue
+            try:
+                await inventory_repo.post_inventory_level_reversal(
+                    session,
+                    product_id=product_id,
+                    variant_id=variant_id,
+                    location_id=allocation_location_id,
+                    quantity=allocation_quantity,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=f"Dòng {index}: {exc}") from exc
             try:
                 await inventory_repo.reverse_inventory_lots_for_receipt(
                     session,
                     document_id=receipt["id"],
-                    location_id=line_location_id,
+                    location_id=allocation_location_id,
                     product_id=product_id,
                     variant_id=variant_id,
-                    quantity=quantity,
+                    quantity=allocation_quantity,
                     reversal_reference=reversal_code,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=f"Dòng {index}: {exc}") from exc
         await inventory_repo.mark_imeis_reversed(session, all_imeis)
         await inventory_repo.mark_serial_numbers_reversed(session, serial_numbers, product_id=product_id)
+
         await inventory_repo.insert_inventory_adjustment_log(
             session,
             log_id=uuid4(),
@@ -611,7 +870,7 @@ async def reverse_inventory_receipt(
             variant_id=variant_id,
             old_quantity=old_quantity,
             new_quantity=new_quantity,
-            delta=-quantity,
+            delta=-sellable_quantity,
             transaction_type="REVERSAL",
             reference_code=reversal_code,
             reason=payload.reason,
@@ -655,24 +914,57 @@ async def reverse_inventory_receipt(
         quantity = int(line.get("receivedQuantity") or 0)
         if quantity <= 0:
             continue
-        await inventory_repo.insert_inventory_receipt_line(
-            session,
-            line_id=uuid4(),
-            document_id=reversal_document_id,
-            product_id=line["productId"],
-            variant_id=line["variantId"],
-            location_id=line.get("locationId") or receipt.get("target_location_id"),
-            quantity=quantity,
-            unit_cost=line.get("unitCost"),
-            note=payload.note or f"Đảo dòng phiếu nhập {reference_code}",
-            imeis=_clean_imeis(line.get("imeis") or []),
-            secondary_imeis=_clean_imeis(line.get("secondaryImeis") or []),
-            tracks_imei=tracks_imei,
-            serial_numbers=_clean_serial_numbers(line.get("serialNumbers") or []),
-            tracks_serial_number=tracks_serial_number,
-            storage_location_code=line.get("storageLocationCode"),
-            storage_location_name=line.get("storageLocationName"),
-        )
+        passed_quantity = int(line.get("passedQuantity") or 0)
+        failed_quantity = int(line.get("failedQuantity") or 0)
+        if passed_quantity == 0 and failed_quantity == 0:
+            passed_quantity = quantity
+        line_location_id = line.get("locationId") or receipt.get("target_location_id")
+        failed_location_id = line.get("failedLocationId")
+        imeis = _clean_imeis(line.get("imeis") or [])
+        secondary_imeis = _clean_imeis(line.get("secondaryImeis") or [])
+        serial_numbers = _clean_serial_numbers(line.get("serialNumbers") or [])
+        failed_imeis = set(_clean_imeis(line.get("failedImeis") or []))
+        failed_serials = set(_clean_serial_numbers(line.get("failedSerialNumbers") or []))
+        failed_indexes = {position for position, value in enumerate(imeis) if value in failed_imeis}
+        allocations = [
+            (
+                line_location_id,
+                passed_quantity,
+                [value for position, value in enumerate(imeis) if position not in failed_indexes],
+                [value for position, value in enumerate(secondary_imeis) if position not in failed_indexes],
+                [value for value in serial_numbers if value not in failed_serials],
+            ),
+            (
+                failed_location_id,
+                failed_quantity,
+                [value for position, value in enumerate(imeis) if position in failed_indexes],
+                [value for position, value in enumerate(secondary_imeis) if position in failed_indexes],
+                [value for value in serial_numbers if value in failed_serials],
+            ),
+        ]
+        for allocation_location_id, allocation_quantity, allocation_imeis, allocation_secondary_imeis, allocation_serials in allocations:
+            if not allocation_location_id or allocation_quantity <= 0:
+                continue
+            allocation_location = await inventory_repo.get_inventory_location_by_id(session, allocation_location_id)
+            await inventory_repo.insert_inventory_receipt_line(
+                session,
+                line_id=uuid4(),
+                document_id=reversal_document_id,
+                product_id=line["productId"],
+                variant_id=line["variantId"],
+                location_id=allocation_location_id,
+                quantity=allocation_quantity,
+                unit_cost=line.get("unitCost"),
+                note=payload.note or f"Đảo dòng phiếu nhập {reference_code}",
+                reason=payload.reason,
+                imeis=allocation_imeis,
+                secondary_imeis=allocation_secondary_imeis,
+                tracks_imei=tracks_imei,
+                serial_numbers=allocation_serials,
+                tracks_serial_number=tracks_serial_number,
+                storage_location_code=(allocation_location or {}).get("code"),
+                storage_location_name=(allocation_location or {}).get("name"),
+            )
         await sync_parent_price_from_variants(session, line["productId"])
     await inventory_repo.mark_inventory_receipt_reversed(
         session,
@@ -680,6 +972,13 @@ async def reverse_inventory_receipt(
         actor_id=current_user_id,
         note=payload.note,
     )
+    purchase_order_id = (receipt.get("metadata") or {}).get("purchaseOrderId")
+    purchase_receipts = _aggregate_purchase_receipts(document_lines)
+    if purchase_order_id and purchase_receipts:
+        try:
+            await purchase_order_repo.reverse_purchase_order_lines(session, UUID(str(purchase_order_id)), purchase_receipts)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     await inventory_repo.insert_inventory_receipt_audit_log(
         session,
         actor_id=current_user_id,

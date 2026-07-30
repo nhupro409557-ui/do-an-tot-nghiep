@@ -31,7 +31,7 @@ export const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 bg-primary text-white shadow-md">
-      <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-6">
+      <div className="mx-auto max-w-[1600px] px-3 sm:px-4 lg:px-6">
         <div className="flex min-h-16 items-center gap-2 sm:gap-3">
           <Link to="/" className="flex shrink-0 items-center" aria-label="ElectroMart Vietnam">
             <img
@@ -82,37 +82,37 @@ export const Header = () => {
             to="/video"
             title="Video"
             aria-label="Video"
-            className="hidden h-10 items-center gap-2 rounded-md px-2 text-sm font-semibold transition hover:bg-white/10 lg:flex xl:px-3"
+            className="hidden h-10 items-center gap-2 rounded-md px-2 text-sm font-semibold transition hover:bg-white/10 lg:flex 2xl:px-3"
           >
             <Video className="h-5 w-5" />
-            <span className="hidden whitespace-nowrap xl:inline">Video</span>
+            <span className="hidden whitespace-nowrap 2xl:inline">Video</span>
           </Link>
 
           <Link
             to="/images"
             title="Hình ảnh"
             aria-label="Hình ảnh"
-            className="hidden h-10 items-center gap-2 rounded-md px-2 text-sm font-semibold transition hover:bg-white/10 lg:flex xl:px-3"
+            className="hidden h-10 items-center gap-2 rounded-md px-2 text-sm font-semibold transition hover:bg-white/10 lg:flex 2xl:px-3"
           >
             <ImageIcon className="h-5 w-5" />
-            <span className="hidden whitespace-nowrap xl:inline">Hình ảnh</span>
+            <span className="hidden whitespace-nowrap 2xl:inline">Hình ảnh</span>
           </Link>
 
           <Link
             to="/rankings"
             title="Xếp hạng"
             aria-label="Xếp hạng"
-            className="hidden h-10 items-center gap-2 rounded-md px-2 text-sm font-semibold transition hover:bg-white/10 lg:flex xl:px-3"
+            className="hidden h-10 items-center gap-2 rounded-md px-2 text-sm font-semibold transition hover:bg-white/10 lg:flex 2xl:px-3"
           >
             <Trophy className="h-5 w-5" />
-            <span className="hidden whitespace-nowrap xl:inline">Xếp hạng</span>
+            <span className="hidden whitespace-nowrap 2xl:inline">Xếp hạng</span>
           </Link>
 
           <Link
             to="/used-products"
             title="Hàng cũ"
             aria-label="Điện thoại cũ"
-            className="hidden h-10 items-center gap-2 rounded-md px-2 text-sm font-semibold transition hover:bg-white/10 xl:flex xl:px-3"
+            className="hidden h-10 items-center gap-2 rounded-md px-3 text-sm font-semibold transition hover:bg-white/10 2xl:flex"
           >
             <Recycle className="h-5 w-5" />
             <span className="whitespace-nowrap">Hàng cũ</span>
@@ -124,17 +124,21 @@ export const Header = () => {
             to="/dashboard"
             title="Đơn hàng"
             aria-label="Đơn hàng"
-            className="hidden h-10 shrink-0 items-center gap-2 rounded-md px-2 text-sm font-semibold transition hover:bg-white/10 lg:flex xl:px-3"
+            className="hidden h-10 shrink-0 items-center gap-2 rounded-md px-2 text-sm font-semibold transition hover:bg-white/10 lg:flex 2xl:px-3"
           >
             <PackageSearch className="h-5 w-5" />
-            <span className="hidden whitespace-nowrap xl:inline">Đơn hàng</span>
+            <span className="hidden whitespace-nowrap 2xl:inline">Đơn hàng</span>
           </Link>
 
           <div className="shrink-0">
             <NotificationDropdown />
           </div>
 
-          <Link to="/cart" className="relative flex shrink-0 flex-col items-center p-1 hover:text-white/85">
+          <Link
+            to="/cart"
+            aria-label="Giỏ hàng"
+            className="relative flex min-h-11 min-w-11 shrink-0 flex-col items-center justify-center rounded-lg p-1 transition hover:bg-white/10 hover:text-white/85"
+          >
             <ShoppingCart className="h-6 w-6" />
             <span className="hidden text-xs lg:block">Giỏ hàng</span>
             {totalQuantity > 0 && (
@@ -146,7 +150,8 @@ export const Header = () => {
 
           <Link
             to={user ? '/dashboard' : '/login'}
-            className="flex shrink-0 flex-col items-center p-1 hover:text-white/85"
+            aria-label={user ? `Tài khoản ${user.displayName || ''}`.trim() : 'Đăng nhập tài khoản'}
+            className="flex min-h-11 min-w-11 shrink-0 flex-col items-center justify-center rounded-lg p-1 transition hover:bg-white/10 hover:text-white/85"
           >
             <div className="relative">
               <UserIcon className="h-6 w-6" />

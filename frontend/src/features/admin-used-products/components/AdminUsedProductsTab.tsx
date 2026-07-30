@@ -9,14 +9,19 @@ import {
   ScrollText,
   Search,
   Send,
+  Printer,
+  Wrench,
 } from 'lucide-react';
 import { AdminPanel } from '../../admin-shell/parts/AdminPanel';
 import { adminUsedProductsApi } from '../services/adminUsedProductsApi';
 import DeviceHistoryModal from './DeviceHistoryModal';
+import AcquisitionConfirmationModal from './AcquisitionConfirmationModal';
 import InspectionModal from './InspectionModal';
 import IntakeModal from './IntakeModal';
 import ListingModal from './ListingModal';
 import ReinspectionModal from './ReinspectionModal';
+import RepairModal from './RepairModal';
+import { printAcquisitionReceipt } from '../utils/printAcquisitionReceipt';
 import type {
   SourceProduct,
   UsedProductDevice,
@@ -26,6 +31,8 @@ import type {
   UsedProductIntakeDraft,
   UsedProductListing,
   UsedProductListingDraft,
+  UsedProductRepairPayload,
+  UsedProductStatusPayload,
 } from '../types';
 
 const money = new Intl.NumberFormat('vi-VN', {
@@ -85,11 +92,14 @@ const statusTone: Record<string, string> = {
 const emptyIntake: UsedProductIntakeDraft = {
   sourceType: 'USER_BUYBACK',
   productId: '',
+  externalProductName: '',
   variantId: '',
   imei: '',
   serialNumber: '',
   sellerName: '',
   sellerPhone: '',
+  sellerAddress: '',
+  sellerIdentityNumber: '',
   expectedPrice: '',
   note: '',
 };
@@ -105,11 +115,15 @@ const emptyInspection: UsedProductInspectionDraft = {
   note: '',
   evidence: [] as { url: string; name?: string }[],
   checklist: {
+    imeiVerified: true,
     screen: true,
     camera: true,
     connectivity: true,
     biometric: true,
     accountUnlocked: true,
+    dataErased: true,
+    charging: true,
+    audioAndButtons: true,
   },
 };
 
@@ -119,6 +133,10 @@ const emptyListing: UsedProductListingDraft = {
   highlightsText: '',
   images: [] as string[],
   warrantyMonths: '3',
+  manufacturerWarrantyEnabled: false,
+  manufacturerWarrantyProvider: '',
+  manufacturerWarrantyActivatedAt: '',
+  manufacturerWarrantyTotalMonths: '12',
   priceComparisonNote: '',
 };
 
@@ -144,11 +162,15 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
   const [reinspectionOpen, setReinspectionOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [listingOpen, setListingOpen] = useState(false);
+  const [acquisitionOpen, setAcquisitionOpen] = useState(false);
+  const [repairOpen, setRepairOpen] = useState(false);
   const [selectedIntake, setSelectedIntake] = useState<UsedProductIntake | null>(null);
   const [selectedDevice, setSelectedDevice] = useState<UsedProductDevice | null>(null);
   const [intakeDraft, setIntakeDraft] = useState<UsedProductIntakeDraft>({ ...emptyIntake });
   const [inspectionDraft, setInspectionDraft] = useState<UsedProductInspectionDraft>({ ...emptyInspection });
   const [listingDraft, setListingDraft] = useState<UsedProductListingDraft>({ ...emptyListing });
+  const [acquisitionDraft, setAcquisitionDraft] = useState<UsedProductStatusPayload>({ status: 'ACCEPTED' });
+  const [repairDraft, setRepairDraft] = useState<UsedProductRepairPayload>({ description: '', cost: 0, repairedAt: null });
   const [deviceHistory, setDeviceHistory] = useState<UsedProductHistory | null>(null);
 
   const selectedProduct = useMemo(
@@ -188,6 +210,8 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
     try {
       await adminUsedProductsApi.createIntake({
         ...intakeDraft,
+        productId: intakeDraft.productId === '__EXTERNAL__' ? null : intakeDraft.productId,
+        externalProductName: intakeDraft.productId === '__EXTERNAL__' ? intakeDraft.externalProductName : null,
         variantId: intakeDraft.variantId || null,
         serialNumber: intakeDraft.serialNumber || null,
         sellerName: intakeDraft.sellerName || null,
@@ -215,6 +239,36 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
       await loadData();
     } catch (error: any) {
       setMessage(error?.message || 'Không thể cập nhật trạng thái.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openAcquisitionConfirmation(intake: UsedProductIntake) {
+    setSelectedIntake(intake);
+    setAcquisitionDraft({
+      status: 'ACCEPTED',
+      sellerAddress: intake.sellerAddress || '',
+      sellerIdentityNumber: intake.sellerIdentityNumber || '',
+      ownershipConfirmed: false,
+      acquisitionPaymentMethod: intake.acquisitionPaymentMethod || '',
+      acquisitionPaymentReference: intake.acquisitionPaymentReference || '',
+    });
+    setAcquisitionOpen(true);
+  }
+
+  async function submitAcquisitionConfirmation(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selectedIntake) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      await adminUsedProductsApi.updateIntakeStatus(selectedIntake.id, acquisitionDraft);
+      setAcquisitionOpen(false);
+      setMessage('Đã ghi nhận chi trả, xác nhận thu mua và tạo thiết bị hàng cũ.');
+      await loadData();
+    } catch (error: any) {
+      setMessage(error?.message || 'Không thể xác nhận giao dịch thu mua.');
     } finally {
       setBusy(false);
     }
@@ -331,6 +385,10 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
       highlightsText: (device.listingHighlights || []).join('\n'),
       images: device.listingImages?.length ? device.listingImages : evidenceImages,
       warrantyMonths: String(device.listingWarrantyMonths ?? 3),
+      manufacturerWarrantyEnabled: Boolean(device.manufacturerWarrantyEnabled),
+      manufacturerWarrantyProvider: device.manufacturerWarrantyProvider || '',
+      manufacturerWarrantyActivatedAt: device.manufacturerWarrantyActivatedAt || '',
+      manufacturerWarrantyTotalMonths: String(device.manufacturerWarrantyTotalMonths ?? 12),
       priceComparisonNote: device.priceComparisonNote || '',
     });
     setListingOpen(true);
@@ -361,6 +419,10 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
         highlights: listingDraft.highlightsText.split('\n').map((item) => item.trim()).filter(Boolean),
         images: listingDraft.images,
         warrantyMonths: Number(listingDraft.warrantyMonths || 0),
+        manufacturerWarrantyEnabled: listingDraft.manufacturerWarrantyEnabled,
+        manufacturerWarrantyProvider: listingDraft.manufacturerWarrantyEnabled ? listingDraft.manufacturerWarrantyProvider || null : null,
+        manufacturerWarrantyActivatedAt: listingDraft.manufacturerWarrantyEnabled ? listingDraft.manufacturerWarrantyActivatedAt || null : null,
+        manufacturerWarrantyTotalMonths: listingDraft.manufacturerWarrantyEnabled ? Number(listingDraft.manufacturerWarrantyTotalMonths || 0) : null,
         priceComparisonNote: listingDraft.priceComparisonNote || null,
       });
       setListingOpen(false);
@@ -373,15 +435,61 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
     }
   }
 
-  async function changeListingStatus(listing: UsedProductListing, status: string) {
+  async function changeListingStatus(listing: UsedProductListing, status: string, note?: string) {
     setBusy(true);
     setMessage('');
     try {
-      await adminUsedProductsApi.updateListingStatus(listing.id, { status });
+      await adminUsedProductsApi.updateListingStatus(listing.id, { status, note });
       setMessage(status === 'PUBLISHED' ? 'Đã duyệt và đăng bán thiết bị.' : 'Đã cập nhật trạng thái bài đăng.');
       await loadData();
     } catch (error: any) {
       setMessage(error?.message || 'Không thể cập nhật bài đăng.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function approveDeviceListing(device: UsedProductDevice) {
+    if (!device.listingId) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      await adminUsedProductsApi.updateListingStatus(device.listingId, { status: 'PUBLISHED' });
+      setMessage(`Đã duyệt và đăng bán ${device.deviceCode}.`);
+      await loadData();
+    } catch (error: any) {
+      setMessage(error?.message || 'Không thể duyệt bài đăng.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function requestListingChanges(listing: UsedProductListing) {
+    const reason = window.prompt('Nhập nội dung cần chỉnh sửa (ít nhất 5 ký tự):');
+    if (!reason || reason.trim().length < 5) {
+      setMessage('Cần nhập lý do yêu cầu chỉnh sửa.');
+      return;
+    }
+    await changeListingStatus(listing, 'DRAFT', reason.trim());
+  }
+
+  async function updateSalePrice(device: UsedProductDevice) {
+    const value = window.prompt('Nhập giá bán hàng cũ mới (VND):', String(device.approvedSalePrice || ''));
+    if (value === null) return;
+    const salePrice = Number(value);
+    if (!Number.isFinite(salePrice) || salePrice <= 0) {
+      setMessage('Giá bán mới không hợp lệ.');
+      return;
+    }
+    const reason = window.prompt('Nhập lý do cập nhật giá (ít nhất 5 ký tự):', 'Điều chỉnh theo giá thị trường.');
+    if (!reason || reason.trim().length < 5) return;
+    setBusy(true);
+    try {
+      const result = await adminUsedProductsApi.updateDevicePrice(device.id, { salePrice, reason: reason.trim() });
+      setMessage(result.requiresApproval ? 'Đã cập nhật giá và chuyển bài đăng sang chờ duyệt lại.' : 'Đã cập nhật giá bán hàng cũ.');
+      await loadData();
+    } catch (error: any) {
+      setMessage(error?.message || 'Không thể cập nhật giá bán.');
     } finally {
       setBusy(false);
     }
@@ -415,6 +523,37 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
     }
   }
 
+  function openRepair(device: UsedProductDevice) {
+    setSelectedDevice(device);
+    setRepairDraft({ description: '', cost: 0, repairedAt: new Date().toISOString().slice(0, 10) });
+    setRepairOpen(true);
+  }
+
+  async function submitRepair(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selectedDevice) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      await adminUsedProductsApi.addDeviceRepair(selectedDevice.id, repairDraft);
+      setRepairOpen(false);
+      setMessage('Đã ghi nhận nội dung và chi phí sửa chữa thực tế.');
+      await loadData();
+    } catch (error: any) {
+      setMessage(error?.message || 'Không thể ghi nhận sửa chữa.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function printReceipt(intake: UsedProductIntake) {
+    try {
+      printAcquisitionReceipt(intake);
+    } catch (error: any) {
+      setMessage(error?.message || 'Không thể mở cửa sổ in phiếu thu mua.');
+    }
+  }
+
   function intakeActions(item: UsedProductIntake) {
     if (!canManage) return null;
     if (item.status === 'SUBMITTED') {
@@ -440,8 +579,15 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
     }
     if (item.status === 'APPRAISED' && canApprove) {
       return (
-        <button type="button" onClick={() => void changeStatus(item, 'ACCEPTED')} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 text-xs font-bold text-white">
+        <button type="button" onClick={() => item.sourceType === 'RETURNED_USED' ? void changeStatus(item, 'ACCEPTED') : openAcquisitionConfirmation(item)} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 text-xs font-bold text-white">
           <BadgeCheck className="h-3.5 w-3.5" /> Xác nhận thu mua
+        </button>
+      );
+    }
+    if (item.status === 'ACCEPTED' && item.sourceType === 'USER_BUYBACK') {
+      return (
+        <button type="button" onClick={() => printReceipt(item)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
+          <Printer className="h-3.5 w-3.5" /> In phiếu thu mua
         </button>
       );
     }
@@ -451,10 +597,11 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
   return (
     <AdminPanel
       title="Quản lý hàng cũ"
-      action={canManage ? (
-        <button type="button" onClick={() => setIntakeOpen(true)} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-bold text-white hover:bg-emerald-800">
-          <Plus className="h-4 w-4" /> Tạo hồ sơ
-        </button>
+      action={(canManage || canApprove) ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {canApprove && <button type="button" onClick={() => { setSection('listings'); setStatusFilter('PENDING_APPROVAL'); setMessage('Đang hiển thị các bài hàng cũ chờ duyệt.'); }} className="inline-flex h-9 items-center gap-2 rounded-md bg-amber-600 px-3 text-sm font-bold text-white hover:bg-amber-700"><BadgeCheck className="h-4 w-4" /> Duyệt bài hàng cũ</button>}
+          {canManage && <button type="button" onClick={() => setIntakeOpen(true)} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-bold text-white hover:bg-emerald-800"><Plus className="h-4 w-4" /> Tạo hồ sơ</button>}
+        </div>
       ) : undefined}
       filters={(
         <>
@@ -466,7 +613,7 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
               Kho hàng cũ
             </button>
             <button type="button" onClick={() => { setSection('listings'); setStatusFilter(''); }} className={`rounded px-3 text-xs font-bold ${section === 'listings' ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>
-              Bài đăng
+              Bài đăng{canApprove ? ' / Duyệt' : ''}
             </button>
           </div>
           <label className="relative min-w-56 flex-1">
@@ -549,6 +696,7 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
                 <th className="px-3 py-2.5">Tình trạng</th>
                 <th className="px-3 py-2.5">Giá máy mới</th>
                 <th className="px-3 py-2.5">Giá hàng cũ</th>
+                <th className="px-3 py-2.5">Chi phí / Lợi nhuận</th>
                 <th className="px-3 py-2.5">Vị trí</th>
                 <th className="px-3 py-2.5">Trạng thái</th>
                 <th className="px-3 py-2.5 text-right">Bài đăng</th>
@@ -574,6 +722,10 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
                       <div className="font-bold text-emerald-700">{money.format(Number(device.approvedSalePrice || 0))}</div>
                       <div className="text-xs text-slate-500">Tiết kiệm {money.format(savings)}</div>
                     </td>
+                    <td className="px-3 py-3">
+                      <div className="font-semibold text-slate-700">Sửa: {money.format(Number(device.actualRepairCost || 0))}</div>
+                      <div className={`mt-1 text-xs font-bold ${Number(device.estimatedProfit || 0) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{device.status === 'SOLD' ? 'Lãi ghi nhận' : 'Lãi dự kiến'}: {money.format(Number(device.estimatedProfit || 0))}</div>
+                    </td>
                     <td className="px-3 py-3"><div className="font-semibold text-slate-700">{device.locationCode}</div><div className="text-xs text-slate-500">{device.locationName}</div></td>
                     <td className="px-3 py-3"><span className={`inline-flex rounded-md px-2 py-1 text-xs font-bold ${statusTone[device.status] || 'bg-slate-100 text-slate-700'}`}>{statusLabels[device.status] || device.status}</span></td>
                     <td className="px-3 py-3 text-right">
@@ -581,6 +733,11 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
                       <button type="button" onClick={() => void openDeviceHistory(device)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
                         <ScrollText className="h-3.5 w-3.5" /> Lịch sử
                       </button>
+                      {canManage && !['RESERVED', 'SOLD', 'RETIRED'].includes(device.status) && (
+                        <button type="button" onClick={() => openRepair(device)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-purple-200 bg-purple-50 px-2.5 text-xs font-bold text-purple-700 hover:bg-purple-100">
+                          <Wrench className="h-3.5 w-3.5" /> Sửa chữa
+                        </button>
+                      )}
                       {canManage && device.status === 'RETURNED_QC' && (
                         <button type="button" onClick={() => openReinspection(device)} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-purple-700 px-2.5 text-xs font-bold text-white hover:bg-purple-800">
                           <ClipboardCheck className="h-3.5 w-3.5" /> QC lại
@@ -597,6 +754,21 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
                         </button>
                       )}
                       {canManage && !['RESERVED', 'SOLD', 'RETURNED_QC', 'RETIRED'].includes(device.status) && (
+                        <button type="button" onClick={() => void updateSalePrice(device)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2.5 text-xs font-bold text-sky-700 hover:bg-sky-100">
+                          Cập nhật giá
+                        </button>
+                      )}
+                      {canApprove && device.status === 'LISTING_REVIEW' && device.listingId && (
+                        <button
+                          type="button"
+                          onClick={() => void approveDeviceListing(device)}
+                          disabled={busy}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-emerald-700 px-2.5 text-xs font-bold text-white hover:bg-emerald-800"
+                        >
+                          <BadgeCheck className="h-3.5 w-3.5" /> Duyệt & đăng bán
+                        </button>
+                      )}
+                      {canManage && !['RESERVED', 'SOLD', 'RETURNED_QC', 'RETIRED'].includes(device.status) && (
                         <button type="button" onClick={() => openListing(device)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100">
                           <FilePenLine className="h-3.5 w-3.5" /> {device.listingId ? 'Sửa bài' : 'Soạn bài'}
                         </button>
@@ -606,7 +778,7 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
                   </tr>
                 );
               })}
-              {!busy && devices.length === 0 && <tr><td colSpan={7} className="px-3 py-10 text-center text-slate-500">Kho hàng cũ chưa có thiết bị.</td></tr>}
+              {!busy && devices.length === 0 && <tr><td colSpan={8} className="px-3 py-10 text-center text-slate-500">Kho hàng cũ chưa có thiết bị.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -618,7 +790,7 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
                 <th className="px-3 py-2.5">Bài đăng</th>
                 <th className="px-3 py-2.5">Thiết bị</th>
                 <th className="px-3 py-2.5">Giá bán</th>
-                <th className="px-3 py-2.5">Media</th>
+                <th className="px-3 py-2.5">Ảnh/video</th>
                 <th className="px-3 py-2.5">Trạng thái</th>
                 <th className="px-3 py-2.5 text-right">Thao tác</th>
               </tr>
@@ -626,10 +798,14 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
             <tbody className="divide-y divide-slate-100">
               {listings.map((listing) => (
                 <tr key={listing.id} className="align-top hover:bg-slate-50/70">
-                  <td className="px-3 py-3">
-                    <div className="font-bold text-slate-900">{listing.title}</div>
-                    <div className="mt-1 text-xs text-slate-500">/{listing.slug}</div>
-                  </td>
+	                  <td className="px-3 py-3">
+	                    <div className="font-bold text-slate-900">{listing.title}</div>
+	                    <div className="mt-1 text-xs text-slate-500">/{listing.slug}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          Bảo hành cửa hàng: {Number(listing.warrantyMonths || 0)} tháng
+                          {listing.manufacturerWarrantyEnabled ? ` · Chính hãng còn ${listing.manufacturerWarrantyRemainingMonths || 0} tháng` : ''}
+                        </div>
+	                  </td>
                   <td className="px-3 py-3">
                     <div className="font-semibold text-slate-700">{listing.deviceCode} · Hạng {listing.conditionGrade}</div>
                     <div className="mt-1 font-mono text-xs text-slate-500">{listing.imei}</div>
@@ -642,6 +818,7 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
                       {listing.status === 'PUBLISHED' && <a href={`/used-products/${listing.slug}`} target="_blank" rel="noreferrer" title="Xem bài đăng" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"><Eye className="h-4 w-4" /></a>}
                       {canManage && listing.status === 'DRAFT' && <button type="button" onClick={() => void changeListingStatus(listing, 'PENDING_APPROVAL')} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-amber-600 px-3 text-xs font-bold text-white"><Send className="h-3.5 w-3.5" /> Gửi duyệt</button>}
                       {canApprove && listing.status === 'PENDING_APPROVAL' && <button type="button" onClick={() => void changeListingStatus(listing, 'PUBLISHED')} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-emerald-700 px-3 text-xs font-bold text-white"><BadgeCheck className="h-3.5 w-3.5" /> Đăng bán</button>}
+                      {canApprove && listing.status === 'PENDING_APPROVAL' && <button type="button" onClick={() => void requestListingChanges(listing)} className="h-9 rounded-md border border-red-200 bg-red-50 px-3 text-xs font-bold text-red-700">Yêu cầu chỉnh sửa</button>}
                       {canManage && listing.status === 'PUBLISHED' && <button type="button" onClick={() => void changeListingStatus(listing, 'HIDDEN')} className="h-9 rounded-md border border-slate-200 px-3 text-xs font-bold text-slate-600">Ẩn bài</button>}
                       {canManage && listing.status === 'HIDDEN' && <button type="button" onClick={() => void changeListingStatus(listing, 'PENDING_APPROVAL')} className="h-9 rounded-md border border-amber-200 bg-amber-50 px-3 text-xs font-bold text-amber-700">Gửi duyệt lại</button>}
                     </div>
@@ -660,6 +837,28 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
           money={money}
           statusLabels={statusLabels}
           onClose={() => setHistoryOpen(false)}
+        />
+      )}
+
+      {acquisitionOpen && selectedIntake && (
+        <AcquisitionConfirmationModal
+          busy={busy}
+          intake={selectedIntake}
+          draft={acquisitionDraft}
+          onClose={() => setAcquisitionOpen(false)}
+          onSubmit={submitAcquisitionConfirmation}
+          setDraft={setAcquisitionDraft}
+        />
+      )}
+
+      {repairOpen && selectedDevice && (
+        <RepairModal
+          busy={busy}
+          device={selectedDevice}
+          draft={repairDraft}
+          onClose={() => setRepairOpen(false)}
+          onSubmit={submitRepair}
+          setDraft={setRepairDraft}
         />
       )}
 

@@ -130,11 +130,29 @@ async def list_inventory_snapshot_rows(session: AsyncSession, search: str) -> li
                 WHERE reserved_quantity > 0
                 GROUP BY product_id, variant_id
             ),
+            level_stock AS (
+                SELECT
+                    il.product_id,
+                    il.variant_id,
+                    SUM(il.on_hand_quantity)::int AS physical_stock,
+                    SUM(il.on_hand_quantity) FILTER (
+                        WHERE loc.status = 'ACTIVE' AND loc.purpose IN ('STORAGE', 'VIRTUAL')
+                    )::int AS sellable_stock
+                FROM inventory_levels il
+                JOIN inventory_locations loc ON loc.id = il.location_id
+                GROUP BY il.product_id, il.variant_id
+            ),
             level_cost AS (
                 SELECT
                     product_id,
                     variant_id,
-                    MAX(average_unit_cost) AS average_unit_cost
+                    CASE
+                        WHEN SUM(on_hand_quantity) > 0 THEN ROUND(
+                            SUM(on_hand_quantity * average_unit_cost) / SUM(on_hand_quantity),
+                            2
+                        )
+                        ELSE 0
+                    END AS average_unit_cost
                 FROM inventory_levels
                 GROUP BY product_id, variant_id
             ),
@@ -175,6 +193,41 @@ async def list_inventory_snapshot_rows(session: AsyncSession, search: str) -> li
                   AND status IN ('IN_STOCK', 'RESERVED')
                 GROUP BY product_id, variant_id, location_id
             ),
+            location_identifier_units AS (
+                SELECT
+                    pair.product_id,
+                    pair.variant_id,
+                    imei1.location_id,
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'pairId', pair.id::text,
+                            'imei1', pair.imei1,
+                            'imei2', pair.imei2,
+                            'serialNumber', pair.serial_number,
+                            'status', imei1.status,
+                            'isPrimary', imei1.is_primary,
+                            'isConsistent', (
+                                serial.location_id IS NOT DISTINCT FROM imei1.location_id
+                                AND serial.status = imei1.status
+                                AND (imei2.id IS NULL OR (
+                                    imei2.location_id IS NOT DISTINCT FROM imei1.location_id
+                                    AND imei2.status = imei1.status
+                                ))
+                            )
+                        )
+                        ORDER BY imei1.is_primary DESC, pair.imei1
+                    ) AS identifier_units
+                FROM product_identifier_pairs pair
+                JOIN product_imeis imei1
+                  ON imei1.product_id = pair.product_id AND imei1.imei = pair.imei1
+                LEFT JOIN product_imeis imei2
+                  ON imei2.product_id = pair.product_id AND imei2.imei = pair.imei2
+                JOIN product_serial_numbers serial
+                  ON serial.product_id = pair.product_id AND serial.serial_number = pair.serial_number
+                WHERE imei1.location_id IS NOT NULL
+                  AND imei1.status IN ('IN_STOCK', 'RESERVED')
+                GROUP BY pair.product_id, pair.variant_id, imei1.location_id
+            ),
             level_locations AS (
                 SELECT
                     il.product_id,
@@ -189,7 +242,8 @@ async def list_inventory_snapshot_rows(session: AsyncSession, search: str) -> li
                             'reservedQuantity', il.reserved_quantity,
                             'availableQuantity', GREATEST(il.on_hand_quantity - il.reserved_quantity, 0),
                             'imeis', COALESCE(li.imeis, '[]'::jsonb),
-                            'serialNumbers', COALESCE(ls.serial_numbers, '[]'::jsonb)
+                            'serialNumbers', COALESCE(ls.serial_numbers, '[]'::jsonb),
+                            'identifierUnits', COALESCE(lu.identifier_units, '[]'::jsonb)
                         )
                         ORDER BY loc.code
                     ) FILTER (WHERE il.on_hand_quantity <> 0) AS locations
@@ -206,6 +260,12 @@ async def list_inventory_snapshot_rows(session: AsyncSession, search: str) -> li
                  AND (
                     (il.variant_id IS NOT NULL AND ls.variant_id = il.variant_id)
                     OR (il.variant_id IS NULL AND ls.variant_id IS NULL AND ls.product_id = il.product_id)
+                 )
+                LEFT JOIN location_identifier_units lu
+                  ON lu.location_id = il.location_id
+                 AND (
+                    (il.variant_id IS NOT NULL AND lu.variant_id = il.variant_id)
+                    OR (il.variant_id IS NULL AND lu.variant_id IS NULL AND lu.product_id = il.product_id)
                  )
                 GROUP BY il.product_id, il.variant_id
             ),
@@ -274,6 +334,8 @@ async def list_inventory_snapshot_rows(session: AsyncSession, search: str) -> li
                 pv.configuration,
                 pv.color_name AS "colorName",
                 pv.stock_quantity AS "variantStock",
+                COALESCE(vls.physical_stock, pls.physical_stock) AS "levelPhysicalStock",
+                COALESCE(vls.sellable_stock, pls.sellable_stock, 0) AS "levelSellableStock",
                 COALESCE(NULLIF(pv.sale_price, 0), NULLIF(pv.price, 0), NULLIF(p.sale_price, 0), p.price, 0) AS "displayPrice",
                 GREATEST(
                     COALESCE(vr.reserved_quantity, pr.reserved_quantity, 0),
@@ -303,6 +365,8 @@ async def list_inventory_snapshot_rows(session: AsyncSession, search: str) -> li
             LEFT JOIN active_reservations pr ON pr.product_id = p.id AND pr.variant_id IS NULL
             LEFT JOIN level_reservations vlr ON vlr.variant_id = pv.id
             LEFT JOIN level_reservations plr ON plr.product_id = p.id AND plr.variant_id IS NULL
+            LEFT JOIN level_stock vls ON vls.variant_id = pv.id
+            LEFT JOIN level_stock pls ON pls.product_id = p.id AND pls.variant_id IS NULL
             LEFT JOIN level_cost vlc ON vlc.variant_id = pv.id
             LEFT JOIN level_cost plc ON plc.product_id = p.id AND plc.variant_id IS NULL
             LEFT JOIN level_locations vll ON vll.variant_id = pv.id
@@ -744,16 +808,17 @@ async def list_inventory_reconciliation_rows(
                     'Tồn bán được (' || COALESCE(pv.stock_quantity, p.stock_quantity) || ') không khớp với tổng tồn khả dụng tại các kệ bán hàng (' || COALESCE(loc_sum.sellable_qty, 0) || ').'::text AS message,
                     p.name || ' ' || COALESCE(p.sku, '') || ' ' || COALESCE(pv.sku, '') AS searchable_text
                 FROM products p
-                LEFT JOIN product_variants pv ON pv.product_id = p.id
+                LEFT JOIN product_variants pv ON pv.product_id = p.id AND pv.deleted_at IS NULL
                 LEFT JOIN (
                     SELECT
-                        il.product_id,
+                        COALESCE(il.product_id, level_variant.product_id) AS product_id,
                         il.variant_id,
                         SUM(il.on_hand_quantity - il.reserved_quantity) AS sellable_qty
                     FROM inventory_levels il
+                    LEFT JOIN product_variants level_variant ON level_variant.id = il.variant_id
                     JOIN inventory_locations loc ON loc.id = il.location_id
                     WHERE loc.purpose IN ('STORAGE', 'VIRTUAL') AND loc.status = 'ACTIVE'
-                    GROUP BY il.product_id, il.variant_id
+                    GROUP BY COALESCE(il.product_id, level_variant.product_id), il.variant_id
                 ) loc_sum ON loc_sum.product_id = p.id
                   AND (
                     (pv.id IS NOT NULL AND loc_sum.variant_id = pv.id)
@@ -919,7 +984,9 @@ async def list_inventory_reconciliation_rows(
                     'Chứng từ ' || d.document_type || ' (' || d.document_no || ') đã COMPLETED nhưng không thấy ghi nhận sổ kho.'::text AS message,
                     d.document_no || ' ' || d.document_type AS searchable_text
                 FROM inventory_documents d
-                LEFT JOIN inventory_adjustment_logs al ON al.reference_code = d.document_no
+                LEFT JOIN inventory_adjustment_logs al
+                  ON al.reference_code = d.document_no
+                  OR COALESCE(al.note, '') LIKE '%' || d.document_no || '%'
                 WHERE d.status = 'COMPLETED'
                   AND d.document_type IN ('INBOUND', 'OUTBOUND', 'TRANSFER', 'ADJUSTMENT')
                   AND al.id IS NULL
@@ -969,7 +1036,6 @@ async def list_inventory_reconciliation_rows(
                 COALESCE(variant_sku, product_sku),
                 location_code NULLS LAST,
                 identifier_value NULLS LAST
-            LIMIT 500
             """,
         ),
         {"search": search, "pattern": f"%{search}%", "issue_type": issue_type},

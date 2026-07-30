@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { useCart } from '../../../context/CartContext';
 import { publicApi } from '../../../services/publicApi';
+import { useAuth } from '../../../context/AuthContext';
+import { cartItemEffectiveTotal, flashSalePriceBreakdown, flashSaleQuantityParts } from '../utils/flashSaleCartPricing';
 
 const formatCurrency = (value: number) => `${value.toLocaleString('vi-VN')}đ`;
 
@@ -63,8 +65,13 @@ const CartProductImage: React.FC<{ src: string; alt: string }> = ({ src, alt }) 
 };
 
 export default function CartPage() {
-  const { items, updateQuantity, removeFromCart, totalPrice, totalQuantity, toggleCheckItem, toggleCheckAll, addToCart } = useCart();
+  const { items, updateQuantity, removeFromCart, totalQuantity, toggleCheckItem, toggleCheckAll, addToCart } = useCart();
+  const { user } = useAuth();
   const navigate = useNavigate();
+  const [flashSaleQuotas, setFlashSaleQuotas] = React.useState<Record<string, any>>({});
+  const [loadingFlashSaleQuotas, setLoadingFlashSaleQuotas] = React.useState(true);
+  const [flashSaleQuotaError, setFlashSaleQuotaError] = React.useState('');
+  const hasFlashSaleItems = items.some((item) => Boolean(item.isFlashSale && item.flashSaleId));
 
   // State lưu ngưỡng freeship động lấy từ backend
   const [freeShippingThreshold, setFreeShippingThreshold] = React.useState(3000000); // mặc định 3.000.000đ theo backend
@@ -88,6 +95,40 @@ export default function CartPage() {
       });
   }, []);
 
+  React.useEffect(() => {
+    let active = true;
+    if (!user || !hasFlashSaleItems) {
+      setFlashSaleQuotas({});
+      setLoadingFlashSaleQuotas(false);
+      setFlashSaleQuotaError('');
+      return;
+    }
+    setLoadingFlashSaleQuotas(true);
+    setFlashSaleQuotaError('');
+    publicApi.listMyFlashSaleQuotas()
+      .then((rows) => {
+        if (active) setFlashSaleQuotas(Object.fromEntries(rows.map((row: any) => [String(row.flashSaleId), row])));
+      })
+      .catch(() => {
+        if (active) {
+          setFlashSaleQuotas({});
+          setFlashSaleQuotaError('Không thể kiểm tra suất Flash Sale. Vui lòng tải lại trang.');
+        }
+      })
+      .finally(() => {
+        if (active) setLoadingFlashSaleQuotas(false);
+      });
+    return () => { active = false; };
+  }, [user, hasFlashSaleItems]);
+
+  const isFlashSalePricingBlocked = Boolean(
+    user && hasFlashSaleItems && (loadingFlashSaleQuotas || flashSaleQuotaError),
+  );
+
+  const remainingFlashSaleQuota = (item: any) => item.flashSaleId
+    ? flashSaleQuotas[String(item.flashSaleId)]?.remainingQuantity
+    : undefined;
+
   // Gọi API lấy sản phẩm gợi ý mua kèm
   React.useEffect(() => {
     setSuggestionsState({ loadingSuggestions: true });
@@ -107,6 +148,9 @@ export default function CartPage() {
   }, [items]);
 
   const totalAllItemsCount = items.reduce((acc, item) => acc + item.quantity, 0);
+  const totalPrice = items
+    .filter((item) => item.checked !== false)
+    .reduce((sum, item) => sum + cartItemEffectiveTotal(item, remainingFlashSaleQuota(item)), 0);
   const amountToFreeShipping = Math.max(freeShippingThreshold - totalPrice, 0);
   const freeShippingPercent = Math.min((totalPrice / freeShippingThreshold) * 100, 100);
   const hasFreeShipping = amountToFreeShipping === 0;
@@ -271,12 +315,36 @@ export default function CartPage() {
                         </div>
                       )}
 
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span className="text-base font-extrabold text-[#d70018]">{formatCurrency(item.price)}</span>
-                        {item.originalPrice && item.originalPrice > item.price && (
-                          <del className="text-sm text-slate-400">{formatCurrency(item.originalPrice)}</del>
-                        )}
-                      </div>
+                      {item.isFlashSale && item.flashSalePerUserLimit ? (() => {
+                        if (loadingFlashSaleQuotas) {
+                          return <div className="mt-2 text-sm font-semibold text-slate-500">Đang kiểm tra suất Flash Sale...</div>;
+                        }
+                        if (flashSaleQuotaError) {
+                          return <div className="mt-2 text-sm font-semibold text-red-600">Chưa thể xác định giá Flash Sale.</div>;
+                        }
+                        const pricing = flashSalePriceBreakdown(item, remainingFlashSaleQuota(item));
+                        return (
+                          <div className="mt-2 grid gap-1.5 text-sm">
+                            {pricing.saleQuantity > 0 && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded bg-red-50 px-2 py-0.5 text-xs font-bold text-red-700">Flash Sale</span>
+                                <span className="font-extrabold text-[#d70018]">{pricing.saleQuantity} × {formatCurrency(pricing.saleUnitPrice)}</span>
+                              </div>
+                            )}
+                            {pricing.regularQuantity > 0 && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">Giá thường</span>
+                                <span className="font-bold text-slate-700">{pricing.regularQuantity} × {formatCurrency(pricing.regularUnitPrice)}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })() : (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span className="text-base font-extrabold text-[#d70018]">{formatCurrency(item.price)}</span>
+                          {item.originalPrice && item.originalPrice > item.price && <del className="text-sm text-slate-400">{formatCurrency(item.originalPrice)}</del>}
+                        </div>
+                      )}
                     </div>
 
                     <button
@@ -306,11 +374,17 @@ export default function CartPage() {
                       </span>
                       <button
                         type="button"
-                        disabled={item.isAccessory}
+                        disabled={item.isAccessory || item.isUsedDevice}
                         onClick={() => updateQuantity(item.cartItemId || item.productId, item.quantity + 1)}
                         className="flex h-full w-10 items-center justify-center text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed"
                         aria-label="Tăng số lượng"
-                        title={item.isAccessory ? "Sản phẩm mua kèm giảm giá tối đa là 1" : "Tăng số lượng"}
+                        title={
+                          item.isUsedDevice
+                            ? "Mỗi máy cũ là một thiết bị duy nhất theo IMEI"
+                            : item.isAccessory
+                              ? "Sản phẩm mua kèm giảm giá tối đa là 1"
+                              : "Tăng số lượng"
+                        }
                       >
                         <Plus className="h-4 w-4" />
                       </button>
@@ -319,9 +393,23 @@ export default function CartPage() {
                     <div className="text-right">
                       <p className="text-xs text-slate-500">Thành tiền</p>
                       <p className="text-lg font-extrabold text-slate-950">
-                        {formatCurrency((item.price + (item.attachedServices?.reduce((sum, s) => sum + s.price, 0) || 0)) * item.quantity)}
+                        {item.isFlashSale && isFlashSalePricingBlocked
+                          ? (loadingFlashSaleQuotas ? 'Đang tính...' : 'Chưa thể tính')
+                          : formatCurrency(cartItemEffectiveTotal(item, remainingFlashSaleQuota(item)))}
                       </p>
                     </div>
+                    {item.isFlashSale && item.flashSalePerUserLimit ? (
+                      <div className="w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                        {loadingFlashSaleQuotas
+                          ? 'Đang kiểm tra số lượng Flash Sale còn lại của bạn...'
+                          : flashSaleQuotaError || (() => {
+                          const parts = flashSaleQuantityParts(item, remainingFlashSaleQuota(item));
+                          return parts.regularQuantity > 0
+                            ? `Bạn đã vượt giới hạn Flash Sale. ${parts.regularQuantity} sản phẩm vượt giới hạn được tính theo giá thường.`
+                            : `Bạn được mua tối đa ${item.flashSalePerUserLimit} sản phẩm giá Flash Sale trong toàn bộ chương trình.`;
+                        })()}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
                 </m.article>
@@ -336,7 +424,9 @@ export default function CartPage() {
           <div className="mt-5 space-y-3 text-sm">
             <div className="flex justify-between gap-3 text-slate-600">
               <span>Tạm tính ({totalQuantity} sản phẩm)</span>
-              <span className="font-semibold text-slate-900">{formatCurrency(totalPrice)}</span>
+              <span className="font-semibold text-slate-900">
+                {isFlashSalePricingBlocked ? (loadingFlashSaleQuotas ? 'Đang tính...' : 'Chưa thể tính') : formatCurrency(totalPrice)}
+              </span>
             </div>
             <div className="flex justify-between gap-3 text-slate-600">
               <span>Phí vận chuyển</span>
@@ -353,7 +443,9 @@ export default function CartPage() {
           <div className="mt-5 border-t border-slate-100 pt-5">
             <div className="flex items-end justify-between gap-3">
               <span className="font-bold text-slate-900">Tổng tiền</span>
-              <span className="text-2xl font-black text-[#d70018]">{formatCurrency(totalPrice)}</span>
+              <span className="text-2xl font-black text-[#d70018]">
+                {isFlashSalePricingBlocked ? (loadingFlashSaleQuotas ? 'Đang tính...' : 'Chưa thể tính') : formatCurrency(totalPrice)}
+              </span>
             </div>
             <p className="mt-2 text-xs leading-5 text-slate-500">
               Tổng tiền chưa bao gồm voucher và phí vận chuyển thực tế nếu chưa đạt mốc miễn phí.
@@ -362,11 +454,11 @@ export default function CartPage() {
 
           <button
             type="button"
-            disabled={totalQuantity === 0}
+            disabled={totalQuantity === 0 || isFlashSalePricingBlocked}
             onClick={() => navigate('/checkout')}
             className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-[#d70018] px-5 py-3.5 text-sm font-extrabold text-white shadow-sm transition hover:bg-[#c00015] disabled:bg-slate-300 disabled:cursor-not-allowed disabled:shadow-none"
           >
-            Tiến hành đặt hàng
+            {loadingFlashSaleQuotas && hasFlashSaleItems ? 'Đang kiểm tra giá...' : 'Tiến hành đặt hàng'}
             <ChevronRight className="h-4 w-4" />
           </button>
 

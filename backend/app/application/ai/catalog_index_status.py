@@ -85,6 +85,34 @@ async def database_status(database_url: str = settings.database_url) -> dict[str
                 "vector_installed": bool(vector_installed),
             }
 
+        vector_column_exists = await connection.fetchval(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = $1
+                  AND column_name = 'embedding_v2'
+            )
+            """,
+            CATALOG_EMBEDDING_TABLE,
+        )
+        vector_fields = (
+            """,
+                COUNT(*) FILTER (WHERE embedding_v2 IS NOT NULL)::int AS pgvector_documents,
+                COUNT(*) FILTER (
+                    WHERE embedding_v2 IS NOT NULL AND is_active = TRUE
+                )::int AS active_pgvector_documents,
+                MAX(indexed_at) AS last_indexed_at
+            """
+            if vector_column_exists
+            else """,
+                0::int AS pgvector_documents,
+                0::int AS active_pgvector_documents,
+                NULL::timestamptz AS last_indexed_at
+            """
+        )
+
         row = await connection.fetchrow(
             f"""
             SELECT
@@ -94,6 +122,7 @@ async def database_status(database_url: str = settings.database_url) -> dict[str
                 MAX(output_dimensionality)::int AS max_dim,
                 COUNT(*) FILTER (WHERE complete_snapshot)::int AS complete_snapshot_documents,
                 string_agg(DISTINCT model, ', ' ORDER BY model) AS models
+                {vector_fields}
             FROM {CATALOG_EMBEDDING_TABLE}
             """
         )
@@ -108,6 +137,14 @@ async def database_status(database_url: str = settings.database_url) -> dict[str
             "last_updated_at": row["last_updated_at"].isoformat() if row and row["last_updated_at"] else None,
             "vector_available": bool(vector_available),
             "vector_installed": bool(vector_installed),
+            "vector_column_exists": bool(vector_column_exists),
+            "pgvector_documents": row["pgvector_documents"] if row else 0,
+            "active_pgvector_documents": row["active_pgvector_documents"] if row else 0,
+            "last_indexed_at": (
+                row["last_indexed_at"].isoformat()
+                if row and row["last_indexed_at"]
+                else None
+            ),
         }
     finally:
         await connection.close()
@@ -150,6 +187,13 @@ def print_status(status: dict[str, Any]) -> None:
         "- pgvector: "
         f"available={database.get('vector_available')}, "
         f"installed={database.get('vector_installed')}"
+    )
+    print(
+        "- PGVector catalog: "
+        f"column_exists={database.get('vector_column_exists')}, "
+        f"docs={database.get('pgvector_documents')}, "
+        f"active={database.get('active_pgvector_documents')}, "
+        f"last_indexed={database.get('last_indexed_at')}"
     )
 
 

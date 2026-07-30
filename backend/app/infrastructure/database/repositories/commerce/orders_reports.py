@@ -73,6 +73,8 @@ async def list_restock_items(session: AsyncSession, *, order_id: UUID, order_cod
                 oi.used_device_id,
                 oi.product_name,
                 oi.quantity,
+                oi.after_sales_type,
+                oi.after_sales_request_item_id,
                 logs.variant_id
             FROM order_items oi
             LEFT JOIN LATERAL (
@@ -129,11 +131,15 @@ async def get_product_stock_for_update(session: AsyncSession, product_id: UUID) 
 async def get_revenue_report(session: AsyncSession) -> dict:
     total_orders = await session.scalar(select(func.count(Order.id)))
     completed_orders = await session.scalar(select(func.count(Order.id)).where(Order.status == "COMPLETED"))
-    total_revenue = await session.scalar(
-        select(func.coalesce(func.sum(Order.total_amount), 0)).where(Order.status == "COMPLETED")
-    )
+    total_revenue = await session.scalar(text("""
+        SELECT
+            (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE completed_at IS NOT NULL)
+            - (SELECT COALESCE(SUM(refund_amount), 0) FROM refund_transactions WHERE status = 'COMPLETED')
+    """))
     ai_interactions = await session.scalar(select(func.count(AIContextLog.id)))
-    loyalty_points_used = await session.scalar(select(func.coalesce(func.sum(Order.loyalty_points_used), 0)))
+    loyalty_points_used = await session.scalar(
+        select(func.coalesce(func.sum(Order.loyalty_points_used), 0)).where(Order.status == "COMPLETED")
+    )
     return {
         "total_orders": total_orders or 0,
         "completed_orders": completed_orders or 0,

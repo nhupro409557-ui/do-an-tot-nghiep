@@ -7,13 +7,24 @@ import { OverviewTab } from './OverviewTab';
 import { SettingsTab } from './SettingsTab';
 import { AfterSalesTab } from './AfterSalesTab';
 import { NotificationsTab, TransactionsTab, VoucherWalletTab } from './CustomerCenterTabs';
+import UserBuybackRequests from './UserBuybackRequests';
 
 type AccountDashboardContentProps = {
   activeTab: string;
   addresses: any[];
   orders: any[];
+  ordersLoading: boolean;
   favorites: any[];
   points: number;
+  loyaltyPeriod?: {
+    startedAt?: string;
+    endsAt?: string;
+    spendAmount?: number;
+    expiringSoon?: number;
+    nearestExpirationAt?: string;
+    nearestExpirationAmount?: number;
+    tier?: string;
+  };
   nextTierInfo: {
     name: string;
     needed: number;
@@ -69,6 +80,7 @@ export function AccountDashboardContent(props: AccountDashboardContentProps) {
         <OverviewTab
           addresses={props.addresses}
           orders={props.orders}
+          ordersLoading={props.ordersLoading}
           onOpenAddresses={props.onOpenAddresses}
           onOpenLoyalty={props.onOpenLoyalty}
         />
@@ -82,9 +94,10 @@ export function AccountDashboardContent(props: AccountDashboardContentProps) {
       {props.activeTab === 'vouchers' && <VoucherWalletTab />}
       {props.activeTab === 'transactions' && <TransactionsTab />}
       {props.activeTab === 'notifications' && <NotificationsTab />}
+      {props.activeTab === 'buyback' && <UserBuybackRequests />}
 
       {props.activeTab === 'membership' && (
-        <MembershipTab points={props.points} nextTierInfo={props.nextTierInfo} />
+        <MembershipTab points={props.points} nextTierInfo={props.nextTierInfo} loyaltyPeriod={props.loyaltyPeriod} />
       )}
 
       {props.activeTab === 'addresses' && (

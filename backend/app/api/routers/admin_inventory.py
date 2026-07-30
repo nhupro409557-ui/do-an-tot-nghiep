@@ -19,6 +19,7 @@ from app.api.schemas.admin import (
     InventoryInternalHoldStatusPayload,
     InventoryLocationPayload,
     InventoryLocationStatusPayload,
+    InventoryLegacyPutawayPayload,
     InventoryReceiptAttachmentDecisionPayload,
     InventoryReceiptAttachmentsPayload,
     InventoryReceiptImeiPayload,
@@ -143,6 +144,15 @@ async def get_inventory_reconciliation_report(
     return await inventory_service.get_inventory_reconciliation_report(session, search, issue_type)
 
 
+@router.post("/inventory/reconciliation/legacy-putaway", dependencies=[Depends(require_super_admin)])
+async def allocate_legacy_inventory_to_location(
+    payload: InventoryLegacyPutawayPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await inventory_service.allocate_legacy_inventory_to_location(session, payload, current_user_id)
+
+
 @router.get("/inventory/ledger", dependencies=[Depends(require_permission("inventory:read"))])
 async def list_inventory_ledger(
     search: str = Query(default=""),
@@ -242,7 +252,7 @@ async def create_inventory_stock_count(
     return await inventory_service.create_inventory_stock_count(session, payload, current_user_id)
 
 
-@router.patch("/inventory/stock-counts/{reference_code}/status", dependencies=[Depends(require_super_admin)])
+@router.patch("/inventory/stock-counts/{reference_code}/status", dependencies=[Depends(require_permission("inventory:approve"))])
 async def update_inventory_stock_count_status(
     reference_code: str,
     payload: InventoryStockCountStatusPayload,
@@ -269,7 +279,7 @@ async def create_inventory_adjustment_request(
     return await inventory_service.create_inventory_adjustment_request(session, payload, current_user_id)
 
 
-@router.patch("/inventory/adjustments/{reference_code}/status", dependencies=[Depends(require_super_admin)])
+@router.patch("/inventory/adjustments/{reference_code}/status", dependencies=[Depends(require_permission("inventory:approve"))])
 async def update_inventory_adjustment_status(
     reference_code: str,
     payload: InventoryAdjustmentRequestStatusPayload,
@@ -296,7 +306,7 @@ async def create_inventory_transfer_request(
     return await inventory_service.create_inventory_transfer_request(session, payload, current_user_id)
 
 
-@router.patch("/inventory/transfers/{reference_code}/status", dependencies=[Depends(require_super_admin)])
+@router.patch("/inventory/transfers/{reference_code}/status", dependencies=[Depends(require_permission("inventory:approve"))])
 async def update_inventory_transfer_status(
     reference_code: str,
     payload: InventoryTransferStatusPayload,
@@ -323,7 +333,7 @@ async def create_inventory_internal_hold(
     return await inventory_service.create_inventory_internal_hold(session, payload, current_user_id)
 
 
-@router.patch("/inventory/internal-holds/{reference_code}/status", dependencies=[Depends(require_super_admin)])
+@router.patch("/inventory/internal-holds/{reference_code}/status", dependencies=[Depends(require_permission("inventory:approve"))])
 async def update_inventory_internal_hold_status(
     reference_code: str,
     payload: InventoryInternalHoldStatusPayload,
@@ -350,7 +360,7 @@ async def create_inventory_disposal(
     return await inventory_service.create_inventory_disposal(session, payload, current_user_id)
 
 
-@router.patch("/inventory/disposals/{reference_code}/status", dependencies=[Depends(require_super_admin)])
+@router.patch("/inventory/disposals/{reference_code}/status", dependencies=[Depends(require_permission("inventory:approve"))])
 async def update_inventory_disposal_status(
     reference_code: str,
     payload: InventoryDisposalStatusPayload,
@@ -377,7 +387,7 @@ async def create_inventory_cost_adjustment(
     return await inventory_service.create_inventory_cost_adjustment(session, payload, current_user_id)
 
 
-@router.patch("/inventory/cost-adjustments/{reference_code}/status", dependencies=[Depends(require_super_admin)])
+@router.patch("/inventory/cost-adjustments/{reference_code}/status", dependencies=[Depends(require_permission("inventory:approve"))])
 async def update_inventory_cost_adjustment_status(
     reference_code: str,
     payload: InventoryCostAdjustmentStatusPayload,
@@ -396,7 +406,7 @@ async def create_inventory_identifier_edit_request(
     return await inventory_service.create_inventory_identifier_edit_request(session, payload, current_user_id)
 
 
-@router.patch("/inventory/identifier-edit-requests/{request_id}", dependencies=[Depends(require_super_admin)])
+@router.patch("/inventory/identifier-edit-requests/{request_id}", dependencies=[Depends(require_permission("inventory:approve"))])
 async def decide_inventory_identifier_edit_request(
     request_id: UUID,
     payload: InventoryIdentifierEditDecisionPayload,
@@ -423,7 +433,7 @@ async def create_inventory_identifier_location_request(
     return await inventory_service.create_inventory_identifier_location_request(session, payload, current_user_id)
 
 
-@router.patch("/inventory/identifier-location-requests/{request_id}", dependencies=[Depends(require_super_admin)])
+@router.patch("/inventory/identifier-location-requests/{request_id}", dependencies=[Depends(require_permission("inventory:approve"))])
 async def decide_inventory_identifier_location_request(
     request_id: UUID,
     payload: InventoryIdentifierEditDecisionPayload,
@@ -514,7 +524,7 @@ async def update_inventory_receipt_attachments(
     return await inventory_service.update_inventory_receipt_attachments(session, reference_code, payload, current_user_id)
 
 
-@router.patch("/inventory/receipts/{reference_code}/attachments/decision", dependencies=[Depends(require_super_admin)])
+@router.patch("/inventory/receipts/{reference_code}/attachments/decision", dependencies=[Depends(require_permission("inventory:approve"))])
 async def decide_inventory_receipt_attachments(
     reference_code: str,
     payload: InventoryReceiptAttachmentDecisionPayload,
@@ -554,7 +564,7 @@ async def submit_inventory_receipt_imeis(
     return await inventory_service.submit_inventory_receipt_imeis(session, reference_code, payload, current_user_id)
 
 
-@router.post("/inventory/receipts/{reference_code}/reverse", dependencies=[Depends(require_super_admin)])
+@router.post("/inventory/receipts/{reference_code}/reverse", dependencies=[Depends(require_permission("inventory:approve"))])
 async def reverse_inventory_receipt(
     reference_code: str,
     payload: InventoryReceiptReversePayload,
@@ -578,15 +588,15 @@ async def set_variant_inventory(
 from pydantic import BaseModel
 
 class OutboundAllocationPayload(BaseModel):
-    locationId: str | None = None
+    locationId: UUID | None = None
     quantity: int = 0
     imeis: list[str] = []
     serialNumbers: list[str] = []
 
 class OutboundLineUpdatePayload(BaseModel):
-    id: str | None = None
-    lineId: str | None = None
-    locationId: str | None = None
+    id: UUID | None = None
+    lineId: UUID | None = None
+    locationId: UUID | None = None
     approvedQuantity: int | None = None
     imeis: list[str] = []
     serialNumbers: list[str] = []

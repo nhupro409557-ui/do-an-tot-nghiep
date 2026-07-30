@@ -175,7 +175,7 @@ export function SearchBar() {
 
   return (
     <>
-      <form onSubmit={submitSearch} className="relative hidden min-w-[240px] flex-1 md:block">
+      <form onSubmit={submitSearch} className="relative hidden min-w-0 flex-1 md:block">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
         <input
           aria-label="Tìm kiếm sản phẩm"
@@ -201,11 +201,11 @@ export function SearchBar() {
           setIsMobileOpen(true);
           setIsHistoryOpen(true);
         }}
-        className="ml-auto flex h-10 min-w-10 items-center justify-center gap-2 rounded-xl bg-white/15 px-3 ring-1 ring-white/15 transition hover:bg-white/20 md:hidden"
+        className="ml-auto flex h-11 min-w-11 items-center justify-center gap-2 rounded-xl bg-white/15 px-3 ring-1 ring-white/15 transition hover:bg-white/20 md:hidden"
         aria-label="Tìm kiếm sản phẩm"
       >
         <Search className="h-5 w-5" />
-        <span className="hidden text-sm font-semibold min-[380px]:inline">Tìm kiếm</span>
+        <span className="hidden whitespace-nowrap text-sm font-semibold min-[430px]:inline">Tìm kiếm</span>
       </button>
 
       {isMobileOpen && (

@@ -20,6 +20,7 @@ class LoyaltyTransactionType(StrEnum):
     REDEEM = "REDEEM"
     REFUND = "REFUND"
     REVOKE = "REVOKE"
+    EXPIRE = "EXPIRE"
     ADJUST = "ADJUST"
 
 
@@ -31,4 +32,3 @@ class UserEntity(BaseModel):
     status: UserStatus
     loyalty_points_balance: int = Field(ge=0)
     loyalty_wallet_status: LoyaltyWalletStatus
-

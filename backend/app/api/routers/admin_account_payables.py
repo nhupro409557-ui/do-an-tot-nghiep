@@ -11,7 +11,7 @@ from app.infrastructure.database.session import get_session
 router = APIRouter()
 
 
-@router.get("/account-payables", dependencies=[Depends(require_permission("inventory:read"))])
+@router.get("/account-payables", dependencies=[Depends(require_permission("payable:read"))])
 async def list_account_payables(
     search: str = Query(default="", max_length=120),
     status_filter: str = Query(default="ALL", alias="status"),
@@ -30,12 +30,12 @@ async def list_account_payables(
     )
 
 
-@router.get("/account-payables/summary", dependencies=[Depends(require_permission("inventory:read"))])
+@router.get("/account-payables/summary", dependencies=[Depends(require_permission("payable:read"))])
 async def get_account_payable_summary(session: AsyncSession = Depends(get_session)) -> dict:
     return await account_payable_service.get_account_payable_summary(session)
 
 
-@router.get("/account-payables/{payable_id}", dependencies=[Depends(require_permission("inventory:read"))])
+@router.get("/account-payables/{payable_id}", dependencies=[Depends(require_permission("payable:read"))])
 async def get_account_payable_detail(
     payable_id: UUID,
     session: AsyncSession = Depends(get_session),
@@ -43,7 +43,7 @@ async def get_account_payable_detail(
     return await account_payable_service.get_account_payable_detail(session, payable_id)
 
 
-@router.post("/account-payables/{payable_id}/payments", dependencies=[Depends(require_permission("inventory:adjust"))])
+@router.post("/account-payables/{payable_id}/payments", dependencies=[Depends(require_permission("payable:pay"))])
 async def create_supplier_payment(
     payable_id: UUID,
     payload: SupplierPaymentPayload,

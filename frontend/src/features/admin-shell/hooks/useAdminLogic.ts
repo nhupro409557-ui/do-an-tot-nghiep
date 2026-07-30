@@ -35,6 +35,35 @@ import { useAdminCategoriesLogic } from '../../admin-categories/hooks/useAdminCa
 import { adminTabs, AdminTab, matchesSearch } from '../components/AdminDashboardConfig';
 import { useAdminAccessControls } from './useAdminAccessControls';
 
+const MAX_UPLOAD_VIDEO_DURATION_SECONDS = 300;
+
+function readVideoDurationSeconds(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    const objectUrl = URL.createObjectURL(file);
+    const cleanup = () => {
+      URL.revokeObjectURL(objectUrl);
+      video.removeAttribute('src');
+      video.load();
+    };
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      const duration = video.duration;
+      cleanup();
+      if (!Number.isFinite(duration) || duration <= 0) {
+        reject(new Error('Không đọc được thời lượng video.'));
+        return;
+      }
+      resolve(duration);
+    };
+    video.onerror = () => {
+      cleanup();
+      reject(new Error('Không đọc được thời lượng video.'));
+    };
+    video.src = objectUrl;
+  });
+}
+
 function categoryContainsCategory(categories: any[], selectedCategoryId: string, categoryId: unknown) {
   if (!selectedCategoryId) return true;
   if (String(categoryId || '') === selectedCategoryId) return true;
@@ -360,7 +389,7 @@ export function useAdminLogic() {
   const availableTabs = useMemo(() => adminTabs.filter((item) => tabAccess[item.id]), [tabAccess]);
   const canLoadTab = (targetTab: AdminTab) => Boolean(tabAccess[targetTab]);
   const canAdjustCustomerPoints = usePermission('customer:loyalty_adjust');
-  const canRecordSupplierPayment = usePermission('inventory:adjust');
+  const canRecordSupplierPayment = usePermission('payable:pay');
   const canUpdateCustomerProfile = useAnyPermission(['customer:update', 'sys:manage_users']);
   const permissionLogic = useAdminPermissionsLogic({
     customers,
@@ -684,7 +713,9 @@ export function useAdminLogic() {
             .forEach((key) => loadedAdminResourcesRef.current.delete(key));
         }
       }
-      if (loadedAdminSectionsRef.current.has(targetTab) && !options.force) return;
+      // Tổng quan là read-model tổng hợp từ nhiều phân hệ nên phải đọc lại mỗi
+      // lần người dùng quay về tab để không giữ số liệu đơn hàng đã lỗi thời.
+      if (loadedAdminSectionsRef.current.has(targetTab) && !options.force && targetTab !== 'overview') return;
 
       if (targetTab === 'overview') {
         await ensureOverview();
@@ -782,10 +813,18 @@ export function useAdminLogic() {
 
     for (const file of fileArray) {
       try {
+        let durationSeconds: number | undefined;
+        if (file.type.startsWith('video/')) {
+          durationSeconds = await readVideoDurationSeconds(file);
+          if (durationSeconds > MAX_UPLOAD_VIDEO_DURATION_SECONDS) {
+            throw new Error('Video không được dài quá 5 phút.');
+          }
+        }
         const res = await adminProductsApi.adminCreatePresignedUpload({
           folder,
           contentType: file.type,
           size: file.size,
+          durationSeconds,
         });
 
         const { uploadUrl, publicUrl, storage } = res;
@@ -798,6 +837,9 @@ export function useAdminLogic() {
           const token = getAccessToken();
           if (token) {
             headers['Authorization'] = `Bearer ${token}`;
+          }
+          if (durationSeconds !== undefined) {
+            headers['X-Media-Duration-Seconds'] = String(durationSeconds);
           }
         }
 

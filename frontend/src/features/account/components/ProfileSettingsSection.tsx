@@ -49,7 +49,8 @@ export function ProfileSettingsSection({
           <input disabled={!isProfileEditing} value={profileForm.phone} onChange={event => onProfileFormChange({ ...profileForm, phone: event.target.value })} className="mt-2 w-full px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] disabled:bg-gray-50 disabled:text-gray-500" />
         </label>
         <label className="text-sm font-semibold text-gray-700">Ngày tháng năm sinh
-          <input disabled={!isProfileEditing} type="date" value={profileForm.birthDate} onChange={event => onProfileFormChange({ ...profileForm, birthDate: event.target.value })} className="mt-2 w-full px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] disabled:bg-gray-50 disabled:text-gray-500" />
+          <input disabled={!isProfileEditing || Boolean((profileForm as any).birthDateLocked)} type="date" value={profileForm.birthDate} onChange={event => onProfileFormChange({ ...profileForm, birthDate: event.target.value })} className="mt-2 w-full px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] disabled:bg-gray-50 disabled:text-gray-500" />
+          {Boolean((profileForm as any).birthDateLocked) && <span className="mt-1 block text-xs font-medium text-amber-700">Ngày sinh đã được khóa. Vui lòng liên hệ chăm sóc khách hàng nếu cần điều chỉnh.</span>}
         </label>
         <label className="text-sm font-semibold text-gray-700">Giới tính
           <select disabled={!isProfileEditing} value={profileForm.gender} onChange={event => onProfileFormChange({ ...profileForm, gender: event.target.value })} className="mt-2 w-full px-4 py-3 border border-gray-300 rounded-lg outline-none focus:border-[#d70018] disabled:bg-gray-50 disabled:text-gray-500">

@@ -293,4 +293,5 @@ export const publicApi = {
     return list.map(formatProductDemoData);
   },
   getShippingConfig: () => request<{ free_shipping_threshold: number }>('/shipping-config'),
+  listMyFlashSaleQuotas: () => request<any[]>('/flash-sales/me/quotas'),
 };

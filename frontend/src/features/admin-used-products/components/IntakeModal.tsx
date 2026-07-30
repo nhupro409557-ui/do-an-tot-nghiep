@@ -39,13 +39,19 @@ export default function IntakeModal({
             </select>
           </label>
           <label className="text-sm font-semibold text-slate-700">Sản phẩm gốc
-            <select required value={intakeDraft.productId} onChange={(event) => setIntakeDraft({ ...intakeDraft, productId: event.target.value, variantId: '' })} className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3">
+            <select required value={intakeDraft.productId} onChange={(event) => setIntakeDraft({ ...intakeDraft, productId: event.target.value, externalProductName: event.target.value === '__EXTERNAL__' ? intakeDraft.externalProductName : '', variantId: '' })} className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3">
               <option value="">Chọn sản phẩm</option>
               {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+              <option value="__EXTERNAL__">Model ngoài danh mục</option>
             </select>
           </label>
+          {intakeDraft.productId === '__EXTERNAL__' && (
+            <label className="text-sm font-semibold text-slate-700">Tên model ngoài danh mục
+              <input required minLength={2} value={intakeDraft.externalProductName} onChange={(event) => setIntakeDraft({ ...intakeDraft, externalProductName: event.target.value })} placeholder="Ví dụ: Sony Xperia 5 IV" className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3" />
+            </label>
+          )}
           <label className="text-sm font-semibold text-slate-700">Biến thể
-            <select value={intakeDraft.variantId} onChange={(event) => setIntakeDraft({ ...intakeDraft, variantId: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3">
+            <select disabled={intakeDraft.productId === '__EXTERNAL__'} value={intakeDraft.variantId} onChange={(event) => setIntakeDraft({ ...intakeDraft, variantId: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3 disabled:bg-slate-100">
               <option value="">Không xác định biến thể</option>
               {(selectedProduct?.variants || []).map((variant) => <option key={variant.id} value={variant.id}>{[variant.colorName, variant.storage, variant.ram, variant.configuration].filter(Boolean).join(' / ') || variant.sku}</option>)}
             </select>
@@ -61,6 +67,12 @@ export default function IntakeModal({
           </label>
           <label className="text-sm font-semibold text-slate-700">Số điện thoại
             <input value={intakeDraft.sellerPhone} onChange={(event) => setIntakeDraft({ ...intakeDraft, sellerPhone: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3" />
+          </label>
+          <label className="text-sm font-semibold text-slate-700">Số giấy tờ định danh
+            <input value={intakeDraft.sellerIdentityNumber} onChange={(event) => setIntakeDraft({ ...intakeDraft, sellerIdentityNumber: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3" />
+          </label>
+          <label className="text-sm font-semibold text-slate-700 md:col-span-2">Địa chỉ người bán
+            <input value={intakeDraft.sellerAddress} onChange={(event) => setIntakeDraft({ ...intakeDraft, sellerAddress: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3" />
           </label>
           <label className="text-sm font-semibold text-slate-700">Giá mong muốn
             <input type="number" min="0" value={intakeDraft.expectedPrice} onChange={(event) => setIntakeDraft({ ...intakeDraft, expectedPrice: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3" />

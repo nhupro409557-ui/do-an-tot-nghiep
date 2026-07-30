@@ -1,17 +1,14 @@
 from uuid import UUID, uuid4
-
 import json
-
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy import text
 from app.api.schemas.admin import ProductVariantPayload
 from app.application.services.product_helper_service import (
     normalized_option_key,
     sync_parent_price_if_variants_exist,
 )
 from app.infrastructure.database.repositories import product_variant_repo
-
 
 COLOR_CODE_FALLBACK = {
     "đen": "#000000", "black": "#000000",
@@ -27,7 +24,6 @@ COLOR_CODE_FALLBACK = {
     "bạc": "#C0C0C0", "silver": "#C0C0C0",
     "vàng hồng": "#B76E79", "rose gold": "#B76E79",
 }
-
 
 def validate_variant_options(options: list[dict], variants_payload: list[ProductVariantPayload]) -> None:
     options_dict = {
@@ -59,7 +55,6 @@ def validate_variant_options(options: list[dict], variants_payload: list[Product
                         detail=f"Biến thể thiếu thuộc tính '{opt_name}' yêu cầu bởi sản phẩm.",
                     )
 
-
 def validate_default_variant_count(variants_payload: list[ProductVariantPayload]) -> None:
     default_count = sum(1 for variant in variants_payload if variant.isDefault)
     if variants_payload and default_count != 1:
@@ -68,7 +63,6 @@ def validate_default_variant_count(variants_payload: list[ProductVariantPayload]
             detail="Mỗi sản phẩm chỉ được có một biến thể mặc định.",
             headers={"x-error-code": "MULTIPLE_DEFAULT_VARIANTS"},
         )
-
 
 def _variant_combination_key(variant: ProductVariantPayload) -> tuple[tuple[str, str], ...] | None:
     if not variant.isActive or variant.status.lower() in {"deleted", "archived"}:
@@ -79,24 +73,28 @@ def _variant_combination_key(variant: ProductVariantPayload) -> tuple[tuple[str,
         for key, value in (variant.attributes or {}).items()
         if str(value or "").strip()
     }
-    if attributes:
-        return tuple(sorted(attributes.items()))
-
     fallback_values = {
         "color": variant.colorName,
         "storage": variant.storage,
         "ram": variant.ram,
         "configuration": variant.configuration,
     }
-    normalized = {
-        key: normalized_option_key(value)
-        for key, value in fallback_values.items()
-        if str(value or "").strip()
+    fallback_aliases = {
+        "color": {"color", "mau", "mau sac"},
+        "storage": {"storage", "bo nho trong", "bo nho", "dung luong", "rom"},
+        "ram": {"ram", "bo nho ram"},
+        "configuration": {"configuration", "cau hinh", "phien ban"},
     }
-    if normalized:
-        return tuple(sorted(normalized.items()))
+    for key, value in fallback_values.items():
+        if not str(value or "").strip():
+            continue
+        aliases = {normalized_option_key(alias) for alias in fallback_aliases[key]}
+        if any(attribute_key in aliases for attribute_key in attributes):
+            continue
+        attributes[key] = normalized_option_key(value)
+    if attributes:
+        return tuple(sorted(attributes.items()))
     return None
-
 
 def validate_unique_variant_combinations(variants_payload: list[ProductVariantPayload]) -> None:
     seen: dict[tuple[tuple[str, str], ...], str] = {}
@@ -111,7 +109,6 @@ def validate_unique_variant_combinations(variants_payload: list[ProductVariantPa
                 detail=f"Trùng tổ hợp thuộc tính biến thể: {label}.",
             )
         seen[key] = variant.sku or f"biến thể {index}"
-
 
 def resolve_variant_values(variant: ProductVariantPayload, *, is_revision: bool) -> dict:
     color_val = None
@@ -173,13 +170,12 @@ def resolve_variant_values(variant: ProductVariantPayload, *, is_revision: bool)
         "price": db_price,
         "sale_price": db_sale_price,
         "compare_at_price": db_compare_at_price,
-        "stock_quantity": variant.stockQuantity,
+        "stock_quantity": 0,
         "is_active": variant.isActive,
         "is_default": variant.isDefault,
         "status": "revision_draft" if is_revision else variant.status,
         "attributes": product_variant_repo.json_param(var_attrs),
     }
-
 
 def _normalize_integrity_value(value: object) -> object:
     if isinstance(value, str) and value.strip().startswith(("{", "[")):
@@ -194,7 +190,6 @@ def _normalize_integrity_value(value: object) -> object:
     if value is None:
         return None
     return str(value).strip()
-
 
 def _variant_identity_changed(current: dict, next_values: dict) -> list[str]:
     labels = {
@@ -211,7 +206,6 @@ def _variant_identity_changed(current: dict, next_values: dict) -> list[str]:
         if _normalize_integrity_value(current.get(field)) != _normalize_integrity_value(next_values.get(field)):
             changed.append(label)
     return changed
-
 
 async def validate_unique_variant_skus(
     session: AsyncSession,
@@ -240,7 +234,6 @@ async def validate_unique_variant_skus(
                 detail=f"SKU '{variant.sku}' đã được sử dụng bởi một biến thể khác đang hoạt động.",
             )
 
-
 async def upsert_product_variants(
     session: AsyncSession,
     product_id: UUID,
@@ -250,116 +243,154 @@ async def upsert_product_variants(
     default_sale_price: float | None = None,
     default_stock: int = 0,
 ) -> None:
-    del product_name, default_price, default_sale_price, default_stock
-    product_row = await product_variant_repo.get_product_variant_context(session, product_id)
-    if not product_row:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+    try:
+        del product_name, default_price, default_sale_price, default_stock
+        product_row = await product_variant_repo.get_product_variant_context(session, product_id)
+        if not product_row:
+            raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
 
-    options = product_row["options"] or []
-    product_status = product_row.get("status")
-    parent_product_id = product_row.get("parent_product_id")
-    is_revision = product_status == "REVISION_DRAFT"
+        options = product_row["options"] or []
+        product_status = product_row.get("status")
+        parent_product_id = product_row.get("parent_product_id")
+        is_revision = product_status == "REVISION_DRAFT"
 
-    await validate_unique_variant_skus(
-        session,
-        product_id=product_id,
-        parent_product_id=parent_product_id,
-        variants_payload=variants_payload,
-    )
-    validate_variant_options(options, variants_payload)
-    validate_default_variant_count(variants_payload)
-    validate_unique_variant_combinations(variants_payload)
+        await validate_unique_variant_skus(
+            session,
+            product_id=product_id,
+            parent_product_id=parent_product_id,
+            variants_payload=variants_payload,
+        )
+        validate_variant_options(options, variants_payload)
+        validate_default_variant_count(variants_payload)
+        validate_unique_variant_combinations(variants_payload)
 
-    variant_snapshots = await product_variant_repo.list_variant_integrity_snapshots(session, product_id)
-    db_variants = list(variant_snapshots.keys())
-    payload_ids = {variant.id for variant in variants_payload if variant.id}
-    to_delete_ids = [variant_id for variant_id in db_variants if variant_id not in payload_ids]
-    bound_variant_ids = await product_variant_repo.list_bound_variant_ids(session, db_variants)
-    default_sku_for_parent = None
+        variant_snapshots = await product_variant_repo.list_variant_integrity_snapshots(session, product_id)
+        db_variants = list(variant_snapshots.keys())
+        payload_ids = {variant.id for variant in variants_payload if variant.id}
+        to_delete_ids = [variant_id for variant_id in db_variants if variant_id not in payload_ids]
+        bound_variant_ids = await product_variant_repo.list_bound_variant_ids(session, db_variants)
+        default_sku_for_parent = None
 
-    for variant in variants_payload:
-        values = resolve_variant_values(variant, is_revision=is_revision)
-        if not values["sku"]:
-            values["sku"] = f"SKU-{uuid4().hex[:10].upper()}"
-        if variant.isDefault:
-            default_sku_for_parent = values["sku"]
+        for variant in variants_payload:
+            values = resolve_variant_values(variant, is_revision=is_revision)
+            if not values["sku"]:
+                values["sku"] = f"SKU-{uuid4().hex[:10].upper()}"
+            if variant.isDefault:
+                default_sku_for_parent = values["sku"]
 
-        if variant.id and variant.id in db_variants:
-            values["stock_quantity"] = int(variant_snapshots[variant.id].get("stock_quantity") or 0)
-            if variant.id in bound_variant_ids:
-                changed_fields = _variant_identity_changed(variant_snapshots[variant.id], values)
-                if changed_fields:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            "Biến thể đã có dữ liệu kho/đơn hàng nên không thể đổi "
-                            f"{', '.join(changed_fields)}. Hãy tạo biến thể mới và ngừng bán biến thể cũ."
-                        ),
-                    )
-            await product_variant_repo.update_variant(session, variant_id=variant.id, values=values)
-        else:
-            new_variant_id = variant.id if variant.id and variant.id in db_variants else uuid4()
-            if values["sku"].startswith("SKU-") and not variant.sku:
-                values["sku"] = f"SKU-{new_variant_id.hex[:10].upper()}"
-            if not is_revision:
+            if variant.id and variant.id in db_variants:
+                values["stock_quantity"] = int(variant_snapshots[variant.id].get("stock_quantity") or 0)
+                if variant.id in bound_variant_ids:
+                    changed_fields = _variant_identity_changed(variant_snapshots[variant.id], values)
+                    if changed_fields:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                "Biến thể đã có dữ liệu kho/đơn hàng nên không thể đổi "
+                                f"{', '.join(changed_fields)}. Hãy tạo biến thể mới và ngừng bán biến thể cũ."
+                            ),
+                        )
+                await product_variant_repo.update_variant(session, variant_id=variant.id, values=values)
+            else:
+                new_variant_id = variant.id if variant.id and variant.id in db_variants else uuid4()
+                if values["sku"].startswith("SKU-") and not variant.sku:
+                    values["sku"] = f"SKU-{new_variant_id.hex[:10].upper()}"
                 values["stock_quantity"] = 0
-            values["parent_variant_id"] = variant.id if variant.id and variant.id not in db_variants else None
-            await product_variant_repo.insert_variant(
-                session,
-                variant_id=new_variant_id,
-                product_id=product_id,
-                values=values,
-            )
+                values["parent_variant_id"] = (
+                    variant.id
+                    if is_revision and variant.id and variant.id not in db_variants
+                    else None
+                )
+                await product_variant_repo.insert_variant(
+                    session,
+                    variant_id=new_variant_id,
+                    product_id=product_id,
+                    values=values,
+                )
 
-    if to_delete_ids:
-        bound_deleted = await product_variant_repo.list_bound_variant_ids(session, to_delete_ids)
-        if bound_deleted:
-            bound_sku = None
-            for variant_id in bound_deleted:
-                bound_sku = variant_snapshots[variant_id].get("sku")
-                break
-            raise HTTPException(
-                status_code=409,
-                detail=f"Không thể xóa biến thể (SKU: {bound_sku}) đã có dữ liệu kho hoặc đơn hàng. Hãy ẩn biến thể thay vì xóa.",
-            )
-        await product_variant_repo.soft_delete_variants(session, to_delete_ids)
+        if to_delete_ids:
+            bound_deleted = await product_variant_repo.list_bound_variant_ids(session, to_delete_ids)
+            if bound_deleted:
+                bound_sku = None
+                for variant_id in bound_deleted:
+                    bound_sku = variant_snapshots[variant_id].get("sku")
+                    break
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Không thể xóa biến thể (SKU: {bound_sku}) đã có dữ liệu kho hoặc đơn hàng. Hãy ẩn biến thể thay vì xóa.",
+                )
+            await product_variant_repo.soft_delete_variants(session, to_delete_ids)
 
-    if default_sku_for_parent and not is_revision:
-        await product_variant_repo.update_product_sku(session, product_id=product_id, sku=default_sku_for_parent)
-
+        if default_sku_for_parent and not is_revision:
+            updated_count = await product_variant_repo.update_product_sku(session, product_id=product_id, sku=default_sku_for_parent)
+            if updated_count == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Không thể cập nhật mã SKU của sản phẩm theo biến thể mặc định vì mã SKU '{default_sku_for_parent}' đã được sử dụng bởi sản phẩm khác."
+                )
+    except Exception as exc:
+        raise exc
 
 async def delete_product_variant(
     product_id: UUID,
     variant_id: UUID,
     session: AsyncSession,
 ) -> dict:
-    variant = await product_variant_repo.get_variant_for_delete(
-        session,
-        product_id=product_id,
-        variant_id=variant_id,
-    )
-    if not variant:
-        raise HTTPException(status_code=404, detail="Không tìm thấy biến thể.")
-
-    bound_ids = await product_variant_repo.list_bound_variant_ids(session, [variant_id])
-    if bound_ids:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Không thể xóa biến thể (SKU: {variant['sku']}) đã có dữ liệu kho hoặc đơn hàng. Hãy ẩn biến thể thay vì xóa.",
+    try:
+        parent_product = await session.execute(
+            text("SELECT id FROM products WHERE id = :id FOR UPDATE"),
+            {"id": product_id}
         )
+        if not parent_product.first():
+            raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm cha.")
 
-    await product_variant_repo.soft_delete_variant(session, variant_id)
-
-    if variant["is_default"]:
-        next_variant = await product_variant_repo.get_next_default_variant(session, product_id)
-        if next_variant:
-            await product_variant_repo.mark_variant_default(session, next_variant["id"])
-            await product_variant_repo.update_product_sku_with_timestamp(
-                session,
-                sku=next_variant["sku"],
-                product_id=product_id,
+        # Đếm số lượng biến thể đang hoạt động của sản phẩm
+        active_count_res = await session.execute(
+            text("SELECT COUNT(*) FROM product_variants WHERE product_id = :product_id AND deleted_at IS NULL"),
+            {"product_id": product_id}
+        )
+        active_count = active_count_res.scalar() or 0
+        if active_count <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Không thể xóa biến thể hoạt động duy nhất của sản phẩm. Vui lòng vô hiệu hóa sản phẩm nếu không còn kinh doanh."
             )
 
-    await sync_parent_price_if_variants_exist(session, product_id)
-    await session.commit()
-    return {"ok": True}
+        variant = await product_variant_repo.get_variant_for_delete(
+            session,
+            product_id=product_id,
+            variant_id=variant_id,
+        )
+        if not variant:
+            raise HTTPException(status_code=404, detail="Không tìm thấy biến thể.")
+
+        bound_ids = await product_variant_repo.list_bound_variant_ids(session, [variant_id])
+        if bound_ids:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Không thể xóa biến thể (SKU: {variant['sku']}) đã có dữ liệu kho hoặc đơn hàng. Hãy ẩn biến thể thay vì xóa.",
+            )
+
+        await product_variant_repo.soft_delete_variant(session, variant_id)
+
+        if variant["is_default"]:
+            next_variant = await product_variant_repo.get_next_default_variant(session, product_id)
+            if next_variant:
+                await product_variant_repo.mark_variant_default(session, next_variant["id"])
+                updated_count = await product_variant_repo.update_product_sku_with_timestamp(
+                    session,
+                    sku=next_variant["sku"],
+                    product_id=product_id,
+                )
+                if updated_count == 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Không thể cập nhật mã SKU của sản phẩm theo biến thể mặc định vì mã SKU '{next_variant['sku']}' đã được sử dụng bởi sản phẩm khác."
+                    )
+
+        await sync_parent_price_if_variants_exist(session, product_id)
+        await session.commit()
+        return {"ok": True}
+    except Exception as exc:
+        await session.rollback()
+        raise exc

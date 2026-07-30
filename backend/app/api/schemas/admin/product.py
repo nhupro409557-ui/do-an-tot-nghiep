@@ -77,3 +77,26 @@ class ProductPayload(BaseModel):
     updatedAt: str | None = None
     version: int | None = Field(default=None, ge=1)
     options: list[dict] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_price_relation(self) -> "ProductPayload":
+        if self.discountPrice and self.discountPrice >= self.price:
+            raise ValueError("Giá khuyến mãi phải nhỏ hơn giá niêm yết.")
+
+        for variant in self.variants:
+            regular = variant.compareAtPrice or variant.price
+            if variant.salePrice and variant.salePrice >= regular:
+                raise ValueError(f"Giá khuyến mãi của biến thể {variant.sku or ''} phải nhỏ hơn giá niêm yết.")
+
+        # Validate duplicate SKUs in payload
+        skus = [v.sku.strip() for v in self.variants if v.sku and isinstance(v.sku, str)]
+        if len(skus) != len(set(skus)):
+            seen = set()
+            duplicates = []
+            for sku in skus:
+                if sku in seen:
+                    duplicates.append(sku)
+                else:
+                    seen.add(sku)
+            raise ValueError(f"Mã SKU của các biến thể không được trùng lặp trong yêu cầu: {', '.join(duplicates)}.")
+        return self

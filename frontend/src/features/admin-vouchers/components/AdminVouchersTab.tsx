@@ -297,47 +297,47 @@ export default function AdminVouchersTab(props: AdminVouchersTabProps) {
         <form onSubmit={handleVoucherSubmit} className="mb-5 grid gap-3 rounded-lg bg-slate-50 p-4 md:grid-cols-6">
           <Input label="Mã voucher" value={voucherForm.code} required onChange={(value) => setVoucherForm({ ...voucherForm, code: value.toUpperCase() })} />
           <Select label="Mục tiêu" value={voucherForm.campaignType} onChange={(value) => setVoucherForm({ ...voucherForm, campaignType: value })} options={voucherCampaignOptions} />
-          <Select label="Đối tượng" value={voucherForm.audienceType} onChange={(value) => setVoucherForm({ ...voucherForm, audienceType: value, firstOrderOnly: value === 'NEW_CUSTOMER' || voucherForm.firstOrderOnly, hiddenCode: value === 'HIDDEN' || voucherForm.hiddenCode, abandonedCartOnly: value === 'ABANDONED_CART' || voucherForm.abandonedCartOnly })} options={voucherAudienceOptions} />
+          <Select label="Đối tượng" value={voucherForm.audienceType} onChange={(value) => setVoucherForm({ ...voucherForm, audienceType: value, firstOrderOnly: value === 'NEW_CUSTOMER', hiddenCode: value === 'HIDDEN', abandonedCartOnly: value === 'ABANDONED_CART', assignedUserId: value === 'SPECIFIC_USER' ? voucherForm.assignedUserId : '', assignedUserIds: value === 'SPECIFIC_USER' ? voucherForm.assignedUserIds : [], eligibleTiers: value === 'MEMBER_TIER' ? voucherForm.eligibleTiers : [] })} options={voucherAudienceOptions} />
           <Select label="Loại giảm" value={voucherForm.discountType} onChange={(value) => setVoucherForm({ ...voucherForm, discountType: value })} options={[['FIXED', 'Số tiền'], ['PERCENT', 'Phần trăm']]} />
           <Input label="Giá trị" type="number" min={1} max={voucherForm.discountType === 'PERCENT' ? 100 : undefined} value={voucherForm.discountAmount} onChange={(value) => setVoucherForm({ ...voucherForm, discountAmount: Number(value) })} />
           <Input label="Đơn tối thiểu" type="number" min={0} value={voucherForm.minOrderValue} onChange={(value) => setVoucherForm({ ...voucherForm, minOrderValue: Number(value) })} />
-          <Input label="Giảm tối đa" type="number" min={0} value={voucherForm.maxDiscount} onChange={(value) => setVoucherForm({ ...voucherForm, maxDiscount: Number(value) })} />
+          {voucherForm.discountType === 'PERCENT' && <Input label="Giảm tối đa" type="number" min={0} value={voucherForm.maxDiscount} onChange={(value) => setVoucherForm({ ...voucherForm, maxDiscount: Number(value) })} />}
           <Input label="Tổng lượt dùng" type="number" min={0} value={voucherForm.usageLimit} onChange={(value) => setVoucherForm({ ...voucherForm, usageLimit: Number(value) })} />
           <Input label="Ngân sách tối đa" type="number" min={0} value={voucherForm.totalBudgetCap} onChange={(value) => setVoucherForm({ ...voucherForm, totalBudgetCap: Number(value) })} />
           <Input label="Lượt/user" type="number" min={0} value={voucherForm.perUserLimit} onChange={(value) => setVoucherForm({ ...voucherForm, perUserLimit: Number(value) })} />
           <Input label="Lượt/thiết bị" type="number" min={0} value={voucherForm.perDeviceLimit} onChange={(value) => setVoucherForm({ ...voucherForm, perDeviceLimit: Number(value) })} />
           <Input label="Lượt/IP" type="number" min={0} value={voucherForm.perIpLimit} onChange={(value) => setVoucherForm({ ...voucherForm, perIpLimit: Number(value) })} />
+          {voucherForm.campaignType === 'LOYALTY' && <Input label="Điểm cần để đổi" type="number" min={0} value={voucherForm.redemptionPoints} onChange={(value) => setVoucherForm({ ...voucherForm, redemptionPoints: Number(value) })} />}
           <Input label="Bắt đầu" type="datetime-local" value={voucherForm.startsAt} onChange={(value) => setVoucherForm({ ...voucherForm, startsAt: value })} />
           <Input label="Kết thúc" type="datetime-local" value={voucherForm.endsAt} onChange={(value) => setVoucherForm({ ...voucherForm, endsAt: value })} />
-          <Input label="Hạn sau khi lưu (ngày)" type="number" min={0} value={voucherForm.validityDaysAfterClaim} onChange={(value) => setVoucherForm({ ...voucherForm, validityDaysAfterClaim: Number(value) })} />
-          <Input label="User đăng ký sau" type="datetime-local" value={voucherForm.eligibleUserRegisteredAfter} onChange={(value) => setVoucherForm({ ...voucherForm, eligibleUserRegisteredAfter: value })} />
-          <div className="grid gap-2 rounded-md border border-slate-200 bg-white p-3 md:col-span-3">
+          {voucherForm.campaignType === 'LOYALTY' && <Input label="Hạn sau khi lưu (ngày)" type="number" min={0} value={voucherForm.validityDaysAfterClaim} onChange={(value) => setVoucherForm({ ...voucherForm, validityDaysAfterClaim: Number(value) })} />}
+          {voucherForm.audienceType === 'NEW_CUSTOMER' && <Input label="Khách đăng ký sau" type="datetime-local" value={voucherForm.eligibleUserRegisteredAfter} onChange={(value) => setVoucherForm({ ...voucherForm, eligibleUserRegisteredAfter: value })} />}
+          {voucherForm.audienceType === 'SPECIFIC_USER' && <div className="grid gap-2 rounded-md border border-slate-200 bg-white p-3 md:col-span-6">
             <div>
               <span className="mb-1.5 block text-xs font-bold text-slate-500">Tài khoản nhận voucher</span>
               <SearchBox value={assignedCustomerSearch} onChange={setAssignedCustomerSearch} placeholder="Tìm tên, email, số điện thoại" />
-              {voucherForm.audienceType === 'SPECIFIC_USER' && <div className="mt-1 text-xs font-semibold text-slate-500">Voucher này chỉ cấp cho các tài khoản đã chọn.</div>}
+              <div className="mt-1 text-xs font-semibold text-slate-500">Voucher này chỉ cấp cho các tài khoản đã chọn.</div>
             </div>
             <MultiPickList label="Danh sách tài khoản được cấp" items={customerOptions} selected={selectedAssignedUserIds} onChange={updateAssignedUserIds} emptyText="Không có tài khoản phù hợp bộ lọc." />
-          </div>
+          </div>}
           <Select label="Trạng thái" value={voucherForm.status} onChange={(value) => setVoucherForm({ ...voucherForm, status: value })} options={[['ACTIVE', 'Đang chạy'], ['INACTIVE', 'Tạm dừng'], ['EXPIRED', 'Hết hạn']]} />
           <Select label="Hoàn voucher" value={voucherForm.refundPolicy} onChange={(value) => setVoucherForm({ ...voucherForm, refundPolicy: value })} options={[['NEVER', 'Không hoàn'], ['SHOP_FAULT_ONLY', 'Hoàn khi lỗi shop'], ['ALWAYS', 'Luôn hoàn khi hủy']]} />
           <PaymentMethodPicker value={selectedPaymentMethods} onChange={(value) => setVoucherForm({ ...voucherForm, applicablePaymentMethods: value })} />
-          <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-3">
+          {voucherForm.audienceType === 'MEMBER_TIER' && <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-3">
             <div className="mb-2 text-xs font-bold text-slate-500">Hạng thành viên áp dụng</div>
             <div className="flex flex-wrap gap-2">
               {voucherTierOptions.map((tier) => (
                 <label key={tier} className={`inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-bold ${voucherForm.eligibleTiers.includes(tier) ? 'border-red-200 bg-red-50 text-red-700' : 'border-slate-200 bg-white text-slate-600'}`}>
-                  <input type="checkbox" checked={voucherForm.eligibleTiers.includes(tier)} onChange={(event) => setVoucherForm({ ...voucherForm.eligibleTiers, tier: event.target.checked ? [...voucherForm.eligibleTiers, tier] : voucherForm.eligibleTiers.filter((item: string) => item !== tier), audienceType: event.target.checked ? 'MEMBER_TIER' : voucherForm.audienceType })} className="h-4 w-4 accent-red-600" />
+                  <input type="checkbox" checked={voucherForm.eligibleTiers.includes(tier)} onChange={(event) => setVoucherForm({ ...voucherForm, eligibleTiers: event.target.checked ? [...voucherForm.eligibleTiers, tier] : voucherForm.eligibleTiers.filter((item: string) => item !== tier), audienceType: event.target.checked ? 'MEMBER_TIER' : voucherForm.audienceType })} className="h-4 w-4 accent-red-600" />
                   {tier}
                 </label>
               ))}
             </div>
-          </div>
+          </div>}
           <div className="grid gap-2 rounded-md border border-slate-200 bg-white p-3 md:col-span-3 sm:grid-cols-3">
-            <Checkbox label="Cộng dồn" checked={voucherForm.stackable} onChange={(checked) => setVoucherForm({ ...voucherForm, stackable: checked })} />
-            <Checkbox label="Đơn đầu tiên" checked={voucherForm.firstOrderOnly} onChange={(checked) => setVoucherForm({ ...voucherForm, firstOrderOnly: checked })} />
-            <Checkbox label="Mã ẩn" checked={voucherForm.hiddenCode} onChange={(checked) => setVoucherForm({ ...voucherForm, hiddenCode: checked })} />
-            <Checkbox label="Giỏ bỏ quên" checked={voucherForm.abandonedCartOnly} onChange={(checked) => setVoucherForm({ ...voucherForm, abandonedCartOnly: checked })} />
+            <Checkbox label="Áp dụng cùng Flash Sale" checked={voucherForm.stackable} onChange={(checked) => setVoucherForm({ ...voucherForm, stackable: checked })} />
+            <Checkbox label="Áp dụng ngoài phạm vi đã chọn" checked={voucherForm.applyOutsideScope} onChange={(checked) => setVoucherForm({ ...voucherForm, applyOutsideScope: checked })} />
+            <Checkbox label="Voucher sinh nhật" checked={voucherForm.birthdayOnly} onChange={(checked) => setVoucherForm({ ...voucherForm, birthdayOnly: checked, campaignType: checked ? 'LOYALTY' : voucherForm.campaignType })} />
           </div>
           <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-6">
             <div className="mb-3 text-xs font-bold uppercase text-slate-500">Phạm vi áp dụng</div>

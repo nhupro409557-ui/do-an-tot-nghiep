@@ -34,12 +34,17 @@ async def list_audit_logs(session: AsyncSession, *, filters: list[str], params: 
     result = await session.execute(
         text(
             f"""
-            SELECT id::text, user_id::text AS "userId", event_type AS "eventType",
-                   email, ip_address AS "ipAddress", user_agent AS "userAgent",
-                   metadata, created_at AS "createdAt"
-            FROM security_audit_logs
+            SELECT log.id::text, log.user_id::text AS "userId", log.event_type AS "eventType",
+                   COALESCE(u.email, log.email) AS email,
+                   u.full_name AS "actorName",
+                   r.code AS "actorRole",
+                   log.ip_address AS "ipAddress", log.user_agent AS "userAgent",
+                   log.metadata, log.created_at AS "createdAt"
+            FROM security_audit_logs log
+            LEFT JOIN users u ON u.id = log.user_id
+            LEFT JOIN roles r ON r.id = u.role_id
             WHERE {' AND '.join(filters)}
-            ORDER BY created_at DESC
+            ORDER BY log.created_at DESC
             LIMIT :limit
             """
         ),

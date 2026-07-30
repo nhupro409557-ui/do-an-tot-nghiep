@@ -29,4 +29,5 @@ export const adminAfterSalesApi = {
   inspectWarranty: (id: string, data: any) => request<any>(`/admin/after-sales/warranties/${encodeURIComponent(id)}/inspection`, {
     method: 'POST', body: JSON.stringify(data),
   }),
+  listWarrantyReplacementCandidates: (id: string) => request<any>(`/admin/after-sales/warranties/${encodeURIComponent(id)}/replacement-candidates`),
 };

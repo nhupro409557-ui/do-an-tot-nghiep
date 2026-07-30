@@ -10,6 +10,11 @@ function query(params: Record<string, string | number | undefined>) {
 
 export const customerCenterApi = {
   listOrders: () => request<any[]>('/me/orders'),
+  cancelOrder: (id: string, reason: string) => request(`/orders/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  }),
+  listPurchasedAfterSalesItems: () => request<any[]>('/me/after-sales/purchased-items'),
   listReturns: (params: any = {}) => request<any>(`/me/returns${query(params)}`),
   createReturn: (data: any) => request<any>('/me/returns', {
     method: 'POST',

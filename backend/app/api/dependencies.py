@@ -101,6 +101,11 @@ async def get_user_permissions(
     session: AsyncSession = Depends(get_session),
     redis=Depends(get_redis),
 ) -> set[str]:
+    role_code = await auth_repo.get_active_user_role_code(session, current_user_id)
+    if role_code == "SUPER_ADMIN":
+        # SUPER_ADMIN luôn có toàn quyền, kể cả khi migration quyền mới chưa được
+        # gán vào role_permissions hoặc Redis còn giữ danh sách quyền cũ.
+        return set(await auth_repo.list_all_permission_codes(session))
     cache_key = f"admin_permissions:{current_user_id}"
     try:
         cached = await redis.get(cache_key)

@@ -28,12 +28,23 @@ from app.application.services.product_helper_service import (
     extract_product_metadata,
     validate_optimized_media,
     resolve_catalog_labels,
+    validate_product_specifications,
 )
 from app.application.services.product_variant_service import upsert_product_variants
 from app.infrastructure.database.session import AsyncSessionFactory
-from app.infrastructure.database.repositories import product_repo
+from sqlalchemy import text
+from app.infrastructure.database.repositories import product_repo, media_repo, used_product_repo
+from app.shared.exceptions import BusinessException
 ALLOWED_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
 MAX_PRODUCT_IMAGE_BYTES = 10 * 1024 * 1024
+
+
+def _payload_has_selected_variant_specs(payload: ProductPayload) -> bool:
+    raw_keys = (payload.specifications or {}).get("_variantSpecKeys") or (payload.specifications or {}).get("variantSpecKeys") or []
+    if isinstance(raw_keys, str):
+        raw_keys = [raw_keys]
+    selected_keys = [key for key in raw_keys if normalized_option_key(key)]
+    return bool(payload.variants and selected_keys)
 
 
 async def resolve_product_refs(session: AsyncSession, product_id: UUID) -> None:
@@ -48,7 +59,27 @@ async def sync_product_relations(session: AsyncSession, product_id: UUID, sales_
         try:
             acc_id = UUID(str(offer.get("productId") or ""))
         except ValueError:
-            continue
+            raise BusinessException(
+                400,
+                "ACCESSORY_PRODUCT_INVALID",
+                f"Mã sản phẩm mua kèm không đúng định dạng: {offer.get('productId')}.",
+            )
+        if acc_id == product_id:
+            raise BusinessException(
+                400,
+                "ACCESSORY_PRODUCT_INVALID",
+                "Sản phẩm không thể tự chọn làm sản phẩm mua kèm của chính nó.",
+            )
+        acc_exists = await session.execute(
+            text("SELECT 1 FROM products WHERE id = :id AND status = 'ACTIVE' AND deleted_at IS NULL"),
+            {"id": acc_id}
+        )
+        if not acc_exists.scalar():
+            raise BusinessException(
+                400,
+                "ACCESSORY_PRODUCT_INVALID",
+                f"Sản phẩm mua kèm {acc_id} không tồn tại hoặc không ở trạng thái hoạt động.",
+            )
         await product_repo.insert_product_accessory(session, product_id=product_id, accessory_id=acc_id)
 
     await product_repo.delete_product_attached_services(session, product_id)
@@ -59,10 +90,18 @@ async def sync_product_relations(session: AsyncSession, product_id: UUID, sales_
         try:
             service_id = UUID(str(item.get("serviceId") or ""))
         except ValueError:
-            continue
+            raise BusinessException(
+                400,
+                "ATTACHED_SERVICE_INVALID",
+                f"Mã dịch vụ đi kèm không đúng định dạng: {item.get('serviceId')}.",
+            )
         service_row = await product_repo.get_active_attached_service_group(session, service_id)
         if not service_row:
-            continue
+            raise BusinessException(
+                400,
+                "ATTACHED_SERVICE_INVALID",
+                f"Dịch vụ đi kèm {service_id} không tồn tại hoặc đã ngừng hoạt động.",
+            )
         group_key = f"{service_row['service_type']}:{service_row['attribute_group'] or service_id}"
         if service_row["attribute_group"] and group_key in used_service_groups:
             continue
@@ -238,40 +277,59 @@ async def process_product_import_job(job_id: UUID, csv_text: str) -> None:
             failed = 0
             for row in rows:
                 try:
-                    product_id = uuid4()
-                    name = (row.get("name") or "").strip()
-                    if not name:
-                        failed += 1
-                        continue
-                    specs, seo_metadata, sales_config = extract_product_metadata({
-                        "_seoTitle": row.get("seoTitle") or "",
-                        "_seoDescription": row.get("seoDescription") or "",
-                        "_seoSlug": row.get("seoSlug") or "",
-                    })
-                    await product_repo.insert_imported_product(
-                        session,
-                        product_id=product_id,
-                        sku=f"SKU-{product_id.hex[:10].upper()}",
-                        name=name,
-                        slug=f"{slugify(name)}-{product_id.hex[:6]}",
-                        category=row.get("category") or "ACCESSORY",
-                        brand=row.get("brand") or "Khac",
-                        description=row.get("description") or "",
-                        seo_metadata=seo_metadata,
-                        sales_config=persisted_sales_config(sales_config),
-                        price=float(row.get("price") or 0),
-                        sale_price=float(row["discountPrice"]) if row.get("discountPrice") else None,
-                        image_url=row.get("imageUrl") or None,
-                        status=normalize_status(row.get("status") or "DRAFT"),
-                    )
+                    async with session.begin_nested():
+                        product_id = uuid4()
+                        name = (row.get("name") or "").strip()
+                        if not name:
+                            raise ValueError("Tên sản phẩm không được trống")
+                        specs, seo_metadata, sales_config = extract_product_metadata({
+                            "_seoTitle": row.get("seoTitle") or "",
+                            "_seoDescription": row.get("seoDescription") or "",
+                            "_seoSlug": row.get("seoSlug") or "",
+                        })
+                        category_val = (row.get("category") or "ACCESSORY").strip()
+                        brand_val = (row.get("brand") or "Khac").strip()
+                        cat_res = await session.execute(
+                            text("SELECT id FROM categories WHERE (LOWER(name) = LOWER(:name) OR LOWER(slug) = LOWER(:name)) AND is_deleted IS NOT TRUE LIMIT 1"),
+                            {"name": category_val}
+                        )
+                        category_id = cat_res.scalar()
+                        brand_res = await session.execute(
+                            text("SELECT id FROM brands WHERE (LOWER(name) = LOWER(:name) OR LOWER(slug) = LOWER(:name)) AND is_active = TRUE LIMIT 1"),
+                            {"name": brand_val}
+                        )
+                        brand_id = brand_res.scalar()
+
+                        await product_repo.insert_imported_product(
+                            session,
+                            product_id=product_id,
+                            sku=f"SKU-{product_id.hex[:10].upper()}",
+                            name=name,
+                            slug=f"{slugify(name)}-{product_id.hex[:6]}",
+                            category=category_val,
+                            brand=brand_val,
+                            category_id=category_id,
+                            brand_id=brand_id,
+                            description=row.get("description") or "",
+                            seo_metadata=seo_metadata,
+                            sales_config=persisted_sales_config(sales_config),
+                            price=float(row.get("price") or 0),
+                            sale_price=float(row["discountPrice"]) if row.get("discountPrice") else None,
+                            image_url=row.get("imageUrl") or None,
+                            status=normalize_status(row.get("status") or "DRAFT"),
+                        )
                     imported += 1
                 except Exception:
                     failed += 1
-                await product_repo.update_product_import_progress(session, job_id=job_id, imported=imported, failed=failed)
-                await session.commit()
+                try:
+                    await product_repo.update_product_import_progress(session, job_id=job_id, imported=imported, failed=failed)
+                    await session.commit()
+                except Exception:
+                    await session.rollback()
             await product_repo.mark_product_import_completed(session, job_id)
             await session.commit()
         except Exception as exc:
+            await session.rollback()
             await product_repo.mark_product_import_failed(session, job_id=job_id, error=str(exc))
             await session.commit()
 
@@ -286,40 +344,44 @@ async def create_product_revision(
     category: str,
     brand: str,
 ) -> dict:
-    revision_id = uuid4()
-    clean_options = normalize_product_options(payload.options)
-    await product_repo.insert_product_record(
-        session,
-        product_id=revision_id,
-        parent_product_id=product_id,
-        sku=f"REV-{revision_id.hex[:10].upper()}",
-        name=payload.name,
-        slug=f"{slugify(payload.name)}-revision-{revision_id.hex[:6]}",
-        category=category,
-        brand=brand,
-        category_id=payload.categoryId,
-        subcategory_id=payload.subcategoryId,
-        brand_id=payload.brandId,
-        description=payload.description or "",
-        specifications=clean_specs,
-        seo_metadata=seo_metadata,
-        sales_config=persisted_sales_config(sales_config),
-        price=payload.price,
-        sale_price=payload.discountPrice,
-        stock_quantity=payload.stock,
-        image_url=payload.imageUrl,
-        images=payload.images,
-        video_url=payload.videoUrl,
-        status="REVISION_DRAFT",
-        is_featured=payload.isFeatured,
-        is_flash_sale=payload.isFlashSale,
-        options=clean_options,
-    )
-    await upsert_product_variants(session, revision_id, payload.variants, payload.name, payload.price, payload.discountPrice, payload.stock)
-    await sync_parent_price_if_variants_exist(session, revision_id)
-    await sync_product_relations(session, revision_id, sales_config)
-    await session.commit()
-    return {"ok": True, "revisionId": str(revision_id), "status": "REVISION_DRAFT"}
+    try:
+        revision_id = uuid4()
+        clean_options = normalize_product_options(payload.options)
+        await product_repo.insert_product_record(
+            session,
+            product_id=revision_id,
+            parent_product_id=product_id,
+            sku=f"REV-{revision_id.hex[:10].upper()}",
+            name=payload.name,
+            slug=f"{slugify(payload.name)}-revision-{revision_id.hex[:6]}",
+            category=category,
+            brand=brand,
+            category_id=payload.categoryId,
+            subcategory_id=payload.subcategoryId,
+            brand_id=payload.brandId,
+            description=payload.description or "",
+            specifications=clean_specs,
+            seo_metadata=seo_metadata,
+            sales_config=persisted_sales_config(sales_config),
+            price=payload.price,
+            sale_price=payload.discountPrice,
+            stock_quantity=0,
+            image_url=payload.imageUrl,
+            images=payload.images,
+            video_url=payload.videoUrl,
+            status="REVISION_DRAFT",
+            is_featured=payload.isFeatured,
+            is_flash_sale=payload.isFlashSale,
+            options=clean_options,
+        )
+        await upsert_product_variants(session, revision_id, payload.variants, payload.name, payload.price, payload.discountPrice, payload.stock)
+        await sync_parent_price_if_variants_exist(session, revision_id)
+        await sync_product_relations(session, revision_id, sales_config)
+        await session.commit()
+        return {"ok": True, "revisionId": str(revision_id), "status": "REVISION_DRAFT"}
+    except Exception as exc:
+        await session.rollback()
+        raise exc
 
 
 async def import_products(
@@ -382,7 +444,6 @@ async def process_product_export_job(job_id: UUID, filters: dict) -> None:
         except Exception as exc:
             await product_repo.mark_product_export_failed(session, job_id=job_id, error=str(exc))
             await session.commit()
-
 async def export_products(
     background_tasks: BackgroundTasks,
     filters: dict | None = None,
@@ -404,146 +465,237 @@ async def product_catalog_kpis(session: AsyncSession | None = None) -> dict:
 async def list_product_audit_logs(product_id: UUID, session: AsyncSession | None = None) -> list[dict]:
     return await product_repo.list_product_audit_logs(session, product_id)
 
+
+
 async def create_product(payload: ProductPayload, session: AsyncSession | None = None) -> dict:
-    product_id = uuid4()
-    clean_options = normalize_product_options(payload.options)
-    validate_optimized_media(payload)
-    ensure_not_data_url(payload.imageUrl, "imageUrl")
-    ensure_not_data_url(payload.videoUrl, "videoUrl")
-    for image in payload.images:
-        ensure_not_data_url(image, "images")
-    await ensure_categories_not_migrating(session, [payload.categoryId, payload.subcategoryId])
-    category, brand = await resolve_catalog_labels(session, payload)
-    clean_specs, seo_metadata, sales_config = extract_product_metadata(payload.specifications)
-    await product_repo.insert_product_record(
-        session,
-        product_id=product_id,
-        sku=f"SKU-{product_id.hex[:10].upper()}",
-        name=payload.name,
-        slug=f"{slugify(payload.name)}-{product_id.hex[:6]}",
-        category=category,
-        brand=brand,
-        category_id=payload.categoryId,
-        subcategory_id=payload.subcategoryId,
-        brand_id=payload.brandId,
-        description=payload.description or "",
-        specifications=clean_specs,
-        seo_metadata=seo_metadata,
-        sales_config=persisted_sales_config(sales_config),
-        price=payload.price,
-        sale_price=payload.discountPrice,
-        stock_quantity=payload.stock,
-        image_url=payload.imageUrl,
-        images=payload.images,
-        video_url=payload.videoUrl,
-        status="DRAFT",
-        is_featured=payload.isFeatured,
-        is_flash_sale=payload.isFlashSale,
-        options=clean_options,
-    )
-    await upsert_product_variants(session, product_id, payload.variants, payload.name, payload.price, payload.discountPrice, payload.stock)
-    await sync_parent_price_if_variants_exist(session, product_id)
-    await sync_product_relations(session, product_id, sales_config)
-    await audit_product_event(session, product_id, "PRODUCT_CREATED", new_value={"name": payload.name, "status": normalize_status(payload.status)})
-    await session.commit()
-    return {"id": str(product_id)}
-
-
-async def update_product(product_id: UUID, payload: ProductPayload, session: AsyncSession | None = None) -> dict:
-    clean_options = normalize_product_options(payload.options)
-    validate_optimized_media(payload)
-    ensure_not_data_url(payload.imageUrl, "imageUrl")
-    ensure_not_data_url(payload.videoUrl, "videoUrl")
-    for image in payload.images:
-        ensure_not_data_url(image, "images")
-    await ensure_categories_not_migrating(session, [payload.categoryId, payload.subcategoryId])
-    category, brand = await resolve_catalog_labels(session, payload)
-    clean_specs, seo_metadata, sales_config = extract_product_metadata(payload.specifications)
-    current = await product_repo.get_product_current_for_update(session, product_id)
-    if not current:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
-    await ensure_categories_not_migrating(session, [current["category_id"], current["subcategory_id"], payload.categoryId, payload.subcategoryId])
-    if payload.version is not None and int(current["version"] or 0) != payload.version:
-        raise HTTPException(status_code=409, detail="Sản phẩm đã được cập nhật bởi quản trị viên khác. Vui lòng tải lại trang.")
-    if payload.updatedAt and payload.version is None:
-        if str(current["updated_at"].isoformat())[:19] != str(payload.updatedAt)[:19]:
-            raise HTTPException(status_code=409, detail="Sản phẩm đã được cập nhật bởi quản trị viên khác. Vui lòng tải lại trang.")
-    if current["status"] == "MERGED":
-        raise HTTPException(status_code=400, detail="Bản chỉnh sửa này đã được áp dụng vào sản phẩm gốc, không thể sửa hoặc khôi phục lại.")
-    if normalize_status(payload.status) == "ACTIVE":
-        blocker = await product_repo.product_visibility_blocker(
+    try:
+        if len(payload.variants) < 2 and not _payload_has_selected_variant_specs(payload):
+            payload.variants = []
+            payload.options = []
+        product_id = uuid4()
+        clean_options = normalize_product_options(payload.options)
+        validate_optimized_media(payload)
+        ensure_not_data_url(payload.imageUrl, "imageUrl")
+        ensure_not_data_url(payload.videoUrl, "videoUrl")
+        for image in payload.images:
+            ensure_not_data_url(image, "images")
+            
+        variant_media_urls = []
+        for variant in payload.variants:
+            if variant.imageUrl:
+                ensure_not_data_url(variant.imageUrl, "variants.imageUrl")
+                variant_media_urls.append(variant.imageUrl)
+            if variant.images:
+                for img in variant.images:
+                    ensure_not_data_url(img, "variants.images")
+                    variant_media_urls.append(img)
+            
+        await media_repo.assert_all_product_media_claimed(
+            session,
+            urls=[payload.imageUrl, *payload.images, payload.videoUrl] + variant_media_urls,
+            entity_id=product_id,
+        )
+        
+        await ensure_categories_not_migrating(session, [payload.categoryId, payload.subcategoryId])
+        category, brand = await resolve_catalog_labels(session, payload)
+        clean_specs, seo_metadata, sales_config = extract_product_metadata(payload.specifications)
+        await validate_product_specifications(session, payload.categoryId, payload.subcategoryId, clean_specs, payload.variants)
+        await product_repo.insert_product_record(
             session,
             product_id=product_id,
+            sku=f"SKU-{product_id.hex[:10].upper()}",
+            name=payload.name,
+            slug=f"{slugify(payload.name)}-{product_id.hex[:6]}",
+            category=category,
+            brand=brand,
             category_id=payload.categoryId,
             subcategory_id=payload.subcategoryId,
             brand_id=payload.brandId,
+            description=payload.description or "",
+            specifications=clean_specs,
+            seo_metadata=seo_metadata,
+            sales_config=persisted_sales_config(sales_config),
+            price=payload.price,
+            sale_price=payload.discountPrice,
+            stock_quantity=0,
+            image_url=payload.imageUrl,
+            images=payload.images,
+            video_url=payload.videoUrl,
+            status="DRAFT",
+            is_featured=payload.isFeatured,
+            is_flash_sale=payload.isFlashSale,
+            options=clean_options,
         )
-        if blocker:
-            raise HTTPException(status_code=400, detail=blocker)
-    if current["status"] == "ACTIVE":
-        return await create_product_revision(session, product_id, payload, clean_specs, seo_metadata, sales_config, category, brand)
-    next_record_status = current["status"] if current["status"] in {"DRAFT", "REVISION_DRAFT", "PENDING"} else normalize_status(payload.status)
-    updated_count = await product_repo.update_product_record(
-        session,
-        product_id=product_id,
-        name=payload.name,
-        category=category,
-        brand=brand,
-        category_id=payload.categoryId,
-        subcategory_id=payload.subcategoryId,
-        brand_id=payload.brandId,
-        description=payload.description or "",
-        specifications=clean_specs,
-        seo_metadata=seo_metadata,
-        sales_config=persisted_sales_config(sales_config),
-        price=payload.price,
-        sale_price=payload.discountPrice,
-        stock_quantity=int(current["stock_quantity"] or 0),
-        image_url=payload.imageUrl,
-        images=payload.images,
-        video_url=payload.videoUrl,
-        options=clean_options,
-        status=next_record_status,
-        is_featured=payload.isFeatured,
-        is_flash_sale=payload.isFlashSale,
-    )
-    if updated_count == 0:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
-    await upsert_product_variants(session, product_id, payload.variants, payload.name, payload.price, payload.discountPrice, payload.stock)
-    await sync_parent_price_if_variants_exist(session, product_id)
-    if normalize_status(payload.status) == "INACTIVE":
-        await product_repo.deactivate_product_variants(session, product_id)
-    await sync_product_relations(session, product_id, sales_config)
-    await audit_product_event(
-        session,
-        product_id,
-        "PRODUCT_UPDATED",
-        old_value={"name": current["name"], "price": str(current["price"]), "salePrice": str(current["sale_price"])},
-        new_value={"name": payload.name, "price": payload.price, "salePrice": payload.discountPrice, "status": normalize_status(payload.status)},
-    )
-    await session.commit()
-    return {"ok": True}
+        await upsert_product_variants(session, product_id, payload.variants, payload.name, payload.price, payload.discountPrice, payload.stock)
+        await sync_parent_price_if_variants_exist(session, product_id)
+        await sync_product_relations(session, product_id, sales_config)
+        
+        # claim_media_assets already associated them at the beginning
+        
+        await audit_product_event(session, product_id, "PRODUCT_CREATED", new_value={"name": payload.name, "status": normalize_status(payload.status)})
+        await session.commit()
+        return {"id": str(product_id)}
+    except Exception as exc:
+        await session.rollback()
+        raise exc
+
+
+async def update_product(product_id: UUID, payload: ProductPayload, session: AsyncSession | None = None) -> dict:
+    try:
+        if len(payload.variants) < 2 and not _payload_has_selected_variant_specs(payload):
+            payload.variants = []
+            payload.options = []
+        clean_options = normalize_product_options(payload.options)
+        validate_optimized_media(payload)
+        ensure_not_data_url(payload.imageUrl, "imageUrl")
+        ensure_not_data_url(payload.videoUrl, "videoUrl")
+        for image in payload.images:
+            ensure_not_data_url(image, "images")
+            
+        variant_media_urls = []
+        for variant in payload.variants:
+            if variant.imageUrl:
+                ensure_not_data_url(variant.imageUrl, "variants.imageUrl")
+                variant_media_urls.append(variant.imageUrl)
+            if variant.images:
+                for img in variant.images:
+                    ensure_not_data_url(img, "variants.images")
+                    variant_media_urls.append(img)
+            
+        await media_repo.assert_all_product_media_claimed(
+            session,
+            urls=[payload.imageUrl, *payload.images, payload.videoUrl] + variant_media_urls,
+            entity_id=product_id,
+        )
+        
+        await ensure_categories_not_migrating(session, [payload.categoryId, payload.subcategoryId])
+        category, brand = await resolve_catalog_labels(session, payload)
+        clean_specs, seo_metadata, sales_config = extract_product_metadata(payload.specifications)
+        await validate_product_specifications(session, payload.categoryId, payload.subcategoryId, clean_specs, payload.variants)
+        current = await product_repo.get_product_current_for_update(session, product_id)
+        if not current:
+            raise BusinessException(404, "PRODUCT_NOT_FOUND", "Không tìm thấy sản phẩm.")
+        await ensure_categories_not_migrating(session, [current["category_id"], current["subcategory_id"], payload.categoryId, payload.subcategoryId])
+        
+        if payload.version is not None and int(current["version"] or 0) != payload.version:
+            raise BusinessException(
+                409,
+                "PRODUCT_VERSION_CONFLICT",
+                "Sản phẩm đã được cập nhật bởi người khác. Vui lòng tải lại.",
+            )
+        if payload.updatedAt and payload.version is None:
+            if str(current["updated_at"].isoformat())[:19] != str(payload.updatedAt)[:19]:
+                raise BusinessException(
+                    409,
+                    "PRODUCT_VERSION_CONFLICT",
+                    "Sản phẩm đã được cập nhật bởi người khác. Vui lòng tải lại.",
+                )
+                
+        if current["status"] == "MERGED":
+            raise BusinessException(400, "INVALID_PRODUCT_STATE", "Bản chỉnh sửa này đã được áp dụng vào sản phẩm gốc, không thể sửa hoặc khôi phục lại.")
+        if current["status"] == "ARCHIVED" and normalize_status(payload.status) == "ACTIVE":
+            raise BusinessException(400, "INVALID_PRODUCT_STATE", "Sản phẩm đã lưu trữ không thể khôi phục trực tiếp. Vui lòng tạo bản nháp mới nếu cần bán lại.")
+        
+        if normalize_status(payload.status) == "ACTIVE":
+            blocker = await product_repo.product_visibility_blocker(
+                session,
+                product_id=product_id,
+                category_id=payload.categoryId,
+                subcategory_id=payload.subcategoryId,
+                brand_id=payload.brandId,
+            )
+            if blocker:
+                raise BusinessException(400, "PRODUCT_VISIBILITY_BLOCKED", blocker)
+                
+        if current["status"] == "ACTIVE":
+            return await create_product_revision(session, product_id, payload, clean_specs, seo_metadata, sales_config, category, brand)
+            
+        next_record_status = current["status"] if current["status"] in {"DRAFT", "REVISION_DRAFT", "PENDING"} else normalize_status(payload.status)
+        expected_version = payload.version if payload.version is not None else int(current["version"] or 0)
+        
+        updated_count = await product_repo.update_product_record(
+            session,
+            product_id=product_id,
+            expected_version=expected_version,
+            name=payload.name,
+            category=category,
+            brand=brand,
+            category_id=payload.categoryId,
+            subcategory_id=payload.subcategoryId,
+            brand_id=payload.brandId,
+            description=payload.description or "",
+            specifications=clean_specs,
+            seo_metadata=seo_metadata,
+            sales_config=persisted_sales_config(sales_config),
+            price=payload.price,
+            sale_price=payload.discountPrice,
+            stock_quantity=int(current["stock_quantity"] or 0),
+            image_url=payload.imageUrl,
+            images=payload.images,
+            video_url=payload.videoUrl,
+            options=clean_options,
+            status=next_record_status,
+            is_featured=payload.isFeatured,
+            is_flash_sale=payload.isFlashSale,
+        )
+        if updated_count == 0:
+            still_exists = await session.scalar(text("SELECT EXISTS(SELECT 1 FROM products WHERE id = :id)"), {"id": product_id})
+            if still_exists:
+                raise BusinessException(
+                    409,
+                    "PRODUCT_VERSION_CONFLICT",
+                    "Sản phẩm đã được cập nhật bởi người khác. Vui lòng tải lại.",
+                )
+            else:
+                raise BusinessException(404, "PRODUCT_NOT_FOUND", "Không tìm thấy sản phẩm.")
+                
+        await upsert_product_variants(session, product_id, payload.variants, payload.name, payload.price, payload.discountPrice, payload.stock)
+        await sync_parent_price_if_variants_exist(session, product_id)
+        if normalize_status(payload.status) in {"INACTIVE", "ARCHIVED"}:
+            await product_repo.deactivate_product_variants(session, product_id)
+            await used_product_repo.hide_listings_by_product(session, product_id)
+        await sync_product_relations(session, product_id, sales_config)
+        
+        # claim_media_assets already associated them at the beginning
+        
+        await audit_product_event(
+            session,
+            product_id,
+            "PRODUCT_UPDATED",
+            old_value={"name": current["name"], "price": str(current["price"]), "salePrice": str(current["sale_price"])},
+            new_value={"name": payload.name, "price": payload.price, "salePrice": payload.discountPrice, "status": normalize_status(payload.status)},
+        )
+        await session.commit()
+        return {"ok": True}
+    except Exception as exc:
+        await session.rollback()
+        raise exc
 
 
 async def duplicate_product(product_id: UUID, session: AsyncSession | None = None) -> dict:
-    source = await product_repo.get_product_source_for_duplicate(session, product_id)
-    if not source:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+    try:
+        source = await product_repo.get_product_source_for_duplicate(session, product_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
 
-    new_id = uuid4()
-    suffix = new_id.hex[:6]
-    inserted = await product_repo.duplicate_product_record(
-        session,
-        new_id=new_id,
-        source_id=product_id,
-        sku=f"SKU-{new_id.hex[:10].upper()}",
-        slug=f"{slugify(str(source['name']))}-copy-{suffix}",
-    )
-    if not inserted:
-        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
+        new_id = uuid4()
+        suffix = new_id.hex[:6]
+        inserted = await product_repo.duplicate_product_record(
+            session,
+            new_id=new_id,
+            source_id=product_id,
+            sku=f"SKU-{new_id.hex[:10].upper()}",
+            slug=f"{slugify(str(source['name']))}-copy-{suffix}",
+        )
+        if not inserted:
+            raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm.")
 
-    await product_repo.duplicate_product_variants(session, new_id=new_id, source_id=product_id, suffix=suffix)
-    await product_repo.duplicate_product_bundles(session, new_id=new_id, source_id=product_id)
-    await product_repo.duplicate_product_accessories(session, new_id=new_id, source_id=product_id)
-    await session.commit()
-    return {"id": str(new_id)}
+        await product_repo.duplicate_product_variants(session, new_id=new_id, source_id=product_id, suffix=suffix)
+        await product_repo.duplicate_product_bundles(session, new_id=new_id, source_id=product_id)
+        await product_repo.duplicate_product_accessories(session, new_id=new_id, source_id=product_id)
+        await product_repo.duplicate_product_attached_services(session, new_id=new_id, source_id=product_id)
+        await session.commit()
+        return {"id": str(new_id)}
+    except Exception as exc:
+        await session.rollback()
+        raise exc

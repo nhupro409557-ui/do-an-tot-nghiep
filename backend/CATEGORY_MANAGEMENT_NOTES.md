@@ -1,46 +1,94 @@
 # Category Management Notes
 
+## Cập nhật 2026-07-14 - Chính sách bảo hành danh mục Điện thoại
+
+- Danh mục gốc Điện thoại được cấu hình bảo hành 12 tháng, một đổi một 30 ngày và không còn kế thừa chính sách từ danh mục cha không tồn tại.
+- Các danh mục con của Điện thoại giữ chế độ kế thừa, đồng thời lưu snapshot 12 tháng/30 ngày để giao diện quản trị hiển thị nhất quán.
+- Migration `099_normalize_phone_warranty_policy.sql` có thể chạy lặp an toàn và đồng bộ luôn chính sách của sản phẩm trong cây danh mục.
+
+## Cập nhật 2026-07-08 - Chặn trùng key thông số trong cùng danh mục
+
+- Bổ sung kiểm tra `DUPLICATE_SPEC_FIELD_KEY` trong `category/crud.py` để từ chối `specFields` có hai key trùng nhau trong cùng danh mục, không còn lưu JSON trùng key xuống DB.
+- Bổ sung kiểm tra phía frontend trong `useAdminCategoriesLogic.ts`; khi admin nhập hai thông số cùng key, form dừng submit và báo "Mã trường thông số ... bị trùng".
+- Kỳ vọng test CAT-N13 cần đổi sang: nhập hai field cùng key, ví dụ `ram` và `RAM`, phải bị chặn trước khi lưu.
+- Kỳ vọng test CAT-N18 cần bám theo logic lifecycle hiện tại: danh mục rỗng trả `action: "hard_deleted"`; danh mục có con hoặc sản phẩm trả `action: "soft_deleted"` và ẩn đệ quy danh mục con, sản phẩm/listings liên quan. Không kỳ vọng lỗi chặn 409 cho trường hợp có ràng buộc.
+
+## Cập nhật 2026-07-08 - Chuẩn hóa gợi ý dung lượng lưu trữ theo GB/TB
+
+- Bổ sung migration `069_category_storage_tb_options.sql` để cập nhật DB hiện tại: trường `storage` của danh mục gốc `smartphones` và `tablets` dùng `unit` là `GB/TB`, không còn giữ riêng `GB`.
+- Đổi gợi ý lưu trữ từ kiểu `1024`/`2048` sang giá trị dễ đọc có đơn vị lớn hơn: smartphone dùng `64 GB, 128 GB, 256 GB, 512 GB, 1 TB`; tablet dùng thêm `2 TB`.
+- Cập nhật fallback frontend trong `useAdminCategoriesLogic.ts` và baseline/migration seed để môi trường mới không sinh lại lựa chọn kiểu `1024 GB`.
+- Đã áp dụng migration `069_category_storage_tb_options.sql` cho DB local và kiểm tra `schema_migrations` có bản ghi migration này.
+
+## Cập nhật 2026-07-08 - Gợi ý mặc định cho thông số có đơn vị
+
+- Bổ sung migration `068_category_spec_field_unit_options.sql` để tự điền `options` cho các trường thông số đã có `unit` trong danh mục gốc, ví dụ RAM, bộ nhớ/ROM, kích thước màn hình, tần số quét, pin, sạc, khối lượng, kích thước, công suất và dung lượng phụ kiện.
+- Đã áp dụng migration `068_category_spec_field_unit_options.sql` cho DB local; kiểm tra DB xác nhận `ram`, `storage`, `screen_size` của smartphone/laptop/tablet đã có `options`.
+- Cập nhật fallback frontend trong `useAdminCategoriesLogic.ts` để khi dữ liệu cũ chưa có `options`, form danh mục vẫn tự gợi ý theo `key` và loại danh mục.
+- Cập nhật hiển thị chip gợi ý trong form sản phẩm để không nối thêm `unit` nếu option đã tự chứa đơn vị, tránh hiển thị sai kiểu `256GB SSD GB/TB`.
+
+## Cập nhật 2026-07-08 - Cấu hình đuôi thông số kỹ thuật mặc định
+
+- Bổ sung migration `067_category_spec_field_units.sql` để gắn `unit` cho các trường thông số kỹ thuật mặc định của danh mục gốc: RAM, bộ nhớ/ROM, kích thước màn hình, tần số quét, độ sáng, camera, pin, sạc/công suất, kích thước, khối lượng và một số trường dung lượng phụ kiện/camera.
+- Cập nhật baseline `init_database.sql` để môi trường dựng mới có sẵn `unit` trong `spec_fields`.
+- Đã áp dụng migration `067_category_spec_field_units.sql` cho DB local để form danh mục đọc được `unit` trực tiếp từ dữ liệu hiện tại.
+- Bổ sung fallback frontend trong `useAdminCategoriesLogic.ts` để form danh mục tự điền đuôi quen thuộc như `ram -> GB`, `storage -> GB/GB-TB`, `screen_size -> inch` khi dữ liệu DB cũ chưa có `unit`.
+- Không đổi contract API vì `specFields.unit` đã là thuộc tính tùy chọn và form sản phẩm/admin category hiện đã đọc được trường này.
+
+## Cập nhật 2026-07-08 - Thêm Đơn vị và Tùy chọn gợi ý cho Thông số kỹ thuật của Danh mục
+
+- **Mở rộng specFields**: Bổ sung hai thuộc tính tùy chọn `unit` (đơn vị/đuôi) và `options` (danh sách tùy chọn phân cách bằng dấu phẩy) vào cấu trúc trường thông số kỹ thuật của danh mục.
+- **Backend Validation**: Thêm hàm `validate_category_spec_fields` trong `category/crud.py` để kiểm tra tính hợp lệ của trường thông số kỹ thuật (kiểm tra mã trường, kiểu dữ liệu hợp lệ) trước khi thực hiện `create_category` và `update_category`.
+
+## Cập nhật 2026-07-07 - Củng cố Rollback và Ràng buộc chéo cho Danh mục
+
+- **Xử lý cascade soft delete danh mục**: Thay thế nhánh trả về lỗi `409` trong `deactivate_category` bằng soft delete có cascade để ẩn danh mục, ẩn đệ quy các danh mục con cháu, và chuyển các sản phẩm liên quan sang `INACTIVE`.
+- **Ràng buộc khôi phục danh mục cha hoạt động**: Cập nhật `restore_category` trong `lifecycle.py` để kiểm tra trạng thái hoạt động của danh mục cha trước khi khôi phục danh mục con, chặn khôi phục nếu cha bị tạm ngưng hoạt động hoặc đã bị xóa.
+- **Ràng buộc chéo trạng thái hoạt động danh mục cha**: Cập nhật `create_category` và `update_category` trong `category/crud.py` để chặn kích hoạt danh mục con nếu danh mục cha của nó đang tạm ngưng hoạt động (không ở trạng thái `ACTIVE`), đảm bảo tính toàn vẹn trạng thái hiển thị của cây danh mục.
+- **Bảo đảm tính nguyên tử cho Category Lifecycle**: Bổ sung `try ... except ... rollback` cho `restore_category` và `deactivate_category` trong `lifecycle.py` để đảm bảo nếu xảy ra lỗi trong các tác vụ phụ (cập nhật Sitemap, xóa cache Redis) thì DB được trả về nguyên trạng.
+- **Ràng buộc chéo thiết bị cũ khi ẩn danh mục**: Cập nhật hàm `deactivate_products_in_category_branch` trong `category/common.py` gọi `used_product_repo.hide_listings_by_products` để ẩn các bài đăng thiết bị cũ tương ứng trên storefront.
+- **Bọc giao dịch (Transaction) an toàn cho Bổ sung mã định danh**: Cập nhật các hàm nghiệp vụ lớn trong `identifier_migrations.py` (`create_identifier_policy_migration`, `scan_identifier_policy_migration`, `complete_identifier_policy_migration`, `cancel_identifier_policy_migration`) bọc trong khối `try ... except ... rollback` để giải phóng các khóa dòng `FOR UPDATE` nếu xảy ra lỗi giữa chừng, ngăn ngừa nguy cơ nghẽn DB.
+
+## Cập nhật 2026-07-06 - Optimistic Locking cho Danh mục
+
+- **Optimistic Locking cho Danh mục**:
+  - Truy vấn `get_category_for_update` sử dụng `SELECT ... FOR UPDATE` để khóa dòng danh mục khi cập nhật.
+  - Hàm `update_category` trong repository thêm điều kiện `version = :expected_version` trong câu lệnh `UPDATE`.
+  - Service `update_category` kiểm tra số dòng bị ảnh hưởng (`updated_count`). Nếu bằng `0` và danh mục vẫn tồn tại (chưa bị xóa cứng), hệ thống trả lỗi `409 Conflict` với cấu trúc JSON rõ ràng chứa mã lỗi `"CATEGORY_VERSION_CONFLICT"`.
+
 ## Cập nhật 2026-07-06 - Đồng bộ ẩn/khôi phục đệ quy nhánh danh mục con cháu
 
 - Nâng cấp hàm `hide_active_child_categories` và `restore_hidden_children` sử dụng toán tử LTREE (`path <@ branch.path`) để ẩn đệ quy toàn bộ danh mục con cháu và khôi phục đồng bộ thay vì chỉ áp dụng ở cấp con trực tiếp.
 - Giúp loại bỏ mâu thuẫn trạng thái trong cây danh mục (danh mục con active nằm dưới danh mục cha bị ẩn).
-- Verification: pytest full backend test 74 passed.
 
 ## Cập nhật 2026-07-04 - Chuẩn hóa lỗi danh mục còn lại
 
 - Chuẩn hóa lỗi không tìm thấy danh mục/danh mục cha, lỗi cây danh mục quá sâu và lỗi concurrent update sang tiếng Việt có dấu.
 - Không đổi logic kiểm tra vòng lặp, độ sâu cây, version hoặc migration mã định danh.
-- Verification: `py_compile` và test category/catalog liên quan pass.
 
 ## Cập nhật 2026-07-04 - Sửa chuỗi lỗi tiếng Việt trong category service
 
 - Chuẩn hóa các thông báo lỗi vòng lặp danh mục và kiểm tra slug bị mojibake sang tiếng Việt UTF-8 đúng dấu.
 - Không thay đổi logic tạo/sửa/xóa danh mục hoặc contract API.
-- Verification: `py_compile` pass cho category service files; nhóm test backend liên quan checkout/order/outbound/after-sales/used-products pass.
 
 ## Cập nhật 2026-07-02 - Đồng bộ lọc danh mục và thương hiệu
 
 - Bộ lọc sản phẩm và tồn kho dùng chung quy tắc danh mục cha bao gồm cả sản phẩm/thương hiệu thuộc danh mục con trực tiếp.
 - Khi đổi danh mục ở cấp lớn, bộ lọc thương hiệu ở cấp nhỏ được reset nếu không còn hợp lệ với danh mục mới.
-- Verification: frontend `npm run lint` pass.
 
-## Cập nhật 2026-06-28 - Giảm cảnh báo React Doctor cho cây danh mục
 
 - Tối ưu các phép duyệt danh mục ở frontend: dựng cây danh mục đã lọc, gom trường thông số và tách danh sách mã định danh bằng vòng lặp một lượt thay vì chuỗi `filter().map()` hoặc `map().filter(Boolean)`.
 - Luồng migrate mã định danh danh mục vẫn giữ nguyên dữ liệu đầu vào/đầu ra; thay đổi chỉ nằm ở cách chuẩn hóa danh sách trước khi gửi xử lý.
-- Verification: frontend `npm run lint` pass; React Doctor full scan còn 309 cảnh báo, Performance còn 55.
 
 ## Cáº­p nháº­t 2026-06-28 - Hoist helper submit danh má»¥c
 
 - ÄÆ°a `isConcurrentUpdateError` vÃ  `categorySubmitErrorMessage` ra module scope Ä‘á»ƒ hook danh má»¥c khÃ´ng táº¡o láº¡i helper sau má»—i render.
 - KhÃ´ng Ä‘á»•i payload táº¡o/cáº­p nháº­t danh má»¥c, logic conflict 409 hoáº·c thÃ´ng bÃ¡o lá»—i API.
-- Verification: frontend `npm run lint` pass; React Doctor full scan cÃ²n 353 cáº£nh bÃ¡o.
 
 ## Cáº­p nháº­t 2026-06-28 - á»”n Ä‘á»‹nh key trÆ°á»ng thÃ´ng sá»‘
 
 - Má»—i trÆ°á»ng thÃ´ng sá»‘ trong form danh má»¥c Ä‘Æ°á»£c gáº¯n `_clientKey` khi táº¡o má»›i hoáº·c hydrate dá»¯ liá»‡u chá»‰nh sá»­a, trÃ¡nh input bá»‹ nháº­n nháº§m state sau khi xÃ³a dÃ²ng.
 - `_clientKey` chá»‰ dÃ¹ng cho React vÃ  Ä‘Æ°á»£c loáº¡i khá»i `specFields` trÆ°á»›c khi gá»i API táº¡o/cáº­p nháº­t danh má»¥c.
-- Verification: frontend `npm run lint` vÃ  `npm run build` pass; React Doctor khÃ´ng cÃ²n cáº£nh bÃ¡o `no-array-index-as-key` trong form danh má»¥c.
 
 ## Cáº­p nháº­t 2026-06-27 - TÃ¡ch category service theo trÃ¡ch nhiá»‡m
 
@@ -55,7 +103,6 @@ This file records the non-obvious decisions added while hardening category manag
 
 - TÃ¡ch `category_repo.py` thÃ nh facade tÆ°Æ¡ng thÃ­ch vÃ  cÃ¡c module nhá» trong `app/infrastructure/database/repositories/category/`: `tree`, `audit_redirects`, `crud`, `identifier_policy`, `metrics`.
 - CÃ¡c service hiá»‡n táº¡i váº«n import qua `category_repo`, nÃªn khÃ´ng Ä‘á»•i chá»¯ kÃ½ helper hoáº·c luá»“ng gá»i tá»« `category_service.py`.
-- Verification: `py_compile` pass cho category repository/service/router.
 
 ## Update 2026-06-27 - RÃ ng buá»™c IMEI pháº£i cÃ³ serial
 
@@ -63,7 +110,6 @@ This file records the non-obvious decisions added while hardening category manag
 - Form danh má»¥c admin khÃ³a checkbox IMEI khi serial chÆ°a báº­t vÃ  tá»± táº¯t IMEI khi admin táº¯t serial.
 - Form danh má»¥c admin hiá»ƒn thá»‹ thÃªm `Serial hiá»‡u lá»±c` vÃ  `IMEI hiá»‡u lá»±c`, tÃ­nh theo policy cá»§a danh má»¥c cha khi Ä‘ang báº­t káº¿ thá»«a; checkbox IMEI chá»‰ má»Ÿ khi serial hiá»‡u lá»±c Ä‘ang báº­t.
 - TÃ¡c vá»¥ bá»• sung mÃ£ Ä‘á»‹nh danh dÃ¹ng policy Ä‘Ã£ chuáº©n hÃ³a Ä‘á»ƒ trÃ¡nh táº¡o migration Ä‘Ã­ch cÃ³ IMEI nhÆ°ng khÃ´ng cÃ³ serial.
-- Verification: backend `py_compile` pass cho `category_service.py`; frontend `npm run build` pass.
 
 ## Update 2026-06-20 - Chuyá»ƒn Ä‘á»•i chÃ­nh sÃ¡ch IMEI/Serial cÃ³ kiá»ƒm soÃ¡t
 
@@ -96,7 +142,6 @@ This file records the non-obvious decisions added while hardening category manag
 - Form quáº£n lÃ½ danh má»¥c cÃ³ thÃªm checkbox `Theo kÃ­ch thÆ°á»›c cá»§a cha` vÃ  3 trÆ°á»ng `DÃ i/Rá»™ng/Cao Ä‘Ã³ng gÃ³i (cm)` Ä‘á»ƒ cáº¥u hÃ¬nh kÃ­ch thÆ°á»›c máº·c Ä‘á»‹nh cho sáº£n pháº©m thuá»™c danh má»¥c.
 - Form danh má»¥c cÃ³ thÃªm trÆ°á»ng `Há»‡ sá»‘ xáº¿p hÃ ng`, phá»¥c vá»¥ tÃ­nh dung lÆ°á»£ng ká»‡ theo thá»ƒ tÃ­ch hiá»‡u dá»¥ng.
 - ThÃªm migration `009_category_default_storage_dimensions.sql` seed kÃ­ch thÆ°á»›c Æ°á»›c lÆ°á»£ng cho cÃ¡c nhÃ³m hiá»‡n cÃ³ nhÆ° Ä‘iá»‡n thoáº¡i, tablet, laptop, phá»¥ kiá»‡n, Ä‘á»“ng há»“, camera vÃ  mÃ¡y áº£nh.
-- Verification: migration local thÃ nh cÃ´ng; backend `py_compile` pass; frontend `npm run lint` pass; Ä‘á»‘i soÃ¡t cÃ¡c danh má»¥c máº«u tráº£ Ä‘Ãºng kÃ­ch thÆ°á»›c nhÆ° `smartphones = 18 x 10 x 6 cm`, `laptops = 40 x 30 x 8 cm`.
 
 ## Update 2026-06-13 Vietnamese encoding fix
 
@@ -107,7 +152,6 @@ This file records the non-obvious decisions added while hardening category manag
 - Danh má»¥c cÃ³ thÃªm cáº¥u hÃ¬nh máº·c Ä‘á»‹nh cho serial number trong `inventory_policy`: `inheritSerialPolicy` vÃ  `trackSerialNumber`.
 - UI quáº£n lÃ½ danh má»¥c hiá»ƒn thá»‹ thÃªm hai checkbox `Theo serial cá»§a cha` vÃ  `Quáº£n lÃ½ serial number`, hoáº¡t Ä‘á»™ng tÆ°Æ¡ng tá»± chÃ­nh sÃ¡ch IMEI hiá»‡n cÃ³.
 - Migration liÃªn quan: `backend/migrations/060_product_serial_number_management.sql`.
-- Verification: `npm run lint` trong `frontend` pass.
 
 ## Update 2026-06-08 xÃ³a cá»©ng danh má»¥c rá»—ng Ä‘Ã£ tá»«ng Ä‘á»•i slug
 

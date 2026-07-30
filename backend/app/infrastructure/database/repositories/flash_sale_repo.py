@@ -87,6 +87,70 @@ async def get_flash_sale_sold_quantity(session: AsyncSession, sale_id: UUID) -> 
     return None if value is None else int(value)
 
 
+async def get_user_reserved_quantity(
+    session: AsyncSession,
+    sale_id: UUID,
+    user_id: UUID | None,
+    *,
+    lock_quota: bool = False,
+) -> int:
+    if user_id is None:
+        return 0
+    if lock_quota:
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:quota_key, 0))"),
+            {"quota_key": f"flash-sale:{sale_id}:user:{user_id}"},
+        )
+    value = await session.scalar(
+        text(
+            """
+            SELECT COALESCE(SUM(oi.flash_sale_quantity), 0)::int
+            FROM order_items oi
+            JOIN orders o ON o.id = oi.order_id
+            WHERE oi.flash_sale_id = :sale_id
+              AND o.user_id = :user_id
+              AND oi.flash_sale_released_at IS NULL
+            """
+        ),
+        {"sale_id": sale_id, "user_id": user_id},
+    )
+    return int(value or 0)
+
+
+async def list_user_flash_sale_quotas(session: AsyncSession, user_id: UUID) -> list[dict]:
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    fs.id::text AS "flashSaleId",
+                    fs.per_user_limit AS "perUserLimit",
+                    COALESCE(SUM(oi.flash_sale_quantity) FILTER (
+                        WHERE o.user_id = :user_id
+                          AND oi.flash_sale_released_at IS NULL
+                    ), 0)::int AS "usedQuantity"
+                FROM flash_sales fs
+                LEFT JOIN order_items oi ON oi.flash_sale_id = fs.id
+                LEFT JOIN orders o ON o.id = oi.order_id
+                WHERE fs.status = 'ACTIVE'
+                  AND fs.per_user_limit IS NOT NULL
+                  AND (fs.starts_at IS NULL OR fs.starts_at <= NOW())
+                  AND (fs.ends_at IS NULL OR fs.ends_at >= NOW())
+                GROUP BY fs.id, fs.per_user_limit
+                """
+            ),
+            {"user_id": user_id},
+        )
+    ).mappings().all()
+    return [
+        {
+            **dict(row),
+            "remainingQuantity": max(int(row["perUserLimit"]) - int(row["usedQuantity"] or 0), 0),
+        }
+        for row in rows
+    ]
+
+
 async def list_flash_sale_rows(session: AsyncSession):
     return await session.execute(
         text(
@@ -106,6 +170,7 @@ async def list_flash_sale_rows(session: AsyncSession):
                 fs.starts_at AS "startsAt",
                 fs.ends_at AS "endsAt",
                 fs.quantity_limit AS "quantityLimit",
+                fs.per_user_limit AS "perUserLimit",
                 fs.sold_quantity AS "soldQuantity",
                 GREATEST(fs.quantity_limit - fs.sold_quantity, 0) AS "remainingQuantity",
                 fs.quota_exhausted_at AS "quotaExhaustedAt",
@@ -132,11 +197,11 @@ async def insert_flash_sale(session: AsyncSession, params: dict) -> None:
             """
             INSERT INTO flash_sales (
                 id, product_id, variant_id, discount_type, discount_value,
-                starts_at, ends_at, quantity_limit, status
+                starts_at, ends_at, quantity_limit, per_user_limit, status
             )
             VALUES (
                 :id, :product_id, :variant_id, :discount_type, :discount_value,
-                :starts_at, :ends_at, :quantity_limit, :status
+                :starts_at, :ends_at, :quantity_limit, :per_user_limit, :status
             )
             """
         ),
@@ -156,8 +221,9 @@ async def update_flash_sale(session: AsyncSession, params: dict) -> int:
                 starts_at = :starts_at,
                 ends_at = :ends_at,
                 quantity_limit = :quantity_limit,
+                per_user_limit = :per_user_limit,
                 status = :status,
-                quota_exhausted_at = CASE WHEN :status = 'ACTIVE' THEN NULL ELSE quota_exhausted_at END,
+                quota_exhausted_at = CASE WHEN CAST(:status AS VARCHAR) = 'ACTIVE' THEN NULL ELSE quota_exhausted_at END,
                 updated_at = NOW()
             WHERE id = :id
             """

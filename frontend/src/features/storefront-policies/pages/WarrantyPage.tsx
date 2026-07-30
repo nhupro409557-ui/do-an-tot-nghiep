@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { LiveStorePolicySummary } from '../components/LiveStorePolicySummary';
 import {
   ChevronDown, ChevronUp, ShieldCheck, Clock, Package,
   CreditCard, AlertTriangle, Database, ArrowRight, RefreshCw, Wrench, FileText,
@@ -403,6 +404,7 @@ export default function WarrantyPage() {
 
       {/* Content */}
       <div className="mx-auto max-w-5xl px-4 py-10 lg:px-6">
+        <LiveStorePolicySummary codes={['WARRANTY', 'RETURN_EXCHANGE']} tone="blue" />
         <div className="space-y-3">
           {WARRANTY_PAGE_SECTIONS.map((section) => {
             const isOpen = expandedSection === section.id;

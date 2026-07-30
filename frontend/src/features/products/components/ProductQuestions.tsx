@@ -27,6 +27,7 @@ type ProductQuestionsState = {
   replyTarget: ProductQuestion | null;
   submitting: boolean;
   submitError: string;
+  loadError: string;
 };
 
 type ProductQuestionsAction =
@@ -40,6 +41,7 @@ const initialProductQuestionsState: ProductQuestionsState = {
   replyTarget: null,
   submitting: false,
   submitError: '',
+  loadError: '',
 };
 
 function mergeProductQuestionsState(state: ProductQuestionsState, action: ProductQuestionsAction): ProductQuestionsState {
@@ -62,7 +64,7 @@ export function ProductQuestions({ productId }: { productId: string }) {
 
 function ProductQuestionsContent({ productId }: { productId: string }) {
   const { user } = useAuth();
-  const [{ questions, loading, questionText, replyTarget, submitting, submitError }, setQuestionState] = useReducer(
+  const [{ questions, loading, questionText, replyTarget, submitting, submitError, loadError }, setQuestionState] = useReducer(
     mergeProductQuestionsState,
     initialProductQuestionsState,
   );
@@ -72,11 +74,11 @@ function ProductQuestionsContent({ productId }: { productId: string }) {
     publicApi.listProductQuestions(productId)
       .then((items) => {
         if (!isActive) return;
-        setQuestionState({ questions: Array.isArray(items) ? items : [] });
+        setQuestionState({ questions: Array.isArray(items) ? items : [], loadError: '' });
       })
       .catch(() => {
         if (!isActive) return;
-        setQuestionState({ questions: [] });
+        setQuestionState({ questions: [], loadError: 'Không thể tải hỏi đáp sản phẩm. Vui lòng thử tải lại trang.' });
       })
       .finally(() => {
         if (!isActive) return;
@@ -208,7 +210,9 @@ function ProductQuestionsContent({ productId }: { productId: string }) {
           </div>
           <p className="mt-1 text-sm text-gray-500">Đặt câu hỏi về sản phẩm, cửa hàng sẽ phản hồi trong thời gian sớm nhất.</p>
         </div>
-        <span className="text-sm font-bold text-gray-500">{questions.length.toLocaleString('vi-VN')} nội dung</span>
+        <span className="text-sm font-bold text-gray-500">
+          {loading ? 'Đang tải...' : loadError ? 'Chưa xác định' : `${questions.length.toLocaleString('vi-VN')} nội dung`}
+        </span>
       </div>
 
       {!user && (
@@ -244,7 +248,8 @@ function ProductQuestionsContent({ productId }: { productId: string }) {
 
       <div className="space-y-5">
         {loading && <div className="text-sm text-gray-400">Đang tải hỏi đáp...</div>}
-        {!loading && questionThreads.length === 0 && <div className="text-sm text-gray-400">Chưa có câu hỏi nào cho sản phẩm này.</div>}
+        {!loading && loadError && <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{loadError}</div>}
+        {!loading && !loadError && questionThreads.length === 0 && <div className="text-sm text-gray-400">Chưa có câu hỏi nào cho sản phẩm này.</div>}
         {questionThreads.map((thread) => (
           <div key={thread.id} className="space-y-3 border-b border-gray-100 pb-5 last:border-0 last:pb-0">
             {renderQuestion(thread)}

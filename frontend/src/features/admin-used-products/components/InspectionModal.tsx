@@ -14,11 +14,15 @@ type InspectionModalProps = {
 };
 
 const checklistOptions = [
+  ['imeiVerified', 'IMEI trên máy khớp hồ sơ'],
   ['screen', 'Màn hình và cảm ứng'],
   ['camera', 'Camera'],
   ['connectivity', 'Kết nối và SIM'],
   ['biometric', 'Sinh trắc học'],
   ['accountUnlocked', 'Đã thoát tài khoản/khóa máy'],
+  ['dataErased', 'Đã xóa dữ liệu cá nhân'],
+  ['charging', 'Sạc và cổng kết nối'],
+  ['audioAndButtons', 'Loa, mic và phím vật lý'],
 ];
 
 export default function InspectionModal({
@@ -83,7 +87,7 @@ export default function InspectionModal({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-slate-700">Ảnh thực tế và bằng chứng QC</div>
-                <div className="mt-1 text-xs text-slate-500">Chụp rõ mặt trước, mặt sau, cạnh máy và điểm trầy xước.</div>
+                <div className="mt-1 text-xs text-slate-500">Kết quả đạt cần ít nhất 3 ảnh: mặt trước, mặt sau và cạnh máy/điểm trầy xước.</div>
               </div>
               <label className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
                 <ImagePlus className="h-4 w-4" /> Thêm ảnh
@@ -107,7 +111,7 @@ export default function InspectionModal({
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-slate-200 px-3 text-sm font-bold text-slate-600">Hủy</button>
-          <button type="submit" disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-md bg-amber-600 px-3 text-sm font-bold text-white disabled:opacity-50"><PackageCheck className="h-4 w-4" /> Lưu thẩm định</button>
+          <button type="submit" disabled={busy || (inspectionDraft.outcome === 'APPRAISED' && inspectionDraft.evidence.length < 3)} className="inline-flex h-9 items-center gap-2 rounded-md bg-amber-600 px-3 text-sm font-bold text-white disabled:opacity-50"><PackageCheck className="h-4 w-4" /> Lưu thẩm định</button>
         </div>
       </form>
     </div>

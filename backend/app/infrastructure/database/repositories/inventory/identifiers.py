@@ -613,6 +613,52 @@ async def list_product_serial_numbers_for_inventory(
     return [dict(row) for row in result.mappings().all()]
 
 
+async def list_product_identifier_pairs_for_inventory(
+    session: AsyncSession,
+    product_id: UUID,
+    variant_id: UUID | None = None,
+) -> list[dict]:
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                pair.id,
+                pair.imei1,
+                pair.imei2,
+                pair.serial_number AS "serialNumber",
+                pi1.location_id AS "locationId",
+                loc.code AS "locationCode",
+                loc.name AS "locationName"
+            FROM product_identifier_pairs pair
+            JOIN product_imeis pi1
+              ON pi1.product_id = pair.product_id
+             AND pi1.variant_id IS NOT DISTINCT FROM pair.variant_id
+             AND pi1.imei = pair.imei1
+            LEFT JOIN product_imeis pi2
+              ON pi2.product_id = pair.product_id
+             AND pi2.variant_id IS NOT DISTINCT FROM pair.variant_id
+             AND pi2.imei = pair.imei2
+            JOIN product_serial_numbers psn
+              ON psn.product_id = pair.product_id
+             AND psn.variant_id IS NOT DISTINCT FROM pair.variant_id
+             AND psn.serial_number = pair.serial_number
+            JOIN inventory_locations loc ON loc.id = pi1.location_id
+            WHERE pair.product_id = :product_id
+              AND (CAST(:variant_id AS uuid) IS NULL OR pair.variant_id = CAST(:variant_id AS uuid))
+              AND pi1.status = 'IN_STOCK'
+              AND (pair.imei2 IS NULL OR (pi2.status = 'IN_STOCK' AND pi2.location_id = pi1.location_id))
+              AND psn.status = 'IN_STOCK'
+              AND psn.location_id = pi1.location_id
+              AND COALESCE(loc.status, 'ACTIVE') = 'ACTIVE'
+              AND loc.code <> 'MAIN'
+            ORDER BY loc.code, pair.serial_number
+            """
+        ),
+        {"product_id": product_id, "variant_id": variant_id},
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
 async def list_identifier_edit_requests(
     session: AsyncSession,
     *,

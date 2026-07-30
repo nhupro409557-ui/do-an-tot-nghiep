@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Minus, Trash2, X, Printer, Check, Percent, CreditCard, User, ShoppingBag } from 'lucide-react';
 import { request } from '../../../services/apiClient';
 
+type PosCatalogMode = 'NEW' | 'USED';
+
 interface AdminPosModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -43,6 +45,10 @@ function variantPrice(product: any, variant: any): number {
   return moneyValue(variant?.salePrice, variant?.price, productPrice(product));
 }
 
+function usedListingPrice(listing: any): number {
+  return moneyValue(listing?.salePrice, listing?.approvedSalePrice);
+}
+
 function splitIdentifiers(value: string): string[] {
   return value
     .split(/[\s,;]+/)
@@ -53,6 +59,7 @@ function splitIdentifiers(value: string): string[] {
 const normalizePosCart = (currentCart: any[]): any[] => {
   const rules = new Map<string, { discountType: string; discountValue: number; parentProductId: string }>();
   currentCart.forEach(item => {
+    if (item.isUsedDevice) return;
     const offers = item.salesConfig?.accessoryOffers || [];
     offers.forEach((offer: any) => {
       if (offer && offer.productId) {
@@ -67,7 +74,7 @@ const normalizePosCart = (currentCart: any[]): any[] => {
 
   const parentQuantities = new Map<string, number>();
   currentCart.forEach(item => {
-    if (!item.cartItemId.includes('-accessory-discount') && !item.cartItemId.includes('-accessory-normal')) {
+    if (!item.isUsedDevice && !item.cartItemId.includes('-accessory-discount') && !item.cartItemId.includes('-accessory-normal')) {
       parentQuantities.set(item.productId, (parentQuantities.get(item.productId) || 0) + item.quantity);
     }
   });
@@ -76,6 +83,10 @@ const normalizePosCart = (currentCart: any[]): any[] => {
   const newCart: any[] = [];
 
   currentCart.forEach(item => {
+    if (item.isUsedDevice) {
+      newCart.push(item);
+      return;
+    }
     const productIdStr = String(item.productId);
     const rule = rules.get(productIdStr);
     const hasParent = rule && (parentQuantities.get(rule.parentProductId) || 0) > 0;
@@ -167,8 +178,11 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
   const [customerSearch, setCustomerSearch] = useState('');
 
   const [products, setProducts] = useState<any[]>([]);
+  const [usedListings, setUsedListings] = useState<any[]>([]);
+  const [catalogMode, setCatalogMode] = useState<PosCatalogMode>('NEW');
   const [productSearch, setProductSearch] = useState('');
   const [productError, setProductError] = useState('');
+  const [usedProductError, setUsedProductError] = useState('');
 
   // Category & Brand states
   const [categories, setCategories] = useState<any[]>([]);
@@ -214,6 +228,7 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
       // Reset state
       setCart([]);
       setSelectedCustomer(null);
+      setCatalogMode('NEW');
       setCustomerSearch('');
       setProductSearch('');
       setSelectedCategoryId('');
@@ -230,6 +245,7 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
       setGuestPhone('');
       setGuestEmail('');
       setProductError('');
+      setUsedProductError('');
     }
   }, [isOpen]);
 
@@ -286,6 +302,26 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
     }
   };
 
+  const loadUsedListings = async (search: string) => {
+    try {
+      setUsedProductError('');
+      const data = await request<any[]>(
+        `/admin/used-products/listings?status=PUBLISHED&search=${encodeURIComponent(search)}`,
+      );
+      const list = listFromResponse(data).filter((listing) => (
+        !listing.deviceStatus || String(listing.deviceStatus).toUpperCase() === 'READY_FOR_SALE'
+      ));
+      setUsedListings(list);
+      if (list.length === 0) {
+        setUsedProductError('Không có thiết bị cũ nào đang sẵn sàng bán.');
+      }
+    } catch (e: any) {
+      console.error(e);
+      setUsedProductError(e?.message || 'Không thể tải danh sách thiết bị cũ.');
+      setUsedListings([]);
+    }
+  };
+
   const handleCustomerSearchChange = (val: string) => {
     setCustomerSearch(val);
     loadCustomers(val);
@@ -293,7 +329,23 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
 
   const handleProductSearchChange = (val: string) => {
     setProductSearch(val);
+    if (catalogMode === 'USED') {
+      loadUsedListings(val);
+      return;
+    }
     loadProducts(val, selectedCategoryId, selectedBrandId);
+  };
+
+  const handleCatalogModeChange = (mode: PosCatalogMode) => {
+    setCatalogMode(mode);
+    setProductSearch('');
+    setSelectedCategoryId('');
+    setSelectedBrandId('');
+    if (mode === 'USED') {
+      loadUsedListings('');
+    } else {
+      loadProducts('', '', '');
+    }
   };
 
   const handleCategoryChange = (val: string) => {
@@ -339,9 +391,50 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
         imeiInput: '',
         serialInput: '',
         salesConfig: product.salesConfig, // Lưu salesConfig để tự động giảm giá sản phẩm mua kèm
+        categoryId: product.categoryId || product.category_id || product.category?.id || null,
+        brandId: product.brandId || product.brand_id || product.brand?.id || null,
+        isFlashSale: product.isFlashSale || product.is_flash_sale || false,
       });
     }
     setCart(normalizePosCart(newCart));
+  };
+
+  const addUsedDeviceToCart = (listing: any) => {
+    const deviceId = String(listing.deviceId || '');
+    if (!deviceId) {
+      window.alert('Bài đăng hàng cũ không có mã thiết bị hợp lệ.');
+      return;
+    }
+    if (cart.some((item) => item.usedDeviceId === deviceId)) {
+      window.alert('Thiết bị cũ này đã có trong giỏ hàng.');
+      return;
+    }
+    const price = usedListingPrice(listing);
+    if (price <= 0) {
+      window.alert('Thiết bị cũ chưa có giá bán hợp lệ.');
+      return;
+    }
+    const listingName = listing.title || listing.productName || listing.deviceCode || 'Thiết bị cũ';
+    setCart(normalizePosCart([
+      ...cart,
+      {
+        cartItemId: `used-${deviceId}`,
+        productId: listing.productId || null,
+        variantId: null,
+        usedDeviceId: deviceId,
+        productName: `${listingName} (Hàng cũ · ${listing.deviceCode || deviceId})`,
+        unitPrice: price,
+        quantity: 1,
+        maxStock: 1,
+        sku: listing.deviceCode || '',
+        imei: listing.imei || '',
+        conditionGrade: listing.conditionGrade || '',
+        isUsedDevice: true,
+        categoryId: listing.subcategoryId || listing.categoryId || null,
+        brandId: listing.brandId || null,
+        isFlashSale: false,
+      },
+    ]));
   };
 
   // Helper to calculate correct accessory offer price
@@ -446,6 +539,9 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
         quantity: 1,
         maxStock: stockQty,
         sku: offer.productSku || offer.sku || '',
+        categoryId: offer.categoryId || offer.category_id || offer.category?.id || null,
+        brandId: offer.brandId || offer.brand_id || offer.brand?.id || null,
+        isFlashSale: offer.isFlashSale || offer.is_flash_sale || false,
       });
     }
     setCart(normalizePosCart(newCart));
@@ -519,6 +615,18 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
     setVoucherChecking(true);
     setVoucherError('');
     try {
+      const productIds = cart.map(i => i.productId).filter(Boolean);
+      const categoryIds = cart.map(i => i.categoryId || i.category_id).filter(Boolean);
+      const brandIds = cart.map(i => i.brandId || i.brand_id).filter(Boolean);
+      const items = cart.map(i => ({
+        productId: i.productId,
+        categoryId: i.categoryId || i.category_id || null,
+        brandId: i.brandId || i.brand_id || null,
+        price: i.unitPrice,
+        quantity: i.quantity,
+        isFlashSale: i.isFlashSale || i.is_flash_sale || false,
+      }));
+
       const res = await request<any>('/vouchers/validate', {
         method: 'POST',
         body: JSON.stringify({
@@ -527,7 +635,10 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
           user_id: selectedCustomer?.id || null,
           channel: 'WEB',
           payment_method: paymentMethod,
-          product_ids: cart.map(i => i.productId),
+          product_ids: productIds,
+          category_ids: categoryIds,
+          brand_ids: brandIds,
+          items: items,
         })
       });
       if (res.valid) {
@@ -582,14 +693,24 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
       window.alert('Giỏ hàng trống!');
       return;
     }
+    const cashReceivedAmount = Number(cashReceived);
+    if (
+      paymentMethod === 'COD'
+      && totalAmount > 0
+      && (!cashReceived.trim() || !Number.isFinite(cashReceivedAmount) || cashReceivedAmount < totalAmount)
+    ) {
+      window.alert('Số tiền khách đưa phải lớn hơn hoặc bằng tổng thanh toán.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       const payload = {
         user_id: selectedCustomer?.id || null,
         items: cart.map(item => ({
-          product_id: item.productId,
-          variant_id: item.variantId,
+          product_id: item.isUsedDevice ? null : item.productId,
+          variant_id: item.isUsedDevice ? null : item.variantId,
+          used_device_id: item.usedDeviceId || null,
           product_name: item.productName,
           quantity: item.quantity,
           unit_price: item.unitPrice,
@@ -606,6 +727,7 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
         voucher_code: appliedVoucher ? voucherCode : null,
         loyalty_points_used: loyaltyPointsUsed,
         is_offline: true,
+        cash_received: paymentMethod === 'COD' ? cashReceivedAmount : null,
         internal_note: internalNote
       };
 
@@ -625,8 +747,8 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
           subtotal,
           voucherDiscount,
           loyaltyDiscount,
-          totalAmount,
-          cashReceived: cashReceived ? Number(cashReceived) : totalAmount,
+          totalAmount: Number(res.total_amount ?? totalAmount),
+          cashReceived: paymentMethod === 'COD' ? cashReceivedAmount : Number(res.total_amount ?? totalAmount),
           createdAt: new Date().toLocaleString('vi-VN'),
         });
       }
@@ -842,21 +964,45 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
 
               {/* Product Finder & Filters */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Tìm kiếm sản phẩm & Bộ lọc</label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="mb-3 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1" role="tablist" aria-label="Nguồn hàng bán tại quầy">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={catalogMode === 'NEW'}
+                    onClick={() => handleCatalogModeChange('NEW')}
+                    className={`min-h-11 rounded-xl px-3 text-sm font-bold transition ${catalogMode === 'NEW' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-600 hover:bg-white/60'}`}
+                  >
+                    Sản phẩm mới
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={catalogMode === 'USED'}
+                    onClick={() => handleCatalogModeChange('USED')}
+                    className={`min-h-11 rounded-xl px-3 text-sm font-bold transition ${catalogMode === 'USED' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-600 hover:bg-white/60'}`}
+                  >
+                    Hàng cũ
+                  </button>
+                </div>
+                <label htmlFor="pos-product-search" className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  {catalogMode === 'USED' ? 'Tìm thiết bị cũ đang sẵn sàng bán' : 'Tìm kiếm sản phẩm & Bộ lọc'}
+                </label>
+                <div className={`grid grid-cols-1 gap-3 ${catalogMode === 'NEW' ? 'md:grid-cols-3' : ''}`}>
                   <div className="relative">
                     <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                     <input
+                      id="pos-product-search"
                       type="text"
                       value={productSearch}
                       onChange={(e) => handleProductSearchChange(e.target.value)}
-                      placeholder="Tìm theo tên sản phẩm, SKU..."
+                      placeholder={catalogMode === 'USED' ? 'Tìm tên máy, mã thiết bị hoặc IMEI...' : 'Tìm theo tên sản phẩm, SKU...'}
                       className="w-full rounded-2xl border border-slate-200 py-3 pl-11 pr-4 text-sm outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20"
                     />
                   </div>
 
-                  <div>
+                  {catalogMode === 'NEW' && <div>
                     <select
+                      aria-label="Lọc theo danh mục"
                       value={selectedCategoryId}
                       onChange={(e) => handleCategoryChange(e.target.value)}
                       className="w-full rounded-2xl border border-slate-200 bg-white py-3 px-4 text-sm outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 cursor-pointer"
@@ -868,10 +1014,11 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
                         </option>
                       ))}
                     </select>
-                  </div>
+                  </div>}
 
-                  <div>
+                  {catalogMode === 'NEW' && <div>
                     <select
+                      aria-label="Lọc theo thương hiệu"
                       value={selectedBrandId}
                       onChange={(e) => handleBrandChange(e.target.value)}
                       className="w-full rounded-2xl border border-slate-200 bg-white py-3 px-4 text-sm outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/20 cursor-pointer"
@@ -883,12 +1030,45 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
                         </option>
                       ))}
                     </select>
-                  </div>
+                  </div>}
                 </div>
 
                 {/* Product Grid Results */}
                 <div className="mt-3 grid grid-cols-2 gap-3 overflow-y-auto max-h-[300px] p-1 bg-slate-50/50 rounded-2xl border border-slate-100">
-                  {products.length === 0 ? (
+                  {catalogMode === 'USED' ? (
+                    usedListings.length === 0 ? (
+                      <div className="col-span-2 py-8 text-center text-xs font-semibold text-emerald-700" role="status">
+                        {usedProductError || 'Không tìm thấy thiết bị cũ nào'}
+                      </div>
+                    ) : (
+                      usedListings.map((listing) => (
+                        <div key={listing.deviceId || listing.id} className="flex flex-col justify-between rounded-xl border border-emerald-200 bg-white p-3 shadow-sm">
+                          <div>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="line-clamp-2 text-sm font-semibold text-slate-900" title={listing.title}>{listing.title}</div>
+                              <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                                Hạng {listing.conditionGrade || '-'}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-[10px] font-mono text-slate-500">Mã máy: {listing.deviceCode || '-'}</div>
+                            <div className="mt-0.5 text-[10px] font-mono text-slate-500">IMEI: {listing.imei || '-'}</div>
+                            <div className="mt-1 flex flex-wrap gap-2 text-[10px] font-semibold text-slate-500">
+                              <span>Pin: {listing.batteryHealth != null ? `${listing.batteryHealth}%` : '-'}</span>
+                              <span>BH: {listing.warrantyMonths || 0} tháng</span>
+                            </div>
+                            <div className="mt-1.5 text-sm font-bold text-emerald-700">{currency.format(usedListingPrice(listing))}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => addUsedDeviceToCart(listing)}
+                            className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-700 px-3 text-xs font-bold text-white transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+                          >
+                            <Plus className="h-3.5 w-3.5" /> Thêm máy duy nhất
+                          </button>
+                        </div>
+                      ))
+                    )
+                  ) : products.length === 0 ? (
                     <div className="col-span-2 py-8 text-center text-xs text-red-500 font-semibold">{productError || 'Không tìm thấy sản phẩm nào'}</div>
                   ) : (
                     products.map((product) => {
@@ -1114,7 +1294,13 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
                           <div className="mt-0.5 font-bold text-red-600 text-xs">
                             {currency.format(item.unitPrice)}
                           </div>
-                          {!String(item.cartItemId || '').startsWith('service-') && (
+                          {item.isUsedDevice && (
+                            <div className="mt-1 flex flex-wrap gap-1 text-[10px] font-semibold text-emerald-700">
+                              <span className="rounded bg-emerald-50 px-1.5 py-0.5">Hàng cũ · Hạng {item.conditionGrade || '-'}</span>
+                              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono">{item.sku || 'Chưa có mã máy'}</span>
+                            </div>
+                          )}
+                          {!item.isUsedDevice && !String(item.cartItemId || '').startsWith('service-') && (
                             <div className="mt-2 grid grid-cols-1 gap-1.5">
                               <textarea
                                 value={item.imeiInput || ''}
@@ -1135,15 +1321,21 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <button type="button" onClick={() => updateCartQty(idx, -1)} className="rounded-lg p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer">
-                            <Minus className="h-3 w-3" />
-                          </button>
-                          <span className="text-xs font-bold text-slate-800 w-5 text-center">{item.quantity}</span>
-                          <button type="button" onClick={() => updateCartQty(idx, 1)} className="rounded-lg p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer">
-                            <Plus className="h-3 w-3" />
-                          </button>
+                          {item.isUsedDevice ? (
+                            <span className="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">1 máy</span>
+                          ) : (
+                            <>
+                              <button type="button" aria-label={`Giảm số lượng ${item.productName}`} onClick={() => updateCartQty(idx, -1)} className="rounded-lg p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer">
+                                <Minus className="h-3 w-3" />
+                              </button>
+                              <span className="text-xs font-bold text-slate-800 w-5 text-center">{item.quantity}</span>
+                              <button type="button" aria-label={`Tăng số lượng ${item.productName}`} onClick={() => updateCartQty(idx, 1)} className="rounded-lg p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 transition cursor-pointer">
+                                <Plus className="h-3 w-3" />
+                              </button>
+                            </>
+                          )}
 
-                          <button type="button" onClick={() => removeFromCart(idx)} className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-700 transition ml-1 cursor-pointer">
+                          <button type="button" aria-label={`Xóa ${item.productName} khỏi giỏ`} onClick={() => removeFromCart(idx)} className="rounded-lg p-1 text-slate-400 hover:bg-red-50 hover:text-red-700 transition ml-1 cursor-pointer">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
@@ -1282,7 +1474,15 @@ export default function AdminPosModal({ isOpen, onClose, onSuccess, currency }: 
               <button
                 type="button"
                 onClick={handleCheckout}
-                disabled={cart.length === 0 || isSubmitting}
+                disabled={
+                  cart.length === 0
+                  || isSubmitting
+                  || (
+                    paymentMethod === 'COD'
+                    && totalAmount > 0
+                    && (!cashReceived.trim() || !Number.isFinite(Number(cashReceived)) || Number(cashReceived) < totalAmount)
+                  )
+                }
                 className="w-full inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-red-600 font-bold text-white hover:bg-red-700 transition shadow-md disabled:opacity-50 cursor-pointer"
               >
                 {isSubmitting ? 'Đang hoàn tất...' : 'Hoàn tất & In hóa đơn'}

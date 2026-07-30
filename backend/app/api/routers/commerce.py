@@ -6,11 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services import order_service, payment_method_service, store_info_service
 from app.infrastructure.database.models import Order
-from app.infrastructure.database.repositories import auth_repo, commerce_repo, order_repo, voucher_repo
-from app.api.dependencies import get_current_user_id, get_optional_current_user_id, require_staff_or_admin
+from app.infrastructure.database.repositories import auth_repo, commerce_repo, flash_sale_repo, order_repo, voucher_repo
+from app.api.dependencies import get_current_user_id, get_optional_current_user_id, get_user_permissions, require_permission
 
 from app.application.commerce.schemas import (
     AdminUpdateOrderRequest,
+    CancelOrderRequest,
     CarrierQuoteRequest,
     CarrierShipmentCancelRequest,
     CarrierShipmentCreateRequest,
@@ -45,6 +46,15 @@ router = APIRouter(tags=["Commerce"])
 STAFF_ROLES = {"STAFF_ADMIN", "SUPER_ADMIN"}
 
 
+def get_real_client_ip(request: Request) -> str:
+    if "cf-connecting-ip" in request.headers:
+        return request.headers["cf-connecting-ip"]
+    x_forwarded_for = request.headers.get("x-forwarded-for")
+    if x_forwarded_for:
+        return x_forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 def _scoped_idempotency_key(raw_key: str, actor_scope: str) -> str:
     digest = hashlib.sha256(f"{actor_scope}:{raw_key}".encode("utf-8")).hexdigest()
     return f"scoped:{digest}"
@@ -66,8 +76,14 @@ async def _assert_order_access(
     order = await session.get(Order, order_id)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
-    if await _is_staff_or_admin(session, current_user_id):
+    role = await auth_repo.get_active_user_role_code(session, current_user_id)
+    if role == "SUPER_ADMIN":
         return order
+    if role == "STAFF_ADMIN":
+        permissions = set(await auth_repo.list_permissions_for_user(session, current_user_id))
+        if "order:read" in permissions:
+            return order
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền xem đơn hàng.")
     if order.user_id and order.user_id == current_user_id:
         return order
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền truy cập đơn hàng này.")
@@ -120,7 +136,7 @@ async def _enforce_create_order_identity(
             if payload.user_id is not None or payload.loyalty_points_used > 0:
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Vui lòng đăng nhập để dùng tài khoản hoặc điểm thưởng.")
             payload.user_id = None
-            actor_scope = f"guest:{request.client.host if request.client else 'unknown'}"
+            actor_scope = f"guest:{get_real_client_ip(request)}"
         else:
             if payload.user_id is not None and payload.user_id != current_user_id:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không được tạo đơn cho tài khoản khác.")
@@ -145,6 +161,8 @@ async def quote_shipping(
         lat=payload.lat,
         lng=payload.lng,
     )
+
+
 @router.get("/shipping-config")
 async def get_shipping_config() -> dict:
     from app.config import settings
@@ -156,7 +174,7 @@ async def get_shipping_config() -> dict:
 @router.get("/orders")
 async def list_orders(
     user_id: UUID | None = None,
-    _staff_user=Depends(require_staff_or_admin),
+    _permission=Depends(require_permission("order:read")),
     session: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     return await order_service.list_orders(session, user_id)
@@ -182,6 +200,14 @@ async def list_vouchers(session: AsyncSession = Depends(get_session)) -> list[di
     return await voucher_repo.list_public_vouchers(session)
 
 
+@router.get("/flash-sales/me/quotas")
+async def list_my_flash_sale_quotas(
+    current_user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await flash_sale_repo.list_user_flash_sale_quotas(session, current_user_id)
+
+
 @router.post("/vouchers/validate", response_model=VoucherValidationResponse)
 async def validate_voucher(
     payload: VoucherValidationRequest,
@@ -194,19 +220,43 @@ async def validate_voucher(
         requested_user_id=payload.user_id,
         current_user_id=current_user_id,
     )
+    
+    from app.api.routers.auth_utils import enforce_rate_limit, rate_limit_key
+    rl_key = rate_limit_key(
+        request,
+        scope="voucher_validate",
+        identity=str(effective_user_id) if effective_user_id else (payload.device_id or payload.ip_address)
+    )
+    try:
+        enforce_rate_limit(rl_key, limit=10, window_seconds=60)
+    except HTTPException as e:
+        if e.status_code == 429:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Bạn đang kiểm tra voucher quá thường xuyên. Vui lòng thử lại sau.",
+            )
+        raise e
+
+    if effective_user_id:
+        user = await commerce_repo.get_user(session, effective_user_id)
+        trusted_user_tier = user.loyalty_tier if user else None
+    else:
+        trusted_user_tier = None
+
     return await VoucherService(session=session).validate(
         code=payload.code,
         subtotal_amount=payload.subtotal_amount,
         user_id=effective_user_id,
-        user_tier=payload.user_tier,
+        user_tier=trusted_user_tier,
         abandoned_cart_recovery=payload.abandoned_cart_recovery,
         device_id=payload.device_id,
-        ip_address=payload.ip_address or (request.client.host if request.client else None),
+        ip_address=payload.ip_address or get_real_client_ip(request),
         payment_method=payload.payment_method,
         channel=payload.channel,
         product_ids=set(payload.product_ids),
         category_ids=set(payload.category_ids),
         brand_ids=set(payload.brand_ids),
+        items=payload.items,
     )
 
 
@@ -239,7 +289,6 @@ async def list_user_vouchers(
         current_user_id=current_user_id,
     )
     responses = await VoucherService(session=session).list_user_vouchers(user_id=user_id)
-    await session.commit()
     return responses
 
 
@@ -260,8 +309,8 @@ async def create_order(
     current_user_id: UUID | None = Depends(get_optional_current_user_id),
     session: AsyncSession = Depends(get_session),
 ) -> CreateOrderResponse:
-    if payload.voucher_code and not payload.voucher_ip_address and request.client:
-        payload.voucher_ip_address = request.client.host
+    if payload.voucher_code and not payload.voucher_ip_address:
+        payload.voucher_ip_address = get_real_client_ip(request)
     if idempotency_key and not payload.idempotency_key:
         payload.idempotency_key = idempotency_key
     await _enforce_create_order_identity(
@@ -281,12 +330,58 @@ async def create_order(
 async def update_order_status(
     order_id: UUID,
     payload: UpdateOrderStatusRequest,
-    _staff_user=Depends(require_staff_or_admin),
+    _permission=Depends(require_permission("order:update")),
     session: AsyncSession = Depends(get_session),
+    permissions: set[str] = Depends(get_user_permissions),
 ) -> None:
+    if payload.status == "REFUNDED" and "order:refund" not in permissions:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền hoàn tiền đơn hàng.")
     if session.in_transaction():
         await session.rollback()
     await CompleteOrderUseCase(session=session).execute(order_id=order_id, status_value=payload.status)
+
+
+@router.post(
+    "/orders/{order_id}/cancel",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        400: {"description": "Thiếu lý do hủy đơn."},
+        403: {"description": "Không có quyền hủy đơn hàng này."},
+        404: {"description": "Không tìm thấy đơn hàng."},
+        409: {"description": "Đơn hàng không ở trạng thái hợp lệ để hủy."},
+    },
+)
+async def cancel_my_order(
+    order_id: UUID,
+    payload: CancelOrderRequest,
+    current_user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    order = await _assert_order_access(
+        session,
+        order_id=order_id,
+        current_user_id=current_user_id,
+    )
+    if order.user_id != current_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chỉ chủ đơn hàng được dùng chức năng hủy này. Nhân viên vui lòng xử lý trong màn quản trị đơn hàng.",
+        )
+    if order.status != "PENDING":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Chỉ có thể tự hủy đơn khi đơn còn chờ xử lý. Đơn đã thanh toán cần liên hệ shop để hoàn tiền.",
+        )
+
+    if session.in_transaction():
+        await session.rollback()
+
+    await CompleteOrderUseCase(session=session).execute(
+        order_id=order_id,
+        status_value="CANCELLED",
+        cancellation_reason=payload.reason,
+        changed_by=f"user:{current_user_id}",
+    )
 
 
 @router.patch(
@@ -297,9 +392,12 @@ async def update_order_status(
 async def admin_update_order(
     order_id: UUID,
     payload: AdminUpdateOrderRequest,
-    _staff_user=Depends(require_staff_or_admin),
+    _permission=Depends(require_permission("order:update")),
     session: AsyncSession = Depends(get_session),
+    permissions: set[str] = Depends(get_user_permissions),
 ) -> None:
+    if (payload.status == "REFUNDED" or payload.refund_payment) and "order:refund" not in permissions:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền hoàn tiền đơn hàng.")
     if session.in_transaction():
         await session.rollback()
     await CompleteOrderUseCase(session=session).execute_admin_update(order_id=order_id, request=payload)
@@ -309,7 +407,7 @@ async def admin_update_order(
 async def quote_order_carrier(
     order_id: UUID,
     payload: CarrierQuoteRequest,
-    _staff_user=Depends(require_staff_or_admin),
+    _permission=Depends(require_permission("order:read")),
     session: AsyncSession = Depends(get_session),
 ) -> CarrierShipmentResponse:
     if session.in_transaction():
@@ -321,7 +419,7 @@ async def quote_order_carrier(
 async def create_order_carrier_shipment(
     order_id: UUID,
     payload: CarrierShipmentCreateRequest,
-    _staff_user=Depends(require_staff_or_admin),
+    _permission=Depends(require_permission("order:carrier")),
     session: AsyncSession = Depends(get_session),
 ) -> CarrierShipmentResponse:
     if session.in_transaction():
@@ -333,7 +431,7 @@ async def create_order_carrier_shipment(
 async def cancel_order_carrier_shipment(
     order_id: UUID,
     payload: CarrierShipmentCancelRequest,
-    _staff_user=Depends(require_staff_or_admin),
+    _permission=Depends(require_permission("order:carrier")),
     session: AsyncSession = Depends(get_session),
 ) -> CarrierShipmentResponse:
     if session.in_transaction():
@@ -345,7 +443,7 @@ async def cancel_order_carrier_shipment(
 async def update_order_carrier_event(
     order_id: UUID,
     payload: CarrierShipmentEventRequest,
-    _staff_user=Depends(require_staff_or_admin),
+    _permission=Depends(require_permission("order:carrier")),
     session: AsyncSession = Depends(get_session),
 ) -> CarrierShipmentResponse:
     if session.in_transaction():
@@ -359,7 +457,7 @@ async def update_order_carrier_event(
 
 @router.post("/orders/maintenance/expire-pending")
 async def expire_pending_orders(
-    _staff_user=Depends(require_staff_or_admin),
+    _permission=Depends(require_permission("order:maintenance")),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     if session.in_transaction():
@@ -431,6 +529,8 @@ async def retry_payment(
     session: AsyncSession = Depends(get_session),
 ) -> PaymentStatusResponse:
     await _assert_payment_access(session, payment_id=payment_id, current_user_id=current_user_id)
+    if session.in_transaction():
+        await session.rollback()
     return await PaymentUseCase(session=session).retry(payment_id)
 
 
@@ -441,12 +541,14 @@ async def cancel_payment(
     session: AsyncSession = Depends(get_session),
 ) -> PaymentStatusResponse:
     await _assert_payment_access(session, payment_id=payment_id, current_user_id=current_user_id)
+    if session.in_transaction():
+        await session.rollback()
     return await PaymentUseCase(session=session).cancel(payment_id)
 
 
 @router.get("/reports/revenue", response_model=RevenueReportResponse)
 async def revenue_report(
-    _staff_user=Depends(require_staff_or_admin),
+    _permission=Depends(require_permission("report:revenue_read")),
     session: AsyncSession = Depends(get_session),
 ) -> RevenueReportResponse:
     return await ReportUseCase(session=session).revenue()
@@ -455,6 +557,11 @@ async def revenue_report(
 @router.get("/store/info")
 async def get_store_info(session: AsyncSession = Depends(get_session)) -> dict:
     return await store_info_service.get_store_info(session)
+
+
+@router.get("/store/policies")
+async def get_public_store_policies(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    return await store_info_service.list_public_store_policies(session)
 
 
 @router.get("/orders/{order_id}/invoice")

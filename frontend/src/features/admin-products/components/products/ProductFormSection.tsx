@@ -12,6 +12,19 @@ import {
 import ProductAccessoriesSection from './ProductAccessoriesSection';
 import ProductVariantsSection from './ProductVariantsSection';
 
+function specOptionLabel(option: string, unit?: string) {
+  const trimmedOption = String(option || '').trim();
+  const trimmedUnit = String(unit || '').trim();
+  if (!trimmedOption || !trimmedUnit) return trimmedOption;
+  const normalizedOption = trimmedOption.toLowerCase();
+  const normalizedUnit = trimmedUnit.toLowerCase();
+  if (normalizedOption.endsWith(normalizedUnit.replace(/\s+/g, ''))) return trimmedOption;
+  const unitParts = normalizedUnit.split('/').map((part) => part.trim()).filter(Boolean);
+  if (unitParts.some((part) => normalizedOption.includes(part))) return trimmedOption;
+  if (/[a-wyz]/i.test(trimmedOption) && /[a-z]/i.test(trimmedUnit)) return trimmedOption;
+  return `${trimmedOption} ${trimmedUnit}`;
+}
+
 function SearchableBrandSelect({
   brands,
   value,
@@ -407,6 +420,9 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
       <MediaPreview
         title="Bộ ảnh sản phẩm chung"
         items={productForm.images || []}
+        primaryItem={productForm.imageUrl || ''}
+        onReorder={productViewOnly ? undefined : (images) => setProductForm({ ...productForm, images })}
+        onSetPrimary={productViewOnly ? undefined : (url) => setProductForm({ ...productForm, imageUrl: url })}
         onRemove={productViewOnly ? undefined : (url) =>
           setProductForm({
             ...productForm,
@@ -631,23 +647,57 @@ export default function ProductFormSection(props: ProductFormSectionProps) {
                   {group.title}
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
-                  {group.fields.map((field: any) => (
-                    <Input
-                      key={field.key}
-                      label={field.label || field.key}
-                      value={productForm.specifications[field.key] || ''}
-                      required={field.required}
-                      onChange={(value) =>
-                        setProductForm({
-                          ...productForm,
-                          specifications: {
-                            ...productForm.specifications,
-                            [field.key]: value,
-                          },
-                        })
-                      }
-                    />
-                  ))}
+                  {group.fields.map((field: any) => {
+                    const optionsList = field.options
+                      ? field.options.split(',').map((x: string) => x.trim()).filter(Boolean)
+                      : [];
+                    return (
+                      <div key={field.key} className="flex flex-col gap-1.5">
+                        <Input
+                          label={`${field.label || field.key}${field.unit ? ` (${field.unit})` : ''}`}
+                          type={field.type === 'number' && !field.unit ? 'number' : 'text'}
+                          value={productForm.specifications[field.key] || ''}
+                          required={field.required}
+                          onChange={(value) =>
+                            setProductForm({
+                              ...productForm,
+                              specifications: {
+                                ...productForm.specifications,
+                                [field.key]: value,
+                              },
+                            })
+                          }
+                        />
+                        {optionsList.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            <span className="text-[10px] font-bold text-slate-400 self-center mr-1">Gợi ý:</span>
+                            {optionsList.map((opt: string) => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() =>
+                                  setProductForm({
+                                    ...productForm,
+                                    specifications: {
+                                      ...productForm.specifications,
+                                      [field.key]: specOptionLabel(opt, field.unit),
+                                    },
+                                  })
+                                }
+                                className={`rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold border transition ${
+                                  String(productForm.specifications[field.key] || '') === specOptionLabel(opt, field.unit)
+                                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                                    : 'border-slate-200 text-slate-600 hover:bg-slate-200'
+                                }`}
+                              >
+                                {specOptionLabel(opt, field.unit)}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}

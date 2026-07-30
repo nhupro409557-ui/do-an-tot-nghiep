@@ -1,3 +1,4 @@
+from datetime import date, datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response, status
@@ -293,6 +294,24 @@ async def update_profile(
     user = await get_active_user(session, current_user_id)
     updates = dict(payload.data)
     profile = dict(user.profile_json or {})
+    if "birthDate" in updates:
+        requested_birth_date = str(updates.pop("birthDate") or "").strip()
+        if requested_birth_date:
+            if await role_code(session, user.role_id) != "CUSTOMER":
+                raise HTTPException(status_code=403, detail="Ngày sinh chỉ áp dụng cho tài khoản khách hàng.")
+            if user.birth_date_locked_at is not None or user.birth_date is not None:
+                if requested_birth_date != user.birth_date.isoformat():
+                    raise HTTPException(status_code=409, detail="Ngày sinh đã được khóa. Vui lòng liên hệ chăm sóc khách hàng nếu cần điều chỉnh.")
+            else:
+                try:
+                    parsed_birth_date = date.fromisoformat(requested_birth_date)
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail="Ngày sinh không hợp lệ.") from exc
+                today = date.today()
+                if parsed_birth_date >= today or parsed_birth_date.year < today.year - 120:
+                    raise HTTPException(status_code=400, detail="Ngày sinh không hợp lệ.")
+                user.birth_date = parsed_birth_date
+                user.birth_date_locked_at = datetime.now(timezone.utc)
     if "addresses" in updates:
         user.addresses = list(updates.pop("addresses") or [])
     if "marketingOptIn" in updates:

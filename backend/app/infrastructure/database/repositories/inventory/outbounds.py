@@ -592,12 +592,18 @@ async def get_inventory_level(
     result = await session.execute(
         text(
             """
-            SELECT on_hand_quantity, reserved_quantity, average_unit_cost
-            FROM inventory_levels
-            WHERE location_id = :location_id
+            SELECT
+                il.on_hand_quantity,
+                il.reserved_quantity,
+                GREATEST(il.on_hand_quantity - il.reserved_quantity, 0)::int AS "availableQuantity",
+                il.average_unit_cost,
+                loc.code AS "locationCode"
+            FROM inventory_levels il
+            JOIN inventory_locations loc ON loc.id = il.location_id
+            WHERE il.location_id = :location_id
               AND (
-                (CAST(:variant_id AS uuid) IS NULL AND product_id = :product_id AND variant_id IS NULL)
-                OR (CAST(:variant_id AS uuid) IS NOT NULL AND variant_id = :variant_id AND product_id IS NULL)
+                (CAST(:variant_id AS uuid) IS NULL AND il.product_id = :product_id AND il.variant_id IS NULL)
+                OR (CAST(:variant_id AS uuid) IS NOT NULL AND il.variant_id = :variant_id AND il.product_id IS NULL)
               )
             """
         ),

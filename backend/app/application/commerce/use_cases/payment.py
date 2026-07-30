@@ -8,18 +8,21 @@ class PaymentUseCase:
         self._sepay_gateway = SePayPaymentGateway()
         self._zalopay_gateway = ZaloPaySandboxGateway()
 
+    async def _order_accepts_successful_payment(self, order_id: UUID) -> bool:
+        order = await commerce_repo.get_order_for_update(self._session, order_id)
+        return bool(order and order.status == "PENDING")
+
     async def _mark_order_payment_failed_if_pending(self, order_id: UUID, *, internal_note: str, changed_by: str) -> None:
-        order = await self._session.get(Order, order_id)
+        order = await commerce_repo.get_order_for_update(self._session, order_id)
         if order is None or order.status != "PENDING":
-            await self._session.rollback()
             return
-        await self._session.rollback()
         await CompleteOrderUseCase(session=self._session).execute(
             order_id=order_id,
             status_value="PAYMENT_FAILED",
             internal_note=internal_note,
             changed_by=changed_by,
         )
+
 
     async def get_status(self, payment_id: UUID) -> PaymentStatusResponse:
         payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
@@ -29,52 +32,60 @@ class PaymentUseCase:
         if order is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
 
-        # Truy vấn trực tiếp trạng thái từ MoMo nếu giao dịch đang chờ (PENDING)
+        momo_result = None
         if payment.status == "PENDING" and payment.provider == "MOMO":
             try:
                 momo_result = await self._momo_gateway.query_payment(
                     order_code=payment.transaction_ref,
                     request_id=str(payment.id),
                 )
-                # resultCode = 0 nghĩa là thanh toán thành công
-                if momo_result.get("resultCode") == 0:
-                    payment.status = "PAID"
-                    payment.paid_at = datetime.now(timezone.utc)
-                    payment.raw_response = {**(payment.raw_response or {}), "query_api": momo_result}
-                    commerce_repo.save_model(self._session, payment)
-                    await self._session.commit()
-                    # Cập nhật đơn hàng thành PAID
-                    await CompleteOrderUseCase(session=self._session).execute(
-                        order_id=payment.order_id,
-                        status_value="PAID",
-                        internal_note="Xác nhận thanh toán tự động qua truy vấn API MoMo.",
-                        changed_by="momo-query-api",
-                    )
-                    # Tải lại order và payment sau khi commit
-                    payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
-                    order = await self._session.get(Order, payment.order_id)
             except Exception as e:
                 import logging
                 logger = logging.getLogger("uvicorn.error")
                 logger.error("Lỗi khi đối soát tự động MoMo: %s", e)
 
         now = datetime.now(timezone.utc)
-        if payment.status == "PENDING" and payment.expires_at and payment.expires_at <= now:
-            payment.status = "EXPIRED"
-            payment.failed_at = now
-            payment.raw_response = {
-                **(payment.raw_response or {}),
-                "failure_message": "Phiên thanh toán đã hết hạn.",
-            }
-            commerce_repo.save_model(self._session, payment)
-            await self._session.commit()
-            if order.status == "PENDING":
+        if momo_result and momo_result.get("resultCode") == 0 and order.status == "PENDING":
+            await self._session.rollback()
+            async with self._session.begin():
+                payment = await commerce_repo.get_payment_transaction_by_id_for_update(self._session, payment_id)
+                if payment is None:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch thanh toán.")
+                if payment.status == "PENDING":
+                    payment.status = "PAID"
+                    payment.paid_at = now
+                    payment.raw_response = {**(payment.raw_response or {}), "query_api": momo_result}
+                    commerce_repo.save_model(self._session, payment)
+                    await CompleteOrderUseCase(session=self._session).execute(
+                        order_id=payment.order_id,
+                        status_value="PAID",
+                        internal_note="Xác nhận thanh toán qua đối soát API MoMo.",
+                        changed_by="momo-query-api",
+                    )
+            payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
+            order = await self._session.get(Order, payment.order_id)
+
+        elif payment.status == "PENDING" and payment.expires_at and payment.expires_at <= now:
+            await self._session.rollback()
+            async with self._session.begin():
+                payment = await commerce_repo.get_payment_transaction_by_id_for_update(self._session, payment_id)
+                if payment is None:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch thanh toán.")
+                if payment.status == "PENDING":
+                    payment.status = "EXPIRED"
+                    payment.failed_at = now
+                    payment.raw_response = {
+                        **(payment.raw_response or {}),
+                        "failure_message": "Phiên thanh toán đã hết hạn.",
+                    }
+                    commerce_repo.save_model(self._session, payment)
                 await self._mark_order_payment_failed_if_pending(
                     order_id=payment.order_id,
                     internal_note="Phiên thanh toán đã hết hạn.",
                     changed_by="payment-expirer",
                 )
-                order = await self._session.get(Order, payment.order_id)
+            payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
+            order = await self._session.get(Order, payment.order_id)
         raw_response = payment.raw_response or {}
         return PaymentStatusResponse(
             id=payment.id,
@@ -94,101 +105,185 @@ class PaymentUseCase:
         )
 
     async def cancel(self, payment_id: UUID) -> PaymentStatusResponse:
-        payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
-        if payment is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch thanh toán.")
-        order = await self._session.get(Order, payment.order_id)
-        if order is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
-        if payment.status in {"PAID", "REFUNDED"}:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Giao dịch đã hoàn tất, không thể hủy.")
         now = datetime.now(timezone.utc)
-        if payment.status == "PENDING":
-            payment.status = "FAILED"
-            payment.failed_at = now
-            payment.raw_response = {
-                **(payment.raw_response or {}),
-                "failure_message": "Khách hàng đã hủy phiên thanh toán.",
-            }
-            commerce_repo.save_model(self._session, payment)
-            await self._session.commit()
-            if order.status == "PENDING":
+        async with self._session.begin():
+            payment = await commerce_repo.get_payment_transaction_by_id_for_update(self._session, payment_id)
+            if payment is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch thanh toán.")
+            order = await commerce_repo.get_order_for_update(self._session, payment.order_id)
+            if order is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
+            if payment.status in {"PAID", "REFUNDED"}:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Giao dịch đã hoàn tất, không thể hủy.")
+            if payment.status == "PENDING":
+                payment.status = "FAILED"
+                payment.failed_at = now
+                payment.raw_response = {
+                    **(payment.raw_response or {}),
+                    "failure_message": "Khách hàng đã hủy phiên thanh toán.",
+                }
+                commerce_repo.save_model(self._session, payment)
                 await self._mark_order_payment_failed_if_pending(
                     order_id=payment.order_id,
                     internal_note="Khách hàng đã hủy phiên thanh toán.",
-                    changed_by="customer-payment-cancel",
+                    changed_by="payment-cancelled-by-customer",
                 )
-        return await self.get_status(payment.id)
+        return await self.get_status(payment_id)
 
     async def retry(self, payment_id: UUID) -> PaymentStatusResponse:
-        previous = await commerce_repo.get_payment_transaction(self._session, payment_id)
-        if previous is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch thanh toán.")
-        order = await commerce_repo.get_order_for_update(self._session, previous.order_id)
-        if order is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
-        if order.payment_status == "PAID":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Đơn hàng đã được thanh toán.")
-        if order.status != "PENDING":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Đơn hàng không còn chờ thanh toán.")
-        latest = await commerce_repo.get_latest_payment_transaction(self._session, order.id)
+        # Giai đoạn 1: Đọc và kiểm tra điều kiện ban đầu trong một transaction ngắn
+        async with self._session.begin():
+            previous = await commerce_repo.get_payment_transaction(self._session, payment_id)
+            if previous is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy giao dịch thanh toán.")
+            order = await commerce_repo.get_order_for_update(self._session, previous.order_id)
+            if order is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
+            if order.payment_status == "PAID":
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Đơn hàng đã được thanh toán.")
+            if order.status != "PENDING":
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Đơn hàng không còn chờ thanh toán.")
+
+            # 1. Kiểm tra chéo tồn kho (Reservation Check)
+            has_shippable_items = await self._session.scalar(
+                text(
+                    """
+                    SELECT EXISTS(
+                        SELECT 1 FROM order_items
+                        WHERE order_id = :order_id AND used_device_id IS NULL
+                    )
+                    """
+                ),
+                {"order_id": order.id},
+            )
+            if has_shippable_items:
+                has_active_reservations = await self._session.scalar(
+                    text(
+                        """
+                        SELECT EXISTS(
+                            SELECT 1 FROM inventory_reservations
+                            WHERE order_id = :order_id AND status = 'ACTIVE'
+                        )
+                        """
+                    ),
+                    {"order_id": order.id},
+                )
+                if not has_active_reservations:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Phiếu giữ chỗ tồn kho của đơn hàng đã hết hạn hoặc bị giải phóng. Vui lòng tạo đơn hàng mới."
+                    )
+
+            # 2. Kiểm tra chéo Voucher (Voucher Validation)
+            if order.voucher_code:
+                voucher = await commerce_repo.get_active_voucher(self._session, order.voucher_code)
+                if not voucher:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Voucher áp dụng cho đơn hàng không còn tồn tại hoặc đã bị tắt."
+                    )
+                now_utc = datetime.now(timezone.utc)
+                if voucher.starts_at and voucher.starts_at > now_utc:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Voucher áp dụng cho đơn hàng chưa đến thời gian hiệu lực."
+                    )
+                if voucher.ends_at and voucher.ends_at < now_utc:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Voucher áp dụng cho đơn hàng đã hết hạn sử dụng."
+                    )
+
+            provider = previous.provider
+            order_code = order.order_code
+            total_amount = order.total_amount
+            user_id = order.user_id
+            order_id = order.id
+
+            latest = await commerce_repo.get_latest_payment_transaction(self._session, order.id)
+            next_attempt = (latest.attempt_number if latest else 0) + 1
+
+        # Giai đoạn 2: Gọi API gateway ở ngoài transaction để tránh giữ khóa DB lâu và tránh kẹt trạng thái đơn hàng khi API lỗi
         now = datetime.now(timezone.utc)
-        if latest and latest.status == "PENDING" and (not latest.expires_at or latest.expires_at > now):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Phiên thanh toán hiện tại vẫn còn hiệu lực.")
-        next_attempt = (latest.attempt_number if latest else 0) + 1
         payment_id_new = uuid4()
-        if previous.provider == "MOMO":
-            provider_order_id = f"{order.order_code}-{next_attempt}"
+        if provider == "MOMO":
+            provider_order_id = f"{order_code}-{next_attempt}"
             payment_init = await self._momo_gateway.create_payment(
                 order_code=provider_order_id,
-                amount=Decimal(order.total_amount),
-                order_info=f"Thanh toán lại đơn hàng {order.order_code}",
-                extra_data={"orderCode": order.order_code, "attempt": next_attempt},
+                amount=Decimal(total_amount),
+                order_info=f"Thanh toán lại đơn hàng {order_code}",
+                extra_data={"orderCode": order_code, "attempt": next_attempt},
                 request_id=str(payment_id_new),
             )
             timeout_minutes = settings.momo_payment_timeout_minutes
-        elif previous.provider == "ZALOPAY":
+        elif provider == "ZALOPAY":
             vietnam_date = datetime.now(timezone(timedelta(hours=7))).strftime("%y%m%d")
-            provider_order_id = f"{vietnam_date}_{order.order_code[-10:]}{next_attempt:02d}"
+            provider_order_id = f"{vietnam_date}_{order_code[-10:]}{next_attempt:02d}"
             payment_init = await self._zalopay_gateway.create_payment(
                 app_trans_id=provider_order_id,
-                amount=Decimal(order.total_amount),
-                app_user=str(order.user_id or "electromart-sandbox"),
-                description=f"ElectroMart Sandbox - Thanh toán lại đơn hàng {order.order_code}",
+                amount=Decimal(total_amount),
+                app_user=str(user_id or "electromart-sandbox"),
+                description=f"ElectroMart Sandbox - Thanh toán lại đơn hàng {order_code}",
                 callback_url=settings.zalopay_callback_url,
                 redirect_url=f"{settings.frontend_url.rstrip('/')}/payment/{payment_id_new}",
             )
             timeout_minutes = settings.zalopay_payment_timeout_minutes
-        elif previous.provider == "SEPAY":
-            provider_order_id = f"{order.order_code}-{next_attempt}"
+        elif provider == "SEPAY":
+            provider_order_id = f"{order_code}-{next_attempt}"
             payment_init = self._sepay_gateway.create_checkout(
                 order_invoice_number=provider_order_id,
-                order_amount=Decimal(order.total_amount),
-                order_description=f"Thanh toán lại đơn hàng {order.order_code}",
-                success_url=f"{settings.frontend_url.rstrip('/')}/orders/{order.id}?payment=success",
+                order_amount=Decimal(total_amount),
+                order_description=f"Thanh toán lại đơn hàng {order_code}",
+                success_url=f"{settings.frontend_url.rstrip('/')}/orders/{order_id}?payment=success",
                 error_url=f"{settings.frontend_url.rstrip('/')}/payment/{payment_id_new}?payment=error",
                 cancel_url=f"{settings.frontend_url.rstrip('/')}/payment/{payment_id_new}?payment=cancel",
-                customer_id=str(order.user_id) if order.user_id else None,
+                customer_id=str(user_id) if user_id else None,
             )
             timeout_minutes = settings.sepay_payment_timeout_minutes
         else:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cổng thanh toán không hỗ trợ thử lại.")
+        
         expires_at = now + timedelta(minutes=timeout_minutes)
-        payment = PaymentTransaction(
-            id=payment_id_new,
-            order_id=order.id,
-            provider=previous.provider,
-            amount=order.total_amount,
-            status="PENDING",
-            transaction_ref=provider_order_id,
-            checkout_url=payment_init.checkout_url,
-            attempt_number=next_attempt,
-            expires_at=expires_at,
-            raw_response=payment_init.raw_response or {},
-        )
-        commerce_repo.save_model(self._session, payment)
-        await self._session.commit()
-        return await self.get_status(payment.id)
+
+        # Giai đoạn 3: Thực hiện cập nhật DB trong transaction thứ hai (đã có kết quả gateway thành công)
+        async with self._session.begin():
+            # Lock order lần nữa để tránh race condition trong thời gian gọi API gateway
+            order_lock = await commerce_repo.get_order_for_update(self._session, order_id)
+            if order_lock is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
+            if order_lock.payment_status == "PAID":
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Đơn hàng đã được thanh toán.")
+            if order_lock.status != "PENDING":
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Đơn hàng không còn chờ thanh toán.")
+
+            # Hủy/Đánh dấu THẤT BẠI các giao dịch thanh toán PENDING cũ của đơn hàng
+            await self._session.execute(
+                text(
+                    """
+                    UPDATE payment_transactions
+                    SET status = 'FAILED', failed_at = NOW(),
+                        raw_response = raw_response || '{"failure_message": "Bị hủy do khởi tạo phiên thanh toán mới."}'::jsonb
+                    WHERE order_id = :order_id AND status = 'PENDING'
+                    """
+                ),
+                {"order_id": order_id}
+            )
+
+            payment = PaymentTransaction(
+                id=payment_id_new,
+                order_id=order_id,
+                provider=provider,
+                amount=total_amount,
+                status="PENDING",
+                transaction_ref=provider_order_id,
+                checkout_url=payment_init.checkout_url,
+                attempt_number=next_attempt,
+                expires_at=expires_at,
+                raw_response=payment_init.raw_response or {},
+            )
+            commerce_repo.save_model(self._session, payment)
+            
+        return await self.get_status(payment_id_new)
 
     async def process_sepay_ipn(self, payload: dict, *, secret_key: str | None) -> dict:
         import re
@@ -269,6 +364,11 @@ class PaymentUseCase:
                         )
                         commerce_repo.save_model(self._session, payment)
                         await self._session.flush()
+                else:
+                    payment = await commerce_repo.get_payment_transaction_by_id_for_update(
+                        self._session,
+                        payment.id,
+                    )
 
         event_id = uuid4()
         inserted = await commerce_repo.create_webhook_event(
@@ -315,20 +415,24 @@ class PaymentUseCase:
                 or 0
             )
         )
-        if paid_amount != Decimal(payment.amount):
+        if paid_amount < Decimal(payment.amount):
             await commerce_repo.finish_webhook_event(
                 self._session,
                 event_id=event_id,
                 processing_status="FAILED",
-                error_message="Số tiền IPN SePay không khớp giao dịch.",
+                error_message="Số tiền IPN SePay không đủ so với giao dịch.",
             )
             await self._session.commit()
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Số tiền thanh toán không khớp.")
-        if payment.status in {"PAID", "REFUNDED"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Số tiền thanh toán không đủ.")
+        else:
+            payment.amount = paid_amount # Ghi nhận số tiền thực tế khách đã chuyển khoản
+
+        if payment.status != "PENDING":
             await commerce_repo.finish_webhook_event(
                 self._session,
                 event_id=event_id,
                 processing_status="IGNORED",
+                error_message=f"Giao dịch không còn ở trạng thái PENDING (trạng thái hiện tại: {payment.status}).",
             )
             await self._session.commit()
             return {"success": True, "duplicate": True}
@@ -341,42 +445,64 @@ class PaymentUseCase:
 
         now = datetime.now(timezone.utc)
         payment.raw_response = {**(payment.raw_response or {}), "ipn": payload}
+        class AsyncNullContext:
+            async def __aenter__(self): return None
+            async def __aexit__(self, exc_type, exc_val, exc_tb): return False
+
         if event_type in {"ORDER_PAID", "PAID", "SUCCESS", "SUCCEEDED"}:
-            payment.status = "PAID"
-            payment.paid_at = now
-            commerce_repo.save_model(self._session, payment)
-            await commerce_repo.finish_webhook_event(
-                self._session,
-                event_id=event_id,
-                processing_status="PROCESSED",
-            )
-            await self._session.commit()
-            await CompleteOrderUseCase(session=self._session).execute(
-                order_id=payment.order_id,
-                status_value="PAID",
-                internal_note="SePay IPN xác nhận thanh toán thành công.",
-                changed_by="sepay-ipn",
-            )
+            if not await self._order_accepts_successful_payment(payment.order_id):
+                payment.status = "PAID_LATE"
+                payment.paid_at = now
+                commerce_repo.save_model(self._session, payment)
+                await commerce_repo.finish_webhook_event(
+                    self._session,
+                    event_id=event_id,
+                    processing_status="WARNING",
+                    error_message="Khách thanh toán trễ, đơn hàng đã bị hủy hoặc thất bại trước đó.",
+                )
+                await self._session.commit()
+                return {"success": True, "duplicate": True}
+
+            ctx = self._session.begin() if not self._session.in_transaction() else AsyncNullContext()
+            async with ctx:
+                payment.status = "PAID"
+                payment.paid_at = now
+                commerce_repo.save_model(self._session, payment)
+                await commerce_repo.finish_webhook_event(
+                    self._session,
+                    event_id=event_id,
+                    processing_status="PROCESSED",
+                )
+                await CompleteOrderUseCase(session=self._session).execute(
+                    order_id=payment.order_id,
+                    status_value="PAID",
+                    internal_note="SePay IPN xác nhận thanh toán thành công.",
+                    changed_by="sepay-ipn",
+                )
         else:
-            payment.status = "FAILED"
-            payment.failed_at = now
-            payment.raw_response = {
-                **payment.raw_response,
-                "failure_message": str(payload.get("message") or f"SePay event={event_type}"),
-            }
-            commerce_repo.save_model(self._session, payment)
-            await commerce_repo.finish_webhook_event(
-                self._session,
-                event_id=event_id,
-                processing_status="PROCESSED",
-            )
+            ctx = self._session.begin() if not self._session.in_transaction() else AsyncNullContext()
+            async with ctx:
+                payment.status = "FAILED"
+                payment.failed_at = now
+                payment.raw_response = {
+                    **payment.raw_response,
+                    "failure_message": str(payload.get("message") or f"SePay event={event_type}"),
+                }
+                commerce_repo.save_model(self._session, payment)
+                await commerce_repo.finish_webhook_event(
+                    self._session,
+                    event_id=event_id,
+                    processing_status="PROCESSED",
+                )
+                await self._mark_order_payment_failed_if_pending(
+                    order_id=payment.order_id,
+                    internal_note=f"SePay IPN báo thanh toán thất bại: {event_type or 'UNKNOWN'}.",
+                    changed_by="sepay-ipn",
+                )
+        if self._session.in_transaction():
             await self._session.commit()
-            await self._mark_order_payment_failed_if_pending(
-                order_id=payment.order_id,
-                internal_note="SePay IPN báo thanh toán không thành công.",
-                changed_by="sepay-ipn",
-            )
         return {"success": True, "duplicate": False}
+
 
     async def process_momo_ipn(self, payload: dict) -> dict:
         provider_order_id = str(payload.get("orderId") or "")
@@ -439,54 +565,77 @@ class PaymentUseCase:
             )
             await self._session.commit()
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Số tiền thanh toán không khớp.")
-        if payment.status in {"PAID", "REFUNDED"}:
+        if payment.status != "PENDING":
             await commerce_repo.finish_webhook_event(
                 self._session,
                 event_id=event_id,
                 processing_status="IGNORED",
+                error_message=f"Giao dịch không còn ở trạng thái PENDING (trạng thái hiện tại: {payment.status}).",
             )
             await self._session.commit()
             return {"ok": True, "duplicate": True}
 
-        result_code = int(payload.get("resultCode") or -1)
+        result_code = int(payload.get("resultCode")) if payload.get("resultCode") is not None else -1
         now = datetime.now(timezone.utc)
         payment.raw_response = {**(payment.raw_response or {}), "ipn": payload}
+        class AsyncNullContext:
+            async def __aenter__(self): return None
+            async def __aexit__(self, exc_type, exc_val, exc_tb): return False
+
         if result_code == 0:
-            payment.status = "PAID"
-            payment.paid_at = now
-            commerce_repo.save_model(self._session, payment)
-            await commerce_repo.finish_webhook_event(
-                self._session,
-                event_id=event_id,
-                processing_status="PROCESSED",
-            )
-            await self._session.commit()
-            await CompleteOrderUseCase(session=self._session).execute(
-                order_id=order_id,
-                status_value="PAID",
-                internal_note="MoMo Sandbox IPN xác nhận thanh toán thành công.",
-                changed_by="momo-sandbox-ipn",
-            )
+            if not await self._order_accepts_successful_payment(order_id):
+                payment.status = "PAID_LATE"
+                payment.paid_at = now
+                commerce_repo.save_model(self._session, payment)
+                await commerce_repo.finish_webhook_event(
+                    self._session,
+                    event_id=event_id,
+                    processing_status="WARNING",
+                    error_message="Khách thanh toán trễ, đơn hàng đã bị hủy hoặc thất bại trước đó.",
+                )
+                await self._session.commit()
+                return {"ok": True, "duplicate": True}
+
+            ctx = self._session.begin() if not self._session.in_transaction() else AsyncNullContext()
+            async with ctx:
+                payment.status = "PAID"
+                payment.paid_at = now
+                commerce_repo.save_model(self._session, payment)
+                await commerce_repo.finish_webhook_event(
+                    self._session,
+                    event_id=event_id,
+                    processing_status="PROCESSED",
+                )
+                await CompleteOrderUseCase(session=self._session).execute(
+                    order_id=order_id,
+                    status_value="PAID",
+                    internal_note="MoMo Sandbox IPN xác nhận thanh toán thành công.",
+                    changed_by="momo-sandbox-ipn",
+                )
         else:
-            payment.status = "FAILED"
-            payment.failed_at = now
-            payment.raw_response = {
-                **payment.raw_response,
-                "failure_message": str(payload.get("message") or f"MoMo resultCode={result_code}"),
-            }
-            commerce_repo.save_model(self._session, payment)
-            await commerce_repo.finish_webhook_event(
-                self._session,
-                event_id=event_id,
-                processing_status="PROCESSED",
-            )
+            ctx = self._session.begin() if not self._session.in_transaction() else AsyncNullContext()
+            async with ctx:
+                payment.status = "FAILED"
+                payment.failed_at = now
+                payment.raw_response = {
+                    **payment.raw_response,
+                    "failure_message": str(payload.get("message") or f"MoMo resultCode={result_code}"),
+                }
+                commerce_repo.save_model(self._session, payment)
+                await commerce_repo.finish_webhook_event(
+                    self._session,
+                    event_id=event_id,
+                    processing_status="PROCESSED",
+                )
+                await self._mark_order_payment_failed_if_pending(
+                    order_id=payment.order_id,
+                    internal_note=f"MoMo IPN báo thanh toán thất bại: resultCode={result_code}.",
+                    changed_by="momo-sandbox-ipn",
+                )
+        if self._session.in_transaction():
             await self._session.commit()
-            await self._mark_order_payment_failed_if_pending(
-                order_id=order_id,
-                internal_note="MoMo Sandbox IPN báo thanh toán không thành công.",
-                changed_by="momo-sandbox-ipn",
-            )
         return {"ok": True, "duplicate": False}
+
 
     async def process_zalopay_callback(self, payload: dict) -> dict:
         callback_data = str(payload.get("data") or "")
@@ -536,34 +685,56 @@ class PaymentUseCase:
             )
             await self._session.commit()
             return {"return_code": -1, "return_message": "amount not equal"}
-        if payment.status in {"PAID", "REFUNDED"}:
+        if payment.status != "PENDING":
             await commerce_repo.finish_webhook_event(
                 self._session,
                 event_id=event_id,
                 processing_status="IGNORED",
+                error_message=f"Giao dịch không còn ở trạng thái PENDING (trạng thái hiện tại: {payment.status}).",
             )
             await self._session.commit()
             return {"return_code": 2, "return_message": "duplicate"}
 
-        payment.status = "PAID"
-        payment.paid_at = datetime.now(timezone.utc)
-        payment.transaction_ref = app_trans_id
-        payment.raw_response = {
-            **(payment.raw_response or {}),
-            "callback": data,
-            "zp_trans_id": data.get("zp_trans_id"),
-        }
-        commerce_repo.save_model(self._session, payment)
-        await commerce_repo.finish_webhook_event(
-            self._session,
-            event_id=event_id,
-            processing_status="PROCESSED",
-        )
-        await self._session.commit()
-        await CompleteOrderUseCase(session=self._session).execute(
-            order_id=payment.order_id,
-            status_value="PAID",
-            internal_note="ZaloPay Sandbox callback xác nhận thanh toán thành công.",
-            changed_by="zalopay-sandbox-callback",
-        )
+        if not await self._order_accepts_successful_payment(payment.order_id):
+            payment.status = "PAID_LATE"
+            payment.paid_at = datetime.now(timezone.utc)
+            commerce_repo.save_model(self._session, payment)
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="WARNING",
+                error_message="Khách thanh toán trễ, đơn hàng đã bị hủy hoặc thất bại trước đó.",
+            )
+            await self._session.commit()
+            return {"return_code": 1, "return_message": "success"}
+
+        class AsyncNullContext:
+            async def __aenter__(self): return None
+            async def __aexit__(self, exc_type, exc_val, exc_tb): return False
+
+        ctx = self._session.begin() if not self._session.in_transaction() else AsyncNullContext()
+        async with ctx:
+            payment.status = "PAID"
+            payment.paid_at = datetime.now(timezone.utc)
+            payment.transaction_ref = app_trans_id
+            payment.raw_response = {
+                **(payment.raw_response or {}),
+                "callback": data,
+                "zp_trans_id": data.get("zp_trans_id"),
+            }
+            commerce_repo.save_model(self._session, payment)
+            await commerce_repo.finish_webhook_event(
+                self._session,
+                event_id=event_id,
+                processing_status="PROCESSED",
+            )
+            await CompleteOrderUseCase(session=self._session).execute(
+                order_id=payment.order_id,
+                status_value="PAID",
+                internal_note="ZaloPay Sandbox callback xác nhận thanh toán thành công.",
+                changed_by="zalopay-sandbox-callback",
+            )
+
+        if self._session.in_transaction():
+            await self._session.commit()
         return {"return_code": 1, "return_message": "success"}

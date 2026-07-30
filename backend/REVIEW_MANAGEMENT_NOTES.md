@@ -4,7 +4,6 @@
 
 - Chuẩn hóa thông báo lỗi khi admin cập nhật/xóa đánh giá sang tiếng Việt có dấu.
 - Không đổi logic moderation, notification hoặc đồng bộ điểm đánh giá sản phẩm.
-- Verification: `py_compile` và test quản trị liên quan pass.
 
 ## Scope of the 2026-05 upgrade
 - Added pre-public moderation for new product reviews with default `PENDING` flow.

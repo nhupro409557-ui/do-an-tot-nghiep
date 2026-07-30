@@ -153,7 +153,10 @@ async def get_active_voucher_for_update(session: AsyncSession, voucher_id: UUID)
         await session.execute(
             text(
                 """
-                SELECT id, starts_at, ends_at, validity_days_after_claim
+                SELECT id, starts_at, ends_at, validity_days_after_claim,
+                       usage_limit, used_count, total_budget_cap, total_discount_used,
+                       audience_type, eligible_tiers, eligible_user_registered_after,
+                       first_order_only, assigned_user_id
                 FROM vouchers
                 WHERE id = :voucher_id AND status = 'ACTIVE'
                 FOR UPDATE

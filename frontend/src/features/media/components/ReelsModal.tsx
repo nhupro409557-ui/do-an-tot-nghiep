@@ -513,7 +513,7 @@ function ReelsModalContent({ playlist, initialIndex = 0, onClose, likedIds, onTo
                   >
                     {copied ? <Check className="h-5 w-5 text-green-400" /> : <Share2 className="h-5 w-5 transition duration-200 group-hover:text-green-400 group-hover:scale-110 text-white" />}
                   </button>
-                  <span className="mt-1 text-[11px] font-bold text-white drop-shadow-md select-none">{copied ? 'Copied' : 'Chia sẻ'}</span>
+                  <span className="mt-1 text-[11px] font-bold text-white drop-shadow-md select-none">{copied ? 'Đã sao chép' : 'Chia sẻ'}</span>
                 </div>
 
                 <div className="flex flex-col items-center">

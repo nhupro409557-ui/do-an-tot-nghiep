@@ -14,11 +14,15 @@ type ReinspectionModalProps = {
 };
 
 const checklistOptions = [
+  ['imeiVerified', 'IMEI trên máy khớp hồ sơ'],
   ['screen', 'Màn hình và cảm ứng'],
   ['camera', 'Camera'],
   ['connectivity', 'Kết nối và SIM'],
   ['biometric', 'Sinh trắc học'],
   ['accountUnlocked', 'Đã thoát tài khoản/khóa máy'],
+  ['dataErased', 'Đã xóa dữ liệu cá nhân'],
+  ['charging', 'Sạc và cổng kết nối'],
+  ['audioAndButtons', 'Loa, mic và phím vật lý'],
 ];
 
 export default function ReinspectionModal({
@@ -80,7 +84,7 @@ export default function ReinspectionModal({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-slate-700">Ảnh và bằng chứng QC lại</div>
-                <div className="mt-1 text-xs text-slate-500">Chụp rõ tình trạng sau hoàn, lỗi phát sinh và khu vực đã sửa nếu có.</div>
+                <div className="mt-1 text-xs text-slate-500">Kết quả đạt cần ít nhất 3 ảnh về tình trạng sau hoàn, lỗi phát sinh và khu vực đã sửa nếu có.</div>
               </div>
               <label className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
                 <ImagePlus className="h-4 w-4" /> Thêm ảnh
@@ -104,7 +108,7 @@ export default function ReinspectionModal({
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
           <button type="button" onClick={onClose} className="h-9 rounded-md border border-slate-200 px-3 text-sm font-bold text-slate-600">Hủy</button>
-          <button type="submit" disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-md bg-purple-700 px-3 text-sm font-bold text-white disabled:opacity-50"><ClipboardCheck className="h-4 w-4" /> Lưu QC lại</button>
+          <button type="submit" disabled={busy || (inspectionDraft.outcome === 'APPRAISED' && inspectionDraft.evidence.length < 3)} className="inline-flex h-9 items-center gap-2 rounded-md bg-purple-700 px-3 text-sm font-bold text-white disabled:opacity-50"><ClipboardCheck className="h-4 w-4" /> Lưu QC lại</button>
         </div>
       </form>
     </div>

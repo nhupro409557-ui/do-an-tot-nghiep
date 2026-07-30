@@ -1,25 +1,25 @@
-import React from 'react';
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   BarChart3,
   Boxes,
-  Building2,
+  CalendarDays,
+  CheckCircle2,
+  ClipboardList,
+  Database,
   FolderTree,
+  PackageOpen,
+  Percent,
+  PlusCircle,
   RotateCcw,
   ShieldCheck,
   ShoppingBag,
   TrendingUp,
-  Users,
-  PlusCircle,
-  ArrowRight,
-  Database,
-  Percent,
-  ClipboardList,
-  Zap
+  Zap,
 } from 'lucide-react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { StatCard, MetricCard, SimpleList, EmptyState, AlertRow } from '../../admin-shell/components/AdminDashboardParts';
+import { EmptyState } from '../../admin-shell/components/AdminDashboardParts';
 
 type AdminOverviewTabProps = {
   stats: any[];
@@ -31,6 +31,46 @@ type AdminOverviewTabProps = {
   setTab?: (tab: string) => void;
 };
 
+const statToneStyles: Record<string, {
+  accent: string;
+  icon: string;
+  iconBackground: string;
+  value: string;
+}> = {
+  emerald: {
+    accent: 'bg-emerald-500',
+    icon: 'text-emerald-700',
+    iconBackground: 'bg-emerald-50 ring-emerald-100',
+    value: 'text-emerald-950',
+  },
+  amber: {
+    accent: 'bg-amber-500',
+    icon: 'text-amber-700',
+    iconBackground: 'bg-amber-50 ring-amber-100',
+    value: 'text-amber-950',
+  },
+  red: {
+    accent: 'bg-rose-500',
+    icon: 'text-rose-700',
+    iconBackground: 'bg-rose-50 ring-rose-100',
+    value: 'text-rose-950',
+  },
+  sky: {
+    accent: 'bg-sky-500',
+    icon: 'text-sky-700',
+    iconBackground: 'bg-sky-50 ring-sky-100',
+    value: 'text-sky-950',
+  },
+  indigo: {
+    accent: 'bg-indigo-500',
+    icon: 'text-indigo-700',
+    iconBackground: 'bg-indigo-50 ring-indigo-100',
+    value: 'text-indigo-950',
+  },
+};
+
+const defaultStatTone = statToneStyles.indigo;
+
 export default function AdminOverviewTab({
   stats,
   overview,
@@ -40,91 +80,88 @@ export default function AdminOverviewTab({
   percent,
   setTab,
 }: AdminOverviewTabProps) {
-
-  // Minimalist clean tooltips for charts
   const renderTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm text-xs">
-          <p className="font-semibold text-slate-500">Ngày {label}</p>
-          <p className="mt-1 font-bold text-slate-900">
-            {currency.format(payload[0].value)}
-          </p>
-        </div>
-      );
-    }
-    return null;
+    if (!active || !payload?.length) return null;
+
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs shadow-xl shadow-slate-900/10">
+        <p className="font-medium text-slate-500">Ngày {label}</p>
+        <p className="mt-1 text-sm font-bold tabular-nums text-slate-950">
+          {currency.format(payload[0].value)}
+        </p>
+      </div>
+    );
   };
 
   const renderBarTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm text-xs">
-          <p className="font-semibold text-slate-500">Tháng {label}</p>
-          <p className="mt-1 font-bold text-indigo-600">
-            {currency.format(payload[0].value)}
-          </p>
-        </div>
-      );
-    }
-    return null;
+    if (!active || !payload?.length) return null;
+
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs shadow-xl shadow-slate-900/10">
+        <p className="font-medium text-slate-500">Tháng {label}</p>
+        <p className="mt-1 text-sm font-bold tabular-nums text-indigo-700">
+          {currency.format(payload[0].value)}
+        </p>
+      </div>
+    );
   };
 
-  // Corporate styling configs for stat cards (clean white cards with border accent)
-  const cardStyles: Record<string, {
-    iconColor: string;
-    iconBg: string;
-    borderColor: string;
-  }> = {
-    'Doanh thu': {
-      iconColor: 'text-indigo-600',
-      iconBg: 'bg-indigo-50',
-      borderColor: 'hover:border-indigo-200',
-    },
-    'Sản phẩm': {
-      iconColor: 'text-blue-600',
-      iconBg: 'bg-blue-50',
-      borderColor: 'hover:border-blue-200',
-    },
-    'Đơn hàng': {
-      iconColor: 'text-sky-600',
-      iconBg: 'bg-sky-50',
-      borderColor: 'hover:border-sky-200',
-    },
-    'Khách hàng': {
-      iconColor: 'text-amber-600',
-      iconBg: 'bg-amber-50',
-      borderColor: 'hover:border-amber-200',
-    }
-  };
-
-  // Helper values for order flow pipeline
-  const ordersTotal = overview?.orders?.total || 0;
-  const ordersPending = overview?.orders?.pending || 0;
-  const ordersProcessing = overview?.orders?.processing || 0;
-  const ordersCancelled = overview?.orders?.cancelled || 0;
-  const ordersRefunded = overview?.orders?.refunded || 0;
+  const ordersTotal = Number(overview?.orders?.total || 0);
+  const ordersPending = Number(overview?.orders?.pending || 0);
+  const ordersProcessing = Number(overview?.orders?.processing || 0);
+  const ordersCancelled = Number(overview?.orders?.cancelled || 0);
+  const ordersRefunded = Number(overview?.orders?.refunded || 0);
   const ordersCompleted = Math.max(0, ordersTotal - (ordersPending + ordersProcessing + ordersCancelled + ordersRefunded));
+  const cancellationRate = ordersTotal ? ordersCancelled / ordersTotal : 0;
+  const refundRate = ordersTotal ? ordersRefunded / ordersTotal : 0;
+  const completionRate = ordersTotal ? ordersCompleted / ordersTotal : 0;
 
-  // Quick Action Config
-  const quickActions = [
-    { label: 'Thêm sản phẩm', desc: 'Đăng bán sản phẩm mới', icon: PlusCircle, tab: 'products', color: 'text-blue-600 bg-blue-50/50 hover:bg-blue-50 border-blue-100' },
-    { label: 'Tác vụ kho', desc: 'Đối soát và điều chỉnh kho', icon: Database, tab: 'inventory', color: 'text-sky-600 bg-sky-50/50 hover:bg-sky-50 border-sky-100' },
-    { label: 'Tạo khuyến mãi', desc: 'Thiết lập mã giảm giá', icon: Percent, tab: 'vouchers', color: 'text-amber-600 bg-amber-50/50 hover:bg-amber-50 border-amber-100' },
-    { label: 'Duyệt danh mục', desc: 'Cấu hình trường thông số', icon: FolderTree, tab: 'categories', color: 'text-emerald-600 bg-emerald-50/50 hover:bg-emerald-50 border-emerald-100' },
-    { label: 'Duyệt phản hồi', desc: 'Kiểm duyệt đánh giá', icon: ClipboardList, tab: 'reviews', color: 'text-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 border-indigo-100' },
-    { label: 'Bảo mật hệ thống', desc: 'Nhật ký audit an toàn', icon: ShieldCheck, tab: 'audit', color: 'text-slate-600 bg-slate-50 hover:bg-slate-100 border-slate-200' },
+  const orderStages = [
+    {
+      label: 'Chờ xác nhận',
+      value: ordersPending,
+      percentage: ordersTotal ? Math.min(100, (ordersPending / ordersTotal) * 100) : 0,
+      text: 'text-amber-700',
+      background: 'bg-amber-500',
+      surface: 'bg-amber-50/70',
+    },
+    {
+      label: 'Đang xử lý',
+      value: ordersProcessing,
+      percentage: ordersTotal ? Math.min(100, (ordersProcessing / ordersTotal) * 100) : 0,
+      text: 'text-sky-700',
+      background: 'bg-sky-500',
+      surface: 'bg-sky-50/70',
+    },
+    {
+      label: 'Đã hoàn thành',
+      value: ordersCompleted,
+      percentage: ordersTotal ? Math.min(100, (ordersCompleted / ordersTotal) * 100) : 0,
+      text: 'text-emerald-700',
+      background: 'bg-emerald-500',
+      surface: 'bg-emerald-50/70',
+    },
   ];
+
+  const quickActions = [
+    { label: 'Thêm sản phẩm', description: 'Đăng bán sản phẩm mới', icon: PlusCircle, tab: 'products', iconClass: 'bg-blue-50 text-blue-700 ring-blue-100' },
+    { label: 'Tác vụ kho', description: 'Đối soát và điều chỉnh kho', icon: Database, tab: 'inventory', iconClass: 'bg-sky-50 text-sky-700 ring-sky-100' },
+    { label: 'Tạo khuyến mãi', description: 'Thiết lập mã giảm giá', icon: Percent, tab: 'vouchers', iconClass: 'bg-amber-50 text-amber-700 ring-amber-100' },
+    { label: 'Duyệt danh mục', description: 'Cấu hình trường thông số', icon: FolderTree, tab: 'categories', iconClass: 'bg-emerald-50 text-emerald-700 ring-emerald-100' },
+    { label: 'Duyệt phản hồi', description: 'Kiểm duyệt đánh giá', icon: ClipboardList, tab: 'reviews', iconClass: 'bg-violet-50 text-violet-700 ring-violet-100' },
+    { label: 'Bảo mật hệ thống', description: 'Theo dõi nhật ký an toàn', icon: ShieldCheck, tab: 'audit', iconClass: 'bg-slate-100 text-slate-700 ring-slate-200' },
+  ];
+
   const operationalAlerts = [
     {
-      label: 'Đơn pending quá lâu',
+      label: 'Đơn chờ xử lý quá lâu',
       value: overview?.orders?.pendingOverdue || overview?.orders?.pending || 0,
       detail: 'Đơn hàng chờ xác nhận cần được xử lý trước khi trễ cam kết.',
     },
     {
       label: 'Hậu mãi trễ SLA',
       value: overview?.afterSales?.slaBreached || overview?.afterSalesSlaBreached || 0,
-      detail: 'Hồ sơ đổi trả/bảo hành đã vượt thời hạn xử lý.',
+      detail: 'Hồ sơ đổi trả hoặc bảo hành đã vượt thời hạn xử lý.',
     },
     {
       label: 'Tồn kho trên 180 ngày',
@@ -139,116 +176,150 @@ export default function AdminOverviewTab({
     {
       label: 'IMEI lỗi chưa định đoạt',
       value: overview?.afterSales?.defectivePending || overview?.defectivePendingCount || 0,
-      detail: 'IMEI lỗi còn chờ RTV, thanh lý, hủy hoặc xuất khỏi hệ thống.',
+      detail: 'IMEI lỗi còn chờ trả nhà cung cấp, thanh lý, hủy hoặc xuất kho.',
     },
     {
       label: 'Sản phẩm sắp hết hàng',
       value: overview?.lowStockCount || 0,
-      detail: 'Tồn kho bé hơn hoặc bằng ngưỡng an toàn.',
+      detail: 'Tồn kho đang thấp hơn hoặc bằng ngưỡng an toàn.',
     },
   ];
 
+  const dailyRevenue = overview?.revenueByDay || [];
+  const monthlyRevenue = overview?.revenueByMonth || [];
+  const topProducts = overview?.topProducts || [];
+  const operationalAlertTotal = operationalAlerts.reduce((total, alert) => total + Number(alert.value || 0), 0);
+  const formattedDate = new Date().toLocaleDateString('vi-VN', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+
   return (
-    <div className="space-y-6 text-slate-800">
+    <div className="space-y-5 text-slate-800 sm:space-y-6">
+      <section className="relative overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-br from-white via-indigo-50/70 to-sky-50 px-5 py-6 text-slate-900 shadow-xl shadow-indigo-900/5 sm:px-7 sm:py-7">
+        <div aria-hidden="true" className="absolute inset-y-0 right-0 w-2/5 bg-gradient-to-l from-indigo-200/40 to-transparent" />
+        <div aria-hidden="true" className="absolute -right-14 -top-16 h-48 w-48 rounded-full border-[28px] border-indigo-200/35" />
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-indigo-700">
+              <Activity className="h-4 w-4" />
+              Trung tâm vận hành
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Tổng quan điều hành</h1>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
+              Một góc nhìn tập trung về kinh doanh, đơn hàng, tồn kho và các điểm cần ưu tiên xử lý.
+            </p>
+          </div>
 
-      {/* Clean Corporate Light Header */}
-      <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight sm:text-2xl">Tổng quan điều hành</h2>
-          <p className="mt-1 text-sm text-slate-500 font-medium">Báo cáo tình hình kinh doanh, luồng vận hành đơn hàng và cảnh báo hệ thống.</p>
+          <div className="flex flex-col gap-2 sm:flex-row lg:flex-col lg:items-end">
+            <div className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-indigo-100 bg-white/80 px-3.5 text-sm font-medium text-slate-700 shadow-sm">
+              <CalendarDays className="h-4 w-4 text-indigo-600" />
+              <span className="first-letter:uppercase">{formattedDate}</span>
+            </div>
+            <div className={`inline-flex min-h-9 items-center gap-2 self-start rounded-full px-3 text-xs font-semibold lg:self-end ${
+              operationalAlertTotal > 0 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'
+            }`}>
+              {operationalAlertTotal > 0 ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+              {operationalAlertTotal > 0 ? `${operationalAlertTotal} điểm cần lưu ý` : 'Vận hành ổn định'}
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2 self-start rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
-          <span>Hôm nay:</span>
-          <span className="font-bold text-slate-900">
-            {new Date().toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-          </span>
-        </div>
-      </div>
+      </section>
 
-      {/* Clean Light Stats Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Các chỉ số kinh doanh chính" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {stats.map((item) => {
-          const style = cardStyles[item.label] || cardStyles['Doanh thu'];
+          const style = statToneStyles[item.tone] || defaultStatTone;
           const Icon = item.icon;
+
           return (
-            <div
+            <article
               key={item.label}
-              className={`rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm transition-all duration-200 hover:shadow-md ${style.borderColor}`}
+              className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition duration-200 hover:border-slate-300 hover:shadow-lg hover:shadow-slate-900/5 motion-reduce:transition-none"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{item.label}</span>
-                <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${style.iconBg} ${style.iconColor}`}>
-                  <Icon className="h-4.5 w-4.5" />
+              <div aria-hidden="true" className={`absolute inset-x-0 top-0 h-1 ${style.accent}`} />
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{item.label}</p>
+                  <p className={`mt-3 text-2xl font-bold tracking-tight tabular-nums sm:text-[1.7rem] ${style.value}`}>{item.value}</p>
+                </div>
+                <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ${style.iconBackground} ${style.icon}`}>
+                  <Icon className="h-5 w-5" />
                 </div>
               </div>
-              <div className="mt-2.5">
-                <div className="text-2xl font-bold text-slate-900 tracking-tight">{item.value}</div>
-                <p className="mt-1.5 text-[11px] font-medium text-slate-500 leading-normal">{item.caption}</p>
-              </div>
-            </div>
+              <p className="mt-3 border-t border-slate-100 pt-3 text-xs font-medium leading-5 text-slate-500">{item.caption}</p>
+            </article>
           );
         })}
-      </div>
+      </section>
 
-      {/* Operations Grid: Order Fulfillment Flow & Quick Shortcuts */}
-      <div className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
-
-        {/* Order Fulfillment Flow */}
-        <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Activity className="h-4.5 w-4.5 text-slate-600" /> Tiến độ đơn hàng hôm nay
-                </h3>
-                <p className="text-xs text-slate-400 font-medium">Theo dõi luồng xử lý trên tổng số {ordersTotal} đơn hàng.</p>
+      <section className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
+        <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100">
+                  <Activity className="h-4 w-4" />
+                </span>
+                <div>
+                  <h2 className="font-bold text-slate-950">Luồng xử lý đơn hàng</h2>
+                  <p className="mt-0.5 text-xs text-slate-500">Theo dõi trạng thái trên tổng số {ordersTotal} đơn trong vùng dữ liệu.</p>
+                </div>
               </div>
-              <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 uppercase">Live</span>
             </div>
+            <span className="inline-flex self-start rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+              Hoàn tất {percent.format(completionRate)}
+            </span>
+          </div>
 
-            {/* Simple Step-by-step Pipeline Progress Bar */}
-            <div className="mt-4 grid grid-cols-3 gap-3">
-              <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 text-center">
-                <span className="text-xs font-bold text-amber-600">Chờ xác nhận</span>
-                <div className="mt-1 text-xl font-bold text-slate-900">{ordersPending}</div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            {orderStages.map((stage) => (
+              <div key={stage.label} className={`rounded-xl border border-slate-100 p-4 ${stage.surface}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-xs font-bold ${stage.text}`}>{stage.label}</span>
+                  <span className="text-lg font-bold tabular-nums text-slate-950">{stage.value}</span>
+                </div>
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white ring-1 ring-slate-200/70">
+                  <div className={`h-full rounded-full ${stage.background}`} style={{ width: `${stage.percentage}%` }} />
+                </div>
+                <p className="mt-2 text-xs font-medium text-slate-500">{percent.format(stage.percentage / 100)} tổng đơn</p>
               </div>
-              <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 text-center">
-                <span className="text-xs font-bold text-blue-600">Đang đóng gói</span>
-                <div className="mt-1 text-xl font-bold text-slate-900">{ordersProcessing}</div>
-              </div>
-              <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 text-center">
-                <span className="text-xs font-bold text-emerald-600">Đã hoàn thành</span>
-                <div className="mt-1 text-xl font-bold text-slate-900">{ordersCompleted}</div>
-              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 grid gap-3 border-t border-slate-100 pt-5 sm:grid-cols-3">
+            {[
+              { label: 'Sản phẩm sắp hết', value: overview?.lowStockCount || 0, icon: PackageOpen },
+              { label: 'Đánh giá chờ duyệt', value: overview?.reviews?.pending || 0, icon: ClipboardList },
+              { label: 'Voucher hoạt động', value: overview?.vouchers?.active || 0, icon: Percent },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.label} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3.5 py-3">
+                  <Icon className="h-4 w-4 shrink-0 text-slate-500" />
+                  <div className="min-w-0">
+                    <p className="text-lg font-bold tabular-nums text-slate-950">{item.value}</p>
+                    <p className="truncate text-xs font-medium text-slate-500">{item.label}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </article>
+
+        <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex items-center gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+              <Zap className="h-4 w-4" />
+            </span>
+            <div>
+              <h2 className="font-bold text-slate-950">Tác vụ nhanh</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Đi thẳng đến công việc thường dùng.</p>
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 grid-cols-3">
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Sản phẩm hết/sắp hết</span>
-              <div className="mt-0.5 text-lg font-bold text-slate-900">{overview?.lowStockCount || 0}</div>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Đánh giá mới chờ duyệt</span>
-              <div className="mt-0.5 text-lg font-bold text-slate-900">{overview?.reviews?.pending || 0}</div>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Voucher hoạt động</span>
-              <div className="mt-0.5 text-lg font-bold text-slate-900">{overview?.vouchers?.active || 0}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Quick Shortcuts */}
-        <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <Zap className="h-4.5 w-4.5 text-slate-600" /> Phím tắt tác vụ nhanh
-            </h3>
-            <p className="text-xs text-slate-400 font-medium">Lối tắt thao tác nhanh dành cho Admin.</p>
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="mt-5 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-1">
             {quickActions.map((action) => {
               const ActionIcon = action.icon;
               return (
@@ -256,185 +327,252 @@ export default function AdminOverviewTab({
                   key={action.label}
                   type="button"
                   onClick={() => setTab?.(action.tab)}
-                  className={`flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-200 bg-white text-left transition-colors duration-150 hover:bg-slate-50 cursor-pointer`}
+                  aria-label={`${action.label}: ${action.description}`}
+                  className="group flex min-h-14 w-full cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left transition duration-200 hover:border-indigo-200 hover:bg-indigo-50/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 motion-reduce:transition-none"
                 >
-                  <div className={`p-1.5 rounded ${action.color} border shrink-0`}>
+                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ${action.iconClass}`}>
                     <ActionIcon className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-slate-950 truncate">{action.label}</div>
-                  </div>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-bold text-slate-900">{action.label}</span>
+                    <span className="mt-0.5 block truncate text-xs text-slate-500">{action.description}</span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-600 motion-reduce:transform-none motion-reduce:transition-none" />
                 </button>
               );
             })}
           </div>
-        </div>
-      </div>
+        </article>
+      </section>
 
-      {/* Revenue Charts Section */}
-      <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-
-        {/* Line Chart */}
-        <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm">
-          <div className="mb-4">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <TrendingUp className="h-4.5 w-4.5 text-indigo-600" /> Báo cáo doanh số 14 ngày qua
-            </h3>
-            <p className="text-xs text-slate-400 font-medium">Tổng quan doanh thu theo ngày gần nhất.</p>
-          </div>
-          <div className="min-h-72 min-w-0">
-            <ResponsiveContainer width="100%" height={288} minWidth={0}>
-              <AreaChart data={overview?.revenueByDay || []} margin={{ top: 10, right: 5, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="adminRevenueLight" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.12} />
-                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f8fafc" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fontWeight: 600 }} stroke="#94a3b8" tickLine={false} axisLine={false} />
-                <YAxis
-                  tickFormatter={(value) => compactCurrency.format(Number(value))}
-                  tick={{ fontSize: 10, fontWeight: 600 }}
-                  stroke="#94a3b8"
-                  width={52}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip content={renderTooltip} />
-                <Area type="monotone" dataKey="total" stroke="#4f46e5" strokeWidth={2} fill="url(#adminRevenueLight)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Bar Chart */}
-        <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm">
-          <div className="mb-4">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <BarChart3 className="h-4.5 w-4.5 text-slate-600" /> Doanh số tích lũy tháng
-            </h3>
-            <p className="text-xs text-slate-400 font-medium">Báo cáo so sánh doanh số 6 tháng gần nhất.</p>
-          </div>
-          <div className="min-h-72 min-w-0">
-            <ResponsiveContainer width="100%" height={288} minWidth={0}>
-              <BarChart data={overview?.revenueByMonth || []} margin={{ top: 10, right: 5, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f8fafc" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fontWeight: 600 }} stroke="#94a3b8" tickLine={false} axisLine={false} />
-                <YAxis
-                  tickFormatter={(value) => compactCurrency.format(Number(value))}
-                  tick={{ fontSize: 10, fontWeight: 600 }}
-                  stroke="#94a3b8"
-                  width={52}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip content={renderBarTooltip} />
-                <Bar dataKey="total" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={28} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom Grid: Top Selling, Refund Stats, System Alerts */}
-      <div className="grid gap-5 xl:grid-cols-3">
-        {/* Top Selling Products */}
-        <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm flex flex-col justify-between">
-          <div className="mb-4">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <ShoppingBag className="h-4.5 w-4.5 text-slate-600" /> Top sản phẩm bán chạy
-            </h3>
-            <p className="text-xs text-slate-400 font-medium">Top 5 sản phẩm có doanh số bán cao nhất.</p>
+      <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+        <article className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100">
+                <TrendingUp className="h-4 w-4" />
+              </span>
+              <div>
+                <h2 className="font-bold text-slate-950">Xu hướng doanh thu</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Biến động doanh thu theo ngày gần nhất.</p>
+              </div>
+            </div>
+            <span className="self-start rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">14 ngày</span>
           </div>
 
-          <div className="space-y-2 flex-1">
-            {(overview?.topProducts || []).map((product: any, index: number) => (
-              <div
-                key={product.id || product.name}
-                className="flex items-center justify-between border-b border-slate-100 pb-2.5 last:border-b-0 last:pb-0"
-              >
-                <div className="min-w-0 flex-1 pr-3">
-                  <div className="truncate text-xs font-bold text-slate-800" title={product.name}>{product.name}</div>
-                  <div className="text-[10px] font-semibold text-slate-400 mt-0.5">{product.soldCount} sản phẩm đã bán</div>
+          {dailyRevenue.length > 0 ? (
+            <div className="h-72 min-w-0" role="img" aria-label="Biểu đồ xu hướng doanh thu trong 14 ngày gần nhất">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                <AreaChart data={dailyRevenue} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="adminRevenueArea" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.22} />
+                      <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.01} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11, fontWeight: 600 }} stroke="#94a3b8" tickLine={false} axisLine={false} />
+                  <YAxis
+                    tickFormatter={(value) => compactCurrency.format(Number(value))}
+                    tick={{ fontSize: 11, fontWeight: 600 }}
+                    stroke="#94a3b8"
+                    width={56}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip content={renderTooltip} />
+                  <Area
+                    type="monotone"
+                    dataKey="total"
+                    stroke="#4f46e5"
+                    strokeWidth={2.5}
+                    fill="url(#adminRevenueArea)"
+                    activeDot={{ r: 5, fill: '#4f46e5', stroke: '#ffffff', strokeWidth: 3 }}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="flex h-72 items-center justify-center"><EmptyState text="Chưa có dữ liệu doanh thu theo ngày." /></div>
+          )}
+        </article>
+
+        <article className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+                <BarChart3 className="h-4 w-4" />
+              </span>
+              <div>
+                <h2 className="font-bold text-slate-950">Doanh thu tích lũy</h2>
+                <p className="mt-0.5 text-xs text-slate-500">So sánh hiệu suất theo tháng.</p>
+              </div>
+            </div>
+            <span className="self-start rounded-full bg-sky-50 px-3 py-1 text-xs font-bold text-sky-700">6 tháng</span>
+          </div>
+
+          {monthlyRevenue.length > 0 ? (
+            <div className="h-72 min-w-0" role="img" aria-label="Biểu đồ so sánh doanh thu trong 6 tháng gần nhất">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                <BarChart data={monthlyRevenue} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fontWeight: 600 }} stroke="#94a3b8" tickLine={false} axisLine={false} />
+                  <YAxis
+                    tickFormatter={(value) => compactCurrency.format(Number(value))}
+                    tick={{ fontSize: 11, fontWeight: 600 }}
+                    stroke="#94a3b8"
+                    width={56}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip content={renderBarTooltip} cursor={{ fill: '#f8fafc' }} />
+                  <Bar dataKey="total" fill="#6366f1" radius={[6, 6, 2, 2]} maxBarSize={30} isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="flex h-72 items-center justify-center"><EmptyState text="Chưa có dữ liệu doanh thu theo tháng." /></div>
+          )}
+        </article>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-3">
+        <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-50 text-rose-700 ring-1 ring-rose-100">
+              <ShoppingBag className="h-4 w-4" />
+            </span>
+            <div>
+              <h2 className="font-bold text-slate-950">Sản phẩm bán chạy</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Xếp hạng theo doanh thu kỳ hiện tại.</p>
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-1.5">
+            {topProducts.map((product: any, index: number) => (
+              <div key={product.id || product.name} className="group flex items-center gap-3 rounded-xl px-2 py-2.5 transition hover:bg-slate-50">
+                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
+                  index === 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {index + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-slate-900" title={product.name}>{product.name}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{product.soldCount || 0} sản phẩm đã bán</p>
                 </div>
-                <span className="text-xs font-bold text-slate-700 shrink-0">{compactCurrency.format(product.periodRevenue || 0)}</span>
+                <span className="shrink-0 text-xs font-bold tabular-nums text-slate-700">
+                  {compactCurrency.format(product.periodRevenue || 0)}
+                </span>
               </div>
             ))}
-            {(!overview?.topProducts || overview.topProducts.length === 0) && <EmptyState text="Chưa có dữ liệu bán chạy." />}
+            {topProducts.length === 0 && <EmptyState text="Chưa có dữ liệu bán chạy." />}
           </div>
-        </div>
+        </article>
 
-        {/* Refund & Cancel rates */}
-        <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm flex flex-col justify-between">
-          <div className="mb-4">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <RotateCcw className="h-4.5 w-4.5 text-slate-600" /> Chỉ số hoàn hủy đơn hàng
-            </h3>
-            <p className="text-xs text-slate-400 font-medium">Báo cáo thống kê hiệu suất hủy và trả đơn.</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 flex-1 content-center">
-            <div className="rounded-lg border border-slate-150 bg-slate-50/50 p-3.5">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tỉ lệ hủy đơn</span>
-              <div className="mt-1 text-2xl font-bold text-slate-900">
-                {overview?.orders?.total ? percent.format((overview.orders.cancelled || 0) / overview.orders.total) : '0%'}
-              </div>
-              <span className="text-[10px] font-medium text-slate-500 block mt-1">{overview?.orders?.cancelled || 0} đơn đã hủy</span>
-            </div>
-
-            <div className="rounded-lg border border-slate-150 bg-slate-50/50 p-3.5">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tỉ lệ hoàn trả</span>
-              <div className="mt-1 text-2xl font-bold text-slate-900">
-                {overview?.orders?.total ? percent.format((overview.orders.refunded || 0) / overview.orders.total) : '0%'}
-              </div>
-              <span className="text-[10px] font-medium text-slate-500 block mt-1">{overview?.orders?.refunded || 0} đơn hoàn tiền</span>
+        <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-700 ring-1 ring-violet-100">
+              <RotateCcw className="h-4 w-4" />
+            </span>
+            <div>
+              <h2 className="font-bold text-slate-950">Chất lượng đơn hàng</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Tỷ lệ hoàn tất, hủy và hoàn tiền.</p>
             </div>
           </div>
-        </div>
 
-        {/* Operating Alerts */}
-        <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm flex flex-col justify-between">
-          <div className="mb-4">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <AlertTriangle className="h-4.5 w-4.5 text-slate-600" /> Cảnh báo vận hành hệ thống
-            </h3>
-            <p className="text-xs text-slate-400 font-medium">Các điểm nghẽn cần xử lý trong bán hàng, kho và hậu mãi.</p>
+          <div className="mt-5 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-teal-50 p-5 text-slate-900">
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Tỷ lệ hoàn tất</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums">{percent.format(completionRate)}</p>
+              </div>
+              <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+            </div>
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-emerald-100">
+              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, completionRate * 100)}%` }} />
+            </div>
           </div>
 
-          <div className="space-y-2 flex-1 justify-center content-center">
-            {operationalAlerts.map((alert) => (
-              <AlertRow key={alert.label} label={alert.label} value={alert.value} detail={alert.detail} />
-            ))}
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-rose-100 bg-rose-50/70 p-3.5">
+              <p className="text-xs font-bold text-rose-700">Tỷ lệ hủy</p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-rose-950">{percent.format(cancellationRate)}</p>
+              <p className="mt-1 text-xs text-rose-700/80">{ordersCancelled} đơn đã hủy</p>
+            </div>
+            <div className="rounded-xl border border-amber-100 bg-amber-50/70 p-3.5">
+              <p className="text-xs font-bold text-amber-700">Tỷ lệ hoàn tiền</p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-amber-950">{percent.format(refundRate)}</p>
+              <p className="mt-1 text-xs text-amber-700/80">{ordersRefunded} đơn hoàn tiền</p>
+            </div>
+          </div>
+        </article>
+
+        <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+                <AlertTriangle className="h-4 w-4" />
+              </span>
+              <div>
+                <h2 className="font-bold text-slate-950">Cảnh báo vận hành</h2>
+                <p className="mt-0.5 text-xs text-slate-500">Các điểm nghẽn cần ưu tiên xử lý.</p>
+              </div>
+            </div>
+            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold tabular-nums text-amber-800">{operationalAlertTotal}</span>
+          </div>
+
+          <div className="mt-5 space-y-2">
+            {operationalAlerts.map((alert) => {
+              const hasAlert = Number(alert.value || 0) > 0;
+              return (
+                <div key={alert.label} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                  <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                    hasAlert ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'
+                  }`}>
+                    {hasAlert ? <AlertTriangle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-bold text-slate-800">{alert.label}</p>
+                      <span className={`text-sm font-bold tabular-nums ${hasAlert ? 'text-amber-800' : 'text-emerald-700'}`}>{alert.value}</span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">{alert.detail}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </article>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+            <ShieldCheck className="h-4 w-4" />
+          </span>
+          <div>
+            <h2 className="font-bold text-slate-950">Trạng thái phân hệ quản trị</h2>
+            <p className="mt-0.5 text-xs text-slate-500">Chỉ số tổng hợp theo phạm vi và vai trò quản trị.</p>
           </div>
         </div>
-      </div>
 
-      {/* Role-based Dashboard Widgets */}
-      <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm">
-        <div className="mb-4">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <ShieldCheck className="h-4.5 w-4.5 text-slate-600" /> Trạng thái phân hệ quản trị
-          </h3>
-          <p className="text-xs text-slate-400 font-medium font-semibold">Chỉ số thống kê phân bổ theo vai trò được cấu hình.</p>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="mt-5 grid gap-3 md:grid-cols-3">
           {roleDashboards.map((item) => {
             const Icon = item.icon || Boxes;
             return (
-              <div key={item.role} className="rounded-lg border border-slate-200/60 bg-slate-50/20 p-4 hover:bg-slate-50/50 transition-colors">
-                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  <Icon className="h-4 w-4 text-slate-400" />
+              <article key={item.role} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <Icon className="h-4 w-4 text-slate-500" />
                   {item.role}
                 </div>
-                <div className="mt-1 text-lg font-bold text-slate-900">{item.metric}</div>
-                <p className="mt-1 text-xs text-slate-500 font-medium">{item.helper}</p>
-              </div>
+                <p className="mt-3 text-xl font-bold tabular-nums text-slate-950">{item.metric}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">{item.helper}</p>
+              </article>
             );
           })}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

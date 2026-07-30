@@ -115,6 +115,7 @@ def flash_sale_row(row) -> dict:
         "startsAt": item.get("startsAt").isoformat() if item.get("startsAt") else None,
         "endsAt": item.get("endsAt").isoformat() if item.get("endsAt") else None,
         "quantityLimit": int(quantity_limit) if quantity_limit is not None else None,
+        "perUserLimit": int(item["perUserLimit"]) if item.get("perUserLimit") is not None else None,
         "soldQuantity": sold_quantity,
         "remainingQuantity": remaining_quantity,
         "isLimited": quantity_limit is not None,
@@ -140,6 +141,7 @@ def flash_sale_params(sale_id: UUID, payload: FlashSalePayload) -> dict:
         "starts_at": payload.startsAt,
         "ends_at": payload.endsAt,
         "quantity_limit": payload.quantityLimit,
+        "per_user_limit": payload.perUserLimit,
         "status": payload.status,
     }
 

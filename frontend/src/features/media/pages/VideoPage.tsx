@@ -575,7 +575,7 @@ export default function VideoPage() {
                 <Video className="h-5 w-5 sm:h-6 sm:w-6" />
                 Video
               </h1>
-              <p className="mt-2 text-xs font-medium text-slate-500 sm:mt-3 sm:text-sm">Kho video sản phẩm, mẹo chọn mua và hướng dẫn dịch vụ từ Echophone.</p>
+              <p className="mt-2 text-xs font-medium text-slate-500 sm:mt-3 sm:text-sm">Kho video sản phẩm, mẹo chọn mua và hướng dẫn dịch vụ từ ElectroMart.</p>
             </div>
 
             <div className="grid gap-2 sm:grid-cols-[minmax(0,320px)_150px]">

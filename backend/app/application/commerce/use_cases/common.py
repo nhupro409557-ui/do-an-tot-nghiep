@@ -11,7 +11,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.commerce.integrations import RefundGateway, ShippingGateway, normalize_mock_carrier
+from app.application.commerce.integrations import ShippingGateway, normalize_mock_carrier
 from app.application.commerce.integrations import MoMoSandboxGateway, SandboxShippingPricingService, SePayPaymentGateway, ZaloPaySandboxGateway
 from app.application.commerce.schemas import (
     AdminUpdateOrderRequest,
@@ -31,13 +31,13 @@ from app.infrastructure.database.repositories import commerce_repo, order_repo
 ORDER_STATUS_TRANSITIONS: dict[str, set[str]] = {
     "PENDING": {"PAID", "PROCESSING", "CANCELLED", "PAYMENT_FAILED"},
     "CONFIRMED": {"PROCESSING", "CANCELLED"},
-    "PAID": {"PROCESSING", "CANCELLED", "REFUNDED", "PAYMENT_FAILED"},
-    "PROCESSING": {"SHIPPED", "CANCELLED", "PAYMENT_FAILED"},
+    "PAID": {"PROCESSING", "CANCELLED", "REFUNDED"},
+    "PROCESSING": {"SHIPPED", "CANCELLED"},
     "SHIPPED": {"COMPLETED", "REFUNDED", "RETURNING"},
     "COMPLETED": {"RETURNING"},
     "CANCELLED": set(),
     "REFUNDED": set(),
-    "PAYMENT_FAILED": {"PAID"},
+    "PAYMENT_FAILED": set(),
     "RETURNING": {"RETURNED", "REFUNDED"},
     "RETURNED": {"REFUNDED"},
 }
@@ -71,17 +71,8 @@ from app.infrastructure.database.models import (
     User,
     UserVoucher,
     Voucher,
+    VoucherUsage,
 )
-
-
-def calculate_tier(points: int) -> str:
-    if points >= 15000:
-        return "DIAMOND"
-    if points >= 8000:
-        return "GOLD"
-    if points >= 3000:
-        return "SILVER"
-    return "MEMBER"
 
 
 @dataclass
@@ -100,6 +91,9 @@ class VoucherValidationContext:
     category_ids: set[str] = field(default_factory=set)
     brand_ids: set[str] = field(default_factory=set)
     claimed_voucher: UserVoucher | None = None
+    items: list = field(default_factory=list)
+    eligible_subtotal: Decimal = Decimal("0")
+
 
 
 class VoucherRule:
@@ -130,31 +124,37 @@ class VoucherActiveWindowRule(VoucherRule):
 class VoucherWalletRule(VoucherRule):
     async def check(self, service: "VoucherService", context: VoucherValidationContext) -> VoucherValidationResponse | None:
         voucher = context.voucher
-        if voucher.validity_days_after_claim <= 0:
+        if voucher.validity_days_after_claim <= 0 and int(voucher.redemption_points or 0) <= 0 and not voucher.birthday_only:
             return None
         if not context.user_id:
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_SIGN_IN_REQUIRED",
-                "Vui lòng đăng nhập và lưu voucher vào ví trước khi áp dụng.",
+                "Vui lòng đăng nhập và đổi hoặc lưu voucher vào ví trước khi áp dụng.",
             )
         claimed = await service._get_claimed_voucher(user_id=context.user_id, voucher_id=voucher.id)
         if claimed is None:
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_CLAIM_REQUIRED",
-                "Bạn cần lưu voucher này vào ví trước khi sử dụng.",
+                "Bạn cần đổi hoặc lưu voucher này vào ví trước khi sử dụng.",
                 {"claim_window_days": voucher.validity_days_after_claim},
             )
         if claimed.expires_at and claimed.expires_at < context.now:
-            await service._expire_wallet_voucher(claimed)
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_WALLET_EXPIRED",
                 "Voucher trong ví của bạn đã hết hạn.",
                 {"expires_at": claimed.expires_at.isoformat()},
             )
-        if claimed.status not in {"AVAILABLE", "RESERVED"}:
+        if claimed.status == "RESERVED":
+            return service._invalid(
+                voucher.code,
+                "VOUCHER_ERR_WALLET_RESERVED",
+                "Voucher này đang được giữ cho một đơn hàng chờ xử lý.",
+                {"wallet_status": claimed.status, "order_id": str(claimed.order_id) if claimed.order_id else None},
+            )
+        if claimed.status != "AVAILABLE":
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_WALLET_UNAVAILABLE",
@@ -168,19 +168,24 @@ class VoucherWalletRule(VoucherRule):
 class MinOrderRule(VoucherRule):
     async def check(self, service: "VoucherService", context: VoucherValidationContext) -> VoucherValidationResponse | None:
         minimum = Decimal(context.voucher.min_order_value or 0)
-        if context.subtotal_amount >= minimum:
+        # LƯU Ý NGHIỆP VỤ QUAN TRỌNG:
+        # Sử dụng eligible_subtotal (tổng tiền các sản phẩm ĐỦ ĐIỀU KIỆN áp dụng voucher) thay vì subtotal_amount (tổng toàn bộ giỏ hàng).
+        # Điều này đảm bảo người mua không thể lách luật bằng cách thêm các sản phẩm loại trừ (như Flash Sale không cộng dồn,
+        # sản phẩm không thuộc scope khuyến mãi) vào giỏ hàng nhằm làm tăng tổng giá trị đơn đạt mức tối thiểu.
+        if context.eligible_subtotal >= minimum:
             return None
-        shortfall = max(Decimal("0"), minimum - context.subtotal_amount)
+        shortfall = max(Decimal("0"), minimum - context.eligible_subtotal)
         return service._invalid(
             context.voucher.code,
             "VOUCHER_ERR_MIN_ORDER",
-            f"Giá trị đơn hàng cần đạt tối thiểu {minimum:,.0f} để dùng voucher này.",
+            f"Giá trị sản phẩm áp dụng cần đạt tối thiểu {minimum:,.0f} để dùng voucher này.",
             {
-                "current_subtotal": str(context.subtotal_amount),
+                "current_subtotal": str(context.eligible_subtotal),
                 "minimum_order_value": str(minimum),
                 "shortfall_amount": str(shortfall),
             },
         )
+
 
 
 class ChannelPaymentRule(VoucherRule):
@@ -241,29 +246,30 @@ class BudgetRule(VoucherRule):
 class AudienceRule(VoucherRule):
     async def check(self, service: "VoucherService", context: VoucherValidationContext) -> VoucherValidationResponse | None:
         voucher = context.voucher
-        if voucher.assigned_user_id and voucher.assigned_user_id != context.user_id:
-            return service._invalid(
-                voucher.code,
-                "VOUCHER_ERR_ASSIGNED_USER",
-                "Voucher này được dành cho khách hàng khác.",
-            )
-        if voucher.audience_type == "SPECIFIC_USER" and not voucher.assigned_user_id:
-            if not context.user_id:
-                return service._invalid(
-                    voucher.code,
-                    "VOUCHER_ERR_ASSIGNED_USER_SIGN_IN",
-                    "Vui lòng đăng nhập để sử dụng voucher được cấp riêng.",
-                )
-            if not await commerce_repo.has_user_voucher_assignment(
-                service._session,
-                user_id=context.user_id,
-                voucher_id=voucher.id,
-            ):
+        if voucher.audience_type == "SPECIFIC_USER":
+            if voucher.assigned_user_id and voucher.assigned_user_id != context.user_id:
                 return service._invalid(
                     voucher.code,
                     "VOUCHER_ERR_ASSIGNED_USER",
                     "Voucher này được dành cho khách hàng khác.",
                 )
+            if not voucher.assigned_user_id:
+                if not context.user_id:
+                    return service._invalid(
+                        voucher.code,
+                        "VOUCHER_ERR_ASSIGNED_USER_SIGN_IN",
+                        "Vui lòng đăng nhập để sử dụng voucher được cấp riêng.",
+                    )
+                if not await commerce_repo.has_user_voucher_assignment(
+                    service._session,
+                    user_id=context.user_id,
+                    voucher_id=voucher.id,
+                ):
+                    return service._invalid(
+                        voucher.code,
+                        "VOUCHER_ERR_ASSIGNED_USER",
+                        "Voucher này được dành cho khách hàng khác.",
+                    )
         if voucher.eligible_user_registered_after and context.user_id:
             registered_at = await commerce_repo.get_user_created_at(service._session, context.user_id)
             if registered_at and registered_at < voucher.eligible_user_registered_after:
@@ -317,7 +323,15 @@ class AbandonedCartRule(VoucherRule):
 class IdentityLimitRule(VoucherRule):
     async def check(self, service: "VoucherService", context: VoucherValidationContext) -> VoucherValidationResponse | None:
         voucher = context.voucher
-        if voucher.per_user_limit > 0 and context.user_id:
+
+        if voucher.per_user_limit > 0 and not context.user_id:
+            return service._invalid(
+                voucher.code,
+                "VOUCHER_ERR_SIGN_IN_REQUIRED",
+                "Vui lòng đăng nhập để sử dụng voucher có giới hạn theo tài khoản.",
+            )
+
+        if voucher.per_user_limit > 0:
             usage = await service._user_voucher_usage_count(context.user_id, voucher.code)
             if usage >= voucher.per_user_limit:
                 return service._invalid(
@@ -326,6 +340,7 @@ class IdentityLimitRule(VoucherRule):
                     "Voucher đã đạt giới hạn sử dụng cho mỗi khách hàng.",
                     {"per_user_limit": voucher.per_user_limit, "used_count": usage},
                 )
+
         if voucher.per_device_limit > 0 and context.device_id:
             usage = await service._voucher_usage_count_by("voucher_device_id", context.device_id, voucher.code)
             if usage >= voucher.per_device_limit:
@@ -356,7 +371,7 @@ class TargetingRule(VoucherRule):
         exclude_categories = set(voucher.exclude_category_ids if isinstance(voucher.exclude_category_ids, list) else [])
         include_brands = set(voucher.include_brand_ids if isinstance(voucher.include_brand_ids, list) else [])
         exclude_brands = set(voucher.exclude_brand_ids if isinstance(voucher.exclude_brand_ids, list) else [])
-        if include_products and not context.product_ids.intersection(include_products):
+        if include_products and not voucher.apply_outside_scope and not context.product_ids.intersection(include_products):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_PRODUCT_SCOPE",
@@ -372,7 +387,7 @@ class TargetingRule(VoucherRule):
                     "Voucher loại trừ một hoặc nhiều sản phẩm trong đơn hàng này.",
                     {"blocked_product_ids": blocked},
                 )
-        if include_categories and not context.category_ids.intersection(include_categories):
+        if include_categories and not voucher.apply_outside_scope and not context.category_ids.intersection(include_categories):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_CATEGORY_SCOPE",
@@ -388,7 +403,7 @@ class TargetingRule(VoucherRule):
                     "Voucher loại trừ một hoặc nhiều danh mục trong đơn hàng này.",
                     {"blocked_category_ids": blocked},
                 )
-        if include_brands and not context.brand_ids.intersection(include_brands):
+        if include_brands and not voucher.apply_outside_scope and not context.brand_ids.intersection(include_brands):
             return service._invalid(
                 voucher.code,
                 "VOUCHER_ERR_BRAND_SCOPE",

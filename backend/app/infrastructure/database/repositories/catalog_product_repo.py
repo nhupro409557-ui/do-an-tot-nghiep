@@ -36,6 +36,7 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
                 COALESCE(review_stats.rating, 0) AS rating,
                 COALESCE(review_stats.review_count, 0) AS "reviewCount",
                 COALESCE(favorite_counts.favorite_count, 0) AS "favoriteCount",
+                COALESCE(view_counts.view_count, 0) AS "viewCount",
                 COALESCE(os.sold_count, 0) AS "soldCount",
                 p.is_featured AS "isFeatured",
                 p.is_flash_sale AS "isFlashSale",
@@ -45,6 +46,7 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
                 fs.starts_at AS "flashSaleStartsAt",
                 fs.ends_at AS "flashSaleEndsAt",
                 fs.quantity_limit AS "flashSaleQuantityLimit",
+                fs.per_user_limit AS "flashSalePerUserLimit",
                 fs.sold_quantity AS "flashSaleSoldQuantity",
                 p.sales_config AS "salesConfig",
                 COALESCE(
@@ -68,6 +70,7 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
                             'flashSaleStartsAt', vfs.starts_at,
                             'flashSaleEndsAt', vfs.ends_at,
                             'flashSaleQuantityLimit', vfs.quantity_limit,
+                            'flashSalePerUserLimit', vfs.per_user_limit,
                             'flashSaleSoldQuantity', vfs.sold_quantity,
                             'stockQuantity', pv.stock_quantity,
                             'stockState', CASE WHEN pv.stock_quantity > 0 THEN 'IN_STOCK' ELSE 'OUT_OF_STOCK' END
@@ -80,7 +83,7 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
             LEFT JOIN categories sc ON sc.id = p.subcategory_id
             LEFT JOIN product_variants pv ON pv.product_id = p.id AND pv.is_active = TRUE AND pv.deleted_at IS NULL
             LEFT JOIN LATERAL (
-                SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
+                SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity, per_user_limit
                 FROM flash_sales
                 WHERE product_id = p.id
                   AND variant_id = pv.id
@@ -92,7 +95,7 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
                 LIMIT 1
             ) vfs ON TRUE
             LEFT JOIN LATERAL (
-                SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
+                SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity, per_user_limit
                 FROM flash_sales
                 WHERE product_id = p.id
                   AND variant_id IS NULL
@@ -119,12 +122,18 @@ async def get_active_product_detail(session: AsyncSession, product_id: str):
             LEFT JOIN (
                 SELECT product_id, COUNT(*) AS favorite_count
                 FROM user_favorites
+                WHERE is_active = TRUE
                 GROUP BY product_id
             ) favorite_counts ON favorite_counts.product_id = p.id
+            LEFT JOIN (
+                SELECT product_id, COUNT(*) AS view_count
+                FROM product_view_events
+                GROUP BY product_id
+            ) view_counts ON view_counts.product_id = p.id
             WHERE p.status IN ('ACTIVE', 'DISCONTINUED') AND (p.id::text = :product_id OR p.slug = :product_id)
             GROUP BY p.id, c.id, sc.id, os.sold_count, review_stats.rating, review_stats.review_count,
-                favorite_counts.favorite_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at,
-                fs.quantity_limit, fs.sold_quantity
+                favorite_counts.favorite_count, view_counts.view_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at,
+                fs.quantity_limit, fs.per_user_limit, fs.sold_quantity
             """
         ),
         {"product_id": product_id},
@@ -139,11 +148,11 @@ async def list_active_brands(session: AsyncSession) -> list[dict]:
             SELECT b.id::text, b.code, b.slug, b.name, b.logo_url AS "logoUrl", b.logo_alt_text AS "logoAltText",
                    b.landing_title AS "landingTitle", b.sort_order AS "order", b.is_active AS "isActive",
                    COALESCE(
-                       jsonb_agg(DISTINCT bc.category_id::text) FILTER (WHERE bc.category_id IS NOT NULL),
+                       jsonb_agg(DISTINCT p.category_id::text) FILTER (WHERE p.category_id IS NOT NULL),
                        '[]'::jsonb
                    ) AS "categoryIds"
             FROM brands b
-            LEFT JOIN brand_categories bc ON bc.brand_id = b.id
+            LEFT JOIN products p ON p.brand_id = b.id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
             WHERE b.is_active = TRUE
             GROUP BY b.id
             ORDER BY b.sort_order ASC, b.name ASC
@@ -166,12 +175,14 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
             p.badge, COALESCE(review_stats.rating, 0) AS rating,
             COALESCE(review_stats.review_count, 0) AS "reviewCount",
             COALESCE(favorite_counts.favorite_count, 0) AS "favoriteCount",
+            COALESCE(view_counts.view_count, 0) AS "viewCount",
             COALESCE(os.sold_count, 0) AS "soldCount",
             p.is_featured AS "isFeatured", p.is_flash_sale AS "isFlashSale",
             fs.id::text AS "flashSaleId", fs.discount_type AS "flashSaleDiscountType",
             fs.discount_value AS "flashSaleDiscountValue", fs.starts_at AS "flashSaleStartsAt",
             fs.ends_at AS "flashSaleEndsAt",
             fs.quantity_limit AS "flashSaleQuantityLimit",
+            fs.per_user_limit AS "flashSalePerUserLimit",
             fs.sold_quantity AS "flashSaleSoldQuantity",
             p.sales_config AS "salesConfig",
             COALESCE(
@@ -184,6 +195,7 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
                         'flashSaleDiscountValue', vfs.discount_value, 'flashSaleStartsAt', vfs.starts_at,
                         'flashSaleEndsAt', vfs.ends_at,
                         'flashSaleQuantityLimit', vfs.quantity_limit,
+                        'flashSalePerUserLimit', vfs.per_user_limit,
                         'flashSaleSoldQuantity', vfs.sold_quantity,
                         'stockQuantity', pv.stock_quantity, 'stockState', CASE WHEN pv.stock_quantity > 0 THEN 'IN_STOCK' ELSE 'OUT_OF_STOCK' END
                     )
@@ -196,7 +208,7 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
         LEFT JOIN brands b ON b.id = p.brand_id
         LEFT JOIN product_variants pv ON pv.product_id = p.id AND pv.is_active = TRUE AND pv.deleted_at IS NULL
         LEFT JOIN LATERAL (
-            SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
+            SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity, per_user_limit
             FROM flash_sales
             WHERE product_id = p.id
               AND variant_id = pv.id
@@ -208,7 +220,7 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
             LIMIT 1
         ) vfs ON TRUE
         LEFT JOIN LATERAL (
-            SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
+            SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity, per_user_limit
             FROM flash_sales
             WHERE product_id = p.id
               AND variant_id IS NULL
@@ -238,10 +250,15 @@ async def list_active_product_rows(session: AsyncSession, *, where_sql: str, par
             WHERE is_active = TRUE
             GROUP BY product_id
         ) favorite_counts ON favorite_counts.product_id = p.id
+        LEFT JOIN (
+            SELECT product_id, COUNT(*) AS view_count
+            FROM product_view_events
+            GROUP BY product_id
+        ) view_counts ON view_counts.product_id = p.id
         WHERE {where_sql}
         GROUP BY p.id, c.id, sc.id, os.sold_count, review_stats.rating, review_stats.review_count,
-            favorite_counts.favorite_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at,
-            fs.quantity_limit, fs.sold_quantity
+            favorite_counts.favorite_count, view_counts.view_count, fs.id, fs.discount_type, fs.discount_value, fs.starts_at, fs.ends_at,
+            fs.quantity_limit, fs.per_user_limit, fs.sold_quantity
     """
     result = await session.execute(text(sql), params)
     return result.all()
@@ -277,6 +294,7 @@ async def list_active_accessories(session: AsyncSession, accessory_ids: list[UUI
                 fs.starts_at AS "flashSaleStartsAt",
                 fs.ends_at AS "flashSaleEndsAt",
                 fs.quantity_limit AS "flashSaleQuantityLimit",
+                fs.per_user_limit AS "flashSalePerUserLimit",
                 fs.sold_quantity AS "flashSaleSoldQuantity"
             FROM products p
             LEFT JOIN (
@@ -319,7 +337,7 @@ async def list_active_accessories(session: AsyncSession, accessory_ids: list[UUI
                 GROUP BY product_id
             ) inv ON inv.product_id = p.id
             LEFT JOIN LATERAL (
-                SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity
+                SELECT id, discount_type, discount_value, starts_at, ends_at, quantity_limit, sold_quantity, per_user_limit
                 FROM flash_sales
                 WHERE product_id = p.id
                   AND variant_id IS NULL
@@ -492,6 +510,22 @@ async def get_user_favorite(session: AsyncSession, *, user_id: UUID, product_id:
             {"user_id": user_id, "product_id": product_id},
         )
     ).first()
+
+
+async def get_product_engagement_counts(session: AsyncSession, *, product_id: UUID) -> dict:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    (SELECT COUNT(*) FROM user_favorites WHERE product_id = :product_id AND is_active = TRUE) AS favorite_count,
+                    (SELECT COUNT(*) FROM product_view_events WHERE product_id = :product_id) AS view_count
+                """
+            ),
+            {"product_id": product_id},
+        )
+    ).one()
+    return {"favoriteCount": int(row.favorite_count or 0), "viewCount": int(row.view_count or 0)}
 
 
 async def deactivate_favorite(session: AsyncSession, *, user_id: UUID, product_id: UUID) -> None:

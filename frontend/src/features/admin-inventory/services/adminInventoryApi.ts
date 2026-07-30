@@ -1,6 +1,11 @@
 import { request, requestBlob } from '../../../services/apiClient';
 
 export const adminInventoryApi = {
+  adminListPurchaseOrders: (search = '', status = '') => request<any[]>(`/admin/purchase-orders?search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}`),
+  adminGetPurchaseOrder: (id: string) => request<any>(`/admin/purchase-orders/${encodeURIComponent(id)}`),
+  adminCreatePurchaseOrder: (data: any) => request<any>('/admin/purchase-orders', { method: 'POST', body: JSON.stringify(data) }),
+  adminUpdatePurchaseOrder: (id: string, data: any) => request<any>(`/admin/purchase-orders/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  adminUpdatePurchaseOrderStatus: (id: string, data: any) => request<any>(`/admin/purchase-orders/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify(data) }),
   adminGetProductInventory: (id: string) => request<any>(`/admin/products/${encodeURIComponent(id)}/inventory`),
   adminAdjustInventory: (id: string, data: any) => request<any>(`/admin/products/${encodeURIComponent(id)}/inventory/adjust`, {
     method: 'POST',
@@ -229,6 +234,10 @@ export const adminInventoryApi = {
   adminUpdateOutbound: (documentNo: string, lines: any[]) => request<any>(`/admin/inventory/outbounds/${encodeURIComponent(documentNo)}`, {
     method: 'PUT',
     body: JSON.stringify(lines),
+  }),
+  adminAllocateLegacyInventory: (data: any) => request<any>('/admin/inventory/reconciliation/legacy-putaway', {
+    method: 'POST',
+    body: JSON.stringify(data),
   }),
   adminUpdateOutboundStatus: (documentNo: string, status: string, cancelReason?: string) => request<any>(`/admin/inventory/outbounds/${encodeURIComponent(documentNo)}/status`, {
     method: 'PATCH',

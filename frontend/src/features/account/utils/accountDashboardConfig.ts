@@ -1,4 +1,4 @@
-import { BadgePercent, Bell, ClipboardList, CreditCard, Diamond, Heart, Home, MapPin, RotateCcw, Settings, ShieldCheck } from 'lucide-react';
+import { BadgePercent, Bell, ClipboardList, CreditCard, Diamond, Heart, Home, MapPin, RotateCcw, Settings, ShieldCheck, Smartphone } from 'lucide-react';
 import type { AccountTab } from '../types/accountDashboardTypes';
 
 export const accountNavItems = [
@@ -10,6 +10,7 @@ export const accountNavItems = [
   { id: 'transactions', label: 'Thanh toán & hoàn tiền', icon: CreditCard },
   { id: 'notifications', label: 'Thông báo', icon: Bell },
   { id: 'favorites', label: 'Sản phẩm yêu thích', icon: Heart },
+  { id: 'buyback', label: 'Thu cũ đổi mới', icon: Smartphone },
   { id: 'membership', label: 'Hạng thành viên', icon: Diamond },
   { id: 'addresses', label: 'Địa chỉ', icon: MapPin },
   { id: 'settings', label: 'Cài đặt tài khoản', icon: Settings },
@@ -19,12 +20,15 @@ export const accountNavItems = [
   icon: typeof Home;
 }>;
 
-export function getNextTierInfo(points: number) {
-  if (points < 3000) {
-    return { name: 'S-Mem', needed: 3000 - points, percentage: (points / 3000) * 100 };
+export function getNextTierInfo(amount: number) {
+  if (amount < 30_000_000) {
+    return { name: 'Bạc', needed: 30_000_000 - amount, percentage: (amount / 30_000_000) * 100 };
   }
-  if (points < 15000) {
-    return { name: 'S-Vip', needed: 15000 - points, percentage: ((points - 3000) / 12000) * 100 };
+  if (amount < 80_000_000) {
+    return { name: 'Vàng', needed: 80_000_000 - amount, percentage: ((amount - 30_000_000) / 50_000_000) * 100 };
+  }
+  if (amount < 150_000_000) {
+    return { name: 'Kim cương', needed: 150_000_000 - amount, percentage: ((amount - 80_000_000) / 70_000_000) * 100 };
   }
   return { name: 'Tối đa', needed: 0, percentage: 100 };
 }

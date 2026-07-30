@@ -17,6 +17,12 @@ export type StorefrontUsedProductListItem = {
   conditionGrade?: string;
   batteryHealth?: number | string | null;
   warrantyMonths?: number | string | null;
+  manufacturerWarrantyEnabled?: boolean;
+  manufacturerWarrantyProvider?: string | null;
+  manufacturerWarrantyActivatedAt?: string | null;
+  manufacturerWarrantyTotalMonths?: number | string | null;
+  manufacturerWarrantyExpiresAt?: string | null;
+  manufacturerWarrantyRemainingMonths?: number | null;
   salePrice?: number | string | null;
   originalSnapshot?: UsedProductOriginalSnapshot;
   [key: string]: unknown;
@@ -31,10 +37,12 @@ export type StorefrontUsedProductsResponse = {
 
 export type StorefrontUsedProductDetail = StorefrontUsedProductListItem & {
   description?: string;
+  highlights?: string[];
   deviceCode: string;
   deviceId: string;
   productId?: string | number | null;
   maskedImei?: string;
   priceComparisonNote?: string | null;
   inspectionChecklist?: Record<string, boolean>;
+  conditionScore?: number | null;
 };

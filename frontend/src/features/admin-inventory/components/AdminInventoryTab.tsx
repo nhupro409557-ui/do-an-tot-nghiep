@@ -25,6 +25,8 @@ type StockCountDraft = {
     serialNumbers: string;
     availableImeis: InventoryLocationIdentifier[];
     availableSerialNumbers: InventoryLocationIdentifier[];
+    identifierPairIds: string[];
+    availableIdentifierUnits: InventoryIdentifierUnit[];
     note: string;
   }>;
 };
@@ -61,6 +63,8 @@ type TransferDraft = {
     serialNumbers: string;
     availableImeis: InventoryLocationIdentifier[];
     availableSerialNumbers: InventoryLocationIdentifier[];
+    identifierPairIds: string[];
+    availableIdentifierUnits: InventoryIdentifierUnit[];
     note: string;
   };
 };
@@ -103,6 +107,8 @@ type DisposalDraft = {
     serialNumbers: string;
     availableImeis: InventoryLocationIdentifier[];
     availableSerialNumbers: InventoryLocationIdentifier[];
+    identifierPairIds: string[];
+    availableIdentifierUnits: InventoryIdentifierUnit[];
     note: string;
   };
 };
@@ -146,6 +152,16 @@ type InventoryLocationEntry = {
   onHandQuantity: number;
   imeis: InventoryLocationIdentifier[];
   serialNumbers: InventoryLocationIdentifier[];
+  identifierUnits: InventoryIdentifierUnit[];
+};
+type InventoryIdentifierUnit = {
+  pairId: string;
+  imei1: string;
+  imei2?: string | null;
+  serialNumber: string;
+  status: string;
+  isPrimary?: boolean;
+  isConsistent?: boolean;
 };
 type InventoryLocationIdentifier = {
   id: string;
@@ -315,6 +331,11 @@ function reconciliationIssueLabel(type: string) {
     IDENTIFIER_IN_STOCK_WITHOUT_LOCATION: 'Mã còn tồn nhưng chưa có kệ',
     IDENTIFIER_LOCATION_WITHOUT_LEVEL: 'Mã có kệ nhưng kệ không có tồn',
     TERMINAL_IDENTIFIER_WITH_LOCATION: 'Mã đã rời kho nhưng còn gắn kệ',
+    SELLABLE_STOCK_MISMATCH: 'Tồn bán được lệch tổng tồn kệ',
+    LOT_QUANTITY_MISMATCH: 'Tồn kệ lệch số lượng lô',
+    RESERVED_QUANTITY_MISMATCH: 'Tồn giữ lệch số mã đang giữ',
+    IDENTIFIER_PAIR_MISMATCH: 'Cặp IMEI/serial không đồng bộ',
+    DOCUMENT_LEDGER_MISMATCH: 'Chứng từ hoàn tất thiếu sổ kho',
   };
   return labels[type] || type || '-';
 }
@@ -352,6 +373,7 @@ function inventoryLocationEntries(row: any): InventoryLocationEntry[] {
     const zone = String(item?.zone || '').trim();
     const imeis = Array.isArray(item?.imeis) ? item.imeis : [];
     const serialNumbers = Array.isArray(item?.serialNumbers) ? item.serialNumbers : [];
+    const identifierUnits = Array.isArray(item?.identifierUnits) ? item.identifierUnits : [];
     return {
       id: String(item?.id || item?.locationId || item?.code || index),
       code,
@@ -370,6 +392,10 @@ function inventoryLocationEntries(row: any): InventoryLocationEntry[] {
         code: String(identifier?.code || '').trim(),
         status: String(identifier?.status || '').trim(),
       })).filter((identifier: InventoryLocationIdentifier) => identifier.code),
+      identifierUnits: identifierUnits.map((unit: any) => ({
+        pairId: String(unit?.pairId || ''), imei1: String(unit?.imei1 || ''), imei2: unit?.imei2 ? String(unit.imei2) : null,
+        serialNumber: String(unit?.serialNumber || ''), status: String(unit?.status || ''), isPrimary: Boolean(unit?.isPrimary), isConsistent: unit?.isConsistent !== false,
+      })).filter((unit: InventoryIdentifierUnit) => unit.pairId && unit.imei1 && unit.serialNumber),
     };
   });
 }
@@ -457,6 +483,25 @@ function renderLocationIdentifierTable(
       ) : (
         <div className="px-4 py-5 text-sm font-semibold text-slate-400">Không có {label.toLowerCase()} trên kệ này.</div>
       )}
+    </div>
+  );
+}
+
+function IdentifierUnitTable({ units, onToggle, selectedIds }: { units: InventoryIdentifierUnit[]; onToggle?: (unit: InventoryIdentifierUnit, selected: boolean) => void; selectedIds?: string[] }) {
+  const selected = new Set(selectedIds || []);
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200">
+      <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-black uppercase text-slate-500">Thiết bị định danh ({units.length})</div>
+      <table className="w-full text-left text-sm">
+        <thead className="bg-white text-xs uppercase text-slate-400"><tr>{onToggle && <th className="px-3 py-2">Chọn</th>}<th className="px-3 py-2">IMEI 1</th><th className="px-3 py-2">IMEI 2</th><th className="px-3 py-2">Số sê-ri</th><th className="px-3 py-2">Trạng thái</th></tr></thead>
+        <tbody className="divide-y divide-slate-100">
+          {units.map((unit) => <tr key={unit.pairId} className={!unit.isConsistent ? 'bg-red-50' : ''}>
+            {onToggle && <td className="px-3 py-2"><input type="checkbox" disabled={!unit.isConsistent} checked={selected.has(unit.pairId)} onChange={(event) => onToggle(unit, event.target.checked)} /></td>}
+            <td className="px-3 py-2 font-mono text-xs font-bold">{unit.imei1}</td><td className="px-3 py-2 font-mono text-xs">{unit.imei2 || '-'}</td><td className="px-3 py-2 font-mono text-xs font-bold">{unit.serialNumber}</td><td className="px-3 py-2 text-xs">{unit.isConsistent ? identifierStatusLabel(unit.status) : 'Lệch kệ/trạng thái'}</td>
+          </tr>)}
+          {!units.length && <tr><td colSpan={onToggle ? 5 : 4} className="px-3 py-6 text-center text-sm text-slate-500">Chưa có thiết bị ghép cặp.</td></tr>}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -620,6 +665,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
   const [adjustmentDetail, setAdjustmentDetail] = useState<any | null>(null);
   const [transfers, setTransfers] = useState<any[]>([]);
   const [transferDraft, setTransferDraft] = useState<TransferDraft | null>(null);
+  const [transferIdentifiersOpen, setTransferIdentifiersOpen] = useState(false);
   const [transferDetail, setTransferDetail] = useState<any | null>(null);
   const [internalHolds, setInternalHolds] = useState<any[]>([]);
   const [internalHoldDraft, setInternalHoldDraft] = useState<InternalHoldDraft | null>(null);
@@ -824,6 +870,48 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
       setReconciliationReport(null);
     } finally {
       setReconciliationLoading(false);
+    }
+  }
+
+  async function allocateLegacyInventory(item: any) {
+    const locations = (inventoryLocationOptionSource || []).filter((location: any) =>
+      String(location.status || 'ACTIVE') === 'ACTIVE'
+      && ['STORAGE', 'VIRTUAL'].includes(String(location.purpose || 'STORAGE').toUpperCase()),
+    );
+    const locationCode = window.prompt(
+      `Nhập mã kệ nhận tồn chưa phân bổ. Kệ khả dụng: ${locations.slice(0, 12).map((location: any) => location.code).join(', ')}`,
+    )?.trim().toUpperCase();
+    if (!locationCode) return;
+    const location = locations.find((entry: any) => String(entry.code || '').toUpperCase() === locationCode);
+    if (!location) {
+      window.alert('Không tìm thấy kệ đang hoạt động với mã đã nhập.');
+      return;
+    }
+    const maximum = Math.max(0, Number(item.differenceQuantity || 0));
+    const quantity = Number(window.prompt(`Số lượng phân bổ vào kệ ${location.code} (tối đa ${maximum}):`, String(maximum)));
+    if (!Number.isInteger(quantity) || quantity <= 0 || quantity > maximum) {
+      window.alert('Số lượng phân bổ không hợp lệ.');
+      return;
+    }
+    const unitCost = Number(window.prompt('Giá vốn đơn vị cho tồn cũ (có thể nhập 0 nếu chưa xác định):', '0'));
+    if (!Number.isFinite(unitCost) || unitCost < 0) {
+      window.alert('Giá vốn không hợp lệ.');
+      return;
+    }
+    try {
+      await adminInventoryApi.adminAllocateLegacyInventory({
+        productId: item.productId,
+        variantId: item.variantId || null,
+        locationId: location.id,
+        quantity,
+        unitCost,
+        note: `Phân bổ tồn chưa có kệ cho ${item.variantSku || item.productSku || item.productName}`,
+      });
+      await loadInventoryReconciliationReport(reconciliationIssueFilter);
+      if (typeof loadInventoryLevels === 'function') await loadInventoryLevels(query);
+      if (typeof loadInventoryLocations === 'function') await loadInventoryLocations();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Không thể phân bổ tồn vào kệ.');
     }
   }
 
@@ -1064,6 +1152,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
     fromLocation?: InventoryLocationEntry,
     reason = 'CHUYEN_KE',
   ) {
+    setTransferIdentifiersOpen(false);
     const locations = inventoryLocationEntries(row);
     const sourceLocation = fromLocation || locations.find((location) => Number(location.onHandQuantity || 0) > 0);
     if (!sourceLocation) {
@@ -1097,6 +1186,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
       .sort((left, right) => Number(Boolean(right.isPrimary)) - Number(Boolean(left.isPrimary)))
     const availableSerialNumbers = sourceLocation.serialNumbers
       .filter((identifier) => movableStatuses.has(identifier.status));
+    const availableIdentifierUnits = sourceLocation.identifierUnits.filter((unit) => movableStatuses.has(unit.status));
     setTransferDraft({
       referenceCode: generateTransferCode(),
       reason,
@@ -1114,6 +1204,8 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
         serialNumbers: '',
         availableImeis,
         availableSerialNumbers,
+        identifierPairIds: [],
+        availableIdentifierUnits,
         note: '',
       },
     });
@@ -1162,6 +1254,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
       .sort((left, right) => Number(Boolean(right.isPrimary)) - Number(Boolean(left.isPrimary)));
     const availableSerialNumbers = location.serialNumbers
       .filter((identifier) => movableStatuses.has(identifier.status));
+    const availableIdentifierUnits = location.identifierUnits.filter((unit) => movableStatuses.has(unit.status));
     setDisposalDraft({
       referenceCode: generateDisposalCode(),
       dispositionType: 'SCRAP',
@@ -1183,6 +1276,8 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
         serialNumbers: '',
         availableImeis,
         availableSerialNumbers,
+        identifierPairIds: [],
+        availableIdentifierUnits,
         note: '',
       },
     });
@@ -1238,6 +1333,8 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
       serialNumbers: '',
       availableImeis: Array.isArray(location.imeis) ? location.imeis : [],
       availableSerialNumbers: Array.isArray(location.serialNumbers) ? location.serialNumbers : [],
+      identifierPairIds: [],
+      availableIdentifierUnits: Array.isArray(location.identifierUnits) ? location.identifierUnits : [],
       note: '',
     };
   }
@@ -1387,6 +1484,18 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
     });
   }
 
+  function updateStockCountIdentifierUnit(lineKey: string, unit: InventoryIdentifierUnit, selected: boolean) {
+    setStockCountDraft((current) => current ? {
+      ...current,
+      lines: current.lines.map((line) => {
+        if (line.key !== lineKey) return line;
+        const identifierPairIds = selected ? Array.from(new Set([...line.identifierPairIds, unit.pairId])) : line.identifierPairIds.filter((id) => id !== unit.pairId);
+        const units = line.availableIdentifierUnits.filter((item) => identifierPairIds.includes(item.pairId));
+        return { ...line, identifierPairIds, countedQuantity: units.length, imeis: joinIdentifierText(units.flatMap((item) => [item.imei1, item.imei2].filter(Boolean) as string[])), serialNumbers: joinIdentifierText(units.map((item) => item.serialNumber)) };
+      }),
+    } : current);
+  }
+
   async function submitStockCountDraft(event?: React.FormEvent) {
     event?.preventDefault();
     if (!stockCountDraft) return;
@@ -1400,7 +1509,9 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
         productId: line.productId,
         variantId: line.variantId,
         expectedQuantity: line.expectedQuantity,
-        countedQuantity: line.tracksImei
+        countedQuantity: line.availableIdentifierUnits.length > 0
+          ? line.identifierPairIds.length
+          : line.tracksImei
           ? splitIdentifierText(line.imeis).length
           : line.tracksSerialNumber
             ? splitIdentifierText(line.serialNumbers).length
@@ -1465,6 +1576,10 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
       window.alert('Kệ nguồn và kệ đích phải khác nhau.');
       return;
     }
+    if (transferDraft.line.availableIdentifierUnits.length > 0 && transferDraft.line.identifierPairIds.length === 0) {
+      window.alert('Vui lòng chọn ít nhất một thiết bị IMEI/serial cần chuyển.');
+      return;
+    }
     await adminInventoryApi.adminCreateTransfer({
       referenceCode: transferDraft.referenceCode.trim(),
       reason: transferDraft.reason.trim() || 'CHUYEN_KE',
@@ -1477,6 +1592,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
         quantity: Math.max(1, Number(transferDraft.line.quantity || 1)),
         imeis: splitIdentifierText(transferDraft.line.imeis),
         serialNumbers: splitIdentifierText(transferDraft.line.serialNumbers),
+        identifierPairIds: transferDraft.line.identifierPairIds,
         note: transferDraft.line.note.trim() || null,
       }],
     });
@@ -1505,6 +1621,16 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
             : current.line.quantity,
         },
       };
+    });
+  }
+
+  function updateTransferIdentifierUnit(unit: InventoryIdentifierUnit, selected: boolean) {
+    setTransferDraft((current) => {
+      if (!current) return current;
+      const identifierPairIds = selected
+        ? Array.from(new Set([...current.line.identifierPairIds, unit.pairId]))
+        : current.line.identifierPairIds.filter((id) => id !== unit.pairId);
+      return { ...current, line: { ...current.line, identifierPairIds, quantity: Math.max(1, identifierPairIds.length || current.line.quantity) } };
     });
   }
 
@@ -1586,6 +1712,10 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
       window.alert('Vui lòng nhập lý do xử lý tồn.');
       return;
     }
+    if (disposalDraft.line.availableIdentifierUnits.length > 0 && disposalDraft.line.identifierPairIds.length === 0) {
+      window.alert('Vui lòng chọn ít nhất một thiết bị IMEI/serial cần xử lý.');
+      return;
+    }
     await adminInventoryApi.adminCreateDisposal({
       referenceCode: disposalDraft.referenceCode.trim(),
       dispositionType: disposalDraft.dispositionType,
@@ -1628,6 +1758,15 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
             : current.line.quantity,
         },
       };
+    });
+  }
+
+  function updateDisposalIdentifierUnit(unit: InventoryIdentifierUnit, selected: boolean) {
+    setDisposalDraft((current) => {
+      if (!current) return current;
+      const identifierPairIds = selected ? Array.from(new Set([...current.line.identifierPairIds, unit.pairId])) : current.line.identifierPairIds.filter((id) => id !== unit.pairId);
+      const units = current.line.availableIdentifierUnits.filter((item) => identifierPairIds.includes(item.pairId));
+      return { ...current, line: { ...current.line, identifierPairIds, quantity: Math.max(1, units.length || current.line.quantity), imeis: joinIdentifierText(units.flatMap((item) => [item.imei1, item.imei2].filter(Boolean) as string[])), serialNumbers: joinIdentifierText(units.map((item) => item.serialNumber)) } };
     });
   }
 
@@ -2226,6 +2365,11 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                 ['IDENTIFIER_IN_STOCK_WITHOUT_LOCATION', 'Mã còn tồn nhưng chưa có kệ'],
                 ['IDENTIFIER_LOCATION_WITHOUT_LEVEL', 'Mã có kệ nhưng kệ không có tồn'],
                 ['TERMINAL_IDENTIFIER_WITH_LOCATION', 'Mã đã rời kho nhưng còn gắn kệ'],
+                ['SELLABLE_STOCK_MISMATCH', 'Tồn bán được lệch tổng tồn kệ'],
+                ['LOT_QUANTITY_MISMATCH', 'Tồn kệ lệch số lượng lô'],
+                ['RESERVED_QUANTITY_MISMATCH', 'Tồn giữ lệch số mã đang giữ'],
+                ['IDENTIFIER_PAIR_MISMATCH', 'Cặp IMEI/serial không đồng bộ'],
+                ['DOCUMENT_LEDGER_MISMATCH', 'Chứng từ hoàn tất thiếu sổ kho'],
               ]}
             />
             <button type="button" onClick={() => void loadInventoryReconciliationReport()} disabled={reconciliationLoading} className="h-9 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-bold text-indigo-700 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50">
@@ -2243,11 +2387,11 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
             </div>
           ))}
         </div>
-        <AdminTable headers={['Loại lệch', 'Sản phẩm', 'SKU / Biến thể', 'Kệ', 'Tồn kệ', 'Số mã', 'Mã định danh', 'Trạng thái', 'Ghi chú']}>
+        <AdminTable headers={['Loại lệch', 'Sản phẩm', 'SKU / Biến thể', 'Kệ', 'Tồn kệ', 'Số mã', 'Mã định danh', 'Trạng thái', 'Ghi chú', 'Xử lý']}>
           {reconciliationLoading ? (
-            <tr><td colSpan={9} className="px-4 py-6 text-center text-sm font-semibold text-slate-500">Đang tải báo cáo đối soát...</td></tr>
+            <tr><td colSpan={10} className="px-4 py-6 text-center text-sm font-semibold text-slate-500">Đang tải báo cáo đối soát...</td></tr>
           ) : (reconciliationReport?.items || []).length === 0 ? (
-            <tr><td colSpan={9} className="px-4 py-6 text-center text-sm font-semibold text-emerald-700">Chưa phát hiện lệch tồn và mã theo bộ lọc hiện tại.</td></tr>
+            <tr><td colSpan={10} className="px-4 py-6 text-center text-sm font-semibold text-emerald-700">Chưa phát hiện lệch tồn và mã theo bộ lọc hiện tại.</td></tr>
           ) : (reconciliationReport?.items || []).map((item: any, index: number) => (
             <tr key={`${item.issueType}-${item.productId}-${item.variantId || 'base'}-${item.locationId || 'none'}-${item.identifierValue || index}`}>
               <td className="px-4 py-3 text-xs font-bold text-rose-700">{reconciliationIssueLabel(item.issueType)}</td>
@@ -2263,6 +2407,13 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
               <td className="px-4 py-3 font-mono text-xs text-slate-700">{item.identifierValue || '-'}</td>
               <td className="px-4 py-3 text-xs font-semibold text-slate-600">{item.identifierStatus || item.identifierType || '-'}</td>
               <td className="px-4 py-3 text-xs text-slate-600">{item.message || '-'}</td>
+              <td className="px-4 py-3">
+                {isSuperAdmin && item.issueType === 'SELLABLE_STOCK_MISMATCH' && Number(item.differenceQuantity || 0) > 0 ? (
+                  <button type="button" onClick={() => void allocateLegacyInventory(item)} className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100">
+                    Phân bổ kệ
+                  </button>
+                ) : '-'}
+              </td>
             </tr>
           ))}
         </AdminTable>
@@ -2936,8 +3087,14 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                 }
                 return null;
               })()}
-              {renderLocationIdentifierTable('IMEI', locationIdentifierModal.location.imeis, requestLocationIdentifierEdit, openIdentifierLocationDraft)}
-              {renderLocationIdentifierTable('Serial', locationIdentifierModal.location.serialNumbers, requestLocationIdentifierEdit, openIdentifierLocationDraft)}
+              {locationIdentifierModal.row.tracksImei && locationIdentifierModal.row.tracksSerialNumber && locationIdentifierModal.location.identifierUnits.length > 0 ? (
+                <IdentifierUnitTable units={locationIdentifierModal.location.identifierUnits} />
+              ) : (
+                <>
+                  {renderLocationIdentifierTable('IMEI', locationIdentifierModal.location.imeis, requestLocationIdentifierEdit, openIdentifierLocationDraft)}
+                  {renderLocationIdentifierTable('Serial', locationIdentifierModal.location.serialNumbers, requestLocationIdentifierEdit, openIdentifierLocationDraft)}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -3070,7 +3227,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                 </label>
                 <label className="text-xs font-semibold text-slate-600">
                   Số lượng
-                  <input type="number" min={1} max={Math.max(1, disposalDraft.line.maxQuantity)} value={disposalDraft.line.quantity} onChange={(event) => setDisposalDraft((current) => current ? { ...current, line: { ...current.line, quantity: Math.max(1, Number(event.target.value || 1)) } } : current)} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-800" />
+                  <input type="number" min={1} max={Math.max(1, disposalDraft.line.maxQuantity)} readOnly={disposalDraft.line.availableIdentifierUnits.length > 0} value={disposalDraft.line.quantity} onChange={(event) => setDisposalDraft((current) => current ? { ...current, line: { ...current.line, quantity: Math.max(1, Number(event.target.value || 1)) } } : current)} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-800 read-only:bg-slate-50" />
                 </label>
               </div>
               <div className="rounded-xl border border-slate-200 p-4">
@@ -3085,10 +3242,12 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                     <div className="text-xs font-semibold text-slate-500">Tick mã ở bảng hiện tại để đưa sang bảng xử lý; bỏ tick ở bảng xử lý để trả lại.</div>
                   </div>
                   <div className="text-xs font-bold text-red-700">
-                    Đã chọn {splitIdentifierText(disposalDraft.line.imeis).length} IMEI · {splitIdentifierText(disposalDraft.line.serialNumbers).length} serial
+                    {disposalDraft.line.availableIdentifierUnits.length > 0 ? `Đã chọn ${disposalDraft.line.identifierPairIds.length} thiết bị` : `Đã chọn ${splitIdentifierText(disposalDraft.line.imeis).length} IMEI · ${splitIdentifierText(disposalDraft.line.serialNumbers).length} serial`}
                   </div>
                 </div>
-                <TransferIdentifierPicker
+                {disposalDraft.line.availableIdentifierUnits.length > 0 ? (
+                  <IdentifierUnitTable units={disposalDraft.line.availableIdentifierUnits} selectedIds={disposalDraft.line.identifierPairIds} onToggle={updateDisposalIdentifierUnit} />
+                ) : <><TransferIdentifierPicker
                   label="IMEI"
                   availableTitle="IMEI hiện tại"
                   selectedTitle="IMEI xử lý"
@@ -3111,7 +3270,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                   manualValue={disposalDraft.line.serialNumbers}
                   onManualChange={(value) => updateDisposalIdentifierText('SERIAL', value)}
                   manualPlaceholder="Quét hoặc nhập serial cần xử lý, mỗi dòng một mã"
-                />
+                /></>}
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="text-xs font-semibold text-slate-600">
@@ -3242,20 +3401,23 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                   </label>
                   <label className="text-xs font-semibold text-slate-600">
                     Số lượng
-                    <input type="number" min={1} max={Math.max(1, transferDraft.line.maxQuantity)} value={transferDraft.line.quantity} onChange={(event) => setTransferDraft((current) => current ? { ...current, line: { ...current.line, quantity: Math.max(1, Number(event.target.value || 1)) } } : current)} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-800" />
+                    <input type="number" min={1} max={Math.max(1, transferDraft.line.maxQuantity)} readOnly={transferDraft.line.availableIdentifierUnits.length > 0} value={transferDraft.line.quantity} onChange={(event) => setTransferDraft((current) => current ? { ...current, line: { ...current.line, quantity: Math.max(1, Number(event.target.value || 1)) } } : current)} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-800 read-only:bg-slate-50" />
                   </label>
                 </div>
                 <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="text-sm font-bold text-slate-900">Chọn mã cần chuyển</div>
-                      <div className="text-xs font-semibold text-slate-500">Tick mã ở bảng hiện tại để đưa sang bảng cần chuyển; bỏ tick ở bảng cần chuyển để trả lại.</div>
+                      <div className="text-xs font-semibold text-slate-500">Danh sách chỉ mở khi cần chọn thiết bị, tránh làm nặng giao diện.</div>
                     </div>
-                    <div className="text-xs font-bold text-amber-700">
-                      Đã chọn {splitIdentifierText(transferDraft.line.imeis).length} IMEI · {splitIdentifierText(transferDraft.line.serialNumbers).length} serial
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs font-bold text-amber-700">{transferDraft.line.availableIdentifierUnits.length > 0 ? `Đã chọn ${transferDraft.line.identifierPairIds.length} thiết bị` : `Đã chọn ${splitIdentifierText(transferDraft.line.imeis).length} IMEI · ${splitIdentifierText(transferDraft.line.serialNumbers).length} serial`}</div>
+                      <button type="button" onClick={() => setTransferIdentifiersOpen((current) => !current)} className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-50">{transferIdentifiersOpen ? 'Thu gọn' : 'Mở danh sách thiết bị'}</button>
                     </div>
                   </div>
-                  <TransferIdentifierPicker
+                  {transferIdentifiersOpen && (transferDraft.line.availableIdentifierUnits.length > 0 ? (
+                    <IdentifierUnitTable units={transferDraft.line.availableIdentifierUnits} selectedIds={transferDraft.line.identifierPairIds} onToggle={updateTransferIdentifierUnit} />
+                  ) : <><TransferIdentifierPicker
                     label="IMEI"
                     identifiers={transferDraft.line.availableImeis}
                     selectedValues={splitIdentifierText(transferDraft.line.imeis)}
@@ -3272,7 +3434,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                     manualValue={transferDraft.line.serialNumbers}
                     onManualChange={(value) => updateTransferIdentifierText('SERIAL', value)}
                     manualPlaceholder="Quét hoặc nhập serial cần chuyển, mỗi dòng một mã"
-                  />
+                  /></>)}
                 </div>
                 <label className="mt-3 block text-xs font-semibold text-slate-600">
                   Ghi chú dòng
@@ -3609,7 +3771,9 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                 {stockCountDraft.lines.map((line) => {
                   const scannedImeis = splitIdentifierText(line.imeis);
                   const scannedSerialNumbers = splitIdentifierText(line.serialNumbers);
-                  const countedQuantity = line.tracksImei
+                  const countedQuantity = line.availableIdentifierUnits.length > 0
+                    ? line.identifierPairIds.length
+                    : line.tracksImei
                     ? scannedImeis.length
                     : line.tracksSerialNumber
                       ? scannedSerialNumbers.length
@@ -3631,7 +3795,8 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                       </td>
                       <td className="px-4 py-3">
                         <div className="min-w-56 space-y-2">
-                          {line.tracksImei && (
+                          {line.availableIdentifierUnits.length > 0 && <IdentifierUnitTable units={line.availableIdentifierUnits} selectedIds={line.identifierPairIds} onToggle={(unit, selected) => updateStockCountIdentifierUnit(line.key, unit, selected)} />}
+                          {line.availableIdentifierUnits.length === 0 && line.tracksImei && (
                             <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
                               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                                 <div className="text-xs font-bold text-slate-700">IMEI ({scannedImeis.length}/{line.expectedQuantity})</div>
@@ -3674,7 +3839,7 @@ export default function AdminInventoryTab(props: AdminInventoryTabProps) {
                               )}
                             </div>
                           )}
-                          {line.tracksSerialNumber && (
+                          {line.availableIdentifierUnits.length === 0 && line.tracksSerialNumber && (
                             <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
                               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                                 <div className="text-xs font-bold text-slate-700">Serial ({scannedSerialNumbers.length}/{line.expectedQuantity})</div>

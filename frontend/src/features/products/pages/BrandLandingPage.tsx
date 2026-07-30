@@ -53,14 +53,14 @@ export default function BrandLandingPage() {
   useEffect(() => {
     if (!brand) return;
     const title = brand.landingTitle || `Sản phẩm ${brand.name}`;
-    document.title = `${title} | ElectroMart VietNam`;
+    document.title = `${title} | ElectroMart Vietnam`;
     let description = document.querySelector('meta[name="description"]');
     if (!description) {
       description = document.createElement('meta');
       description.setAttribute('name', 'description');
       document.head.appendChild(description);
     }
-    description.setAttribute('content', `Khám phá sản phẩm chính hãng từ ${brand.name} tại ElectroMart VietNam.`);
+    description.setAttribute('content', `Khám phá sản phẩm chính hãng từ ${brand.name} tại ElectroMart Vietnam.`);
   }, [brand]);
 
   if (loading) {

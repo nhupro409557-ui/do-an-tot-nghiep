@@ -24,16 +24,20 @@ export function AccountDashboardSidebar<TabId extends string>({
   const ActiveIcon = activeItem.icon;
 
   return (
-    <aside className="w-full lg:w-64 bg-white rounded-xl shadow-sm h-fit overflow-hidden lg:sticky lg:top-24">
+    <aside className="h-fit w-full overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm lg:sticky lg:top-24 lg:w-72 lg:shrink-0">
+      <div className="hidden border-b border-slate-100 px-5 py-4 lg:block">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Trung tâm tài khoản</p>
+        <p className="mt-1 text-sm text-slate-500">Quản lý thông tin và dịch vụ</p>
+      </div>
       <button
         type="button"
         onClick={onToggle}
-        className="lg:hidden w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
+        className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-red-200 lg:hidden"
         aria-expanded={isOpen}
         aria-controls="account-dashboard-menu"
       >
         <span className="flex items-center gap-3 min-w-0 flex-1">
-          <span className="w-9 h-9 rounded-lg bg-red-50 text-[#d70018] flex items-center justify-center shrink-0">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-[#d70018]">
             <ActiveIcon className="w-4 h-4" />
           </span>
           <span className="min-w-0">
@@ -50,7 +54,7 @@ export function AccountDashboardSidebar<TabId extends string>({
 
       <ul
         id="account-dashboard-menu"
-        className={`${isOpen ? 'grid max-h-96 opacity-100' : 'grid max-h-0 opacity-0'} lg:grid lg:max-h-none lg:opacity-100 grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-1 text-sm font-medium text-gray-700 border-t border-gray-100 lg:border-t-0 px-2 py-0 lg:py-3 overflow-hidden transition-all duration-200 ease-out`}
+        className={`${isOpen ? 'grid max-h-[640px] opacity-100' : 'grid max-h-0 opacity-0'} grid-cols-1 gap-1 overflow-hidden border-t border-slate-100 px-2 py-0 text-sm font-medium text-slate-600 transition-all duration-200 ease-out md:grid-cols-2 lg:grid lg:max-h-none lg:grid-cols-1 lg:border-t-0 lg:py-3 lg:opacity-100`}
       >
         {items.map(item => {
           const Icon = item.icon;
@@ -60,9 +64,10 @@ export function AccountDashboardSidebar<TabId extends string>({
               <button
                 type="button"
                 onClick={() => onChangeTab(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg lg:rounded-none lg:border-l-4 transition-colors text-left ${isActive ? 'text-[#d70018] bg-red-50 lg:border-[#d70018]' : 'lg:border-transparent hover:bg-gray-50 hover:text-red-500'}`}
+                aria-current={isActive ? 'page' : undefined}
+                className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left transition focus:outline-none focus:ring-2 focus:ring-red-200 ${isActive ? 'bg-[#d70018] font-bold text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}
               >
-                <Icon className="w-4 h-4 shrink-0" />
+                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${isActive ? 'bg-white/15' : 'bg-slate-100 text-slate-500'}`}><Icon className="h-4 w-4" /></span>
                 <span className="truncate">{item.label}</span>
               </button>
             </li>

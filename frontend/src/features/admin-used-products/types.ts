@@ -4,21 +4,28 @@ export type UsedProductEvidence = {
 };
 
 export type UsedProductChecklist = {
+  imeiVerified: boolean;
   screen: boolean;
   camera: boolean;
   connectivity: boolean;
   biometric: boolean;
   accountUnlocked: boolean;
+  dataErased: boolean;
+  charging: boolean;
+  audioAndButtons: boolean;
 };
 
 export type UsedProductIntakeDraft = {
   sourceType: string;
   productId: string;
+  externalProductName: string;
   variantId: string;
   imei: string;
   serialNumber: string;
   sellerName: string;
   sellerPhone: string;
+  sellerAddress: string;
+  sellerIdentityNumber: string;
   expectedPrice: string;
   note: string;
 };
@@ -42,6 +49,10 @@ export type UsedProductListingDraft = {
   highlightsText: string;
   images: string[];
   warrantyMonths: string;
+  manufacturerWarrantyEnabled: boolean;
+  manufacturerWarrantyProvider: string;
+  manufacturerWarrantyActivatedAt: string;
+  manufacturerWarrantyTotalMonths: string;
   priceComparisonNote: string;
 };
 
@@ -66,6 +77,7 @@ export type UsedProductIntake = {
   id: string;
   requestCode: string;
   productName: string;
+  externalProductName?: string | null;
   imei: string;
   sourceType?: string;
   variantSku?: string;
@@ -74,6 +86,15 @@ export type UsedProductIntake = {
   ram?: string;
   sellerName?: string;
   sellerPhone?: string;
+  sellerAddress?: string;
+  sellerIdentityNumber?: string;
+  ownershipConfirmed?: boolean;
+  acquisitionPaymentMethod?: string | null;
+  acquisitionPaymentReference?: string | null;
+  acquisitionPaidAt?: string | null;
+  sellerConfirmedAt?: string | null;
+  acceptedAt?: string | null;
+  proposedAcquisitionPrice?: number | string | null;
   expectedPrice?: number | string | null;
   conditionGrade?: string;
   conditionScore?: number | string | null;
@@ -93,7 +114,11 @@ export type UsedProductDevice = {
   conditionScore?: number | string | null;
   batteryHealth?: number | string | null;
   approvedSalePrice?: number | string | null;
+  actualSoldPrice?: number | string | null;
   refurbishmentCost?: number | string | null;
+  actualRepairCost?: number | string | null;
+  repairCount?: number | string | null;
+  estimatedProfit?: number | string | null;
   inspectionChecklist?: UsedProductChecklist;
   inspectionEvidence?: UsedProductEvidence[];
   listingId?: string | null;
@@ -102,6 +127,10 @@ export type UsedProductDevice = {
   listingHighlights?: string[];
   listingImages?: string[];
   listingWarrantyMonths?: number | string | null;
+  manufacturerWarrantyEnabled?: boolean;
+  manufacturerWarrantyProvider?: string | null;
+  manufacturerWarrantyActivatedAt?: string | null;
+  manufacturerWarrantyTotalMonths?: number | string | null;
   priceComparisonNote?: string;
   locationCode?: string;
   locationName?: string;
@@ -121,6 +150,13 @@ export type UsedProductListing = {
   imei: string;
   salePrice?: number | string | null;
   images?: string[];
+  warrantyMonths?: number | string | null;
+  manufacturerWarrantyEnabled?: boolean;
+  manufacturerWarrantyProvider?: string | null;
+  manufacturerWarrantyActivatedAt?: string | null;
+  manufacturerWarrantyTotalMonths?: number | string | null;
+  manufacturerWarrantyExpiresAt?: string | null;
+  manufacturerWarrantyRemainingMonths?: number | null;
   status: string;
   [key: string]: unknown;
 };
@@ -139,6 +175,10 @@ export type UsedProductHistoryEntry = {
   repairCostEstimate?: number | string | null;
   proposedSalePrice?: number | string | null;
   approvedSalePrice?: number | string | null;
+  actorId?: string | null;
+  actorName?: string | null;
+  actorEmail?: string | null;
+  actorRole?: string | null;
   [key: string]: unknown;
 };
 
@@ -154,7 +194,9 @@ export type UsedProductIntakeListResponse = {
   offset?: number;
 };
 
-export type UsedProductIntakePayload = Omit<UsedProductIntakeDraft, 'variantId' | 'serialNumber' | 'sellerName' | 'sellerPhone' | 'expectedPrice' | 'note'> & {
+export type UsedProductIntakePayload = Omit<UsedProductIntakeDraft, 'productId' | 'externalProductName' | 'variantId' | 'serialNumber' | 'sellerName' | 'sellerPhone' | 'expectedPrice' | 'note'> & {
+  productId: string | null;
+  externalProductName: string | null;
   variantId: string | null;
   serialNumber: string | null;
   sellerName: string | null;
@@ -180,10 +222,30 @@ export type UsedProductListingPayload = {
   highlights: string[];
   images: string[];
   warrantyMonths: number;
+  manufacturerWarrantyEnabled: boolean;
+  manufacturerWarrantyProvider: string | null;
+  manufacturerWarrantyActivatedAt: string | null;
+  manufacturerWarrantyTotalMonths: number | null;
   priceComparisonNote: string | null;
 };
 
 export type UsedProductStatusPayload = {
   status: string;
   note?: string;
+  sellerAddress?: string | null;
+  sellerIdentityNumber?: string | null;
+  ownershipConfirmed?: boolean;
+  acquisitionPaymentMethod?: string | null;
+  acquisitionPaymentReference?: string | null;
+};
+
+export type UsedProductRepairPayload = {
+  description: string;
+  cost: number;
+  repairedAt: string | null;
+};
+
+export type UsedProductPricePayload = {
+  salePrice: number;
+  reason: string;
 };

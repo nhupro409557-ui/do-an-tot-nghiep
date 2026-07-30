@@ -21,12 +21,15 @@ async def list_inventory_receipts(
                 d.reason AS "receiptReasonCode",
                 d.supplier_name AS "supplierName",
                 d.metadata->>'supplierId' AS "supplierId",
+                d.metadata->>'purchaseOrderId' AS "purchaseOrderId",
                 d.metadata->>'invoiceNumber' AS "invoiceNumber",
                 d.metadata->>'invoiceDate' AS "invoiceDate",
                 COALESCE(d.metadata->>'paymentMode', 'DEBT') AS "paymentMode",
                 COALESCE((d.metadata->>'paymentTermDays')::int, 0) AS "paymentTermDays",
                 d.metadata->>'dueDate' AS "dueDate",
                 COALESCE((d.metadata->>'paidAmount')::numeric, 0) AS "paidAmount",
+                COALESCE((d.metadata->>'discountAmount')::numeric, 0) AS "discountAmount",
+                COALESCE((d.metadata->>'shippingFee')::numeric, 0) AS "shippingFee",
                 d.metadata->>'payableNote' AS "payableNote",
                 COALESCE(d.metadata->'attachments', '[]'::jsonb) AS attachments,
                 COALESCE(d.metadata->'pendingAttachments', '[]'::jsonb) AS "pendingAttachments",
@@ -72,6 +75,7 @@ async def list_inventory_receipts(
                         'id', l.id::text,
                         'productId', l.product_id::text,
                         'variantId', l.variant_id::text,
+                        'locationId', l.location_id::text,
                         'productName', p.name,
                         'productSku', p.sku,
                         'variantSku', pv.sku,
@@ -90,6 +94,16 @@ async def list_inventory_receipts(
                         'shortageReason', l.metadata->>'shortageReason',
                         'storageLocationCode', l.metadata->>'storageLocationCode',
                         'storageLocationName', l.metadata->>'storageLocationName',
+                        'purchaseOrderLineId', l.metadata->>'purchaseOrderLineId',
+                        'quotedUnitCost', COALESCE((l.metadata->>'quotedUnitCost')::numeric, l.unit_cost),
+                        'reason', l.metadata->>'reason',
+                        'passedQuantity', COALESCE((l.metadata->'qc'->>'passedQuantity')::int, 0),
+                        'failedQuantity', COALESCE((l.metadata->'qc'->>'failedQuantity')::int, 0),
+                        'qualityActionType', l.metadata->'qc'->>'actionType',
+                        'failedLocationId', l.metadata->'qc'->>'failedLocationId',
+                        'failedImeis', COALESCE(l.metadata->'qc'->'failedImeis', '[]'::jsonb),
+                        'failedSerialNumbers', COALESCE(l.metadata->'qc'->'failedSerialNumbers', '[]'::jsonb),
+                        'qualityImages', COALESCE(l.metadata->'qc'->'images', '[]'::jsonb),
                         'unitCost', l.unit_cost,
                         'note', l.note
                     )
@@ -106,8 +120,6 @@ async def list_inventory_receipts(
             LEFT JOIN users cancelled_user ON cancelled_user.id = d.cancelled_by
             LEFT JOIN users reversed_user ON reversed_user.id = d.reversed_by
             WHERE d.document_type = 'INBOUND'
-              AND p.deleted_at IS NULL
-              AND p.status <> 'MERGED'
               AND (:date_from = '' OR d.created_at >= CAST(NULLIF(:date_from, '') AS date))
               AND (:date_to = '' OR d.created_at < CAST(NULLIF(:date_to, '') AS date) + INTERVAL '1 day')
               AND (:search = ''
@@ -161,8 +173,6 @@ async def list_inventory_receipts(
             JOIN products p ON p.id = ial.product_id
             LEFT JOIN product_variants pv ON pv.id = ial.variant_id
             WHERE ial.transaction_type = 'RECEIPT'
-              AND p.deleted_at IS NULL
-              AND p.status <> 'MERGED'
               AND (:date_from = '' OR ial.created_at >= CAST(NULLIF(:date_from, '') AS date))
               AND (:date_to = '' OR ial.created_at < CAST(NULLIF(:date_to, '') AS date) + INTERVAL '1 day')
               AND NOT EXISTS (
@@ -1750,7 +1760,7 @@ async def transfer_inventory_level_quantity(
     average_unit_cost,
 ) -> None:
     if variant_id:
-        await session.execute(
+        res = await session.execute(
             text(
                 """
                 UPDATE inventory_levels
@@ -1759,38 +1769,40 @@ async def transfer_inventory_level_quantity(
                 WHERE product_id IS NULL
                   AND variant_id = :variant_id
                   AND location_id = :from_location_id
+                  AND on_hand_quantity - reserved_quantity >= :quantity
                 """
             ),
             {"variant_id": variant_id, "from_location_id": from_location_id, "quantity": quantity},
         )
+        if res.rowcount == 0:
+            raise ValueError("Tồn khả dụng không đủ hoặc đã bị thay đổi ở kệ nguồn.")
         await session.execute(
             text(
                 """
-                WITH updated AS (
-                    UPDATE inventory_levels
-                    SET on_hand_quantity = on_hand_quantity + :quantity,
-                        average_unit_cost = CASE
-                            WHEN COALESCE(average_unit_cost, 0) = 0 THEN COALESCE(CAST(:average_unit_cost AS NUMERIC), 0)
-                            ELSE average_unit_cost
-                        END,
-                        updated_at = NOW()
-                    WHERE product_id IS NULL
-                      AND variant_id = :variant_id
-                      AND location_id = :to_location_id
-                    RETURNING id
-                )
                 INSERT INTO inventory_levels (
-                    id, product_id, variant_id, location_id, on_hand_quantity, reserved_quantity, average_unit_cost
+                    id, product_id, variant_id, location_id,
+                    on_hand_quantity, reserved_quantity, average_unit_cost
                 )
-                SELECT gen_random_uuid(), NULL, :variant_id, :to_location_id, :quantity, 0, COALESCE(CAST(:average_unit_cost AS NUMERIC), 0)
-                WHERE NOT EXISTS (SELECT 1 FROM updated)
+                VALUES (
+                    gen_random_uuid(), NULL, :variant_id, :to_location_id,
+                    :quantity, 0, COALESCE(CAST(:average_unit_cost AS NUMERIC), 0)
+                )
+                ON CONFLICT (variant_id, location_id) WHERE product_id IS NULL
+                DO UPDATE SET
+                    on_hand_quantity = inventory_levels.on_hand_quantity + EXCLUDED.on_hand_quantity,
+                    average_unit_cost = CASE
+                        WHEN COALESCE(inventory_levels.average_unit_cost, 0) = 0
+                        THEN EXCLUDED.average_unit_cost
+                        ELSE inventory_levels.average_unit_cost
+                    END,
+                    updated_at = NOW()
                 """
             ),
             {"variant_id": variant_id, "to_location_id": to_location_id, "quantity": quantity, "average_unit_cost": average_unit_cost},
         )
         return
 
-    await session.execute(
+    res = await session.execute(
         text(
             """
             UPDATE inventory_levels
@@ -1799,31 +1811,33 @@ async def transfer_inventory_level_quantity(
             WHERE product_id = :product_id
               AND variant_id IS NULL
               AND location_id = :from_location_id
+              AND on_hand_quantity - reserved_quantity >= :quantity
             """
         ),
         {"product_id": product_id, "from_location_id": from_location_id, "quantity": quantity},
     )
+    if res.rowcount == 0:
+        raise ValueError("Tồn khả dụng không đủ hoặc đã bị thay đổi ở kệ nguồn.")
     await session.execute(
         text(
             """
-            WITH updated AS (
-                UPDATE inventory_levels
-                SET on_hand_quantity = on_hand_quantity + :quantity,
-                    average_unit_cost = CASE
-                        WHEN COALESCE(average_unit_cost, 0) = 0 THEN COALESCE(CAST(:average_unit_cost AS NUMERIC), 0)
-                        ELSE average_unit_cost
-                    END,
-                    updated_at = NOW()
-                WHERE product_id = :product_id
-                  AND variant_id IS NULL
-                  AND location_id = :to_location_id
-                RETURNING id
-            )
             INSERT INTO inventory_levels (
-                id, product_id, variant_id, location_id, on_hand_quantity, reserved_quantity, average_unit_cost
+                id, product_id, variant_id, location_id,
+                on_hand_quantity, reserved_quantity, average_unit_cost
             )
-            SELECT gen_random_uuid(), :product_id, NULL, :to_location_id, :quantity, 0, COALESCE(CAST(:average_unit_cost AS NUMERIC), 0)
-            WHERE NOT EXISTS (SELECT 1 FROM updated)
+            VALUES (
+                gen_random_uuid(), :product_id, NULL, :to_location_id,
+                :quantity, 0, COALESCE(CAST(:average_unit_cost AS NUMERIC), 0)
+            )
+            ON CONFLICT (product_id, location_id) WHERE variant_id IS NULL
+            DO UPDATE SET
+                on_hand_quantity = inventory_levels.on_hand_quantity + EXCLUDED.on_hand_quantity,
+                average_unit_cost = CASE
+                    WHEN COALESCE(inventory_levels.average_unit_cost, 0) = 0
+                    THEN EXCLUDED.average_unit_cost
+                    ELSE inventory_levels.average_unit_cost
+                END,
+                updated_at = NOW()
             """
         ),
         {"product_id": product_id, "to_location_id": to_location_id, "quantity": quantity, "average_unit_cost": average_unit_cost},
@@ -2096,3 +2110,34 @@ async def list_products_due_for_cycle_count(
 
     res = await session.execute(text(query_str), params)
     return [dict(row) for row in res.mappings().all()]
+
+
+async def atomic_decrement_inventory_level(
+    session: AsyncSession,
+    *,
+    product_id: UUID,
+    variant_id: UUID | None,
+    location_id: UUID,
+    quantity: int,
+) -> dict:
+    row = (await session.execute(text("""
+        UPDATE inventory_levels
+        SET on_hand_quantity = on_hand_quantity - :quantity,
+            updated_at = NOW()
+        WHERE location_id = :location_id
+          AND (
+              (CAST(:variant_id AS uuid) IS NULL AND product_id = :product_id AND variant_id IS NULL)
+              OR (CAST(:variant_id AS uuid) IS NOT NULL AND variant_id = CAST(:variant_id AS uuid))
+          )
+          AND on_hand_quantity - reserved_quantity >= :quantity
+        RETURNING on_hand_quantity, reserved_quantity, average_unit_cost
+    """), {
+        "product_id": product_id,
+        "variant_id": variant_id,
+        "location_id": location_id,
+        "quantity": quantity,
+    })).mappings().first()
+
+    if not row:
+        raise ValueError("Tồn khả dụng không đủ hoặc đã bị thay đổi.")
+    return dict(row)

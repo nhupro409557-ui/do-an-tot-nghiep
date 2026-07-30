@@ -52,6 +52,21 @@ async def get_admin_customer_loyalty_history(user_id: UUID, session: AsyncSessio
     return await customer_service.get_admin_customer_loyalty_history(session, user_id)
 
 
+@router.get("/customers/{user_id}/loyalty-history-page", dependencies=[Depends(require_permission("customer:read"))])
+async def get_admin_customer_loyalty_history_page(
+    user_id: UUID,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    return await customer_service.get_admin_customer_loyalty_history_page(session, user_id, page, limit)
+
+
+@router.get("/customers/{user_id}/loyalty-history/{transaction_id}/allocations", dependencies=[Depends(require_permission("customer:read"))])
+async def get_admin_customer_loyalty_allocations(user_id: UUID, transaction_id: UUID, session: AsyncSession = Depends(get_session)) -> list[dict]:
+    return await customer_service.get_admin_customer_loyalty_allocations(session, user_id, transaction_id)
+
+
 @router.get("/customers/{user_id}/notes", dependencies=[Depends(require_permission("customer:read"))])
 async def get_admin_customer_notes(user_id: UUID, session: AsyncSession = Depends(get_session)) -> list[dict]:
     return await customer_service.get_admin_customer_notes(session, user_id)

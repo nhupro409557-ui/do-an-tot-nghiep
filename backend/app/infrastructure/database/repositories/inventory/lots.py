@@ -4,7 +4,7 @@ async def post_inventory_level_receipt(
     session: AsyncSession,
     *,
     product_id: UUID,
-    variant_id: UUID,
+    variant_id: UUID | None,
     location_id: UUID,
     quantity: int,
     unit_cost: float | int | None,
@@ -27,8 +27,10 @@ async def post_inventory_level_receipt(
                     END,
                     on_hand_quantity = on_hand_quantity + :quantity,
                     updated_at = NOW()
-                WHERE product_id IS NULL
-                  AND variant_id = :variant_id
+                WHERE (
+                        (CAST(:variant_id AS uuid) IS NULL AND product_id = :product_id AND variant_id IS NULL)
+                     OR (CAST(:variant_id AS uuid) IS NOT NULL AND product_id IS NULL AND variant_id = CAST(:variant_id AS uuid))
+                  )
                   AND location_id = :location_id
                 RETURNING id
             )
@@ -37,8 +39,8 @@ async def post_inventory_level_receipt(
             )
             SELECT
                 gen_random_uuid(),
-                NULL,
-                :variant_id,
+                CASE WHEN CAST(:variant_id AS uuid) IS NULL THEN :product_id ELSE NULL END,
+                CAST(:variant_id AS uuid),
                 :location_id,
                 :quantity,
                 0,
@@ -181,9 +183,6 @@ async def transfer_inventory_lots_fifo(
             },
         )
     ).mappings().all()
-    if sum(int(row["remaining_quantity"] or 0) for row in rows) < quantity:
-        raise ValueError("Tồn theo lô tại kệ nguồn không đủ để chuyển.")
-
     remaining = quantity
     moved_lots: list[dict] = []
     for row in rows:
@@ -281,6 +280,15 @@ async def transfer_inventory_lots_fifo(
             }
         )
         remaining -= moved_quantity
+    if remaining > 0:
+        moved_lots.append(
+            {
+                "sourceLotId": None,
+                "targetLotId": None,
+                "quantity": remaining,
+                "note": "Chuyển theo tồn kệ thực tế; phần hàng cũ chưa có dữ liệu lô FIFO.",
+            }
+        )
     return moved_lots
 
 
@@ -324,9 +332,6 @@ async def consume_inventory_lots_fifo(
             },
         )
     ).mappings().all()
-    if sum(int(row["remaining_quantity"] or 0) for row in rows) < quantity:
-        raise ValueError("Tồn theo lô tại kệ không đủ để xử lý.")
-
     remaining = quantity
     consumed_lots: list[dict] = []
     for row in rows:
@@ -381,6 +386,18 @@ async def consume_inventory_lots_fifo(
             }
         )
         remaining -= consumed_quantity
+    if remaining > 0:
+        consumed_lots.append(
+            {
+                "lotId": None,
+                "lotCode": "UNTRACKED",
+                "quantity": remaining,
+                "remainingQuantity": None,
+                "unitCost": None,
+                "receivedAt": None,
+                "note": "Xử lý theo tồn kệ thực tế; phần hàng cũ chưa có dữ liệu lô FIFO.",
+            }
+        )
     return consumed_lots
 
 
@@ -473,15 +490,16 @@ async def post_inventory_level_reversal(
     location_id: UUID,
     quantity: int,
 ) -> None:
-    await session.execute(
+    res = await session.execute(
         text(
             """
             UPDATE inventory_levels
-            SET on_hand_quantity = GREATEST(on_hand_quantity - :quantity, 0),
+            SET on_hand_quantity = on_hand_quantity - :quantity,
                 updated_at = NOW()
             WHERE product_id IS NULL
               AND variant_id = :variant_id
               AND location_id = :location_id
+              AND on_hand_quantity - reserved_quantity >= :quantity
             """
         ),
         {
@@ -491,6 +509,8 @@ async def post_inventory_level_reversal(
             "quantity": quantity,
         },
     )
+    if res.rowcount == 0:
+        raise ValueError("Kệ nhận hàng không đủ tồn khả dụng hoặc đã bị thay đổi, không thể thực hiện đảo phiếu nhập.")
 
 
 async def create_inventory_lot_for_reconciliation(

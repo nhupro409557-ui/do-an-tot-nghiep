@@ -22,3 +22,4 @@ class StaffCreatePayload(BaseModel):
 
 class UserPermissionsPayload(BaseModel):
     permissionCodes: list[str] = Field(default_factory=list)
+    deniedPermissionCodes: list[str] = Field(default_factory=list)

@@ -49,8 +49,9 @@ async def list_admin_customers(
             FROM users u
             JOIN roles r ON r.id = u.role_id
             LEFT JOIN LATERAL (
-                SELECT COUNT(*) AS "orderCount",
-                       COALESCE(SUM(o.total_amount), 0) AS "totalSpent"
+                SELECT COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL) AS "orderCount",
+                       COALESCE(SUM(o.total_amount) FILTER (WHERE o.completed_at IS NOT NULL), 0)
+                       - COALESCE((SELECT SUM(rt.refund_amount) FROM refund_transactions rt WHERE rt.user_id = u.id AND rt.status = 'COMPLETED'), 0) AS "totalSpent"
                 FROM orders o
                 WHERE o.user_id = u.id
             ) order_agg ON true
@@ -93,10 +94,11 @@ async def get_admin_customer_summary(session: AsyncSession, user_id: UUID) -> di
                     u.loyalty_tier AS tier,
                     u.loyalty_points_balance AS points,
                     u.loyalty_wallet_status AS "walletStatus",
-                    COUNT(o.id) AS "orderCount",
-                    COALESCE(SUM(o.total_amount), 0) AS "totalSpent",
-                    COALESCE(SUM(o.loyalty_points_earned), 0) AS "totalPointsEarned",
-                    COALESCE(SUM(o.loyalty_points_used), 0) AS "totalPointsUsed",
+                    COUNT(o.id) FILTER (WHERE o.completed_at IS NOT NULL) AS "orderCount",
+                    COALESCE(SUM(o.total_amount) FILTER (WHERE o.completed_at IS NOT NULL), 0)
+                      - COALESCE((SELECT SUM(rt.refund_amount) FROM refund_transactions rt WHERE rt.user_id = u.id AND rt.status = 'COMPLETED'), 0) AS "totalSpent",
+                    COALESCE(SUM(o.loyalty_points_earned) FILTER (WHERE o.status = 'COMPLETED'), 0) AS "totalPointsEarned",
+                    COALESCE(SUM(o.loyalty_points_used) FILTER (WHERE o.status = 'COMPLETED'), 0) AS "totalPointsUsed",
                     u.created_at AS "createdAt",
                     u.updated_at AS "updatedAt"
                 FROM users u
@@ -144,7 +146,6 @@ async def update_customer_profile(
     user_id: UUID,
     full_name: str,
     phone: str | None,
-    tier: str,
     wallet_status: str,
 ) -> None:
     await session.execute(
@@ -153,7 +154,6 @@ async def update_customer_profile(
             UPDATE users
             SET full_name = :full_name,
                 phone = :phone,
-                loyalty_tier = :tier,
                 loyalty_wallet_status = :wallet_status,
                 profile = COALESCE(profile, '{}'::jsonb)
                     || jsonb_build_object(
@@ -172,7 +172,6 @@ async def update_customer_profile(
             "phone": phone,
             "profile_full_name": full_name,
             "profile_phone": phone,
-            "tier": tier,
             "wallet_status": wallet_status,
         },
     )
@@ -222,6 +221,8 @@ async def list_customer_orders(session: AsyncSession, user_id: UUID) -> list[dic
             SELECT
                 o.id::text,
                 o.order_code AS "orderCode",
+                o.order_purpose AS "orderType",
+                o.source_order_id::text AS "sourceOrderId",
                 o.status,
                 o.payment_method AS "paymentMethod",
                 o.payment_status AS "paymentStatus",
@@ -268,6 +269,39 @@ async def list_customer_loyalty_history(session: AsyncSession, user_id: UUID) ->
         {"user_id": user_id},
     )
     return [dict(row._mapping) for row in result]
+
+
+async def get_customer_loyalty_allocations(session: AsyncSession, user_id: UUID, transaction_id: UUID) -> list[dict]:
+    result = await session.execute(text("""
+        SELECT a.id::text, a.points, l.id::text AS "lotId", l.earned_at AS "earnedAt",
+               l.expires_at AS "expiresAt", l.original_points AS "originalPoints",
+               l.remaining_points AS "remainingPoints", l.source_transaction_id::text AS "sourceTransactionId"
+        FROM loyalty_point_allocations a
+        JOIN loyalty_point_lots l ON l.id = a.lot_id
+        JOIN loyalty_transactions tx ON tx.id = a.transaction_id
+        WHERE a.transaction_id = :transaction_id AND tx.user_id = :user_id
+        ORDER BY l.expires_at, l.earned_at
+    """), {"transaction_id": transaction_id, "user_id": user_id})
+    return [dict(row._mapping) for row in result]
+
+
+async def list_customer_loyalty_history_page(session: AsyncSession, user_id: UUID, page: int, limit: int) -> dict:
+    result = await session.execute(text("""
+        SELECT lt.id::text, lt.order_id::text AS "orderId", lt.type, lt.points,
+               lt.balance_before AS "balanceBefore", lt.balance_after AS "balanceAfter",
+               lt.reason, lt.metadata, actor.full_name AS "actorName", actor.email AS "actorEmail",
+               lt.created_at AS "createdAt", COUNT(*) OVER()::integer AS "totalCount"
+        FROM loyalty_transactions lt
+        LEFT JOIN users actor ON actor.id::text = lt.metadata->>'adjustedBy'
+        WHERE lt.user_id = :user_id
+        ORDER BY lt.created_at DESC, lt.id DESC
+        LIMIT :limit OFFSET :offset
+    """), {"user_id": user_id, "limit": limit, "offset": (page - 1) * limit})
+    rows = [dict(row._mapping) for row in result]
+    total = int(rows[0].pop("totalCount")) if rows else int(await session.scalar(text(
+        "SELECT COUNT(*) FROM loyalty_transactions WHERE user_id = :user_id"
+    ), {"user_id": user_id}) or 0)
+    return {"items": rows, "page": page, "limit": limit, "total": total}
 
 
 async def list_customer_notes(session: AsyncSession, user_id: UUID) -> list[dict]:

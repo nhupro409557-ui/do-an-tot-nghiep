@@ -1,4 +1,5 @@
-﻿import re
+import math
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -7,6 +8,9 @@ from pydantic import BaseModel, Field
 
 from app.api.dependencies import get_user_permissions
 from app.config import settings
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.infrastructure.database.session import get_session
 
 
 router = APIRouter(prefix="/uploads")
@@ -23,6 +27,7 @@ ALLOWED_DOCUMENT_TYPES = {
 }
 MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_VIDEO_UPLOAD_BYTES = 200 * 1024 * 1024
+MAX_VIDEO_DURATION_SECONDS = 300
 MAX_DOCUMENT_UPLOAD_BYTES = 20 * 1024 * 1024
 UPLOAD_FOLDER_PERMISSIONS = {
     "products": "product:create",
@@ -38,6 +43,7 @@ class PresignedUploadPayload(BaseModel):
     folder: str = "products"
     contentType: str
     size: int = Field(gt=0)
+    durationSeconds: float | None = Field(default=None, ge=0)
 
 
 def require_upload_permission(folder: str, permissions: set[str]) -> None:
@@ -46,11 +52,21 @@ def require_upload_permission(folder: str, permissions: set[str]) -> None:
         raise HTTPException(status_code=403, detail="Bạn không có quyền tải file cho khu vực này.")
 
 
+def validate_video_duration(content_type: str, duration_seconds: float | None) -> None:
+    if content_type not in ALLOWED_VIDEO_TYPES:
+        return
+    if duration_seconds is None or not math.isfinite(duration_seconds) or duration_seconds <= 0:
+        raise HTTPException(status_code=400, detail="Không đọc được thời lượng video.")
+    if duration_seconds > MAX_VIDEO_DURATION_SECONDS:
+        raise HTTPException(status_code=400, detail="Video không được dài quá 5 phút.")
+
+
 @router.post("/presigned-url")
 async def create_presigned_upload(
     payload: PresignedUploadPayload,
     request: Request,
     permissions: set[str] = Depends(get_user_permissions),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
     if payload.folder not in ALLOWED_UPLOAD_FOLDERS:
         raise HTTPException(status_code=400, detail="Invalid upload folder.")
@@ -61,6 +77,7 @@ async def create_presigned_upload(
     extension = allowed_types.get(payload.contentType)
     if not extension:
         raise HTTPException(status_code=400, detail="Unsupported file type.")
+    validate_video_duration(payload.contentType, payload.durationSeconds)
     if payload.folder == "content":
         if payload.contentType in ALLOWED_VIDEO_TYPES:
             max_size = min(MAX_VIDEO_UPLOAD_BYTES, 500 * 1024 * 1024)
@@ -77,10 +94,28 @@ async def create_presigned_upload(
     file_key = f"{payload.folder}/{uuid4().hex}{extension}"
     if not all([settings.s3_bucket, settings.s3_access_key_id, settings.s3_secret_access_key, settings.s3_public_base_url]):
         base_url = str(request.base_url).rstrip("/")
+        public_url = f"{base_url}/uploads/{file_key}"
+        await session.execute(
+            text(
+                """
+                INSERT INTO media_assets (id, public_url, file_key, folder, content_type, size_bytes, created_at)
+                VALUES (:id, :public_url, :file_key, :folder, :content_type, :size_bytes, NOW())
+                """
+            ),
+            {
+                "id": uuid4(),
+                "public_url": public_url,
+                "file_key": file_key,
+                "folder": payload.folder,
+                "content_type": payload.contentType,
+                "size_bytes": payload.size,
+            }
+        )
+        await session.commit()
         return {
             "uploadUrl": f"{base_url}/api/admin/uploads/local/{file_key}",
             "fileKey": file_key,
-            "publicUrl": f"{base_url}/uploads/{file_key}",
+            "publicUrl": public_url,
             "expiresIn": settings.s3_presign_expires_seconds,
             "storage": "local",
         }
@@ -100,10 +135,28 @@ async def create_presigned_upload(
         ExpiresIn=settings.s3_presign_expires_seconds,
         HttpMethod="PUT",
     )
+    public_url = f"{settings.s3_public_base_url.rstrip('/')}/{file_key}"
+    await session.execute(
+        text(
+            """
+            INSERT INTO media_assets (id, public_url, file_key, folder, content_type, size_bytes, created_at)
+            VALUES (:id, :public_url, :file_key, :folder, :content_type, :size_bytes, NOW())
+            """
+        ),
+        {
+            "id": uuid4(),
+            "public_url": public_url,
+            "file_key": file_key,
+            "folder": payload.folder,
+            "content_type": payload.contentType,
+            "size_bytes": payload.size,
+        }
+    )
+    await session.commit()
     return {
         "uploadUrl": upload_url,
         "fileKey": file_key,
-        "publicUrl": f"{settings.s3_public_base_url.rstrip('/')}/{file_key}",
+        "publicUrl": public_url,
         "expiresIn": settings.s3_presign_expires_seconds,
     }
 
@@ -114,6 +167,7 @@ async def upload_local_file(
     filename: str,
     request: Request,
     permissions: set[str] = Depends(get_user_permissions),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
     if folder not in ALLOWED_UPLOAD_FOLDERS:
         raise HTTPException(status_code=400, detail="Invalid upload folder.")
@@ -129,6 +183,12 @@ async def upload_local_file(
         raise HTTPException(status_code=400, detail="Invalid upload filename.")
     if not expected_extension or not safe_filename.endswith(expected_extension):
         raise HTTPException(status_code=400, detail="Unsupported file type.")
+    if content_type in ALLOWED_VIDEO_TYPES:
+        try:
+            duration_seconds = float(request.headers.get("x-media-duration-seconds", ""))
+        except ValueError:
+            duration_seconds = None
+        validate_video_duration(content_type, duration_seconds)
     body = await request.body()
     if folder == "inventory":
         max_size = MAX_DOCUMENT_UPLOAD_BYTES if content_type in ALLOWED_DOCUMENT_TYPES else MAX_IMAGE_UPLOAD_BYTES
@@ -141,4 +201,30 @@ async def upload_local_file(
     upload_dir = Path("uploads") / folder
     upload_dir.mkdir(parents=True, exist_ok=True)
     (upload_dir / safe_filename).write_bytes(body)
+    
+    base_url = str(request.base_url).rstrip("/")
+    public_url = f"{base_url}/uploads/{folder}/{safe_filename}"
+    file_key = f"{folder}/{safe_filename}"
+    exists = await session.scalar(
+        text("SELECT EXISTS(SELECT 1 FROM media_assets WHERE public_url = :public_url)"),
+        {"public_url": public_url}
+    )
+    if not exists:
+        await session.execute(
+            text(
+                """
+                INSERT INTO media_assets (id, public_url, file_key, folder, content_type, size_bytes, created_at)
+                VALUES (:id, :public_url, :file_key, :folder, :content_type, :size_bytes, NOW())
+                """
+            ),
+            {
+                "id": uuid4(),
+                "public_url": public_url,
+                "file_key": file_key,
+                "folder": folder,
+                "content_type": content_type,
+                "size_bytes": len(body),
+            }
+        )
+        await session.commit()
     return {"ok": True, "fileKey": f"{folder}/{safe_filename}"}

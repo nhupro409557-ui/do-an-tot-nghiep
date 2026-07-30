@@ -3,15 +3,22 @@ import { Activity, CheckCircle2, ClipboardList, Download, Eye, FileText, Plus, S
 import { AdminBadge, AdminPanel, AdminTable, Checkbox, EmptyState, Input, MetricCard, SearchBox, Select } from '../../admin-shell/components/AdminDashboardParts';
 import { adminOrdersApi } from '../services/adminOrdersApi';
 import AdminPosModal from './AdminPosModal';
+import { adminActorLabel } from '../../admin-audit/utils/adminActorLabel';
 
 const paymentStatusLabels: Record<string, string> = {
   UNPAID: 'Chưa thanh toán',
   PAID: 'Đã thanh toán',
+  PAID_LATE: 'Thanh toán trễ cần đối soát',
   FAILED: 'Thanh toán thất bại',
   PENDING: 'Đang chờ thanh toán',
   EXPIRED: 'Đã hết hạn',
   REFUNDED: 'Đã hoàn tiền',
   PENDING_PAYMENT: 'Chờ thanh toán',
+};
+
+const paymentMethodLabels: Record<string, string> = {
+  NO_PAYMENT: 'Không yêu cầu thanh toán',
+  COD: 'COD',
 };
 
 const carrierStatusLabels: Record<string, string> = {
@@ -51,6 +58,7 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
     compactId,
     currency,
     carrierQuote,
+    carrierFeedback,
     carrierShipmentBusy,
     cancelCarrierShipment,
     createCarrierShipment,
@@ -82,7 +90,10 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
   } = props;
 
   const canUpdateOrder = usePermission('order:update');
+  const canRefundOrder = usePermission('order:refund');
+  const canManageCarrier = usePermission('order:carrier');
   const [showPosModal, setShowPosModal] = React.useState(false);
+  const [statusUpdateError, setStatusUpdateError] = React.useState('');
   const refreshOrders = async () => {
     try {
       const data = await adminOrdersApi.listOrders();
@@ -149,6 +160,30 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
     }
   };
 
+  const handleStartPicking = () => {
+    if (typeof saveOrderDraft === 'function') {
+      void saveOrderDraft('PROCESSING');
+    }
+  };
+
+  const handleQuickStatusChange = async (order: any, nextStatus: string) => {
+    setStatusUpdateError('');
+    try {
+      if (nextStatus === 'CANCELLED') {
+        await openOrderPanel(order.id);
+        setOrderDraft((draft: any) => ({ ...draft, status: 'CANCELLED' }));
+        return;
+      }
+      if (['SHIPPED', 'RETURNING', 'RETURNED'].includes(nextStatus)) {
+        await openOrderPanel(order.id);
+        return;
+      }
+      await updateOrderStatus(order.id, nextStatus);
+    } catch (error) {
+      setStatusUpdateError(error instanceof Error ? error.message : 'Không thể cập nhật trạng thái đơn hàng.');
+    }
+  };
+
   return (
     <AdminPanel
       title="Quản lý đơn hàng"
@@ -163,6 +198,11 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
         </button>
       }
     >
+      {statusUpdateError && (
+        <div role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          {statusUpdateError}
+        </div>
+      )}
       <div className="mb-4 grid gap-3 md:grid-cols-4">
         <MetricCard label="Chờ xử lý" value={String(orders.filter((item: any) => item.status === 'PENDING').length)} tone="amber" />
         <MetricCard label="Đang giao" value={String(orders.filter((item: any) => item.status === 'SHIPPED').length)} tone="sky" />
@@ -180,6 +220,11 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
             <tr key={order.id}>
               <td className="px-4 py-3">
                 <div className="font-mono text-xs">{order.orderCode || compactId(order.id)}</div>
+                {order.orderType && order.orderType !== 'SALE' && (
+                  <div className="mt-1 inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[10px] font-bold text-cyan-700">
+                    {order.orderType === 'WARRANTY_REPLACEMENT' ? 'Giao máy bảo hành' : 'Giao máy đổi trả'}
+                  </div>
+                )}
                 <div className="mt-1 text-xs text-slate-500">{order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '-'}</div>
               </td>
               <td className="px-4 py-3">
@@ -205,8 +250,12 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
               </td>
               <td className="px-4 py-3 font-semibold text-red-600">{currency.format(Number(order.totalAmount || order.total_amount || 0))}</td>
               <td className="px-4 py-3">
-                <div>{order.paymentMethod || order.payment_method || '-'}</div>
-                <div className="mt-1 text-xs text-slate-500">{paymentStatusLabels[order.paymentStatus || order.payment_status || ''] || order.paymentStatus || order.payment_status || '-'}</div>
+                <div>{paymentMethodLabels[order.paymentMethod || order.payment_method || ''] || order.paymentMethod || order.payment_method || '-'}</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {order.paymentRequirement === 'NO_PAYMENT_REQUIRED'
+                    ? 'Không phát sinh thanh toán'
+                    : (paymentStatusLabels[order.paymentStatus || order.payment_status || ''] || order.paymentStatus || order.payment_status || '-')}
+                </div>
               </td>
               <td className="px-4 py-3">
                 <AdminBadge tone={order.status === 'COMPLETED' ? 'green' : order.status === 'CANCELLED' ? 'red' : 'yellow'}>
@@ -224,14 +273,11 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                   </button>
                   {canUpdateOrder && (
                     <select
+                      aria-label={`Cập nhật trạng thái đơn ${order.orderCode || compactId(order.id)}`}
                       className="h-9 rounded-md border border-slate-200 px-2 text-sm outline-none"
                       value={order.status}
                       onChange={(event) => {
-                        if (event.target.value === 'SHIPPED') {
-                          openOrderPanel(order.id);
-                          return;
-                        }
-                        updateOrderStatus(order.id, event.target.value);
+                        void handleQuickStatusChange(order, event.target.value);
                       }}
                     >
                       {(orderTransitionMap[order.status] || orderStatusOptions.map(([value]: [string]) => value)).map((value: string) => (
@@ -370,8 +416,8 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                           </div>
                           <div className="mt-3 grid gap-2 md:grid-cols-3">
                             <button type="button" onClick={() => quoteCarrierShipment(orderDraft.shippingProvider)} disabled={carrierShipmentBusy} className="inline-flex h-10 items-center justify-center rounded-md border border-slate-200 px-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">Tính phí vận chuyển</button>
-                            <button type="button" onClick={() => createCarrierShipment(orderDraft.shippingProvider)} disabled={carrierShipmentBusy} className="inline-flex h-10 items-center justify-center rounded-md bg-slate-900 px-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:opacity-50">Tạo vận đơn</button>
-                            <button type="button" onClick={() => cancelCarrierShipment('Hủy vận đơn.')} disabled={carrierShipmentBusy || !(selectedOrder.trackingCode || orderDraft.trackingCode)} className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 px-3 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-50">Huỷ vận đơn</button>
+                            {canManageCarrier && <button type="button" onClick={() => createCarrierShipment(orderDraft.shippingProvider)} disabled={carrierShipmentBusy} className="inline-flex h-10 items-center justify-center rounded-md bg-slate-900 px-3 text-sm font-bold text-white transition hover:bg-slate-800 disabled:opacity-50">Tạo vận đơn</button>}
+                            {canManageCarrier && <button type="button" onClick={() => cancelCarrierShipment('Hủy vận đơn.')} disabled={carrierShipmentBusy || !(selectedOrder.trackingCode || orderDraft.trackingCode)} className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 px-3 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-50">Huỷ vận đơn</button>}
                           </div>
                           {carrierQuote && (
                             <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -381,8 +427,13 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                               {carrierQuote.message && <div className="mt-1 text-xs text-slate-500">{carrierQuote.message}</div>}
                             </div>
                           )}
+                          {carrierFeedback && (
+                            <div className={`mt-3 rounded-md border p-3 text-sm font-semibold ${carrierFeedback.type === 'error' ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
+                              {carrierFeedback.message}
+                            </div>
+                          )}
                           <div className="mt-3 grid gap-2 md:grid-cols-2">
-                            {carrierEventOptions.map(([value, label]) => (
+                            {canManageCarrier && carrierEventOptions.map(([value, label]) => (
                               <button key={value} type="button" onClick={() => simulateCarrierEvent(value)} disabled={carrierShipmentBusy || !(selectedOrder.trackingCode || orderDraft.trackingCode)} className="inline-flex h-9 items-center justify-center rounded-md border border-slate-200 px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">
                                 {label}
                               </button>
@@ -424,10 +475,61 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                             </div>
                           )}
                           <div className="grid gap-3 md:grid-cols-2">
-                            <Select label="Trạng thái" value={orderDraft.status} onChange={(value: any) => setOrderDraft({ ...orderDraft, status: value })} options={(orderTransitionMap[selectedOrder.status] || [selectedOrder.status]).map((value: any) => [value, statusLabel[value] || value]) as [string, string][]} />
+                            <Select label="Trạng thái" value={orderDraft.status} onChange={(value: any) => setOrderDraft({ ...orderDraft, status: value })} options={(orderTransitionMap[selectedOrder.status] || [selectedOrder.status]).filter((value: any) => value !== 'REFUNDED' || canRefundOrder).map((value: any) => [value, statusLabel[value] || value]) as [string, string][]} />
                             <Input label="Nhân viên xử lý" value={orderDraft.assignedStaffName} onChange={(value: any) => setOrderDraft({ ...orderDraft, assignedStaffName: value })} />
                             <Input label="Đơn vị vận chuyển" value={orderDraft.shippingProvider} onChange={(value: any) => setOrderDraft({ ...orderDraft, shippingProvider: value })} />
                             <Input label="Mã vận đơn" value={orderDraft.trackingCode} onChange={(value: any) => setOrderDraft({ ...orderDraft, trackingCode: value })} />
+                            {(orderDraft.status === 'RETURNING' || orderDraft.status === 'RETURNED' || selectedOrder.status === 'RETURNING' || selectedOrder.status === 'RETURNED') && (
+                              <div className="md:col-span-2 rounded-md border border-amber-200 bg-amber-50 p-4">
+                                <div className="font-bold text-amber-950">Thông tin tiếp nhận hàng hoàn</div>
+                                <p className="mt-1 text-xs leading-5 text-amber-800">
+                                  Phân biệt đúng nguồn hoàn để hệ thống không tự nhập hàng khách đã sử dụng trở lại kho hàng mới.
+                                </p>
+                                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                  <Select
+                                    label="Nguồn hoàn hàng"
+                                    value={orderDraft.returnSource}
+                                    onChange={(value: any) => setOrderDraft({ ...orderDraft, returnSource: value })}
+                                    options={[
+                                      ['', 'Chọn nguồn hoàn'],
+                                      ['DELIVERY_REFUSED', 'Khách từ chối nhận hàng'],
+                                      ['CUSTOMER_RETURN', 'Khách đã nhận và chủ động trả'],
+                                    ]}
+                                  />
+                                  <Input label="Mã vận đơn hoàn" value={orderDraft.returnTrackingCode} onChange={(value: any) => setOrderDraft({ ...orderDraft, returnTrackingCode: value })} />
+                                  <div className="md:col-span-2">
+                                    <label className="block">
+                                      <span className="mb-1.5 block text-xs font-bold text-slate-600">Lý do hoàn hàng</span>
+                                      <textarea value={orderDraft.returnReason} onChange={(event) => setOrderDraft({ ...orderDraft, returnReason: event.target.value })} className="min-h-[88px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-500" placeholder="Bắt buộc khi bắt đầu hoàn hàng" />
+                                    </label>
+                                  </div>
+                                  {(orderDraft.status === 'RETURNED' || selectedOrder.status === 'RETURNED') && (
+                                    <Select
+                                      label="Tình trạng khi cửa hàng nhận lại"
+                                      value={orderDraft.returnReceivedCondition}
+                                      onChange={(value: any) => setOrderDraft({ ...orderDraft, returnReceivedCondition: value })}
+                                      options={[
+                                        ['', 'Chọn tình trạng tiếp nhận'],
+                                        ['SEALED', 'Còn nguyên niêm phong'],
+                                        ['OPENED', 'Đã mở hộp hoặc thiếu phụ kiện'],
+                                        ['DAMAGED', 'Có hư hỏng hoặc dấu hiệu bất thường'],
+                                      ]}
+                                    />
+                                  )}
+                                  {orderDraft.returnSource === 'CUSTOMER_RETURN' && (
+                                    <div className="md:col-span-2 rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+                                      Hàng khách đã nhận phải có hồ sơ đổi trả và QC trong mục Hậu mãi trước khi xác nhận cửa hàng đã nhận lại.
+                                      <button type="button" onClick={() => { setTab?.('afterSales'); setOrderPanelOpen(false); }} className="ml-2 font-bold text-sky-700 underline">Đi tới Hậu mãi →</button>
+                                    </div>
+                                  )}
+                                  {orderDraft.returnSource === 'DELIVERY_REFUSED' && orderDraft.returnReceivedCondition && orderDraft.returnReceivedCondition !== 'SEALED' && (
+                                    <div className="md:col-span-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+                                      Hàng không còn nguyên niêm phong sẽ không tự nhập lại kho bán được; cần chuyển sang kiểm tra và xử lý tồn kho riêng.
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                             <div className="md:col-span-2">
                               <label className="block">
                                 <span className="mb-1.5 block text-xs font-bold text-slate-500">Ghi chú nội bộ</span>
@@ -441,10 +543,15 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                               </label>
                             </div>
                             <div className="md:col-span-2">
-                              <Checkbox label="Đánh dấu hoàn tiền cho giao dịch online" checked={orderDraft.refundPayment} onChange={(checked: any) => setOrderDraft({ ...orderDraft, refundPayment: checked })} disabled={selectedOrder.paymentMethod === 'COD'} />
+                              {canRefundOrder && <Checkbox label="Shop đã hoàn tiền thủ công cho giao dịch online" checked={orderDraft.refundPayment} onChange={(checked: any) => setOrderDraft({ ...orderDraft, refundPayment: checked })} disabled={selectedOrder.paymentMethod === 'COD'} />}
                             </div>
                           </div>
                           <div className="mt-4 flex flex-wrap gap-2">
+                            {selectedOrder.status === 'PENDING' && (selectedOrder.paymentMethod === 'COD' || selectedOrder.paymentStatus === 'PAID') && (
+                              <button type="button" onClick={handleStartPicking} disabled={orderSaving} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-amber-500 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-amber-600 disabled:opacity-50">
+                                <ShoppingBag className="h-4 w-4" />Bắt đầu lấy hàng
+                              </button>
+                            )}
                             <button type="button" onClick={handleSaveOrder} disabled={orderSaving} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-red-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50"><CheckCircle2 className="h-4 w-4" />Lưu cập nhật</button>
                             <button type="button" onClick={() => printOrderDocument(selectedOrder, 'invoice')} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"><Download className="h-4 w-4" />In hóa đơn</button>
                             <button type="button" onClick={() => printOrderDocument(selectedOrder, 'delivery')} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"><FileText className="h-4 w-4" />In phiếu giao hàng</button>
@@ -482,7 +589,8 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                                 </div>
                                 <div className="text-xs text-slate-500">{log.createdAt ? new Date(log.createdAt).toLocaleString('vi-VN') : '-'}</div>
                               </div>
-                              <div className="mt-1 text-xs font-semibold text-slate-500">Thực hiện bởi: {log.changedBy || 'Hệ thống'}</div>
+                              <div className="mt-1 text-xs font-semibold text-indigo-700">Thực hiện bởi: {adminActorLabel(log).name}{adminActorLabel(log).role ? ` · ${adminActorLabel(log).role}` : ''}</div>
+                              {adminActorLabel(log).email && <div className="mt-1 text-xs text-slate-500">{adminActorLabel(log).email}</div>}
                               {log.note && <div className="mt-2 text-sm text-slate-600">{log.note}</div>}
                             </div>
                           ))}

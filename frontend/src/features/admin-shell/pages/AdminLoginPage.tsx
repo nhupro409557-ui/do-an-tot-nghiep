@@ -127,7 +127,7 @@ export default function AdminLoginPage() {
             <form onSubmit={handleVerifyMfa} className="space-y-5">
               {challenge.requiresMfaSetup && (
                 <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-sm font-bold text-slate-800">Secret MFA</div>
+                  <div className="text-sm font-bold text-slate-800">Mã bí mật MFA</div>
                   <div className="mt-2 break-all rounded-md bg-white px-3 py-2 font-mono text-sm text-slate-700">{challenge.mfaSecret}</div>
                   {challenge.otpauthUrl && <div className="mt-2 break-all text-xs text-slate-500">{challenge.otpauthUrl}</div>}
                 </div>

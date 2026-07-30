@@ -5,6 +5,7 @@ import type { ProfileForm } from '../types/accountDashboardTypes';
 const emptyProfileForm: ProfileForm = {
   displayName: '',
   birthDate: '',
+  birthDateLocked: false,
   gender: '',
   phone: '',
   avatarUrl: '',
@@ -23,6 +24,7 @@ export function useAccountProfile(user: any, userData: any) {
     setProfileForm({
       displayName: userData.displayName || user.displayName || '',
       birthDate: userData.birthDate || '',
+      birthDateLocked: Boolean(userData.birthDateLocked),
       gender: userData.gender || '',
       phone: userData.phone || '',
       avatarUrl: userData.avatarUrl || '',
@@ -35,8 +37,9 @@ export function useAccountProfile(user: any, userData: any) {
   const handleProfileSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!user) return;
+    const { birthDateLocked: _, ...editableProfile } = profileForm;
     updateUserProfile(user.uid, {
-      ...profileForm,
+      ...editableProfile,
       displayName: profileForm.displayName.trim(),
       phone: profileForm.phone.trim(),
       verificationStatus: profileForm.verificationRole ? 'PENDING' : 'NONE',

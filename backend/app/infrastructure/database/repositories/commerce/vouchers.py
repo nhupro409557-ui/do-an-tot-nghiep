@@ -17,6 +17,7 @@ from app.infrastructure.database.models import (
     User,
     UserVoucher,
     Voucher,
+    VoucherUsage,
 )
 
 
@@ -32,6 +33,10 @@ async def get_user_created_at(session: AsyncSession, user_id: UUID) -> datetime 
 
 async def get_voucher_by_id(session: AsyncSession, voucher_id: UUID) -> Voucher | None:
     return await session.scalar(select(Voucher).where(Voucher.id == voucher_id))
+
+
+async def get_voucher_by_id_for_update(session: AsyncSession, voucher_id: UUID) -> Voucher | None:
+    return await session.scalar(select(Voucher).where(Voucher.id == voucher_id).with_for_update())
 
 
 async def get_active_voucher(session: AsyncSession, code: str) -> Voucher | None:
@@ -126,23 +131,157 @@ def save_model(session: AsyncSession, item) -> None:
 
 
 async def count_user_orders(session: AsyncSession, user_id: UUID) -> int:
-    result = await session.execute(text("SELECT COUNT(*) FROM orders WHERE user_id = :user_id"), {"user_id": user_id})
+    result = await session.execute(
+        text("SELECT COUNT(*) FROM orders WHERE user_id = :user_id AND status = 'COMPLETED'"),
+        {"user_id": user_id},
+    )
     return int(result.scalar() or 0)
 
 
 async def count_user_voucher_usage(session: AsyncSession, *, user_id: UUID, code: str) -> int:
     result = await session.execute(
-        text("SELECT COUNT(*) FROM orders WHERE user_id = :user_id AND voucher_code = :code AND status NOT IN ('CANCELLED', 'PAYMENT_FAILED', 'REFUNDED')"),
+        text(
+            """
+            SELECT COUNT(*) 
+            FROM voucher_usages vu
+            JOIN vouchers v ON v.id = vu.voucher_id
+            WHERE vu.user_id = :user_id 
+              AND v.code = :code 
+              AND vu.status IN ('RESERVED', 'USED')
+            """
+        ),
         {"user_id": user_id, "code": code.upper()},
     )
     return int(result.scalar() or 0)
 
 
 async def count_voucher_usage_by_identity(session: AsyncSession, *, column: str, value: str, code: str) -> int:
-    if column not in {"voucher_device_id", "voucher_ip_address"}:
+    if column not in {"device_id", "ip_address", "voucher_device_id", "voucher_ip_address"}:
         return 0
+    db_column = "device_id" if column in {"device_id", "voucher_device_id"} else "ip_address"
     result = await session.execute(
-        text(f"SELECT COUNT(*) FROM orders WHERE voucher_code = :code AND {column} = :value AND status NOT IN ('CANCELLED', 'PAYMENT_FAILED', 'REFUNDED')"),
+        text(
+            f"""
+            SELECT COUNT(*) 
+            FROM voucher_usages vu
+            JOIN vouchers v ON v.id = vu.voucher_id
+            WHERE v.code = :code 
+              AND vu.{db_column} = :value 
+              AND vu.status IN ('RESERVED', 'USED')
+            """
+        ),
         {"code": code.upper(), "value": value},
     )
     return int(result.scalar() or 0)
+
+
+async def get_products_category_and_brand_map(
+    session: AsyncSession,
+    product_ids: list[UUID],
+) -> dict[UUID, tuple[set[str], str | None, str | None]]:
+    if not product_ids:
+        return {}
+
+    result = await session.execute(
+        select(
+            Product.id,
+            Product.category_id,
+            Product.subcategory_id,
+            Product.brand_id,
+        ).where(Product.id.in_(product_ids))
+    )
+
+    return {
+        row.id: (
+            {
+                str(value)
+                for value in (row.category_id, row.subcategory_id)
+                if value
+            },
+            str(row.brand_id) if row.brand_id else None,
+            str(row.subcategory_id or row.category_id) if (row.subcategory_id or row.category_id) else None,
+        )
+        for row in result.all()
+    }
+
+
+
+async def get_reserved_voucher_usage(session: AsyncSession, order_id: UUID) -> VoucherUsage | None:
+    return await session.scalar(
+        select(VoucherUsage)
+        .where(VoucherUsage.order_id == order_id)
+        .where(VoucherUsage.status == "RESERVED")
+    )
+
+
+async def get_voucher_usage_for_update(session: AsyncSession, order_id: UUID) -> VoucherUsage | None:
+    return await session.scalar(
+        select(VoucherUsage)
+        .where(VoucherUsage.order_id == order_id)
+        .with_for_update()
+    )
+
+
+async def save_voucher_usage(session: AsyncSession, usage: VoucherUsage) -> None:
+    session.add(usage)
+
+
+async def upsert_voucher_usage(
+    session: AsyncSession,
+    *,
+    id: UUID,
+    order_id: UUID,
+    voucher_id: UUID,
+    user_id: UUID | None,
+    discount_amount: Decimal | float,
+    status: str,
+    device_id: str | None = None,
+    ip_address: str | None = None,
+) -> None:
+    await session.execute(
+        text(
+            """
+            INSERT INTO voucher_usages (id, order_id, voucher_id, user_id, discount_amount, status, device_id, ip_address, created_at, updated_at)
+            VALUES (:id, :order_id, :voucher_id, :user_id, :discount_amount, :status, :device_id, :ip_address, NOW(), NOW())
+            ON CONFLICT (order_id, voucher_id)
+            DO UPDATE SET status = EXCLUDED.status, updated_at = NOW()
+            """
+        ),
+        {
+            "id": id,
+            "order_id": order_id,
+            "voucher_id": voucher_id,
+            "user_id": user_id,
+            "discount_amount": discount_amount,
+            "status": status,
+            "device_id": device_id,
+            "ip_address": ip_address,
+        },
+    )
+
+
+async def increment_voucher_usage_atomic(
+    session: AsyncSession, 
+    voucher_id: UUID, 
+    discount_amount: Decimal
+) -> bool:
+    from sqlalchemy import update
+    stmt = (
+        update(Voucher)
+        .where(Voucher.id == voucher_id)
+        .where(Voucher.status == "ACTIVE")
+        .where(
+            (Voucher.usage_limit == 0) | 
+            (Voucher.used_count < Voucher.usage_limit)
+        )
+        .where(
+            (Voucher.total_budget_cap == None) | 
+            (Voucher.total_discount_used + discount_amount <= Voucher.total_budget_cap)
+        )
+        .values(
+            used_count=Voucher.used_count + 1,
+            total_discount_used=Voucher.total_discount_used + discount_amount
+        )
+    )
+    result = await session.execute(stmt)
+    return result.rowcount > 0

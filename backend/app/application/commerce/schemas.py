@@ -39,6 +39,7 @@ class ShippingInfo(BaseModel):
     recipient_phone: str = Field(min_length=8, max_length=30)
     recipient_email: str | None = Field(default=None, max_length=255)
     shipping_address: str = Field(min_length=10, max_length=1000)
+    provider: str | None = Field(default="MOCK_GHN", max_length=120)
     lat: float | None = None
     lng: float | None = None
 
@@ -50,7 +51,6 @@ class ShippingQuoteRequest(BaseModel):
     provider: str | None = Field(default="MOCK_GHN", max_length=120)
     lat: float | None = None
     lng: float | None = None
-
 
 
 class ShippingQuoteResponse(BaseModel):
@@ -87,31 +87,6 @@ class CarrierShipmentResponse(BaseModel):
     tracking_code: str | None = None
     carrier_status: str
     label_url: str | None = None
-    shipping_fee: Decimal = Field(ge=0)
-    estimated_days: int = Field(ge=1)
-    message: str = ""
-    mode: str = "mock"
-
-
-class VoucherValidationRequest(BaseModel):
-    code: str = Field(min_length=2, max_length=50)
-    subtotal_amount: Decimal = Field(ge=0)
-    user_id: UUID | None = None
-    user_tier: str | None = None
-    abandoned_cart_recovery: bool = False
-    device_id: str | None = Field(default=None, max_length=120)
-    ip_address: str | None = Field(default=None, max_length=80)
-    payment_method: str | None = Field(default=None, pattern="^(VNPAY|MOMO|ZALOPAY|SEPAY|CREDIT_CARD|COD)$")
-    channel: str | None = Field(default=None, max_length=40)
-    product_ids: list[str] = Field(default_factory=list, max_length=99)
-    category_ids: list[str] = Field(default_factory=list, max_length=99)
-    brand_ids: list[str] = Field(default_factory=list, max_length=99)
-
-
-class VoucherValidationResponse(BaseModel):
-    code: str
-    valid: bool
-    discount_amount: Decimal = Field(ge=0)
     message: str
     error_code: str | None = None
     metadata: dict = Field(default_factory=dict)
@@ -135,19 +110,60 @@ class UserVoucherResponse(BaseModel):
     discount_amount: Decimal = Field(ge=0)
     min_order_value: Decimal = Field(ge=0)
     max_discount: Decimal | None = Field(default=None, ge=0)
+    display_title: str | None = None
+    display_description: str | None = None
+    public_terms: str | None = None
+    audience_type: str | None = None
+    applicable_payment_methods: list[str] = Field(default_factory=list)
+    stackable: bool = False
+
+
+class VoucherItemPayload(BaseModel):
+    productId: str
+    categoryId: str | None = None
+    brandId: str | None = None
+    price: Decimal = Field(ge=0)
+    quantity: int = Field(gt=0)
+    isFlashSale: bool = False
+
+
+class VoucherValidationRequest(BaseModel):
+    code: str = Field(min_length=2, max_length=50)
+    subtotal_amount: Decimal = Field(ge=0)
+    user_id: UUID | None = None
+    user_tier: str | None = None
+    abandoned_cart_recovery: bool = False
+    device_id: str | None = Field(default=None, max_length=120)
+    ip_address: str | None = Field(default=None, max_length=80)
+    payment_method: str | None = Field(default=None, pattern="^(VNPAY|MOMO|ZALOPAY|SEPAY|CREDIT_CARD|COD)$")
+    channel: str | None = Field(default=None, max_length=40)
+    product_ids: list[str] = Field(default_factory=list, max_length=99)
+    category_ids: list[str] = Field(default_factory=list, max_length=99)
+    brand_ids: list[str] = Field(default_factory=list, max_length=99)
+    items: list[VoucherItemPayload] | None = None
+
+
+class VoucherValidationResponse(BaseModel):
+    code: str
+    valid: bool
+    discount_amount: Decimal = Field(ge=0)
+    message: str
+    error_code: str | None = None
+    metadata: dict = Field(default_factory=dict)
 
 
 class CreateOrderRequest(BaseModel):
     user_id: UUID | None = None
     items: list[CheckoutItem] = Field(min_length=1, max_length=99)
     shipping: ShippingInfo
-    payment_method: str = Field(pattern="^(VNPAY|MOMO|ZALOPAY|SEPAY|CREDIT_CARD|COD)$")
+    payment_method: str = Field(pattern="^(MOMO|ZALOPAY|SEPAY|COD)$")
     voucher_code: str | None = Field(default=None, max_length=50)
     voucher_device_id: str | None = Field(default=None, max_length=120)
     voucher_ip_address: str | None = Field(default=None, max_length=80)
     loyalty_points_used: int = Field(default=0, ge=0)
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=120)
     is_offline: bool = Field(default=False)
+    cash_received: Decimal | None = Field(default=None, ge=0)
     internal_note: str | None = Field(default=None, max_length=1000)
 
 
@@ -185,6 +201,11 @@ class UpdateOrderStatusRequest(BaseModel):
     status: str = Field(pattern="^(PENDING|CONFIRMED|PAID|PROCESSING|SHIPPED|COMPLETED|CANCELLED|REFUNDED|PAYMENT_FAILED|RETURNING|RETURNED)$")
 
 
+class CancelOrderRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+
 class OrderIssueAllocationPayload(BaseModel):
     order_item_id: UUID
     location_id: UUID
@@ -198,6 +219,10 @@ class AdminUpdateOrderRequest(BaseModel):
     cancellation_reason: str | None = Field(default=None, max_length=1000)
     shipping_provider: str | None = Field(default=None, max_length=120)
     tracking_code: str | None = Field(default=None, max_length=120)
+    return_source: str | None = Field(default=None, pattern="^(DELIVERY_REFUSED|CUSTOMER_RETURN)$")
+    return_reason: str | None = Field(default=None, max_length=1000)
+    return_tracking_code: str | None = Field(default=None, max_length=120)
+    return_received_condition: str | None = Field(default=None, pattern="^(SEALED|OPENED|DAMAGED)$")
     refund_payment: bool = False
     changed_by: str | None = Field(default=None, max_length=255)
     issue_allocations: list[OrderIssueAllocationPayload] = Field(default_factory=list, max_length=200)

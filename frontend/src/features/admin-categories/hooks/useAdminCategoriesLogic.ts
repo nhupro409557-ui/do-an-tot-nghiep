@@ -1,4 +1,4 @@
-import { useState, useMemo, type FormEvent } from 'react';
+import { useEffect, useState, useMemo, type FormEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { categoryApi } from '../../../services/categoryApi';
 import { notifyAdmin } from '../../admin-shell/utils/adminNotice';
@@ -25,6 +25,137 @@ const defaultInventoryPolicy = {
   packageHeightCm: 6,
   packingRatio: 0.75,
 };
+
+const defaultSpecFieldUnits: Record<string, string> = {
+  ram: 'GB',
+  rom: 'GB/TB',
+  storage: 'GB/TB',
+  screen_size: 'inch',
+  refresh_rate: 'Hz',
+  brightness: 'nits',
+  rear_camera: 'MP',
+  front_camera: 'MP',
+  battery: 'mAh',
+  charging: 'W',
+  power: 'W',
+  capacity: 'mAh',
+  dimensions: 'mm',
+  weight: 'g',
+  case_size: 'mm',
+  zoom: 'x',
+  field_of_view: 'độ',
+};
+
+const defaultSpecFieldOptions: Record<string, string> = {
+  ram: '4, 6, 8, 12, 16',
+  rom: '64 GB, 128 GB, 256 GB, 512 GB, 1 TB',
+  storage: '64 GB, 128 GB, 256 GB, 512 GB, 1 TB',
+  screen_size: '6.1, 6.3, 6.5, 6.7, 6.8, 6.9',
+  refresh_rate: '60, 90, 120, 144',
+  brightness: '1000, 1600, 2000, 2600, 3000',
+  rear_camera: '12, 32, 48, 50, 64, 108, 200',
+  front_camera: '8, 12, 16, 32, 50',
+  battery: '4000, 4500, 5000, 5500, 6000',
+  charging: '20, 25, 33, 45, 67, 80, 90, 120',
+  power: '15, 20, 25, 30, 45, 65, 100, 140, 200, 240',
+  capacity: '5000, 10000, 20000, 27650',
+  dimensions: '150 x 72 x 8, 160 x 75 x 8, 163 x 78 x 9',
+  weight: '150, 180, 200, 220, 240',
+  case_size: '40, 41, 43, 44, 45, 49',
+  zoom: '2, 3, 5, 10, 20, 30',
+  field_of_view: '90, 120, 130, 155, 170',
+};
+
+const categorySpecUnitOverrides: Record<string, Record<string, string>> = {
+  laptops: {
+    storage: 'GB/TB',
+    battery: 'Wh',
+    weight: 'kg',
+  },
+  cameras: {
+    resolution: 'MP',
+    storage: 'GB/TB',
+  },
+};
+
+const categorySpecOptionOverrides: Record<string, Record<string, string>> = {
+  laptops: {
+    screen_size: '13.3, 14, 15.6, 16, 17.3',
+    refresh_rate: '60, 90, 120, 144, 165, 240',
+    ram: '8, 16, 24, 32, 64',
+    storage: '256GB SSD, 512GB SSD, 1TB SSD, 2TB SSD',
+    battery: '40, 50, 60, 70, 80, 100',
+    dimensions: '304 x 215 x 16, 356 x 250 x 20',
+    weight: '1.2, 1.4, 1.6, 2.0, 2.5',
+  },
+  tablets: {
+    screen_size: '8.7, 10.9, 11, 12.4, 12.9, 13',
+    storage: '64 GB, 128 GB, 256 GB, 512 GB, 1 TB, 2 TB',
+    battery: '5000, 7040, 8000, 10000, 11200',
+    weight: '450, 500, 600, 700',
+  },
+  wearables: {
+    screen_size: '1.2, 1.3, 1.4, 1.5, 1.9',
+    storage: '8, 16, 32, 64',
+    weight: '30, 40, 50, 60, 70',
+  },
+  cameras: {
+    resolution: '2, 3, 4, 12, 20, 24, 33, 45',
+    storage: 'microSD 32GB, microSD 64GB, microSD 128GB, SD 64GB, SD 128GB',
+    battery: '1000, 1720, 1800, 2200, 3000',
+    dimensions: '60 x 40 x 30, 100 x 70 x 60, 130 x 100 x 80',
+    weight: '150, 250, 500, 700',
+  },
+  accessories: {
+    dimensions: 'Dài 1m, Dài 1.2m, Dài 1.8m, Dài 2m, Nhỏ gọn',
+    weight: '50, 100, 200, 300, 500',
+  },
+};
+
+function defaultSpecFieldUnit(field: Partial<SpecField>, categorySlug?: string) {
+  const key = String(field.key || '').trim().toLowerCase();
+  if (!key) return '';
+  const slug = String(categorySlug || '').trim().toLowerCase();
+  return categorySpecUnitOverrides[slug]?.[key] || defaultSpecFieldUnits[key] || '';
+}
+
+function defaultSpecFieldOptionsFor(field: Partial<SpecField>, categorySlug?: string) {
+  const key = String(field.key || '').trim().toLowerCase();
+  if (!key) return '';
+  const slug = String(categorySlug || '').trim().toLowerCase();
+  return categorySpecOptionOverrides[slug]?.[key] || defaultSpecFieldOptions[key] || '';
+}
+
+function withDefaultSpecFieldConfig(fields: SpecField[] = [], categorySlug?: string) {
+  let changed = false;
+  const specFields = fields.map((field) => {
+    const patch: Partial<SpecField> = {};
+    if (!String(field.unit || '').trim()) {
+      const unit = defaultSpecFieldUnit(field, categorySlug);
+      if (unit) patch.unit = unit;
+    }
+    if (!String(field.options || '').trim()) {
+      const options = defaultSpecFieldOptionsFor(field, categorySlug);
+      if (options) patch.options = options;
+    }
+    if (!Object.keys(patch).length) return field;
+    changed = true;
+    return { ...field, ...patch };
+  });
+  return changed ? specFields : fields;
+}
+
+function duplicateSpecFieldKey(fields: SpecField[] = []) {
+  const seen = new Set<string>();
+  for (const field of fields) {
+    const key = String(field.key || '').trim();
+    if (!key) continue;
+    const normalizedKey = key.toLowerCase();
+    if (seen.has(normalizedKey)) return key;
+    seen.add(normalizedKey);
+  }
+  return '';
+}
 
 export function useAdminCategoriesLogic({
   query,
@@ -102,6 +233,14 @@ export function useAdminCategoriesLogic({
     return categories.some((category) => category.id !== editingCategoryId && String(category.slug || '').toLowerCase() === slug);
   }, [categories, categoryForm.slug, editingCategoryId]);
 
+  useEffect(() => {
+    if (!editingCategoryId) return;
+    setCategoryForm((prev) => {
+      const specFields = withDefaultSpecFieldConfig(prev.specFields, editingCategory?.slug || prev.slug);
+      return specFields === prev.specFields ? prev : { ...prev, specFields };
+    });
+  }, [editingCategoryId, editingCategory?.slug]);
+
   const derivedCategoryFilters = useMemo(() => {
     const fromAttributes = categoryForm.specFields
       .filter((field) => field.key && field.isFilterable)
@@ -151,6 +290,11 @@ export function useAdminCategoriesLogic({
     const currentEditingCategoryId = editingCategoryId;
     if (categorySlugTaken) {
       window.alert('Slug này đã tồn tại. Vui lòng chọn slug khác.');
+      return;
+    }
+    const duplicatedSpecKey = duplicateSpecFieldKey(categoryForm.specFields);
+    if (duplicatedSpecKey) {
+      window.alert(`Mã trường thông số '${duplicatedSpecKey}' bị trùng. Vui lòng giữ mỗi key một lần.`);
       return;
     }
     const payload = {
@@ -236,7 +380,7 @@ export function useAdminCategoriesLogic({
       order: Number(category.order || 0),
       isActive: category.isActive !== false,
       status: category.status || (category.isActive === false ? 'INACTIVE' : 'ACTIVE'),
-      specFields: category.ownSpecFields || category.specFields || [],
+      specFields: withDefaultSpecFieldConfig(category.ownSpecFields || category.specFields || [], category.slug),
       filterConfig: category.ownFilterConfig || category.filterConfig || [],
       inventoryPolicy: { ...defaultInventoryPolicy, ...(category.inventoryPolicy || {}) },
       warrantyPolicy: category.warrantyPolicy || { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 },
@@ -268,7 +412,7 @@ export function useAdminCategoriesLogic({
       order: Number(category.order || 0),
       isActive: false,
       status: 'INACTIVE',
-      specFields: category.ownSpecFields || category.specFields || [],
+      specFields: withDefaultSpecFieldConfig(category.ownSpecFields || category.specFields || [], category.slug),
       filterConfig: category.ownFilterConfig || category.filterConfig || [],
       inventoryPolicy: { ...defaultInventoryPolicy, ...(category.inventoryPolicy || {}) },
       warrantyPolicy: category.warrantyPolicy || { inheritWarrantyPolicy: true, hasWarranty: false, warrantyMonths: 0, allowOneForOne: false, oneForOneDays: 0 },
@@ -341,12 +485,27 @@ export function useAdminCategoriesLogic({
   function addSpecField() {
     setCategoryForm((prev) => ({
       ...prev,
-      specFields: [...prev.specFields, { key: '', label: '', group: 'Thông số chung', type: 'text', required: false, variant: false, isFilterable: false, filterType: 'checkbox', filterEnabled: true }],
+      specFields: [...prev.specFields, { key: '', label: '', group: 'Thông số chung', type: 'text', required: false, variant: false, isFilterable: false, filterType: 'checkbox', filterEnabled: true, unit: '', options: '' }],
     }));
   }
 
   function patchSpecField(index: number, patch: Partial<SpecField>) {
-    setCategoryForm((prev) => ({ ...prev, specFields: prev.specFields.map((item, i) => (i === index ? { ...item, ...patch } : item)) }));
+    setCategoryForm((prev) => ({
+      ...prev,
+      specFields: prev.specFields.map((item, i) => {
+        if (i !== index) return item;
+        const next = { ...item, ...patch };
+        if ('key' in patch) {
+          const defaultPatch: Partial<SpecField> = {};
+          const unit = defaultSpecFieldUnit(next, editingCategory?.slug || prev.slug);
+          const options = defaultSpecFieldOptionsFor(next, editingCategory?.slug || prev.slug);
+          if (!String(next.unit || '').trim() && unit) defaultPatch.unit = unit;
+          if (!String(next.options || '').trim() && options) defaultPatch.options = options;
+          return Object.keys(defaultPatch).length ? { ...next, ...defaultPatch } : next;
+        }
+        return next;
+      }),
+    }));
   }
 
   function addCategoryFilter() {

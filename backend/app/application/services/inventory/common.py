@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services import document_export_service
 from app.application.services.product_helper_service import persisted_sales_config, sync_parent_price_from_variants
-from app.api.schemas.admin import InventoryAdjustmentPayload, InventoryAdjustmentRequestPayload, InventoryAdjustmentRequestStatusPayload, InventoryCostAdjustmentPayload, InventoryCostAdjustmentStatusPayload, InventoryDisposalPayload, InventoryDisposalStatusPayload, InventoryIdentifierEditDecisionPayload, InventoryIdentifierEditRequestPayload, InventoryIdentifierLocationRequestPayload, InventoryInternalHoldPayload, InventoryInternalHoldStatusPayload, InventoryLocationPayload, InventoryLocationStatusPayload, InventoryReceiptAttachmentDecisionPayload, InventoryReceiptAttachmentsPayload, InventoryReceiptImeiPayload, InventoryReceiptPayload, InventoryReceiptQualityPayload, InventoryReceiptReversePayload, InventorySettingsPayload, InventoryStockCountPayload, InventoryStockCountStatusPayload, InventoryTransferPayload, InventoryTransferStatusPayload, VariantInventoryPayload
+from app.api.schemas.admin import InventoryAdjustmentPayload, InventoryAdjustmentRequestPayload, InventoryAdjustmentRequestStatusPayload, InventoryCostAdjustmentPayload, InventoryCostAdjustmentStatusPayload, InventoryDisposalPayload, InventoryDisposalStatusPayload, InventoryIdentifierEditDecisionPayload, InventoryIdentifierEditRequestPayload, InventoryIdentifierLocationRequestPayload, InventoryInternalHoldPayload, InventoryInternalHoldStatusPayload, InventoryLegacyPutawayPayload, InventoryLocationPayload, InventoryLocationStatusPayload, InventoryReceiptAttachmentDecisionPayload, InventoryReceiptAttachmentsPayload, InventoryReceiptImeiPayload, InventoryReceiptPayload, InventoryReceiptQualityPayload, InventoryReceiptReversePayload, InventorySettingsPayload, InventoryStockCountPayload, InventoryStockCountStatusPayload, InventoryTransferPayload, InventoryTransferStatusPayload, VariantInventoryPayload
 from app.infrastructure.database.repositories import inventory_repo
 
 IMEI_PATTERN = re.compile(r"^[0-9]{15}$")
@@ -80,6 +80,7 @@ def _receipt_metadata_from_payload(payload: InventoryReceiptPayload) -> dict:
             raise HTTPException(status_code=400, detail="Biên bản sai lệch phải có mô tả.")
         discrepancies.append(
             {
+                "lineId": str(item.lineId) if item.lineId else None,
                 "type": item.type,
                 "description": description,
                 "quantity": item.quantity,
@@ -88,12 +89,15 @@ def _receipt_metadata_from_payload(payload: InventoryReceiptPayload) -> dict:
         )
     return {
         "supplierId": str(payload.supplierId) if payload.supplierId else None,
+        "purchaseOrderId": str(payload.purchaseOrderId) if payload.purchaseOrderId else None,
         "invoiceNumber": (payload.invoiceNumber or "").strip() or None,
         "invoiceDate": payload.invoiceDate.isoformat() if payload.invoiceDate else None,
         "paymentMode": str(payload.paymentMode or "DEBT").strip().upper(),
         "paymentTermDays": int(payload.paymentTermDays or 0),
         "dueDate": payload.dueDate.isoformat() if payload.dueDate else None,
         "paidAmount": float(payload.paidAmount or 0),
+        "discountAmount": float(payload.discountAmount or 0),
+        "shippingFee": float(payload.shippingFee or 0),
         "payableNote": (payload.payableNote or "").strip() or None,
         "qualityStatus": quality_status,
         "qualityLabel": QUALITY_STATUS_LABELS[quality_status],
@@ -177,15 +181,6 @@ async def _resolve_receipt_line_location(session: AsyncSession, line, fallback_l
     if storage_location_name and storage_location_name != fallback.get("name"):
         return {**fallback, "name": storage_location_name}
     return fallback
-
-
-def _same_actor(left: UUID | str | None, right: UUID | str | None) -> bool:
-    return bool(left and right and str(left) == str(right))
-
-
-def _ensure_receipt_approval_allowed(receipt: dict, current_user_id: UUID | None) -> None:
-    if _same_actor(receipt.get("created_by"), current_user_id):
-        raise HTTPException(status_code=403, detail="Người lập phiếu không được tự duyệt phiếu nhập kho.")
 
 
 def _ensure_super_admin_inventory_action(role_code: str | None, action_label: str) -> None:
@@ -277,8 +272,12 @@ async def _ensure_location_has_receipt_capacity(
             ),
         )
 
-    # Check allowMixedSku
     loc = await inventory_repo.get_inventory_location_by_id(session, location_id)
+    if loc and str(loc.get("status") or "").upper() != "ACTIVE":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dòng {line_index}: kệ nhận {loc.get('code') or 'đã chọn'} đã bị khóa (INACTIVE), không thể nhận thêm hàng."
+        )
     if loc and not loc.get("allowMixedSku") and product_id is not None:
         query = text(
             """
@@ -356,16 +355,18 @@ def _inventory_row_tracks_serial_number(row: dict) -> bool:
 
 
 def _shape_inventory_level_row(row: dict) -> dict:
-    stock_quantity = int(row.get("variantStock") if row.get("variantId") else row.get("productStock") or 0)
+    catalog_stock = int(row.get("variantStock") if row.get("variantId") else row.get("productStock") or 0)
+    stock_quantity = int(row.get("levelPhysicalStock") or 0)
+    sellable_quantity = int(row.get("levelSellableStock") or 0)
     reservation_reserved = int(row.get("reservationReservedQuantity") or 0)
-    imei_reserved = int(row.get("imeiReservedQuantity") or 0)
-    serial_reserved = int(row.get("serialReservedQuantity") or 0)
-    reserved_quantity = max(reservation_reserved, imei_reserved, serial_reserved)
-    available_quantity = max(stock_quantity - reserved_quantity, 0)
     sales_config = row.get("salesConfig") if isinstance(row.get("salesConfig"), dict) else {}
     minimum_stock = max(0, int(sales_config.get("minimumStock") or 0))
     tracks_imei = _inventory_row_tracks_imei(row)
     tracks_serial_number = _inventory_row_tracks_serial_number(row)
+    imei_reserved = int(row.get("imeiReservedQuantity") or 0) if tracks_imei else 0
+    serial_reserved = int(row.get("serialReservedQuantity") or 0) if tracks_serial_number else 0
+    reserved_quantity = max(reservation_reserved, imei_reserved, serial_reserved)
+    available_quantity = max(sellable_quantity - reserved_quantity, 0)
     stock_state = "OUT_OF_STOCK"
     if available_quantity > 0:
         stock_state = "AVAILABLE"
@@ -383,6 +384,8 @@ def _shape_inventory_level_row(row: dict) -> dict:
         "variantConfiguration": row.get("configuration"),
         "variantColor": row.get("colorName"),
         "physicalStock": stock_quantity,
+        "catalogStock": catalog_stock,
+        "sellableStock": sellable_quantity,
         "reservedStock": reserved_quantity,
         "availableStock": available_quantity,
         "displayPrice": float(row.get("displayPrice") or 0),
@@ -397,21 +400,21 @@ def _shape_inventory_level_row(row: dict) -> dict:
         "stockState": stock_state,
         "tracksImei": tracks_imei,
         "tracksSerialNumber": tracks_serial_number,
-        "primaryImei": row.get("primaryImei"),
-        "supplementalImei": int(row.get("supplementalImeiQuantity") or 0),
+        "primaryImei": row.get("primaryImei") if tracks_imei else None,
+        "supplementalImei": int(row.get("supplementalImeiQuantity") or 0) if tracks_imei else 0,
         "imeiSummary": {
-            "inStock": int(row.get("inStockImeiQuantity") or 0),
-            "reserved": int(row.get("reservedImeiQuantity") or 0),
-            "sold": int(row.get("soldImeiQuantity") or 0),
-            "warranty": int(row.get("warrantyImeiQuantity") or 0),
-            "scrap": int(row.get("scrapImeiQuantity") or 0),
+            "inStock": int(row.get("inStockImeiQuantity") or 0) if tracks_imei else 0,
+            "reserved": int(row.get("reservedImeiQuantity") or 0) if tracks_imei else 0,
+            "sold": int(row.get("soldImeiQuantity") or 0) if tracks_imei else 0,
+            "warranty": int(row.get("warrantyImeiQuantity") or 0) if tracks_imei else 0,
+            "scrap": int(row.get("scrapImeiQuantity") or 0) if tracks_imei else 0,
         },
         "serialNumberSummary": {
-            "inStock": int(row.get("inStockSerialQuantity") or 0),
-            "reserved": int(row.get("reservedSerialQuantity") or 0),
-            "sold": int(row.get("soldSerialQuantity") or 0),
-            "warranty": int(row.get("warrantySerialQuantity") or 0),
-            "scrap": int(row.get("scrapSerialQuantity") or 0),
+            "inStock": int(row.get("inStockSerialQuantity") or 0) if tracks_serial_number else 0,
+            "reserved": int(row.get("reservedSerialQuantity") or 0) if tracks_serial_number else 0,
+            "sold": int(row.get("soldSerialQuantity") or 0) if tracks_serial_number else 0,
+            "warranty": int(row.get("warrantySerialQuantity") or 0) if tracks_serial_number else 0,
+            "scrap": int(row.get("scrapSerialQuantity") or 0) if tracks_serial_number else 0,
         },
         "blockSaleWhenOutOfStock": bool(sales_config.get("blockSaleWhenOutOfStock", True)),
     }

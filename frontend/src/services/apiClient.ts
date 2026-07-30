@@ -1,14 +1,36 @@
-import { getAccessToken, refreshSession } from './authDb';
+import { getAccessToken, isAccessTokenExpiringSoon, refreshSession } from './authDb';
 import { normalizeVietnameseEncoding } from '../utils/textEncoding';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
+const NETWORK_RETRY_DELAY_MS = 250;
+
+function isRetryableRequest(options: RequestInit) {
+  const method = String(options.method || 'GET').toUpperCase();
+  return method === 'GET' || method === 'HEAD';
+}
+
+async function fetchWithNetworkRetry(url: string, options: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    if (!isRetryableRequest(options) || (error instanceof DOMException && error.name === 'AbortError')) {
+      throw error;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
+    return fetch(url, options);
+  }
+}
+
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  if (getAccessToken() && isAccessTokenExpiringSoon()) {
+    await refreshSession().catch(() => undefined);
+  }
   let token = getAccessToken();
   const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = isFormData ? {} : { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
-  let response = await fetch(`${API_BASE_URL}${path}`, {
+  let response = await fetchWithNetworkRetry(`${API_BASE_URL}${path}`, {
     ...options,
     credentials: 'include',
     headers: { ...headers, ...(options.headers as Record<string, string> | undefined) },
@@ -19,7 +41,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
       token = getAccessToken();
       const retryHeaders: Record<string, string> = isFormData ? {} : { 'Content-Type': 'application/json' };
       if (token) retryHeaders.Authorization = `Bearer ${token}`;
-      response = await fetch(`${API_BASE_URL}${path}`, {
+      response = await fetchWithNetworkRetry(`${API_BASE_URL}${path}`, {
         ...options,
         credentials: 'include',
         headers: { ...retryHeaders, ...(options.headers as Record<string, string> | undefined) },
@@ -36,10 +58,13 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
 }
 
 export async function requestBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+  if (getAccessToken() && isAccessTokenExpiringSoon()) {
+    await refreshSession().catch(() => undefined);
+  }
   let token = getAccessToken();
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
-  let response = await fetch(`${API_BASE_URL}${path}`, {
+  let response = await fetchWithNetworkRetry(`${API_BASE_URL}${path}`, {
     ...options,
     credentials: 'include',
     headers: { ...headers, ...(options.headers as Record<string, string> | undefined) },
@@ -49,7 +74,7 @@ export async function requestBlob(path: string, options: RequestInit = {}): Prom
     token = getAccessToken();
     const retryHeaders: Record<string, string> = {};
     if (token) retryHeaders.Authorization = `Bearer ${token}`;
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetchWithNetworkRetry(`${API_BASE_URL}${path}`, {
       ...options,
       credentials: 'include',
       headers: { ...retryHeaders, ...(options.headers as Record<string, string> | undefined) },

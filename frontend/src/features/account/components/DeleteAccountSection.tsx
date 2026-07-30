@@ -12,7 +12,7 @@ export function DeleteAccountSection({ onOpenDeleteAccount }: DeleteAccountSecti
           <AlertTriangle className="w-6 h-6 text-red-600 shrink-0" />
           <div>
             <h3 className="font-bold text-red-700">Xóa tài khoản</h3>
-            <p className="text-sm text-gray-500 mt-1">Thao tác này sẽ xóa tài khoản và hồ sơ đang lưu trong bản demo.</p>
+            <p className="text-sm text-gray-500 mt-1">Thao tác này sẽ xóa tài khoản và hồ sơ đang lưu.</p>
           </div>
         </div>
         <button type="button" onClick={onOpenDeleteAccount} className="px-4 py-3 rounded-lg border border-red-600 text-red-600 font-bold hover:bg-red-600 hover:text-white transition-colors">Xóa tài khoản</button>

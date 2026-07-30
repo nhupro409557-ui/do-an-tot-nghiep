@@ -103,6 +103,10 @@ function Sparkline({ data, isPositive }: { data: number[]; isPositive: boolean }
   );
 }
 
+function timeRangeLabel(value: TimeRange) {
+  return timeRangeOptions.find((option) => option.value === value)?.label || value;
+}
+
 function RankingChartModal({ detail, onClose }: { detail: any; onClose: () => void }) {
   if (!detail) return null;
   return (
@@ -113,7 +117,7 @@ function RankingChartModal({ detail, onClose }: { detail: any; onClose: () => vo
 }
 
 export default function RankingsPage() {
-  const [lastUpdatedLabel] = useState(() => new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
+  const [lastUpdatedLabel, setLastUpdatedLabel] = useState(() => new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
   const [{
     products,
     categories,
@@ -143,7 +147,10 @@ export default function RankingsPage() {
     setPageState({ loading: true });
     publicApi.listRankings({ period: timeRange, criteria, category: selectedCategory, limit: 20 })
       .then((nextProducts) => {
-        if (isActive) setPageState({ products: nextProducts, loading: false });
+        if (isActive) {
+          setPageState({ products: nextProducts, loading: false });
+          setLastUpdatedLabel(new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
+        }
       })
       .catch(() => {
         if (isActive) setPageState({ products: [], loading: false });
@@ -155,6 +162,8 @@ export default function RankingsPage() {
 
   const activeCriteria = criteriaOptions.find((opt) => opt.value === criteria) || criteriaOptions[0];
   const categoryOptions = flattenRankingCategories(categories);
+  const effectiveTimeRange = (products[0]?.rankingPeriod || timeRange) as TimeRange;
+  const isPeriodFallback = Boolean(products[0]?.isPeriodFallback);
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12">
@@ -292,6 +301,12 @@ export default function RankingsPage() {
           </div>
         </div>
 
+        {isPeriodFallback && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 sm:hidden">
+            Chưa có dữ liệu {timeRangeLabel(timeRange).toLowerCase()}, đang dùng {timeRangeLabel(effectiveTimeRange).toLowerCase()}.
+          </div>
+        )}
+
         {/* Rankings Content */}
         {loading ? (
           <div className="flex items-center justify-center rounded-2xl bg-white p-20 shadow-sm ring-1 ring-inset ring-slate-100">
@@ -306,7 +321,14 @@ export default function RankingsPage() {
                 <BarChart2 className="h-6 w-6 text-primary" />
                 Top 20 {activeCriteria.label.toLowerCase()}
               </h2>
-              <span className="text-sm font-medium text-slate-500 hidden sm:block">Cập nhật lúc: {lastUpdatedLabel}</span>
+              <div className="hidden text-right sm:block">
+                {isPeriodFallback && (
+                  <div className="text-xs font-semibold text-amber-600">
+                    Chưa có dữ liệu {timeRangeLabel(timeRange).toLowerCase()}, đang dùng {timeRangeLabel(effectiveTimeRange).toLowerCase()}
+                  </div>
+                )}
+                <span className="text-sm font-medium text-slate-500">Cập nhật lúc: {lastUpdatedLabel}</span>
+              </div>
             </div>
 
             <div className="divide-y divide-slate-100">
@@ -316,7 +338,7 @@ export default function RankingsPage() {
                   product={product}
                   rank={index + 1}
                   criteria={criteria}
-                  timeRange={timeRange}
+                  timeRange={effectiveTimeRange}
                   activeColor={activeCriteria.color}
                   activeBg={activeCriteria.bg}
                   onChartOpen={(detail) => setPageState({ chartDetail: detail })}
@@ -348,9 +370,9 @@ function RankingRow({ product, rank, criteria, timeRange, activeColor, activeBg,
     switch (criteria) {
       case 'search': return { label: 'Lượt tìm kiếm', value: Number(product.searchCount || 0).toLocaleString('vi-VN'), icon: <Search className="h-3.5 w-3.5" /> };
       case 'view': return { label: 'Lượt xem', value: Number(product.viewCount || 0).toLocaleString('vi-VN'), icon: <Eye className="h-3.5 w-3.5" /> };
-      case 'like': return { label: 'Lượt thích', value: metricByRange(product, 'like', timeRange).toLocaleString('vi-VN'), icon: <Heart className="h-3.5 w-3.5" /> };
+      case 'like': return { label: 'Lượt thích ròng', value: metricByRange(product, 'like', timeRange).toLocaleString('vi-VN'), icon: <Heart className="h-3.5 w-3.5" /> };
       case 'sold': return { label: 'Đã bán', value: Number(product.periodSoldCount ?? product.soldCount ?? 0).toLocaleString('vi-VN'), icon: <ShoppingBag className="h-3.5 w-3.5" /> };
-      case 'rating': return { label: 'Đánh giá', value: `${metricByRange(product, 'rating', timeRange).toFixed(1)} / 5.0`, icon: <Star className="h-3.5 w-3.5" /> };
+      case 'rating': return { label: 'Đánh giá', value: `${Number(product.periodRating || 0).toFixed(1)} / 5.0`, icon: <Star className="h-3.5 w-3.5" /> };
       case 'trending': default: return { label: 'Điểm xu hướng', value: Number(product.trendScore || 0).toLocaleString('vi-VN'), icon: <Flame className="h-3.5 w-3.5" /> };
     }
   };
@@ -367,7 +389,7 @@ function RankingRow({ product, rank, criteria, timeRange, activeColor, activeBg,
     criteria === 'view' ? product.viewCount :
     criteria === 'like' ? metricByRange(product, 'like', timeRange) :
     criteria === 'sold' ? (product.periodSoldCount ?? product.soldCount) :
-    criteria === 'rating' ? metricByRange(product, 'rating', timeRange) :
+    criteria === 'rating' ? product.periodRating :
     product.trendScore
   ) || 0;
   const previousValue = Number(
@@ -375,12 +397,10 @@ function RankingRow({ product, rank, criteria, timeRange, activeColor, activeBg,
     criteria === 'view' ? product.previousViewCount :
     criteria === 'sold' ? product.previousPeriodSoldCount :
     criteria === 'trending' ? product.previousTrendScore :
-    criteria === 'rating' ? product.rating :
+    criteria === 'rating' ? product.previousPeriodRating :
     product.previousPeriodLikeCount
   ) || 0;
-  const trendPercent = criteria === 'rating'
-    ? Math.round((metricValue / 5) * 100)
-    : previousValue > 0
+  const trendPercent = previousValue > 0
       ? Math.round(((metricValue - previousValue) / previousValue) * 100)
       : (metricValue > 0 ? 100 : 0);
   const isUp = trendPercent >= 0;
@@ -390,14 +410,14 @@ function RankingRow({ product, rank, criteria, timeRange, activeColor, activeBg,
       .map((point: any) => Number(
         criteria === 'search' ? (point.searchCount ?? point.searches) :
         criteria === 'view' ? (point.viewCount ?? point.views) :
-        criteria === 'like' ? (point.likeCount ?? point.likes ?? metricValue) :
+        criteria === 'like' ? (point.likeCount ?? point.likes) :
         criteria === 'sold' ? (point.periodSoldCount ?? point.soldCount ?? point.sales) :
         criteria === 'trending' ? (point.trendScore ?? point.score ?? (
           Number(point.views || 0) * 0.35 +
           Number(point.searches || 0) * 0.25 +
           Number(point.sales || 0) * 0.25
         )) :
-        (point.rating ?? metricValue)
+        point.rating
       ) || 0)
     : [];
 
@@ -428,7 +448,7 @@ function RankingRow({ product, rank, criteria, timeRange, activeColor, activeBg,
         {image ? (
           <ImageWithFallback src={image} alt={product.name} className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-110" />
         ) : (
-          <span className="text-xs font-bold text-slate-350">No img</span>
+          <span className="text-xs font-bold text-slate-350">Chưa có ảnh</span>
         )}
       </Link>
 

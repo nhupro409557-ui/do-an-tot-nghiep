@@ -1,10 +1,287 @@
 # Product Management Notes
 
+## Cập nhật 2026-07-14 - Chuẩn hóa bảo hành sản phẩm điện thoại
+
+- Toàn bộ sản phẩm thuộc cây danh mục Điện thoại được đồng bộ chính sách bảo hành 12 tháng và một đổi một trong 30 ngày.
+- Chính sách được ghi đồng thời vào `products.sales_config.warrantyPolicy` và snapshot tương thích `products.specifications._warrantyPolicy`, tránh trang chi tiết tiếp tục hiển thị “Bảo hành theo hãng” do dữ liệu cũ thiếu cấu hình.
+- Migration `099_normalize_phone_warranty_policy.sql` bỏ qua sản phẩm đã xóa và bản ghi `MERGED`, nhưng vẫn chuẩn hóa sản phẩm đang bán, tạm ẩn hoặc lưu trữ để khi khôi phục có chính sách đúng.
+
+## Cập nhật 2026-07-14 - Phân biệt biến thể cùng màu theo cấu hình
+
+- Khi dựng `attributes/options`, frontend bổ sung các giá trị dung lượng, RAM và cấu hình đang nằm ở trường tương thích cũ nếu chúng chưa được đại diện bởi thông số biến thể đã chọn.
+- Khóa chống trùng biến thể ở backend kết hợp `attributes` với các trường `colorName`, `storage`, `ram`, `configuration` còn thiếu, thay vì bỏ qua toàn bộ trường tương thích khi đã có thuộc tính màu.
+- Cho phép nhiều biến thể cùng màu nếu khác dung lượng, RAM hoặc cấu hình; giá bán không được dùng làm khóa phân biệt biến thể.
+
+## Cập nhật 2026-07-14 - Giá trị cấu hình danh mục chỉ dùng để gợi ý
+
+- Danh sách `options` trong `categories.spec_fields` chỉ còn dùng để gợi ý nhập nhanh trên form sản phẩm và biến thể; sản phẩm được phép lưu giá trị thực tế khác danh sách này.
+- Backend vẫn kiểm tra các thông số được đánh dấu `required` và định dạng số của trường `number`, kể cả khi thông số nằm ở từng biến thể.
+- Loại bỏ kiểm tra thành viên trong danh sách gợi ý khỏi `validate_product_specifications`, tránh báo lỗi sai khi cấu hình thực tế của sản phẩm chưa có trong danh mục.
+
+## Cập nhật 2026-07-14 - Truy xuất phiên bản và tồn khả dụng cho chatbot
+
+- Snapshot catalog AI bổ sung `availableStock` và `stockUpdatedAt` cho từng biến thể active.
+- Bộ lọc trạng thái dùng `LOWER(status) = 'active'` để tương thích đúng giá trị đang lưu trong PostgreSQL.
+- Chatbot lọc biến thể đồng thời theo màu, dung lượng, RAM hoặc SKU; khi đã yêu cầu biến thể cụ thể, câu trả lời không dùng tổng tồn của sản phẩm.
+- Ngữ cảnh trang tiếp tục giới hạn truy vấn vào đúng `id`/`slug` sản phẩm trước khi dựng câu trả lời tồn kho.
+- Thay đổi chỉ đọc dữ liệu sản phẩm và tồn hiện hành; không sửa giá, biến thể, reservation hoặc trạng thái bán.
+
+## Cập nhật 2026-07-14 - Truy xuất giá và khuyến mãi cho chatbot
+
+- Truy vấn AI xác định sản phẩm đang giảm bằng dữ liệu live `salePrice < price`; hỗ trợ lọc theo ngưỡng phần trăm, xếp mức giảm lớn nhất và trả nhiều kết quả khi khách yêu cầu ba sản phẩm rẻ nhất.
+- Câu trả lời giá nêu riêng giá bán hiện hành, giá gốc, số tiền giảm và tỷ lệ giảm; không suy ra voucher cá nhân từ mô tả khuyến mãi sản phẩm.
+- Bộ phân tích ngân sách bỏ giá trị phần trăm và khoản tăng ngân sách tương đối trước khi lọc catalog, tránh hiểu `20%` thành 20 triệu hoặc “thêm 1 triệu” thành mức giá sản phẩm 1 triệu.
+- Thay đổi chỉ đọc snapshot sản phẩm active; không sửa giá, flash sale, voucher, tồn kho hoặc cấu hình bán hàng.
+
+## Cập nhật 2026-07-14 - Dùng ngữ cảnh trang sản phẩm cho câu hỏi thông số AI
+
+- Widget chatbot gửi `page_context.product_id` khi người dùng đang ở `/product/:id`.
+- Truy xuất catalog AI đối chiếu giá trị này với cả `products.id` và `products.slug`, sau đó ưu tiên đúng một sản phẩm trước khi dựng ngữ cảnh trả lời câu hỏi rút gọn như “Sản phẩm này có bao nhiêu RAM?”.
+- Thay đổi chỉ đọc dữ liệu sản phẩm active hiện hành; không sửa trạng thái, giá, tồn kho, biến thể hoặc nghiệp vụ quản trị sản phẩm.
+
+## Cập nhật 2026-07-14 - Mở rộng trường tìm kiếm catalog cho chatbot
+
+- Văn bản tìm kiếm sản phẩm của chatbot gồm thêm `slug` và dữ liệu biến thể active; nhờ đó màu sắc, dung lượng và SKU trong biến thể có thể tham gia xếp hạng kết quả.
+- Không thay đổi API quản trị, trạng thái sản phẩm hoặc cách tính tồn; đây chỉ là phần hydrate/tìm kiếm đọc dữ liệu cho trợ lý AI.
+
+## Cập nhật 2026-07-14 - Chuẩn hóa tên thương hiệu trên trang thương hiệu
+
+- Metadata tiêu đề và mô tả của trang thương hiệu dùng thống nhất `ElectroMart Vietnam`.
+- Thay đổi chỉ liên quan nội dung hiển thị và SEO; không thay đổi truy vấn, bộ lọc hoặc dữ liệu sản phẩm.
+
+## Cập nhật 2026-07-13 - Hydrate dữ liệu sản phẩm live cho chatbot V2
+
+- Truy vấn AI chỉ lấy sản phẩm active, chưa xóa, không bị ẩn theo danh mục/thương hiệu và trả biến thể active chưa xóa.
+- Tồn công khai được tính từ `inventory_levels` theo `on_hand - reserved - safety_stock`, gộp cả tồn biến thể; không trả vị trí kho, IMEI hoặc serial.
+- Snapshot sản phẩm cho chatbot có giá hiện hành, khuyến mãi, thời hạn/chính sách bảo hành và timestamp để verifier đối chiếu trước khi dựng card.
+- Nhánh hàng cũ tái sử dụng service storefront, chỉ lấy listing đang công khai và thiết bị `READY_FOR_SALE`; card điều hướng về `/used-products/{slug}` thay vì trang sản phẩm mới.
+- Semantic index chỉ tìm ứng viên; giá, tồn và trạng thái bán trong câu trả lời vẫn lấy từ PostgreSQL ở lượt hỏi hiện tại.
+
+## Cập nhật 2026-07-13 - Semantic catalog bằng Gemini Embedding 2 và PGVector
+
+- Dữ liệu sản phẩm đã xuất thành 104 tài liệu catalog được backfill sang `gemini-embedding-2` và cột PGVector 768 chiều.
+- Chatbot ưu tiên semantic search từ PostgreSQL/PGVector, nhưng dữ liệu giá, tồn kho và trạng thái bán vẫn phải được lấy lại từ bảng nghiệp vụ tại thời điểm trả lời; vector không được dùng làm nguồn sự thật cho dữ liệu động.
+- Pipeline giữ fallback JSONB/JSON cache/sparse index khi PGVector gặp sự cố và bỏ qua snapshot chưa hoàn chỉnh để tránh tư vấn từ catalog bị thiếu.
+
+## Cập nhật 2026-07-13 - Xếp hạng sản phẩm cho chatbot
+
+- Truy xuất sản phẩm AI lọc đúng danh mục điện thoại/laptop trước khi xếp hạng.
+- Câu hỏi đắt nhất/rẻ nhất so sánh theo giá bán hiệu lực và chỉ trả một sản phẩm, giúp thẻ gợi ý khớp với câu trả lời của chatbot.
+
+## Cập nhật 2026-07-13 - Catalog hàng cũ cho POS
+
+- API danh sách bài đăng quản trị trả thêm `deviceStatus`, `productId`, `categoryId`, `subcategoryId` và `brandId` để POS kiểm tra máy còn sẵn sàng và cung cấp đúng ngữ cảnh voucher.
+- POS chỉ hiển thị bài `PUBLISHED` có thiết bị `READY_FOR_SALE`; mỗi thẻ tương ứng một máy duy nhất và dùng giá đã duyệt từ backend.
+- Hàng cũ được tách khỏi tồn catalog, biến thể, FIFO và chương trình mua kèm; vòng đời tồn kho dùng trạng thái riêng của `used_devices` và `used_device_listings`.
+- Khi hoàn tiền sau bán, thiết bị về `RETURNED_QC` và chỉ được đăng bán lại sau bước QC; không tự cộng vào kho hàng mới hoặc tự chuyển bài đăng về `PUBLISHED`.
+
+## Cập nhật 2026-07-11 - Nguồn hàng cũ từ hoàn/đổi
+
+- Hàng hoàn/đổi được QC chọn chuyển sang hàng cũ sẽ tự tạo intake `RETURNED_USED`, giữ truy vết đơn hàng, hồ sơ hậu mãi và IMEI/serial.
+- Luồng này không tạo giao dịch thu mua mới và không nhập trùng vào kho hàng mới.
+
+## Cập nhật 2026-07-11 - Giá bán, bảo hành hãng và duyệt hàng cũ
+
+- Bổ sung API cập nhật giá bán độc lập cho thiết bị cũ; giá mới phải cao hơn tổng giá thu mua và chi phí sửa chữa, đồng thời lưu lịch sử giá và sự kiện thay đổi.
+- Nếu cập nhật giá khi bài đang bán, bài tự chuyển về chờ duyệt và thiết bị chuyển sang `LISTING_REVIEW`.
+- Bổ sung thông tin bảo hành chính hãng gồm đơn vị bảo hành, ngày kích hoạt và tổng thời hạn; ngày hết hạn và số tháng còn lại được tính động theo ngày hiện tại, làm tròn lên khi còn ngày lẻ.
+- Giao diện hàng cũ có thao tác cập nhật giá, khai báo bảo hành hãng, yêu cầu chỉnh sửa và hiển thị thời gian bảo hành còn lại.
+- `SUPER_ADMIN` được xem là có toàn quyền ở cả frontend và backend, không phụ thuộc danh sách quyền bị thiếu hoặc cache cũ; chỉ cấp này được phép tự tạo rồi tự duyệt bài đăng.
+- Giá mới được ghi là `PROPOSED`; chỉ khi bài đăng được duyệt `PUBLISHED` thì giá gần nhất mới chuyển thành `APPROVED`, các giá đề xuất/đã duyệt cũ chuyển thành `SUPERSEDED`.
+- Ngày kích hoạt bảo hành hãng trong tương lai không bị chặn cứng; giao diện cảnh báo và việc lưu bài luôn đưa nội dung về nháp để Super Admin duyệt lại.
+- Storefront hiển thị riêng bảo hành cửa hàng và bảo hành chính hãng còn lại; thao tác yêu cầu chỉnh sửa bắt buộc có lý do ở cả frontend và backend.
+
+## Cập nhật 2026-07-10 - Hardening sản phẩm cũ
+
+- Storefront hàng cũ hoạt động với bộ lọc rỗng; nguồn catalog dùng cho intake được lọc theo trạng thái sản phẩm, thương hiệu và biến thể hợp lệ.
+- Sửa chữa, QC lại, biên lợi nhuận và trạng thái hậu mãi của `used_devices` được siết theo state machine và có lịch sử sự kiện.
+- Nội dung chính sách trên trang chi tiết hàng cũ không còn hard-code cam kết 30 ngày trái với cấu hình bảo hành của từng bài đăng.
+
+## Cập nhật 2026-07-10 - Đồng bộ logic bảng xếp hạng theo kỳ
+
+- Tiêu chí yêu thích sắp xếp theo `periodLikeCount` và hiển thị lượt thích ròng `LIKE - UNLIKE` trong kỳ.
+- Tiêu chí đánh giá sắp xếp và hiển thị `periodRating`; phần trăm xu hướng so với `previousPeriodRating` thay vì biến điểm số thành phần trăm trên thang 5.
+- Lịch sử bảng xếp hạng bổ sung lượt thích ròng và điểm đánh giá trung bình theo từng bucket thời gian để biểu đồ không dùng dữ liệu phẳng giả.
+- Loại sản phẩm có chỉ số được chọn bằng `0` khỏi bảng; nếu kỳ hiện tại chưa có dữ liệu, frontend hiển thị trạng thái rỗng thay vì xếp hạng tùy ý bằng tiêu chí phá hòa.
+- Khi toàn bộ kỳ được chọn không có hoạt động cho tiêu chí hiện tại, API tự lùi theo chuỗi `24h → 7d → 30d → 1y`, trả `rankingPeriod` và `isPeriodFallback`; frontend thông báo rõ kỳ thực tế đang dùng.
+- Khi dùng kỳ fallback, lịch sử của kỳ gốc được bỏ trống để không trình bày biểu đồ sai khoảng thời gian.
+
+## Cập nhật 2026-07-10 - Đồng bộ lượt xem và lượt thích từ thư viện ảnh
+
+- Khi mở ảnh trong `/images`, frontend gửi heartbeat sản phẩm với nguồn `image_gallery`; sự kiện vẫn dùng cơ chế xác thực và chống đếm trùng của lượt xem sản phẩm.
+- API heartbeat và API bật/tắt yêu thích trả thêm `viewCount` và `favoriteCount` thực tế sau khi thao tác thành công.
+- `favoriteCount` được đếm từ `user_favorites` đang hoạt động; `viewCount` được đếm từ `product_view_events`, giúp giao diện thư viện ảnh cập nhật ngay mà không dùng số giả.
+- Truy vấn chi tiết sản phẩm cũng chỉ đếm các dòng `user_favorites.is_active = TRUE`, tránh lượt thích đã hủy vẫn còn trong tổng số sau khi tải lại trang.
+- Danh sách và chi tiết sản phẩm trả `viewCount` tổng hợp từ `product_view_events`; phản hồi heartbeat cũng trả số hiện tại khi sự kiện bị chống đếm trùng.
+- `product_row` và `build_product_image_collection` giữ lại `viewCount`/`favoriteCount` ở cả sản phẩm, thẻ ảnh và từng ảnh con; tránh truy vấn có số liệu nhưng lớp ánh xạ response làm mất trường.
+
+## Cập nhật 2026-07-10 (Bổ sung) - Hàng cũ không bắt buộc có sản phẩm catalog
+
+- Hồ sơ `USER_BUYBACK` có thể nhập `externalProductName` thay cho `productId`; `used_devices.product_id` được phép rỗng và lưu tên model ngoài catalog riêng.
+- Storefront và checkout vẫn bán đúng thiết bị bằng `used_device_id`; nếu thiếu sản phẩm catalog thì không có category/brand targeting, nhưng tên, giá, IMEI, QC, bảo hành và vòng đời đơn hàng vẫn hoạt động.
+- Không tự tạo sản phẩm catalog giả cho model ngoài danh mục, giữ module sản phẩm mới và module hàng cũ tách biệt.
+
+## Cập nhật 2026-07-10 - Siết điều kiện đăng bán và đồng bộ trạng thái hàng cũ
+
+- QC hàng cũ đạt phải có xác minh IMEI, trạng thái khóa tài khoản, xóa dữ liệu và tối thiểu 3 ảnh thực tế trước khi được định giá để đăng bán.
+- Giá bán đề xuất không chỉ cao hơn giá thu mua mà phải cao hơn tổng giá thu mua và chi phí sửa dự kiến.
+- Khi bán thành công, `used_device_listings.status` chuyển sang `SOLD` cùng `used_devices.status`, tránh bài đăng đã bán vẫn hiện `PUBLISHED` trong màn quản trị.
+
+## Cập nhật 2026-07-08 (Bổ sung 11) - Cộng thời gian bảo hành từ dịch vụ đi kèm cho dữ liệu cũ
+
+- Checkout mới đã lưu `order_items.warranty_months_snapshot` bằng bảo hành gốc cộng tổng `duration_months` của các dịch vụ đi kèm được mua.
+- Bổ sung helper SQL dùng chung `warranty_snapshot.py` để các read-model đơn hàng/hậu mãi ưu tiên snapshot; nếu snapshot thiếu thì fallback về bảo hành gốc sản phẩm/hàng cũ và cộng thêm tổng tháng trong `order_items.attached_services`.
+- API đơn hàng `GET /orders`, `GET /orders/{id}` và `GET /me/orders` nay trả `items[].warrantyMonthsSnapshot` theo giá trị hiệu lực cho dữ liệu cũ, đồng thời trả thêm `warrantySnapshotMissing` và `attachedServices` để đối soát.
+- Luồng tạo yêu cầu bảo hành hậu mãi dùng cùng giá trị hiệu lực, tránh bỏ sót gói gia hạn bảo hành đã mua trong các đơn cũ/manual chưa có snapshot.
+
+## Cập nhật 2026-07-08 (Bổ sung 10) - Kỳ vọng test đúng cho hàng cũ
+
+- Xác nhận module hàng cũ không cung cấp API xóa cứng thiết bị cũ. Luồng đúng là chuyển thiết bị sang `RETIRED` hoặc chuyển bài đăng sang `HIDDEN` để bảo toàn lịch sử kiểm định, kế toán và WMS.
+- Kỳ vọng test UP-008 cần đổi sang: thao tác loại bỏ khỏi bán hàng phải làm thiết bị/bài đăng không còn hiển thị trên storefront, không kỳ vọng bản ghi bị xóa khỏi hệ thống.
+- Xác nhận IMEI của hồ sơ hàng cũ bắt buộc chuẩn hóa về đúng 15 chữ số; frontend chỉ cho nhập số và giới hạn 15 ký tự, backend tiếp tục chặn nếu sau chuẩn hóa không đủ 15 chữ số.
+- Bổ sung test manual cho `COMPARISON_NOTE_REQUIRED`: nếu giá bán hàng cũ lớn hơn hoặc bằng giá máy mới tham chiếu thì bắt buộc nhập ghi chú so sánh giá.
+- Bổ sung test manual storefront: API chi tiết hàng cũ chỉ trả `maskedImei`, không trả IMEI gốc; UI phải hiển thị dạng đã che số giữa.
+
+## Cập nhật 2026-07-08 (Bổ sung 9) - Hoàn thiện thao tác media sản phẩm
+
+- Bổ sung kéo thả đổi thứ tự ảnh trong `MediaPreview`; form sản phẩm cập nhật trực tiếp thứ tự mảng `images`, nên thứ tự mới được lưu theo payload sản phẩm hiện có.
+- Bổ sung thao tác đặt ảnh trong bộ ảnh chung làm ảnh đại diện bằng cách gán URL được chọn vào `imageUrl`; ảnh vẫn có thể giữ trong gallery.
+- Bổ sung giới hạn thời lượng video upload tối đa 5 phút. Frontend đọc metadata video trước khi xin URL upload; backend `admin_uploads.py` yêu cầu `durationSeconds` khi cấp URL upload video và kiểm lại header duration với upload local.
+- Xác nhận các test manual nên bổ sung: chặn URL media ngoại lai (`MEDIA_EXTERNAL_NOT_ALLOWED`) và kiểm tra asset claiming/garbage collection của file `/uploads/` không còn được gắn với sản phẩm.
+
+## Cập nhật 2026-07-08 (Bổ sung 8) - Khóa tồn kho khỏi form Sản phẩm/Biến thể
+
+- Xác nhận bảng biến thể trong form sản phẩm không còn cột hoặc ô nhập số lượng tồn kho; phần mô tả UI cũng bỏ nhắc tồn kho để tránh test case hiểu nhầm.
+- Frontend không còn khởi tạo, validate hoặc gửi `stockQuantity` trong payload biến thể của form sản phẩm.
+- Backend `upsert_product_variants` luôn khởi tạo biến thể catalog mới với `stock_quantity = 0`, bỏ đường nhận số tồn từ payload hoặc fallback từ tồn sản phẩm cha.
+- Khi tạo sản phẩm mới qua catalog API, `products.stock_quantity` cũng khởi tạo bằng `0`; tồn kho thực tế phải đi qua module Nhập kho/Tồn kho.
+
+## Cập nhật 2026-07-08 (Bổ sung 7) - Không bắt thông số chung khi trường bắt buộc đã dùng làm biến thể
+
+- Sửa backend validation để trường thông số bắt buộc có `variant=true` như RAM được xem là hợp lệ khi admin đã chọn trường đó làm thuộc tính biến thể và nhập giá trị ở từng biến thể.
+- `validate_product_specifications` nay đọc giá trị biến thể từ cả `variant.specs`, `variant.attributes` theo nhãn hiển thị như `RAM`, và field trực tiếp như `variant.ram`, tránh báo sai `Thông số 'RAM' là bắt buộc` khi dữ liệu đang nằm ở biến thể.
+- Khi payload chỉ có một biến thể nhưng có `_variantSpecKeys`, backend không tự xóa danh sách biến thể trước bước validate/lưu nữa; quy tắc xóa biến thể đơn vẫn giữ cho sản phẩm không cấu hình thuộc tính biến thể.
+
+## Cập nhật 2026-07-08 (Bổ sung 6) - Chuẩn hóa sản phẩm theo thông số danh mục có đơn vị
+
+- Thêm script `backend/scripts/normalize_products_to_category_specs.py` để chuẩn hóa `products.specifications` và `product_variants.specs/attributes` theo `categories.spec_fields`.
+- Script hỗ trợ dry-run mặc định và chỉ ghi DB khi chạy với `--apply`; đã áp dụng trên DB local: quét 103 sản phẩm, cập nhật 93 sản phẩm và 325 biến thể, sau đó dry-run lại còn 0 thay đổi và 0 cảnh báo bắt buộc.
+- Đồng bộ `_variantSpecKeys` để RAM/ROM và các thông số biến thể được nhận diện đúng khi mở lại form sản phẩm.
+- Bổ sung override dữ liệu cho các SKU thiếu RAM bắt buộc trong dữ liệu cũ: `SAM-ZFLIP5`, `VIV-V30PRO`, `XIM-RN13P5G`.
+- Cập nhật backend validation trong `product_helper_service.py` để giá trị cũ có sẵn đơn vị như `8GB` vẫn hợp lệ khi danh mục cấu hình `options` dạng `8, 16, 32` và `unit` là `GB`.
+- Cập nhật form sản phẩm và form biến thể để khi chọn gợi ý của trường có `unit`, input nhận giá trị đã kèm đuôi đơn vị như `8 GB`, `5000 mAh`; các option đã tự chứa đơn vị như `512GB SSD` không bị nối thêm đuôi lần nữa.
+- Bổ sung chip gợi ý trực tiếp dưới từng ô thông số biến thể để admin có thể bấm chọn giá trị có sẵn kèm đuôi, hoặc nhập tay nếu cấu hình thực tế khác danh sách gợi ý.
+- Frontend/backend validation cho thông số kiểu số nay bỏ phần đuôi `unit` trước khi kiểm tra số, tránh chặn các giá trị như `120 Hz` hoặc `5000 mAh`.
+
+## Cập nhật 2026-07-08 (Bổ sung 5) - Kiểm soát nhập liệu Thông số kỹ thuật theo Danh mục cho Sản phẩm
+
+- **Gợi ý chọn nhanh và đơn vị (Frontend)**:
+  - Cập nhật form thông số sản phẩm (`ProductFormSection.tsx`) và biến thể (`ProductVariantsSection.tsx`): hiển thị nhãn đi kèm đơn vị cấu hình từ danh mục, đổi loại input theo kiểu số/chữ, và hiển thị các badge/chips gợi ý phía dưới ô nhập để bấm chọn nhanh.
+  - Sử dụng thẻ HTML5 `<datalist>` để cung cấp gợi ý chọn tự động hoàn thành trong ô nhập biến thể nhằm tối ưu không gian bảng.
+- **Frontend Validation**: Bổ sung kiểm soát dữ liệu trong `validateProductForm` (`useAdminProductsLogic.ts`) kiểm tra các trường bắt buộc (`required`) và kiểm tra số hợp lệ đối với trường kiểu `number`.
+- **Backend Validation**:
+  - Thêm `get_merged_spec_fields` và `validate_product_specifications` trong `product_helper_service.py` hỗ trợ lấy danh sách thông số kế thừa và chạy kiểm soát bắt buộc, kiểu số, hoặc danh sách tùy chọn cho cả thông số sản phẩm chính và biến thể.
+  - Gọi kiểm soát trong `create_product` và `update_product` ở `product_service.py`.
+- **Hiển thị Storefront**: Tự động thêm đuôi đơn vị vào giá trị hiển thị trên trang chi tiết sản phẩm nếu giá trị hiện tại chưa có đuôi đó.
+
+## Cập nhật 2026-07-08 (Bổ sung 4) - Gỡ bỏ ràng buộc chéo Thương hiệu - Danh mục và Hỗ trợ sản phẩm gốc không biến thể
+- **Gỡ bỏ ràng buộc chéo Thương hiệu - Danh mục**: Loại bỏ kiểm tra chéo điều kiện kết hợp thương hiệu và danh mục qua bảng `brand_categories` trong hàm `resolve_catalog_labels` (ở [product_helper_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/product_helper_service.py)) để cho phép tạo sản phẩm với cặp thương hiệu và danh mục mới tạo chưa liên kết.
+- **Động hóa liên kết trên Mega Menu**: Cập nhật hàm `list_active_brands` (ở [catalog_product_repo.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/infrastructure/database/repositories/catalog_product_repo.py)) để tự động gom nhóm `categoryIds` của thương hiệu dựa theo các sản phẩm thực tế có trạng thái `ACTIVE` của thương hiệu đó, thay vì truy cập qua bảng liên kết trung gian `brand_categories`. Điều này giúp thương hiệu tự động xuất hiện ở danh mục tương ứng khi có sản phẩm được đăng bán.
+- **Hỗ trợ sản phẩm gốc không biến thể**:
+  - Cập nhật `create_product` và `update_product` (ở [product_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/product_service.py)): Nếu số lượng biến thể gửi lên ít hơn 2, hệ thống sẽ xóa sạch danh sách `variants` và `options` nhận vào, cho phép lưu trữ sản phẩm gốc thuần túy mà không tạo bản ghi biến thể nào trong bảng `product_variants`. Nếu có từ 2 biến thể trở lên, hệ thống sẽ yêu cầu thiết lập 1 biến thể mặc định như cũ.
+  - Cập nhật logic duyệt Revision `merge_revision_variants` (ở [product_approval_repo.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/infrastructure/database/repositories/product_approval_repo.py)): Chỉ thực hiện kiểm tra biến thể mặc định và chặn áp dụng revision khi không có biến thể hoạt động nếu sản phẩm gốc và bản chỉnh sửa (revision draft) thực sự có định nghĩa biến thể.
+  - Cập nhật import CSV `insert_imported_product` (ở [import_jobs.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/infrastructure/database/repositories/product/import_jobs.py)): Loại bỏ việc tự động sinh một biến thể mặc định cho sản phẩm được import, giúp chúng hoạt động như sản phẩm gốc không biến thể.
+  - Vô hiệu hóa nhập kho trực tiếp trên UI (ở [ProductVariantsSection.tsx](file:///c:/Users/Huynh%20Nhu/Downloads/Project/frontend/src/features/admin-products/components/products/ProductVariantsSection.tsx)): Xóa bỏ hoàn toàn cột số lượng tồn kho (`stockQuantity`) trong bảng biến thể sản phẩm và loại bỏ nút "Áp dụng tồn kho" để buộc số lượng tồn kho chỉ được quản lý và cập nhật thông qua quy trình nhập kho (Purchase Receipt / Inventory Receiving).
+
+## Cập nhật 2026-07-08 (Runtime) - Khôi phục khởi động backend khi duyệt Revision
+- Sửa đoạn `revision_snapshot` trong `transition_product_status_data` bị ghép lẫn với câu `UPDATE products parent`, gây lỗi cú pháp `SyntaxError: '(' was never closed` khi khởi động backend.
+- Khôi phục câu `UPDATE products parent ... FROM products revision` để áp dụng dữ liệu revision lên sản phẩm cha, có cập nhật `price` và `sale_price` nhưng không ghi đè `stock_quantity` thực tế.
+
+## Cập nhật 2026-07-08 (Bổ sung 3) - Sửa lỗi cú pháp merge revision, Ràng buộc xóa biến thể cuối cùng, và tự động map Category/Brand khi import CSV
+- **Khôi phục logic merge_revision_variants**: Khắc phục triệt để lỗi cú pháp dở dang làm sập runtime.
+- **Tự động map Category/Brand khi import CSV**: Thêm tra cứu `category_id` và `brand_id` trong database theo tên category/brand lấy từ CSV, tránh sản phẩm mồ côi.
+- **Ràng buộc xóa biến thể**: Chặn xóa biến thể đang hoạt động duy nhất của sản phẩm.
+- **Rollback khi đổi SKU default bị trùng**: Kiểm tra kết quả đổi SKU default của sản phẩm cha khi xóa biến thể default cũ, ném lỗi rollback nếu trùng lặp.
+- **Chặn tự mua kèm**: Chặn sản phẩm tự liên kết phụ kiện mua kèm chính nó.
+
+## Cập nhật 2026-07-08 (Bổ sung 2) - Khắc phục lỗi logic tồn kho khi duyệt Revision, Ràng buộc chéo Brand-Category, và Import CSV
+- **Không đè tồn kho thực tế của sản phẩm đơn lẻ**: Loại bỏ việc gán `stock_quantity = revision.stock_quantity` khi duyệt Revision tại `transition_product_status_data` (ở `product_approval_repo.py`) để tránh ghi đè tồn kho thực tế đã phát sinh.
+- **Khởi tạo đúng tồn kho = 0 cho variant mới**: Khi duyệt Revision tạo thêm biến thể mới tại `merge_revision_variants` (ở `product_approval_repo.py`), đặt cứng tồn kho mặc định bằng 0 để tuân thủ quy tắc nhập kho qua chứng từ.
+- **Ràng buộc chéo Brand - Category**: Thêm validation trong `resolve_catalog_labels` (ở `product_helper_service.py`) để kiểm tra chéo xem Brand được chọn có thuộc danh mục (Category) hay không (qua bảng `brand_categories`).
+- **Cascade dọn dẹp tồn kho trống cho sản phẩm đơn lẻ**: Sửa lỗi FK constraint khi xóa sản phẩm tại `deactivate_product_data` (ở `product_approval_repo.py`) bằng cách xóa cả các dòng tồn kho trống trong `inventory_levels` liên kết trực tiếp qua `product_id`.
+- **Tự động tạo variant mặc định khi import CSV**: Thêm logic tự động insert một variant mặc định vào `product_variants` (với `stock_quantity = 0` và SKU lấy từ sản phẩm cha) sau khi insert product import thành công tại `insert_imported_product` (ở `import_jobs.py`), giải quyết triệt để lỗi không checkout được do thiếu biến thể.
+
+## Cập nhật 2026-07-08 - Khắc phục các lỗi logic duyệt Revision, ràng buộc chéo Danh mục phụ và Bulk Actions
+- **Cập nhật thiếu giá và tồn của sản phẩm đơn lẻ khi duyệt Revision**: Bổ sung `price`, `sale_price` và `stock_quantity` vào câu lệnh UPDATE từ revision sang sản phẩm cha tại `transition_product_status_data` (ở `product_approval_repo.py`), sửa lỗi bỏ sót thông tin cho sản phẩm đơn lẻ.
+- **Ràng buộc chéo Subcategory**: Nâng cấp hàm `resolve_catalog_labels` (ở `product_helper_service.py`) kiểm tra xem `subcategoryId` có tồn tại và có thuộc về danh mục chính `categoryId` hay không để tránh sai lệch phân cấp cây danh mục.
+- **Cascade dọn dẹp các Revision nháp khác khi duyệt**: Bổ sung xóa các liên kết của các bản revision nháp khác (combo, phụ kiện kèm, dịch vụ đi kèm) và giải phóng `media_assets` liên kết của chúng trước khi DELETE cứng trong `transition_product_status_data` (ở `product_approval_repo.py`) nhằm ngăn chặn lỗi vi phạm khoá ngoại (FK constraint violation).
+- **Cô lập Transaction cho Bulk Actions**: Sửa đổi `bulk_approve_products` và `product_bulk_action` (ở `product_approval_service.py`) sử dụng nested transaction (`session.begin_nested()`) cô lập lỗi cho từng sản phẩm và gọi các repository helper data thuần túy (`_data`), tránh lỗi poisoned transaction làm sập toàn bộ luồng hàng loạt.
+
+- **Validate trùng lặp SKU ở Schema (Product Payload validation)**:
+  - Bổ sung kiểm tra trùng lặp SKU giữa các biến thể trong cùng một sản phẩm ngay tại tầng schema đầu vào `ProductPayload` (sử dụng `@model_validator(mode="after")` của Pydantic), trả về mã lỗi `422 Unprocessable Entity` kèm thông báo tiếng Việt chi tiết nếu có cấu hình trùng SKU.
+  - Ngăn chặn request lỗi từ giai đoạn parse payload trước khi xuống database xử lý, giúp tăng tính an toàn và giảm tải cho DB.
+  - Test case thực hiện đăng nhập tài khoản Super Admin, chuyển tới tab quản lý sản phẩm, mở form tạo sản phẩm mới, điền các thông tin hợp lệ, tạo 2 biến thể có cùng SKU và bấm lưu. Xác minh UI chặn submit và hiển thị đúng hộp thoại alert chứa thông báo lỗi tiếng Việt `"SKU biến thể không được trùng trong cùng sản phẩm."`.
+- **Cấu hình CORS & Cải thiện Test Server**:
+  - Bảo đảm endpoint `/health` và tất cả các include_router hoạt động ổn định.
+
+## Cập nhật 2026-07-07 (Bổ sung 2) - Củng cố Bảo mật và Maker-Checker cho Hàng cũ (Used Products)
+- **Ràng buộc thông tin người bán**: Bổ sung validation trong `create_intake` tại [used_product_service.py](file:///c:/Users/Huynh%20Nhu/Downloads/Project/backend/app/application/services/used_product_service.py) bắt buộc nhập họ tên và số điện thoại người bán nếu không chọn tài khoản thành viên liên kết, ngăn chặn hồ sơ ẩn danh.
+- **Ràng buộc chênh lệch giá đề xuất**: Trong `inspect_intake`, kiểm tra nếu kết quả thẩm định là đạt (`APPRAISED`) thì giá bán đề xuất phải lớn hơn giá thu mua đề xuất (`proposedSalePrice > proposedAcquisitionPrice`) để tránh lỗ hoặc thiếu nhất quán tài chính.
+- **Cơ chế khóa dòng chống Race Condition**: Trong `update_listing_status`, bổ sung truy vấn `SELECT ... FOR UPDATE` khóa dòng trên bảng `used_devices` của thiết bị tương ứng trước khi cập nhật. Đồng thời kiểm tra nếu thiết bị đã được bán, được đặt trước hoặc hư hỏng (`SOLD`, `RESERVED`, `RETIRED`, `REPAIRING`), chặn thay đổi trạng thái bài đăng.
+- **Chính sách Maker-Checker (Chặn tự phê duyệt)**:
+  - Chặn nhân viên thường (ví dụ: `STAFF_ADMIN`) tự duyệt hồ sơ thu mua (`ACCEPTED`) hoặc tự xuất bản bài đăng (`PUBLISHED`) do chính họ tạo hoặc thẩm định.
+  - Đối với tài khoản có vai trò tối cao `SUPER_ADMIN`, hệ thống hỗ trợ bypass chính sách Maker-Checker này để cho phép tự phê duyệt khi cần thiết.
+
+## Cập nhật 2026-07-07 - Củng cố Rollback, Concurrency và Ràng buộc chéo cho Sản phẩm
+
+- **Cascade tắt biến thể khi lưu trữ sản phẩm (Archive)**: Cập nhật hàm `transition_product_status_data` gọi `unpublish_product_dependents` để tự động tắt tất cả biến thể (`is_active = FALSE`) và ẩn các listings/thiết bị cũ tương ứng khi sản phẩm chuyển trạng thái sang `ARCHIVED` hoặc `INACTIVE`.
+- **Đồng bộ hóa vô hiệu hóa biến thể khi xóa sản phẩm có đơn/review**: Cập nhật hàm `deactivate_product_data` gọi `unpublish_product_dependents` để đảm bảo các biến thể của sản phẩm bị ẩn cũng chuyển sang `is_active = FALSE`, tránh tình trạng sản phẩm cha ngưng bán nhưng biến thể vẫn hoạt động.
+- **Ràng buộc chặt chẽ liên kết sản phẩm mua kèm và dịch vụ đi kèm**: Cập nhật hàm `sync_product_relations` trong `product_service.py` để kiểm tra sự tồn tại và trạng thái hoạt động của sản phẩm mua kèm (`status = 'ACTIVE'`) và dịch vụ đi kèm (`is_active = TRUE`), ném ngoại lệ cụ thể thay vì bỏ qua âm thầm khi sai thông tin hoặc sai định dạng.
+- **Xử lý lỗi cập nhật SKU trùng lặp**: Cập nhật `update_product_sku` trả về `rowcount` và ném lỗi `HTTPException(400)` ở service `upsert_product_variants` nếu cập nhật SKU theo biến thể default thất bại do trùng lặp SKU của sản phẩm khác.
+- **Bảo mật và toàn vẹn Media biến thể**: Cập nhật `create_product` và `update_product` trong `product_service.py` để thu thập, validate và claim toàn bộ hình ảnh biến thể (`variant.imageUrl` và `variant.images`), ngăn chặn bypass đăng ký Media Assets.
+- **Khắc phục lỗi poisoned transaction khi import CSV**: Cập nhật `process_product_import_job` sử dụng `session.begin_nested()` để cô lập lỗi cho từng hàng khi import hàng loạt, giúp tiến trình không bị sập nửa chừng khi gặp lỗi DB đơn lẻ.
+- **Bảo đảm tính nguyên tử của Variant Delete**: Bổ sung `try ... except ... rollback` cho hàm `delete_product_variant` trong `product_variant_service.py` để tránh treo DB lock hoặc dữ liệu default bị mâu thuẫn khi cập nhật default variant thất bại.
+- **Giải phóng tranh chấp Media khi Nhân bản Sản phẩm**: Trong `duplicate_product_record` (ở `duplicate.py`), đặt `image_url`, `images` và `video_url` về mặc định (`NULL` và `'[]'::jsonb`) khi sao chép. Điều này ngăn chặn lỗi xung đột `MEDIA_ASSET_CLAIM_FAILED` (409) do ràng buộc `UNIQUE` trên cột `public_url` của bảng `media_assets` khi thực hiện chỉnh sửa sản phẩm sao chép.
+- **Ràng buộc chéo thiết bị cũ khi lưu trữ sản phẩm**: Cập nhật hàm `update_product` trong `product_service.py` ẩn thiết bị cũ tương ứng (`used_device_listings` chuyển sang `HIDDEN`) khi sản phẩm gốc chuyển sang trạng thái `ARCHIVED`.
+- **Ràng buộc chéo thiết bị cũ khi ẩn Thương hiệu**: Cập nhật `brand_service.py` gọi `used_product_repo.hide_listings_by_products` để ẩn toàn bộ thiết bị cũ thuộc thương hiệu khi thương hiệu bị vô hiệu hóa (cả đơn lẻ, bulk update và background job).
+
+## Cập nhật 2026-07-07 - Khắc phục lỗ hổng bypass Asset Registry và Transaction Boundaries của Biến thể
+
+- **Chặn Media ngoại lai (Registry Enforcement)**:
+  - Hàm `validate_optimized_media` và `media_repo.assert_all_product_media_claimed` ngăn chặn tất cả các URL hình ảnh/video sản phẩm bên ngoài mà không được upload hoặc đăng ký thông qua hệ thống `media_assets`.
+  - Chỉ chấp nhận các asset tĩnh bắt đầu bằng `/images/` hoặc asset đã upload chứa `/uploads/` và thuộc quyền sở hữu của sản phẩm. Các URL không hợp lệ sẽ trả về lỗi `400 MEDIA_EXTERNAL_NOT_ALLOWED`.
+- **Độc lập ranh giới Transaction của Biến thể**:
+  - Gỡ bỏ lệnh `session.rollback()` khỏi hàm helper `upsert_product_variants` trong `product_variant_service.py`. Trách nhiệm rollback/commit transaction lớn hiện tại thuộc về caller chính là `product_service.create_product` hoặc `update_product`.
+
+## Cập nhật 2026-07-07 - Khắc phục các lỗ hổng logic & tối ưu luồng Sản phẩm
+
+- **Gỡ bỏ đường vòng tạo Sản phẩm**:
+  - Chuyển đổi route catalog public `POST /api/catalog/products` sang sử dụng trực tiếp schema `ProductPayload` và gọi service chính `product_service.create_product`.
+  - Giúp đồng bộ hóa mọi bước kiểm tra bảo mật, kiểm tra categories not migrating, audit logs, ltree categories, v.v.
+
+- **Atomic Media Asset Claim**:
+  - Thiết kế và triển khai hàm `media_repo.claim_media_assets` thực hiện cập nhật sở hữu media nguyên tử thông qua transaction và mệnh đề `RETURNING`.
+  - Loại bỏ hoàn toàn race condition trong việc xác minh và liên kết media asset cho cả Sản phẩm (Product) và Thiết bị cũ (Used Device).
+
+- **Ràng buộc giá khuyến mãi (Discount / Sale Price)**:
+  - Bổ sung `@model_validator(mode="after")` cho `ProductPayload` kiểm tra: giá khuyến mãi phải nhỏ hơn giá niêm yết của cả sản phẩm chính và các biến thể con.
+
+## Cập nhật 2026-07-06 - Optimistic Locking và Quản lý Media Assets tích hợp
+
+- **Optimistic Locking cho Sản phẩm**:
+  - Truy vấn `get_product_current_for_update` sử dụng `SELECT ... FOR UPDATE` để khóa dòng sản phẩm trong transaction hiện tại.
+  - Hàm `update_product_record` kiểm tra phiên bản dữ liệu bằng cách thêm điều kiện `version = :expected_version` trong lệnh `UPDATE`.
+  - Service `update_product` sẽ nâng cấp version đồng thời kiểm tra số dòng bị ảnh hưởng (`updated_count`). Nếu bằng `0` và sản phẩm vẫn tồn tại, hệ thống trả lỗi `409 Conflict` có mã `"PRODUCT_VERSION_CONFLICT"`.
+
+- **Quản lý & Ràng buộc Media Assets**:
+  - Tạo bảng `media_assets` lưu trữ metadata của tất cả các file đã upload (bao gồm `folder`, `public_url`, và các trường polymorphic `associated_entity_type`, `associated_entity_id`).
+  - Khi thêm mới hoặc cập nhật sản phẩm, hệ thống thực hiện kiểm tra chéo (`validate_media_assets`) để đảm bảo file tồn tại trong đúng thư mục được phép (`products`) và chưa bị sở hữu bởi một thực thể khác.
+  - Thiết lập liên kết sở hữu (`associate_assets_with_entity`) cho các file media để dọn dẹp các liên kết mồ côi khi thay đổi.
+
 ## Cập nhật 2026-07-06 - Ràng buộc đệ quy danh mục cha của sản phẩm và chặn xóa biến thể có phát sinh nghiệp vụ
 
 - Cập nhật `product_visibility_blocker` đệ quy kiểm tra tất cả các danh mục tổ tiên của sản phẩm bằng toán tử LTREE (`c.path @> tc.path`). Nếu có bất kỳ danh mục cha nào bị ẩn, chặn không cho kích hoạt sản phẩm.
 - Bổ sung kiểm tra liên kết tồn kho/đơn hàng trước khi xóa biến thể sản phẩm trong `upsert_product_variants` và `delete_product_variant`. Nếu có ràng buộc nghiệp vụ, trả lỗi `409` yêu cầu admin ẩn biến thể thay vì xóa mềm.
-- Verification: pytest full backend test 74 passed.
 
 ## Cập nhật 2026-07-05 - Siết giá sản phẩm và tổ hợp biến thể
 
@@ -18,7 +295,6 @@
 - Checkout online không còn tin `user_id` do client tự truyền. Nếu có JWT, backend ép `payload.user_id` về user hiện tại; nếu không có JWT thì chỉ cho đơn guest không dùng tài khoản/điểm thưởng.
 - POS offline (`is_offline=true`) bắt buộc user hiện tại là `STAFF_ADMIN` hoặc `SUPER_ADMIN`; chỉ luồng nhân viên mới được gán khách hàng khác và dùng giá POS.
 - `Idempotency-Key` của đơn hàng được scope theo actor (`user`, `staff`, hoặc `guest`) trước khi lưu, tránh người khác đoán/trùng key để đọc lại response đơn không thuộc mình.
-- Verification: `compileall backend/app backend/tests` pass, frontend `npm run lint` pass, full backend `58 passed`.
 
 ## Cập nhật 2026-07-04 - Checkout catalog dùng giá và trạng thái sản phẩm từ database
 
@@ -26,7 +302,6 @@
 - Giá tính tiền của checkout online lấy từ `products/product_variants` và trả `409` nếu giá client đã cũ hoặc bị sửa.
 - POS offline vẫn cần `product_id` thật nhưng được giữ giá đã tính tại quầy để không phá các ưu đãi/dịch vụ nội bộ.
 - Sửa chuỗi lỗi bị mojibake trong luồng nhân bản sản phẩm sang tiếng Việt UTF-8 đúng dấu.
-- Verification: nhóm test checkout/order/outbound/after-sales/used-products pass.
 
 ## Cập nhật 2026-07-03 - Nhận diện hàng cũ trong đơn hàng
 
@@ -38,7 +313,6 @@
 - Trang chi tiết hàng cũ có thể thêm đúng thiết bị vào giỏ bằng `usedDeviceId`, không dùng SKU/biến thể giả và không tăng số lượng quá 1.
 - Checkout gửi dòng hàng cũ bằng `used_device_id`; backend kiểm tra lại giá bán đã duyệt từ database thay vì tin giá client.
 - Dòng hàng cũ trong đơn có thể không có `product_id` vì đơn đang bán đúng thiết bị đã thẩm định, còn thông tin so sánh sản phẩm gốc vẫn nằm ở snapshot của thiết bị.
-- Verification: full backend pass 48 test; frontend `npm run lint` và `npm run build` pass.
 
 ## Cập nhật 2026-07-03 - Storefront điện thoại cũ theo từng thiết bị
 
@@ -54,32 +328,26 @@
 - Mỗi thiết bị cũ tham chiếu sản phẩm/biến thể gốc và lưu snapshot tên, SKU, màu, RAM, dung lượng, thông số, giá niêm yết và giá máy mới tại thời điểm xác nhận thu mua.
 - API admin hỗ trợ tạo hồ sơ tiếp nhận, chuyển trạng thái, lưu kết quả thẩm định, xác nhận thu mua và đọc danh sách thiết bị trong kho hàng cũ.
 - Màn admin `Hàng cũ` hiển thị giá máy mới, giá hàng cũ và số tiền tiết kiệm theo đúng từng thiết bị.
-- Verification: migration chạy thành công trong database test cô lập; toàn bộ backend pass 48 test; backend import pass; frontend `npm run lint` và `npm run build` pass.
 
 ## Cập nhật 2026-07-01 - Nâng cấp hiển thị card sản phẩm storefront
 
 - `ProductCard` trên storefront dùng icon `Star` từ Lucide cho đánh giá thay vì ký tự sao, đồng bộ ngôn ngữ icon với các thao tác yêu thích/so sánh.
 - Giảm độ trễ stagger animation theo vị trí card để danh sách sản phẩm xuất hiện nhanh hơn, nhất là trên trang chủ và danh sách sản phẩm mobile.
 - Không thay đổi dữ liệu sản phẩm, API catalog hoặc contract giỏ hàng.
-- Verification: frontend `npm run lint` pass; frontend `npm run build` pass; Playwright screenshot trang chủ desktop/mobile không có request failed.
 
 ## Cập nhật 2026-07-01 - Nâng cấp bộ lọc mobile trang danh sách sản phẩm
 
 - Frontend `/products` chuyển bộ lọc mobile từ panel chiếm đầu trang sang bottom sheet mở bằng nút `Bộ lọc`, giúp người dùng thấy danh sách sản phẩm/skeleton ngay trong viewport đầu.
 - Desktop vẫn giữ sidebar bộ lọc sticky; logic query URL và payload gọi API catalog không thay đổi.
-- Verification: frontend `npm run lint` pass; frontend `npm run build` pass; đã kiểm tra bằng Playwright screenshot mobile đóng/mở drawer và desktop.
 
 ## Cập nhật 2026-06-29 - Kiểm thử tích hợp sản phẩm đến storefront
 
 - Bổ sung luồng admin tạo sản phẩm, gửi duyệt, duyệt, đối chiếu database và đọc lại qua API catalog công khai.
-- Dữ liệu sản phẩm kiểm thử chỉ được tạo trong database có tiền tố `project_test_` và database được xóa sau phiên test.
-- Playwright xác minh sản phẩm seed trong database E2E xuất hiện trên trang danh sách sản phẩm.
 
 ## Cập nhật 2026-06-29 - Dọn dẹp sản phẩm test trong database
 
 - Xóa sạch 13 sản phẩm test (bao gồm sản phẩm `test sản phẩm` và 12 sản phẩm `Sản phẩm Test Outbound`).
 - Dọn dẹp toàn bộ dữ liệu liên kết trong các bảng: `product_analytics_events`, `product_favorites`, `product_reviews`, `product_comments`, `user_favorites`, `product_bundles`, `product_accessories`, `product_inventory_idempotency`, `product_audit_logs`, `product_image_comments`, `product_view_events`, `product_search_events`, `user_favorite_events`, `product_attached_services`, `after_sales_allocations`, `inventory_policy_migration_lines`, `product_identifier_pairs`, `inventory_identifier_edit_requests`, `flash_sales`, `inventory_adjustment_logs`, `inventory_reservations`, `content_product_relations`, `inventory_document_lines`, `product_imeis`, `product_serial_numbers`, `return_request_items`, `warranty_request_items`, `inventory_lot_movements`, `inventory_lots`, `inventory_transactions`, `inventory_levels`, `order_items` và `product_variants`.
-- Verification: Đã chạy script SQL xác minh kết quả, database không còn sản phẩm nào thỏa mãn điều kiện chứa từ khóa test/nháp/demo.
 
 ## Cập nhật 2026-06-29 - Ổn định state chi tiết sản phẩm
 
@@ -87,36 +355,27 @@
 - Khởi tạo màu, RAM, bộ nhớ và cấu hình bằng state initializer; bỏ cập nhật state trực tiếp trong render.
 - Ảnh đang chọn được dẫn xuất từ `mediaItems` và chỉ số hiện tại; đổi variant reset gallery ngay trong handler.
 - Giữ nguyên contract giỏ hàng, phụ kiện, dịch vụ và điều hướng bàn phím của media viewer.
-- Verification: frontend `npm run lint` và `npm run build` pass.
 
 ## Cập nhật 2026-06-28 - Giảm thêm cảnh báo iteration storefront
 
 - Gộp các chuỗi `map/filter/flatMap` trong `ProductDetailUtils` thành vòng lặp một lượt cho danh sách tuỳ chọn, cấu hình biến thể và thông số sản phẩm.
 - Tối ưu `smartProductSearch` bằng cách gom dò danh mục/badge trong một lượt và dùng `Set` cho lookup danh mục.
 - Gộp filter video trong `VideoPage` và sửa lại mã hóa Unicode của file này sau khi phát hiện chuỗi tiếng Việt bị mojibake.
-- Verification: frontend `npm run lint` pass; `npm run build` pass với cảnh báo chunk size Vite hiện có; React Doctor full scan còn 280 cảnh báo (Bugs 147, Performance 26, Maintainability 107).
 
 ## C?p nh?t 2026-06-28 - Gi?m c?nh b?o iteration product v? media
 
 - T?i ?u th?m c?c helper bi?n th?, l?a ch?n s?n ph?m mua k?m, l?a ch?n d?ch v? k?m, brand options, validate SKU v? bulk action s?n ph?m b?ng v?ng l?p m?t l??t ho?c `Map`/`Set`.
 - S?a c?c lookup trong th? vi?n ?nh ?? resolve ?nh theo `view` b?ng helper m?t l??t thay v? `findIndex` l?p trong danh s?ch card.
-- Verification: frontend `npm run lint` pass; React Doctor full scan c?n 288 c?nh b?o (Bugs 146, Performance 35, Maintainability 107).
 
-## Cập nhật 2026-06-28 - Mốc React Doctor sau tối ưu iteration
 
-- Tiếp tục giảm cảnh báo React Doctor ở các helper dùng chung của admin shell, catalog storefront và phân quyền: cache resource được xóa bằng duyệt `Set` trực tiếp, catalog dùng `Set` cho lookup danh mục/thương hiệu, options voucher active được dựng một lượt.
 - Các thay đổi không đổi contract API hoặc payload sản phẩm; nhóm cảnh báo product còn lại chủ yếu nằm ở hook sản phẩm và utility storefront cần xử lý riêng.
-- Verification: frontend `npm run lint` pass; React Doctor full scan còn 309 cảnh báo (Bugs 146, Performance 55, Maintainability 108).
 
-## Cáº­p nháº­t 2026-06-28 - Hoist helper React Doctor cho POS vÃ  biáº¿n thá»ƒ
 
 - ÄÆ°a cÃ¡c helper thuáº§n cá»§a POS (`calculateAccessoryPrice`, `tieredServicePrice`, `calculateServicePrice`) ra module scope Ä‘á»ƒ khÃ´ng táº¡o láº¡i sau má»—i render, giá»¯ nguyÃªn cÃ´ng thá»©c Æ°u tiÃªn giÃ¡ override, giÃ¡ fixed/percent/tiered vÃ  fallback giÃ¡ phá»¥ kiá»‡n.
 - ÄÆ°a helper Ä‘á»c giÃ¡ trá»‹ spec biáº¿n thá»ƒ (`variantSpecValue`) ra module scope; helper váº«n dÃ¹ng `normalizeOptionKey` chung vÃ  khÃ´ng Ä‘á»•i cÃ¡ch fallback giá»¯a `specs`/`attributes`.
 - ÄÆ°a wrapper in Ä‘Æ¡n hÃ ng admin ra module scope, tiáº¿p tá»¥c gá»i `printOrderDocumentPopup` vá»›i bá»™ helper `currency`, `compactId`, `statusLabel` hiá»‡n cÃ³.
 - ÄÆ°a quick action vÃ  fallback tráº£ lá»i cá»§a `AIChatWidget` ra module scope; ná»™i dung fallback trong vÃ¹ng sá»­a Ä‘Æ°á»£c chuáº©n hÃ³a sang tiáº¿ng Viá»‡t cÃ³ dáº¥u.
-- Verification: frontend `npm run lint` vÃ  `npm run build` pass; React Doctor full scan cÃ²n 349 cáº£nh bÃ¡o vÃ  khÃ´ng cÃ²n rule `prefer-module-scope-pure-function`.
 
-## Cáº­p nháº­t 2026-06-28 - Tá»‘i Æ°u cáº£nh bÃ¡o React Doctor cho storefront vÃ  media
 
 - Tá»‘i Æ°u cÃ¡c luá»“ng dá»±ng danh sÃ¡ch áº£nh, tÃ¹y chá»n, thÃ´ng sá»‘, tá»« khÃ³a tÃ¬m kiáº¿m vÃ  mÃ£ sáº£n pháº©m phÃ¢n tÃ­ch báº±ng `flatMap`, `Set` hoáº·c thÃªm pháº§n tá»­ cÃ³ Ä‘iá»u kiá»‡n Ä‘á»ƒ trÃ¡nh nhiá»u lÆ°á»£t duyá»‡t máº£ng khÃ´ng cáº§n thiáº¿t.
 - Thay key theo chá»‰ sá»‘ á»Ÿ skeleton danh sÃ¡ch vÃ  sao Ä‘Ã¡nh giÃ¡ báº±ng key á»•n Ä‘á»‹nh; sá»­a thÃ´ng bÃ¡o lá»—i quyá»n Ä‘Ã¡nh giÃ¡ sang tiáº¿ng Viá»‡t Unicode Ä‘Ãºng dáº¥u.
@@ -127,9 +386,7 @@
 - Form biáº¿n thá»ƒ dÃ¹ng `_clientKey` á»•n Ä‘á»‹nh khi thÃªm hoáº·c hydrate dá»¯ liá»‡u; helper chung loáº¡i client key khá»i payload trÆ°á»›c khi gá»i API sáº£n pháº©m.
 - TÃ¡ch biá»ƒu Ä‘á»“ ranking vÃ  tá»•ng quan admin thÃ nh cÃ¡c component táº£i báº±ng `React.lazy`; Vite táº¡o riÃªng chunk `RankingCharts` vÃ  `AdminOverviewCharts`, giáº£m kÃ­ch thÆ°á»›c chunk trang chÃ­nh tÆ°Æ¡ng á»©ng.
 - ÄÆ°a cáº¥u hÃ¬nh overview, badge, tráº¡ng thÃ¡i xuáº¥t báº£n sáº£n pháº©m vÃ  cÃ¡c helper thuáº§n cá»§a notification, loyalty, biáº¿n thá»ƒ, submit/slug sáº£n pháº©m ra module scope Ä‘á»ƒ trÃ¡nh táº¡o láº¡i má»—i render.
-- Verification: frontend `npm run lint` vÃ  `npm run build` pass; kiá»ƒm tra nhanh cÃ¡c file vá»«a sá»­a khÃ´ng cÃ³ kÃ½ tá»± lá»—i mÃ£ hÃ³a phá»• biáº¿n; React Doctor full scan á»•n Ä‘á»‹nh giáº£m tá»« 450 xuá»‘ng 376 cáº£nh bÃ¡o (Bugs 146, Performance 95, Maintainability 135) vÃ  khÃ´ng cÃ²n cÃ¡c rule `no-array-index-as-key`, `prefer-dynamic-import`, `prefer-stable-empty-fallback`.
 
-## Cáº­p nháº­t 2026-06-28 - Xá»­ lÃ½ cáº£nh bÃ¡o mÃ u chá»¯ React Doctor
 
 - Chuáº©n hÃ³a mÃ u chá»¯ trÃªn cÃ¡c nÃºt/khá»‘i ná»n mÃ u á»Ÿ trang chi tiáº¿t sáº£n pháº©m, báº£ng xáº¿p háº¡ng, giá» hÃ ng vÃ  má»™t sá»‘ mÃ n admin liÃªn quan Ä‘á»ƒ khÃ´ng cÃ²n dÃ¹ng chá»¯ xÃ¡m trÃªn ná»n hoáº·c tráº¡ng thÃ¡i hover cÃ³ mÃ u.
 - CÃ¡c thay Ä‘á»•i chá»‰ náº±m á»Ÿ class Tailwind, khÃ´ng Ä‘á»•i logic xá»­ lÃ½ sáº£n pháº©m, giá» hÃ ng hoáº·c POS.
@@ -142,20 +399,15 @@
 - Tá»‘i Æ°u thÃªm `AdminStoreInfoTab` Ä‘á»ƒ snapshot dá»¯ liá»‡u cá»­a hÃ ng dÃ¹ng ref khi chá»‰ phá»¥c vá»¥ thao tÃ¡c há»§y, trÃ¡nh render thá»«a.
 - Tá»‘i Æ°u `ComparePage`: bá» state loading khÃ´ng Ä‘Æ°á»£c render, dÃ¹ng Map/memo cho danh sÃ¡ch so sÃ¡nh, bá» `map().filter(Boolean)` vÃ  thay key index cá»§a cá»™t trá»‘ng báº±ng slot key á»•n Ä‘á»‹nh.
 - TÃ¡ch nhÃ¡nh thu há»“i phiÃªn Ä‘Äƒng nháº­p trong `useAccountSessions` Ä‘á»ƒ bá» cáº£nh bÃ¡o await trÆ°á»›c guard mÃ  váº«n giá»¯ thá»© tá»± revoke trÆ°á»›c khi Ä‘Äƒng xuáº¥t/chuyá»ƒn trang.
-- Verification: frontend `npm run lint` pass; React Doctor full scan cÃ²n 450 warnings vÃ  khÃ´ng cÃ²n rule `no-gray-on-colored-background`, `deslop/unused-dependency`, `deslop/unused-dev-dependency`, `js-min-max-loop`, `js-length-check-first`, `js-cache-storage`, `rerender-lazy-ref-init`, `no-inline-bounce-easing`, `use-lazy-motion`, `jsx-no-constructed-context-values`, `no-react19-deprecated-apis`; cÃ¡c cáº£nh bÃ¡o `rerender-state-only-in-handlers`, `prefer-module-scope-pure-function`, `no-array-index-as-key` vÃ  `exhaustive-deps` trong `AfterSalesTab` Ä‘Ã£ Ä‘Æ°á»£c xá»­ lÃ½.
 
-## Cáº­p nháº­t 2026-06-28 - Giáº£m cáº£nh bÃ¡o accessibility React Doctor cho sáº£n pháº©m
 
 - Bá»• sung `aria-label` cho cÃ¡c Ã´ nháº­p, checkbox vÃ  nÃºt thao tÃ¡c trong form sáº£n pháº©m, báº£ng sáº£n pháº©m, biáº¿n thá»ƒ, so sÃ¡nh, há»i Ä‘Ã¡p vÃ  Ä‘Ã¡nh giÃ¡ sáº£n pháº©m.
 - ThÃªm nhÃ£n truy cáº­p vÃ  track captions rá»—ng cho cÃ¡c video sáº£n pháº©m/Ä‘Ã¡nh giÃ¡ Ä‘á»ƒ xá»­ lÃ½ cáº£nh bÃ¡o media; bá» `autoFocus` á»Ÿ cÃ¡c bá»™ chá»n sáº£n pháº©m Ä‘á»ƒ trÃ¡nh tá»± giÃ nh focus khi má»Ÿ giao diá»‡n.
-- Verification: frontend `npm run lint` pass; React Doctor full scan cÃ²n 517 warnings vÃ  khÃ´ng cÃ²n cÃ¡c rule `button-has-type`, `control-has-associated-label`, `label-has-associated-control`, `no-autofocus`, `media-has-caption`, `prefer-tag-over-role`, `no-noninteractive-element-interactions`, `anchor-is-valid`, `click-events-have-key-events`, `no-static-element-interactions`.
 
-## Cáº­p nháº­t 2026-06-28 - Giáº£m cáº£nh bÃ¡o React Doctor trong giao diá»‡n sáº£n pháº©m
 
 - ThÃªm `type="button"` cho cÃ¡c nÃºt thao tÃ¡c sáº£n pháº©m khÃ´ng submit form trong `ProductPurchaseActions`, `ProductDetail`, `ProductGallery`, `ProductSpecsTable`, `ProductCard`, `ComparePage` vÃ  `ProductListPage`.
 - Siáº¿t helper YouTube trong `ProductDetailUtils` Ä‘á»ƒ chá»‰ nháº­n host YouTube há»£p lá»‡ trÆ°á»›c khi dá»±ng URL embed; iframe sáº£n pháº©m Ä‘Æ°á»£c thÃªm sandbox.
 - Thay key dÃ¹ng index trong `ProductCard` vÃ  `TechSpecsTable` báº±ng key á»•n Ä‘á»‹nh hÆ¡n tá»« URL áº£nh hoáº·c ná»™i dung thÃ´ng sá»‘.
-- Verification: frontend `npm run lint` pass; `npx react-doctor@latest src/features/products --no-telemetry --category Bugs --verbose` khÃ´ng cÃ²n issue trong category Bugs.
 
 ## Cáº­p nháº­t 2026-06-27 - KhÃ´i phá»¥c dá»¯ liá»‡u giÃ¡ POS sau khi tÃ¡ch repository
 
@@ -169,7 +421,6 @@
 - TÃ¡ch `product_repo.py` thÃ nh facade tÆ°Æ¡ng thÃ­ch vÃ  cÃ¡c module nhá» trong `app/infrastructure/database/repositories/product/`: `listing`, `export_jobs`, `relations`, `import_jobs`, `crud`, `duplicate`.
 - CÃ¡c service hiá»‡n táº¡i váº«n import qua `product_repo`, nÃªn láº§n tÃ¡ch nÃ y khÃ´ng Ä‘á»•i chá»¯ kÃ½ hÃ m hoáº·c transaction boundary.
 - TÃ¡ch cÃ¡c helper/subcomponent Ä‘áº§u file `ProductDetail.tsx` sang `ProductDetailSections.tsx`, gá»“m highlight, Æ°u Ä‘Ã£i mua kÃ¨m, dá»‹ch vá»¥ Ä‘i kÃ¨m vÃ  helper tÃ­nh giÃ¡ liÃªn quan.
-- Verification: `py_compile` pass cho product repository/service/router; frontend `npm run lint` pass.
 
 ## Cáº­p nháº­t 2026-06-27 - Sá»­a giÃ¡ sáº£n pháº©m mua kÃ¨m trong Ä‘Æ¡n hÃ ng
 
@@ -189,7 +440,6 @@
 - Product sales config Ä‘Æ°á»£c chuáº©n hÃ³a khi lÆ°u: náº¿u sáº£n pháº©m báº­t `imeiPolicy.trackImei` á»Ÿ cháº¿ Ä‘á»™ `MANUAL`, backend tá»± lÆ°u `serialPolicy` vá» `MANUAL` vÃ  `trackSerialNumber = true`.
 - Form sáº£n pháº©m admin khÃ³a checkbox IMEI khi serial hiá»‡u lá»±c chÆ°a báº­t; admin pháº£i báº­t serial trÆ°á»›c rá»“i má»›i báº­t IMEI.
 - Náº¿u admin táº¯t serial thá»§ cÃ´ng, form tá»± táº¯t IMEI Ä‘á»ƒ trÃ¡nh tráº¡ng thÃ¡i sáº£n pháº©m cÃ³ IMEI nhÆ°ng khÃ´ng cÃ³ serial.
-- Verification: backend `py_compile` pass cho `product_helper_service.py`; frontend `npm run build` pass.
 
 ## Update 2026-06-24 - Hiá»ƒn thá»‹ danh sÃ¡ch sáº£n pháº©m mua kÃ¨m trong form admin
 
@@ -202,7 +452,6 @@
 - Sá»­a lá»—i `500` á»Ÿ `/admin/products/suggestions` sau khi thÃªm lá»c theo nhÃ¡nh danh má»¥c báº±ng cÃ¡ch Ã©p kiá»ƒu rÃµ rÃ ng cÃ¡c tham sá»‘ UUID (`excludeId`, `categoryId`, `brandId`) trong SQL cho PostgreSQL/asyncpg.
 - Frontend fallback khi API gá»£i Ã½ lá»—i cÅ©ng lá»c theo toÃ n bá»™ cÃ¢y danh má»¥c con/chÃ¡u thay vÃ¬ chá»‰ láº¥y danh má»¥c con trá»±c tiáº¿p; Ä‘á»“ng thá»i Ä‘á»c tá»“n qua `availableStock/stockQuantity/stock`.
 - Luá»“ng lÆ°u biáº¿n thá»ƒ khÃ´ng cÃ²n báº¯t buá»™c ghi SKU sáº£n pháº©m cha báº±ng SKU biáº¿n thá»ƒ máº·c Ä‘á»‹nh náº¿u SKU Ä‘Ã³ Ä‘Ã£ thuá»™c sáº£n pháº©m active khÃ¡c, trÃ¡nh lá»—i unique `idx_unique_active_product_sku` khi chá»‰ sá»­a cáº¥u hÃ¬nh mua kÃ¨m.
-- Verification: `npm run lint` trong `frontend` pass; `python -m py_compile backend/app/infrastructure/database/repositories/product_repo.py` pass.
 
 ## Update 2026-06-24 - Kháº¯c phá»¥c lá»—i tiáº¿ng Viá»‡t hiá»ƒn thá»‹ tÄ©nh trÃªn trang chi tiáº¿t sáº£n pháº©m
 
@@ -255,7 +504,6 @@
 - Cáº­p nháº­t thÃªm áº£nh override Ä‘Ãºng hÆ¡n cho Garmin Forerunner 965 vÃ  Anker Prime 100W GaN trong `backend/scripts/fix_product_image_overrides.py`.
 - Táº¡o script `backend/scripts/normalize_product_specifications.py` Ä‘á»ƒ chuáº©n hÃ³a cÃ¡c thÃ´ng sá»‘ cÅ© dÃ¹ng nhÃ£n tiáº¿ng Viá»‡t nhÆ° `MÃ n hÃ¬nh`, `Chip xá»­ lÃ½`, `Äá»™ phÃ¢n giáº£i`, `CÃ´ng suáº¥t tá»‘i Ä‘a` sang cÃ¡c key chuáº©n theo `categories.spec_fields` nhÆ° `screen_size`, `processor`, `resolution`, `power`.
 - Cháº¡y chuáº©n hÃ³a cho 56 sáº£n pháº©m, sau Ä‘Ã³ bá»• sung thÃªm override thÃ´ng sá»‘ cho 11 phá»¥ kiá»‡n cÃ³ bá»™ field chung nhÆ°ng thiáº¿u nhiá»u giÃ¡ trá»‹ theo key chuáº©n.
-- Verification: audit DB local cho káº¿t quáº£ `missing_media = 0`, `bad_local_files = 0`, `weak_by_category_fields = 0`; Ä‘á»™ phá»§ tháº¥p nháº¥t cÃ²n láº¡i lÃ  6 field vÃ  31% sá»‘ field cá»§a danh má»¥c; `py_compile` pass cho cÃ¡c script áº£nh/thÃ´ng sá»‘.
 
 ## Update 2026-06-23 - Bá»• sung áº£nh cho sáº£n pháº©m vÃ  biáº¿n thá»ƒ cÃ²n thiáº¿u
 
@@ -263,7 +511,6 @@
 - Táº¡o script `backend/scripts/fix_product_image_overrides.py` Ä‘á»ƒ vÃ¡ thá»§ cÃ´ng cÃ¡c sáº£n pháº©m bá»‹ káº¿t quáº£ tÃ¬m kiáº¿m tá»± Ä‘á»™ng chá»n nháº§m áº£nh, gá»“m Mophie 3-in-1 MagSafe, Apple Watch Series 9, Xiaomi Smart Band 8, Xiaomi AW300, Huawei MatePad 12 X vÃ  Samsung Galaxy Tab S11.
 - Sá»­a dá»¯ liá»‡u media cÅ© cÃ³ `images` lÆ°u sai dáº¡ng chuá»—i `"[]"`, cÃ¡c sáº£n pháº©m thiáº¿u `image_url`, vÃ  cÃ¡c URL local trá» tá»›i file khÃ´ng tá»“n táº¡i trong thÆ° má»¥c public.
 - Äá»“ng bá»™ fallback áº£nh tá»« sáº£n pháº©m cha xuá»‘ng cÃ¡c biáº¿n thá»ƒ active cÃ²n trá»‘ng áº£nh/gallery Ä‘á»ƒ trang chi tiáº¿t sáº£n pháº©m khÃ´ng bá»‹ máº¥t áº£nh khi chá»n biáº¿n thá»ƒ.
-- Verification: kiá»ƒm tra DB local cho 103 sáº£n pháº©m active/draft cho káº¿t quáº£ `missing_product_media = 0`, `bad_local_files = 0`, `variant_incomplete = 0`; `py_compile` pass cho hai script má»›i.
 
 ## Update 2026-06-23 - Seed thÃªm cÃ¡c Phá»¥ kiá»‡n cÃ´ng nghá»‡ sáº¡c Laptop cháº¥t lÆ°á»£ng cao
 
@@ -370,7 +617,6 @@
 - ThÃªm component `ProductQuestions` cho trang chi tiáº¿t sáº£n pháº©m Ä‘á»ƒ hiá»ƒn thá»‹ vÃ  gá»­i há»i Ä‘Ã¡p sáº£n pháº©m báº±ng cÃ¡c API cÃ´ng khai `/products/{product_id}/questions` Ä‘Ã£ cÃ³.
 - Q&A há»— trá»£ mÃ´ hÃ¬nh 2 táº§ng: cÃ¢u há»i gá»‘c vÃ  pháº£n há»“i, cÃ³ optimistic update khi gá»­i, tráº¡ng thÃ¡i lá»—i khi gá»­i tháº¥t báº¡i vÃ  thao tÃ¡c thu há»“i ná»™i dung qua API hiá»‡n cÃ³.
 - NÃºt `Há»i Ä‘Ã¡p` trÃªn header chi tiáº¿t sáº£n pháº©m nay trá» tá»›i anchor `#product-questions` thay vÃ¬ khu Ä‘Ã¡nh giÃ¡.
-- Verification: `npm run lint` trong `frontend` pass.
 
 ## Update 2026-06-13 primary and supplemental IMEI support
 
@@ -378,14 +624,12 @@
 - Khi nháº­p kho nhiá»u IMEI, há»‡ thá»‘ng láº¥y IMEI Ä‘áº§u tiÃªn lÃ m IMEI chÃ­nh náº¿u sáº£n pháº©m/biáº¿n thá»ƒ chÆ°a cÃ³ IMEI chÃ­nh; cÃ¡c IMEI cÃ²n láº¡i lÃ  IMEI bá»• sung.
 - Báº£ng tá»“n kho admin hiá»ƒn thá»‹ `IMEI chÃ­nh`, sá»‘ IMEI phá»¥ vÃ  tá»•ng tráº¡ng thÃ¡i IMEI Ä‘á»ƒ quáº£n trá»‹ viÃªn kiá»ƒm tra nhanh.
 - Migration liÃªn quan: `backend/migrations/061_product_imei_primary.sql`.
-- Verification: `python -m py_compile backend/app/application/services/inventory_service.py backend/app/infrastructure/database/repositories/inventory_repo.py backend/app/api/schemas/admin/inventory.py backend/scripts/run_migrations.py` pass; `npm run lint` trong `frontend` pass.
 
 ## Update 2026-06-13 product-level serial number policy
 
 - Bá»• sung cáº¥u hÃ¬nh `Quáº£n lÃ½ serial number` trong form sáº£n pháº©m, song song vá»›i `Quáº£n lÃ½ IMEI`.
 - Cáº¥u hÃ¬nh Ä‘Æ°á»£c lÆ°u trong `products.sales_config.serialPolicy` vá»›i hai cháº¿ Ä‘á»™ `CATEGORY` vÃ  `MANUAL`; khi `MANUAL`, sáº£n pháº©m cÃ³ thá»ƒ tá»± báº­t/táº¯t quáº£n lÃ½ serial number Ä‘á»™c láº­p vá»›i danh má»¥c.
 - Sáº£n pháº©m hiá»‡n cÃ³ thá»ƒ rÆ¡i vÃ o cÃ¡c tá»• há»£p: quáº£n lÃ½ cáº£ IMEI vÃ  serial number, chá»‰ quáº£n lÃ½ IMEI, chá»‰ quáº£n lÃ½ serial number hoáº·c khÃ´ng quáº£n lÃ½ mÃ£ Ä‘á»‹nh danh.
-- Verification: `python -m py_compile backend/app/application/services/inventory_service.py backend/app/infrastructure/database/repositories/inventory_repo.py backend/app/api/schemas/admin/inventory.py backend/scripts/run_migrations.py` pass; `npm run lint` trong `frontend` pass.
 
 ## Update 2026-06-10 iPad A16 Wifi video content draft
 
@@ -393,7 +637,6 @@
 - Ná»™i dung video táº­p trung vÃ o mÃ n hÃ¬nh Liquid Retina 10.9 inch, chip Apple A16 Bionic, Apple Pencil USB-C, Touch ID, camera trÆ°á»›c/sau 12MP, loa stereo vÃ  cÃ¡c phiÃªn báº£n A16 Wifi/5G.
 - Script gáº¯n video vá»›i sáº£n pháº©m vÃ  cÃ¡c danh má»¥c liÃªn quan qua `content_product_relations` vÃ  `content_category_relations`; video Ä‘Æ°á»£c Ä‘á»ƒ `status = 'DRAFT'`, `is_active = FALSE`, `video_source = 'UPLOAD'`.
 - ÄÃ£ cháº¡y script trÃªn DB local, táº¡o/cáº­p nháº­t video ID `f52656f6-6376-4ba0-b254-04f8c5491719`.
-- Verification: `python -m py_compile backend/scripts/seed_ipad_a16_wifi_video_content.py` pass; truy váº¥n DB xÃ¡c nháº­n video cÃ³ liÃªn káº¿t sáº£n pháº©m vÃ  2 liÃªn káº¿t danh má»¥c.
 
 ## Update 2026-06-10 Samsung Galaxy S26 Ultra video content draft
 
@@ -401,20 +644,17 @@
 - Ná»™i dung video táº­p trung vÃ o khung Titanium, mÃ n hÃ¬nh Dynamic AMOLED 2X QHD+ 1-120Hz, Galaxy AI, S Pen tÃ­ch há»£p, camera 200MP/Space Zoom 100x, Snapdragon 8 Elite Gen 5 for Galaxy, Samsung DeX, Knox Security, pin 5000 mAh vÃ  sáº¡c nhanh 60W.
 - Script gáº¯n video vá»›i sáº£n pháº©m vÃ  cÃ¡c danh má»¥c liÃªn quan qua `content_product_relations` vÃ  `content_category_relations`; video Ä‘Æ°á»£c Ä‘á»ƒ `status = 'DRAFT'`, `is_active = FALSE`, `video_source = 'UPLOAD'`.
 - ÄÃ£ cháº¡y script trÃªn DB local, táº¡o/cáº­p nháº­t video ID `d7ebad55-33ca-42e7-9cb6-2464593a1e68`.
-- Verification: `python -m py_compile backend/scripts/seed_samsung_galaxy_s26_ultra_video_content.py` pass; truy váº¥n DB xÃ¡c nháº­n video cÃ³ liÃªn káº¿t sáº£n pháº©m vÃ  2 liÃªn káº¿t danh má»¥c.
 
 ## Update 2026-06-10 admin product image deletion persistence
 
 - Sá»­a lá»—i trong mÃ n quáº£n trá»‹ sáº£n pháº©m: sau khi xÃ³a toÃ n bá»™ `áº¢nh Ä‘áº¡i diá»‡n chung` vÃ  `Bá»™ áº£nh sáº£n pháº©m chung`, lÆ°u xong má»Ÿ láº¡i váº«n tháº¥y áº£nh cÅ© Ä‘á»‘i vá»›i cÃ¡c SKU cÃ³ áº£nh demo.
 - NguyÃªn nhÃ¢n: `adminProductsApi.adminListProducts` dÃ¹ng chung `formatProductDemoData`, hÃ m nÃ y tá»± gÃ¡n áº£nh demo theo SKU vÃ  ghi Ä‘Ã¨ dá»¯ liá»‡u `imageUrl`/`images` tháº­t tá»« backend, lÃ m tráº¡ng thÃ¡i `NULL`/`[]` sau khi xÃ³a bá»‹ hiá»ƒn thá»‹ nhÆ° chÆ°a xÃ³a.
 - ThÃªm `formatProductAdminMedia` Ä‘á»ƒ mÃ n admin chá»‰ chuáº©n hÃ³a URL áº£nh tá»« backend, khÃ´ng tá»± fallback áº£nh demo theo SKU. Storefront/public API váº«n giá»¯ `formatProductDemoData`.
-- Verification: `npm run lint` trong `frontend` pass.
 
 ## Update 2026-06-10 published product image override fix
 
 - Sá»­a tiáº¿p lá»—i sau khi duyá»‡t báº£n chá»‰nh sá»­a: backend Ä‘Ã£ publish `image_url` vÃ  `images` tá»« `REVISION_DRAFT` sang sáº£n pháº©m gá»‘c, nhÆ°ng storefront/public API váº«n hiá»ƒn thá»‹ áº£nh cÅ© do `formatProductDemoData` ghi Ä‘Ã¨ áº£nh tháº­t báº±ng báº£ng áº£nh demo theo SKU.
 - XÃ³a báº£ng fallback áº£nh demo theo SKU khá»i `productMedia.ts`; cáº£ admin vÃ  public formatter nay chá»‰ chuáº©n hÃ³a URL tá»« dá»¯ liá»‡u backend. VÃ¬ váº­y áº£nh má»›i, áº£nh Ä‘Ã£ xÃ³a vÃ  gallery rá»—ng sau duyá»‡t Ä‘á»u Ä‘Æ°á»£c giá»¯ nguyÃªn khi hiá»ƒn thá»‹.
-- Verification: `npm run lint` trong `frontend` pass.
 
 ## Update 2026-06-10 batch product image galleries
 
@@ -423,7 +663,6 @@
 - ÄÃ£ cáº­p nháº­t `products.image_url`, `products.images`, `product_variants.image_url` vÃ  `product_variants.images` cho cÃ¡c sáº£n pháº©m: AirPods Pro 2 USB-C, Apple Watch Ultra 2, iPad A16 Wifi, iPad Pro M4 11 inch, MacBook Air M3 13 inch, MacBook Neo 13 inch A18 Pro 2026, Samsung Galaxy A17 5G, Samsung Galaxy A57 5G, Samsung Galaxy S26 vÃ  Samsung Galaxy S26 Ultra.
 - CÃ¡c thÆ° má»¥c khÃ´ng phÃ¢n mÃ u Ä‘Æ°á»£c gáº¯n áº£nh dÃ¹ng chung cho toÃ n bá»™ biáº¿n thá»ƒ active; cÃ¡c thÆ° má»¥c phÃ¢n mÃ u Ä‘Æ°á»£c map theo `color_name` trong database.
 - LÆ°u Ã½: thÆ° má»¥c `Samsung Galaxy A57 5G/Äen` Ä‘Ã£ Ä‘Æ°á»£c copy vÃ o public assets nhÆ°ng khÃ´ng gáº¯n vÃ o biáº¿n thá»ƒ vÃ¬ DB hiá»‡n khÃ´ng cÃ³ biáº¿n thá»ƒ active mÃ u Äen cho sáº£n pháº©m nÃ y.
-- Verification: `python -m py_compile backend/scripts/update_batch_product_images.py` pass; cháº¡y script thÃ nh cÃ´ng; kiá»ƒm tra DB xÃ¡c nháº­n 10 sáº£n pháº©m cÃ³ `image_url` má»›i vÃ  cÃ¡c sáº£n pháº©m cÃ³ biáº¿n thá»ƒ active Ä‘á»u khÃ´ng cÃ²n biáº¿n thá»ƒ thiáº¿u `image_url`.
 
 ## Update 2026-06-10 Samsung Galaxy S26 Ultra color variants update
 
@@ -439,7 +678,6 @@
 - Cáº­p nháº­t `color_name`, `color_code` vÃ  `attributes` JSON trong 9 biáº¿n thá»ƒ cÅ©.
 - Tá»•ng biáº¿n thá»ƒ hiá»‡n táº¡i: 12 (4 mÃ u Ã— 3 dung lÆ°á»£ng).
 - Script: `backend/scripts/update_s26u_colors.py`.
-- Verification: truy váº¥n DB xÃ¡c nháº­n 12 biáº¿n thá»ƒ active vá»›i tÃªn mÃ u Ä‘Ãºng.
 
 ## Update 2026-06-10 Samsung Galaxy S26 color variants update
 
@@ -456,7 +694,6 @@
 - Cáº­p nháº­t seed data trong `init_database.sql` dÃ²ng sáº£n pháº©m S26.
 - Tá»•ng biáº¿n thá»ƒ hiá»‡n táº¡i: 8 (4 mÃ u Ã— 2 dung lÆ°á»£ng).
 - Script: `backend/scripts/update_s26_colors.py`.
-- Verification: truy váº¥n DB xÃ¡c nháº­n 8 biáº¿n thá»ƒ active vá»›i tÃªn mÃ u vÃ  attributes Ä‘Ãºng.
 
 ## Update 2026-06-10 OPPO Find X9 Ultra video content draft
 
@@ -464,7 +701,6 @@
 - Ná»™i dung video táº­p trung vÃ o máº·t lÆ°ng da sinh thÃ¡i, mÃ n hÃ¬nh LTPO AMOLED QHD+ 144Hz, há»‡ thá»‘ng camera Hasselblad Ä‘a tiÃªu cá»±, quay video 8K/4K, pin 7050 mAh, sáº¡c nhanh 100W vÃ  chuáº©n IP68/IP69.
 - Script gáº¯n video vá»›i sáº£n pháº©m vÃ  cÃ¡c danh má»¥c liÃªn quan qua `content_product_relations` vÃ  `content_category_relations`; video Ä‘Æ°á»£c Ä‘á»ƒ `status = 'DRAFT'`, `is_active = FALSE`, `video_source = 'UPLOAD'`.
 - ÄÃ£ cháº¡y script trÃªn DB local, táº¡o/cáº­p nháº­t video ID `ecde02d4-a756-472a-be50-c2d42cd70b27`.
-- Verification: `python -m py_compile backend/scripts/seed_oppo_find_x9_ultra_video_content.py` pass; truy váº¥n DB xÃ¡c nháº­n video cÃ³ liÃªn káº¿t sáº£n pháº©m vÃ  2 liÃªn káº¿t danh má»¥c.
 
 ## Update 2026-06-10 MacBook Neo A18 Pro video content draft
 
@@ -472,7 +708,6 @@
 - Ná»™i dung video táº­p trung vÃ o thiáº¿t káº¿ 13 inch gá»n nháº¹, mÃ u sáº¯c tráº» trung, chip Apple A18 Pro, mÃ n hÃ¬nh Liquid Retina, pin dÃ i, Magic Keyboard vá»›i Touch ID vÃ  nhu cáº§u há»c táº­p/vÄƒn phÃ²ng linh hoáº¡t.
 - Script gáº¯n video vá»›i sáº£n pháº©m vÃ  cÃ¡c danh má»¥c liÃªn quan qua `content_product_relations` vÃ  `content_category_relations`; video Ä‘Æ°á»£c Ä‘á»ƒ `status = 'DRAFT'`, `is_active = FALSE`, `video_source = 'UPLOAD'`.
 - ÄÃ£ cháº¡y script trÃªn DB local, táº¡o/cáº­p nháº­t video ID `1bcbcc60-e15c-4aaf-8085-1dd50882fe8b`.
-- Verification: `python -m py_compile backend/scripts/seed_macbook_neo_a18_pro_video_content.py` pass; truy váº¥n DB xÃ¡c nháº­n video cÃ³ liÃªn káº¿t sáº£n pháº©m vÃ  2 liÃªn káº¿t danh má»¥c.
 
 ## Update 2026-06-10 MacBook Air M3 video content draft
 
@@ -480,7 +715,6 @@
 - Ná»™i dung video táº­p trung vÃ o thiáº¿t káº¿ má»ng nháº¹, chip M3, mÃ n hÃ¬nh Liquid Retina 13.6 inch, thá»i lÆ°á»£ng pin dÃ i vÃ  nhu cáº§u há»c táº­p/vÄƒn phÃ²ng/sÃ¡ng táº¡o nháº¹.
 - Script gáº¯n video vá»›i sáº£n pháº©m vÃ  cÃ¡c danh má»¥c liÃªn quan qua `content_product_relations` vÃ  `content_category_relations`; video Ä‘Æ°á»£c Ä‘á»ƒ `status = 'DRAFT'`, `is_active = FALSE`, `video_source = 'UPLOAD'`.
 - ÄÃ£ cháº¡y script trÃªn DB local, táº¡o/cáº­p nháº­t video ID `be2b41a3-f30a-4e0d-af16-8232edc84370`.
-- Verification: `python -m py_compile backend/scripts/seed_macbook_air_m3_video_content.py` pass; truy váº¥n DB xÃ¡c nháº­n video cÃ³ liÃªn káº¿t sáº£n pháº©m vÃ  2 liÃªn káº¿t danh má»¥c.
 
 ## Update 2026-06-08 product comments and Q&A management split
 
@@ -488,20 +722,17 @@
 - Bá»• sung cá»™t `product_image_comments.interaction_type`, máº·c Ä‘á»‹nh dá»¯ liá»‡u cÅ© lÃ  `IMAGE_COMMENT`; Q&A dÃ¹ng `PRODUCT_QA` nhÆ°ng váº«n chung cÆ¡ cháº¿ kiá»ƒm duyá»‡t/áº©n/thu há»“i/pháº£n há»“i.
 - ThÃªm API cÃ´ng khai `/products/{product_id}/questions` Ä‘á»ƒ liá»‡t kÃª, gá»­i vÃ  thu há»“i há»i Ä‘Ã¡p sáº£n pháº©m.
 - Giá»¯ rÃ ng buá»™c nghiá»‡p vá»¥ 2 táº§ng: náº¿u ngÆ°á»i dÃ¹ng hoáº·c admin tráº£ lá»i má»™t pháº£n há»“i con, backend kÃ©o `parent_id` vá» cÃ¢u/cmt gá»‘c, khÃ´ng sinh táº§ng thá»© 3.
-- Verification: `npm run lint` trong `frontend` pass; `python -m compileall app` trong `backend` pass.
 
 ## Update 2026-06-08 product approval final status parameter fix
 
 - Sá»­a lá»—i duyá»‡t báº£n chá»‰nh sá»­a sáº£n pháº©m tráº£ 500 do cÃ¢u SQL cáº­p nháº­t sáº£n pháº©m gá»‘c dÃ¹ng `:final_status` nhÆ°ng repository chÆ°a truyá»n tham sá»‘ nÃ y vÃ o Ä‘Ãºng lá»‡nh `execute`.
 - Bá» tham sá»‘ `final_status` thá»«a khá»i cÃ¢u insert phá»¥ kiá»‡n bÃ¡n kÃ¨m trong cÃ¹ng nhÃ¡nh publish revision.
-- Verification: `python -m compileall app` trong `backend` pass.
 
 ## Update 2026-06-07 admin product submit button layout
 
 - Sá»­a nÃºt submit dÃ¹ng chung trong form admin Ä‘á»ƒ nhÃ£n `LÆ°u`/`ThÃªm` hiá»ƒn thá»‹ Ä‘Ãºng Unicode vÃ  khÃ´ng bá»‹ xuá»‘ng dÃ²ng hoáº·c co chá»¯ khi vÃ¹ng hiá»ƒn thá»‹ háº¹p.
 - `SubmitButtons` nay giá»¯ nguyÃªn dÃ²ng báº±ng `whitespace-nowrap`, khÃ´ng co nÃºt/icon báº±ng `shrink-0`, giÃºp nÃºt trong popup quáº£n lÃ½ sáº£n pháº©m khÃ´ng cÃ²n bá»‹ vá»¡ chá»¯.
 - Bá»• sung cÃ¹ng nguyÃªn táº¯c chá»‘ng xuá»‘ng dÃ²ng cho nÃºt má»Ÿ popup `ThÃªm` trong `CollapsibleSection`.
-- Verification: `npm run lint` trong `frontend` thÃ nh cÃ´ng.
 
 ## Update 2026-06-08 admin product brand selection
 
@@ -572,7 +803,6 @@
   - `OPPO Find X9s`: Cam HoÃ ng HÃ´n, TÃ­m Lavender, XÃ¡m Báº§u Trá»i.
   - `OPPO Find X8`: Äen KhÃ´ng Gian, XÃ¡m Sao BÄƒng.
   - `OPPO Find N3`: gáº¯n áº£nh sáº£n pháº©m chung tá»« bá»™ áº£nh Ä‘en/vÃ ng vÃ¬ hiá»‡n khÃ´ng cÃ³ biáº¿n thá»ƒ active.
-- Verification: `python -m py_compile backend/scripts/update_oppo_product_images.py` thÃ nh cÃ´ng; truy váº¥n DB xÃ¡c nháº­n 7 sáº£n pháº©m vÃ  cÃ¡c biáº¿n thá»ƒ active Ä‘Ã£ nháº­n URL áº£nh má»›i.
 
 
 
@@ -639,17 +869,13 @@
   - Kiá»ƒm tra viá»‡c náº¡p (import) thÃ nh cÃ´ng Ä‘á»‘i vá»›i `app.main`, `admin`, `admin_products`, `admin_product_variants` cÃ¹ng vá»›i service vÃ  repo má»›i láº­p (Pass).
   - ChÆ°a thá»±c hiá»‡n cháº¡y thá»­ nghiá»‡m thao tÃ¡c ghi nháº­n trá»±c tiáº¿p vÃ o DB do cáº§n luá»“ng dá»¯ liá»‡u/API hoÃ n chá»‰nh Ä‘á»ƒ kiá»ƒm thá»­. Vá» máº·t kiáº¿n trÃºc vÃ  mÃ£ nguá»“n, cáº¥u trÃºc quáº£n lÃ½ biáº¿n thá»ƒ Ä‘Ã£ tuÃ¢n thá»§ cháº·t cháº½ mÃ´ hÃ¬nh phÃ¢n lá»›p.
 
-## Update 2026-06-03 React Doctor safe frontend fixes
 
-- Cháº¡y React Doctor á»Ÿ cháº¿ Ä‘á»™ táº¡m thá»i, khÃ´ng cÃ i package vÃ o project vÃ  khÃ´ng thÃªm hook/config.
 - Sá»­a lá»—i hook/runtime khÃ´ng Ä‘á»•i giao diá»‡n trong storefront/admin:
   - `ProductDetail.tsx`: Ä‘Æ°a effect phÃ­m táº¯t media viewer lÃªn trÆ°á»›c nhÃ¡nh return sá»›m, thÃªm cleanup cho timer thÃ´ng bÃ¡o thÃªm vÃ o giá» vÃ  khÃ´i phá»¥c overflow khi unmount.
   - `VerifyEmailPage.tsx`: cleanup timer chuyá»ƒn hÆ°á»›ng sau xÃ¡c nháº­n email, trÃ¡nh cáº­p nháº­t state sau khi rá»i trang.
   - `CheckoutPage.tsx`: chuyá»ƒn nhÃ¡nh giá» hÃ ng trá»‘ng xuá»‘ng sau hook tÃ­nh phÃ­ giao hÃ ng Ä‘á»ƒ giá»¯ thá»© tá»± hook á»•n Ä‘á»‹nh; Ä‘á»“ng thá»i phá»¥c há»“i chá»¯ tiáº¿ng Viá»‡t bá»‹ lá»—i mÃ£ hÃ³a trong file.
   - CÃ¡c tab admin khÃ¡ch hÃ ng/phÃ¢n quyá»n/dashboard: Ä‘Æ°a cÃ¡c lá»i gá»i quyá»n ra biáº¿n top-level hoáº·c hÃ m render thÆ°á»ng Ä‘á»ƒ trÃ¡nh gá»i hook/component trong JSX/callback.
-- Sau sá»­a, `npm run lint` pass vÃ  React Doctor giáº£m Bugs errors tá»« 29 xuá»‘ng 20; pháº§n cÃ²n láº¡i lÃ  nhÃ³m cáº£nh bÃ¡o lá»›n vá» state sync trong luá»“ng catalog/data loading, cáº§n refactor riÃªng Ä‘á»ƒ trÃ¡nh thay Ä‘á»•i hÃ nh vi táº£i dá»¯ liá»‡u ngoÃ i Ã½ muá»‘n.
 
-## Update 2026-06-03 React Doctor Bugs errors cleanup
 
 - Tiáº¿p tá»¥c xá»­ lÃ½ cÃ¡c lá»—i nhÃ³m Bugs cÃ²n láº¡i mÃ  khÃ´ng Ä‘á»•i layout/giao diá»‡n:
   - `useCatalog.ts`: chá»‘t option ranked featured á»Ÿ láº§n mount Ä‘áº§u, thÃªm cleanup cho async load catalog.
@@ -657,7 +883,6 @@
   - `ProductReviews.tsx`: remount theo `productId + user`, thÃªm cleanup async vÃ  Ä‘Æ°a prefill review hiá»‡n cÃ³ vÃ o callback eligibility thay vÃ¬ sync form báº±ng effect riÃªng.
   - `VietnamAddressSelector.tsx`: bá» state `wards`, derive danh sÃ¡ch phÆ°á»ng/xÃ£ tá»« `provinces + provinceId` báº±ng `useMemo`; sá»­a má»™t sá»‘ nhÃ£n tiáº¿ng Viá»‡t cÃ³ dáº¥u.
   - `ProductDetail.tsx`: chuyá»ƒn reset lá»±a chá»n sáº£n pháº©m/media sang cáº­p nháº­t cÃ³ Ä‘iá»u kiá»‡n theo `product.id`/`activeVariant.id`; effect Swiper chá»‰ cÃ²n Ä‘iá»u khiá»ƒn slide, khÃ´ng set state React.
-- Verification: `npm run lint` pass; React Doctor bÃ¡o Bugs cÃ²n `0 errors`, chá»‰ cÃ²n optional warnings.
 
 ## Update 2026-06-03 revision variant specs persistence
 
@@ -826,7 +1051,6 @@
 - `GET /api/v1/admin/products` keeps the default `limit=20` and returns paged `{ items, totalRecords, totalPages, page, limit }` when `page` is provided.
 - Fixed PostgreSQL ambiguous null parameters in admin product filters by casting `status_filter` to `TEXT` and `category_id`/`brand_id` to `UUID` in `admin_products.py`.
 - Product admin list no longer falls back to the storefront catalog list when the paged admin endpoint fails; this prevents a hidden API error from showing all products as one page.
-- Verification: direct backend pagination query returns 20 rows for page 1, and frontend TypeScript check passes.
 
 ## Update 2026-05-31 revision draft discard
 
@@ -837,7 +1061,6 @@
   - marks the revision product `ARCHIVED` and sets `deleted_at`
 - `POST /api/v1/admin/products/{id}/archive` now accepts `REVISION_DRAFT`.
 - Admin product UI now allows `REVISION_DRAFT` to be sent for approval or archived, but does not show the restore action for revision drafts.
-- Verification: frontend TypeScript check and backend `py_compile` pass; backend server restarted on port 8000.
 
 ## Update 2026-05-31 smart revision merge
 
@@ -850,7 +1073,6 @@
 - Missing live variants with inventory history become `inactive`; variants without inventory history become `archived`.
 - Ghi chÃº lá»‹ch sá»­: trÆ°á»›c ngÃ y 2026-06-08, revision records tá»«ng trá»Ÿ thÃ nh `MERGED` sau khi publish. CÆ¡ cháº¿ má»›i khÃ´ng táº¡o `MERGED`; audit trail lÆ°u snapshot trÆ°á»›c/sau vÃ  record revision bá»‹ xÃ³a khá»i `products` sau khi Ã¡p dá»¥ng.
 - Fixed revision variant creation so draft variants receive new IDs instead of reusing live variant IDs.
-- Verification: backend `py_compile`, frontend TypeScript check, schema check for inventory history, and backend restart on port 8000 pass.
 
 ## Update 2026-05-31 complete enterprise revision design
 
@@ -862,13 +1084,11 @@
 - Revision merge now matches live variants by `parent_variant_id` first, then SKU.
 - Missing live variants now check both `order_items.variant_id` and `inventory_adjustment_logs.variant_id`; variants with history become `inactive`, otherwise `archived`.
 - Local database has been migrated with the new columns and indexes.
-- Verification: backend `py_compile`, frontend TypeScript check, schema verification, and backend restart on port 8000 pass.
 
 ## Update 2026-05-31 archived product visibility
 
 - Admin product list now hides `ARCHIVED` products by default, the same way it hides `MERGED` revision history.
 - `ARCHIVED` products remain in the database for audit/safety, but only appear when the admin explicitly filters status `ARCHIVED`.
-- Verification: backend `py_compile`, frontend TypeScript check, and backend restart on port 8000 pass.
 
 ## Update 2026-05-31 admin product submit errors
 
@@ -1343,7 +1563,6 @@
 - Storefront trả thêm `quantityLimit`, `soldQuantity`, `remainingQuantity`, `isLimited` trong `flashSale`; frontend hiển thị số suất sale còn lại trên card và trang chi tiết.
 - Giỏ hàng storefront lưu thêm `variantId` và checkout gửi `variant_id`, tránh trường hợp chọn biến thể có flash sale nhưng backend lại xử lý như sản phẩm cha.
 - Admin flash sale có thêm ô `Số lượng sale`; để trống là không giới hạn. Danh sách admin hiển thị số lượng còn lại/đã bán sale và trạng thái `Đã hết suất`.
-- Kiểm tra đã chạy: `python -m compileall -q backend\app backend\tests`, targeted `pytest` cho order/flash-sale/voucher và overlap khi hoàn quota, full `pytest backend\tests` 61/61, và `npm run lint` frontend.
 
 ## Update 2026-07-05 warranty snapshot at sale time
 
@@ -1351,3 +1570,34 @@
 - Checkout online/POS ghi snapshot này khi tạo dòng đơn, tránh việc admin đổi thời hạn bảo hành sản phẩm sau này làm sai quyền lợi của khách cũ.
 - Hậu mãi warranty ưu tiên đọc snapshot trên order item; chỉ fallback sang `products.warranty_period` cho dữ liệu cũ/manual chưa có snapshot.
 - Migration `052_order_item_warranty_snapshot.sql` backfill các order item cũ theo warranty hiện tại của sản phẩm để giảm dữ liệu trống.
+
+## Update 2026-07-08 cart manual test alignment
+
+- Trang giỏ hàng (`CartPage.tsx`) không có form nhập voucher; voucher được nhập và validate ở bước checkout (`CheckoutPage.tsx`). Các test case áp dụng mã giảm giá phải chạy tại `/checkout`, còn `/cart` chỉ hiển thị nhắc nhở có thể áp dụng ưu đãi ở bước sau.
+- Máy cũ là thiết bị đơn chiếc theo IMEI/usedDeviceId nên giỏ hàng luôn khóa số lượng ở `1`; `cartStore` ép quantity về `1` và checkout cũng gửi `quantity = 1` cho item máy cũ. UI giỏ hàng đã disable nút tăng số lượng cho máy cũ để tránh thao tác bấm nhưng không đổi.
+- Khi tick/bỏ tick sản phẩm chính trong giỏ hàng, `toggleCheckItem` tự đồng bộ trạng thái tick cho các phụ kiện mua kèm cùng `parentProductId`. Bộ test manual cần có case kiểm tra phụ kiện được tick/bỏ tick theo sản phẩm chính.
+- Ngưỡng miễn phí vận chuyển của giỏ hàng lấy động từ API cấu hình vận chuyển, không hard-code cố định ở frontend. Test manual cần kiểm tra thanh tiến trình và số tiền cần mua thêm thay đổi theo tổng tiền giỏ hàng.
+
+## Update 2026-07-08 checkout manual test alignment
+
+- Backend tạo đơn online đã hỗ trợ khách vãng lai qua `get_optional_current_user_id` và `CreateOrderRequest.user_id = None`; frontend checkout không còn chặn đăng nhập trước khi tạo đơn. Khách vãng lai có thể nhập địa chỉ giao hàng tạm thời, email tùy chọn và gửi đơn với `user_id: null`.
+- Địa chỉ khách vãng lai chỉ dùng cho đơn hiện tại, không ghi vào hồ sơ. Người dùng đã đăng nhập vẫn dùng luồng sổ địa chỉ và lưu địa chỉ mới vào profile như trước.
+- Backend vẫn validate chặt đơn giá sản phẩm, giá máy cũ và giá dịch vụ đính kèm theo dữ liệu hệ thống khi tạo đơn online; test manual cần có case sửa payload lệch giá sản phẩm/dịch vụ để xác nhận lỗi 400/409.
+- Nếu tài khoản đang có đơn PENDING chứa flash sale, backend chặn tạo thêm đơn flash sale mới để tránh giữ suất ảo. Test manual cần bổ sung case tạo đơn flash sale thứ hai khi đơn đầu chưa thanh toán.
+- Checkout frontend lấy danh sách phương thức thanh toán khả dụng từ cấu hình database; nếu COD mặc định đang bảo trì, UI tự chuyển sang phương thức khả dụng đầu tiên. Test manual cần kiểm tra kịch bản tắt/bảo trì COD.
+# Cập nhật 2026-07-13 - Tìm sản phẩm đổi trong hậu mãi
+
+- Biểu mẫu đổi trả phía khách hàng tìm sản phẩm theo từ khóa, debounce 300 ms và giới hạn 20 kết quả thay vì tải sẵn 100 sản phẩm.
+- Migration `088_fix_smoke_test_product_encoding.sql` sửa tên và màu của dữ liệu kiểm thử `SMOKE-USED-*` bị lỗi mã hóa.
+
+## Cập nhật 2026-07-13 - Tải dữ liệu storefront ổn định hơn
+
+- API client frontend tự thử lại đúng một lần khi request `GET` hoặc `HEAD` thất bại ở tầng mạng; các thao tác ghi không tự gửi lại để tránh tạo dữ liệu trùng.
+- Request bị hủy bằng `AbortController` không được thử lại.
+- Khối hỏi đáp sản phẩm phân biệt rõ lỗi tải với trạng thái chưa có câu hỏi.
+
+## Cập nhật 2026-07-14 - Dọn dữ liệu kiểm thử cục bộ
+
+- Đã xóa 3 sản phẩm kiểm thử (`TEST-SKU-*`, `SMOKE-USED-*`, `test test`) cùng biến thể, lô kho test, chuỗi thu mua máy cũ và dữ liệu tìm kiếm/embedding liên quan.
+- Đã xóa mã giảm giá `TESTPAY-0626`, 2 video nháp dùng để kiểm thử và các phiên AI bị nhiễm dữ liệu test; dữ liệu danh mục, thương hiệu, nhà cung cấp và sản phẩm thật được giữ nguyên.
+- Lịch sử migration `091_reconcile_admin_pos_test_order.sql` được giữ lại vì đây là dấu vết phiên bản lược đồ, không phải dữ liệu nghiệp vụ test.
