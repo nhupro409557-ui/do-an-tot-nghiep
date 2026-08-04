@@ -1,0 +1,117 @@
+[
+  {
+    "id": "product_advice_phone_dialogue",
+    "title": "Tư vấn điện thoại nhiều lượt",
+    "turns": [
+      {
+        "message": "Tôi muốn mua điện thoại.",
+        "expected_intents": [
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_SEARCH"
+        ]
+      },
+      {
+        "message": "Khoảng 10 triệu.",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION",
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Tôi thường chụp ảnh và xem phim.",
+        "expected_intents": [
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Tôi thích máy pin lâu.",
+        "expected_intents": [
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Không cần chơi game mạnh.",
+        "expected_intents": [
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Trong các mẫu phù hợp, mẫu nào chụp ảnh tốt nhất?",
+        "expected_intents": [
+          "PRODUCT_COMPARISON",
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Mẫu đó có bản 256 GB không?",
+        "expected_intents": [
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Có màu đen và còn hàng không?",
+        "expected_intents": [
+          "STOCK_AVAILABILITY"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "product_advice_laptop_dialogue",
+    "title": "Tư vấn laptop nhiều lượt",
+    "turns": [
+      {
+        "message": "Tôi cần mua laptop.",
+        "expected_intents": [
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_SEARCH"
+        ]
+      },
+      {
+        "message": "Tôi học lập trình.",
+        "expected_intents": [
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Ngân sách tối đa 20 triệu.",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION",
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Tôi thường mang máy đến trường.",
+        "expected_intents": [
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Tôi cần RAM 16 GB.",
+        "expected_intents": [
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Có mẫu nào nhẹ và pin lâu không?",
+        "expected_intents": [
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "So sánh hai mẫu phù hợp nhất giúp tôi.",
+        "expected_intents": [
+          "PRODUCT_COMPARISON"
+        ]
+      },
+      {
+        "message": "Mẫu nào dùng ổn định trong bốn năm?",
+        "expected_intents": [
+          "PRODUCT_RECOMMENDATION"
+        ]
+      }
+    ]
+  }
+]

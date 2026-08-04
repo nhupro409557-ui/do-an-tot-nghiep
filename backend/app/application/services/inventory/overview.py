@@ -339,7 +339,38 @@ async def get_inventory_dashboard(session: AsyncSession, search: str = "") -> di
     }
 
 
-async def get_inventory_aging_report(session: AsyncSession, search: str = "", bucket: str = "") -> dict:
+def _paginate_report_items(
+    items: list[dict],
+    *,
+    page: int,
+    page_size: int | None,
+) -> tuple[list[dict], dict]:
+    total = len(items)
+    if page_size is None:
+        return items, {
+            "page": 1,
+            "pageSize": total,
+            "total": total,
+            "totalPages": 1 if total else 0,
+        }
+    total_pages = (total + page_size - 1) // page_size if total else 0
+    offset = (page - 1) * page_size
+    return items[offset:offset + page_size], {
+        "page": page,
+        "pageSize": page_size,
+        "total": total,
+        "totalPages": total_pages,
+    }
+
+
+async def get_inventory_aging_report(
+    session: AsyncSession,
+    search: str = "",
+    bucket: str = "",
+    *,
+    page: int = 1,
+    page_size: int | None = None,
+) -> dict:
     bucket = bucket.strip().upper()
     valid_buckets = {"", "0_30", "31_90", "91_180", "180_PLUS"}
     if bucket not in valid_buckets:
@@ -376,16 +407,29 @@ async def get_inventory_aging_report(session: AsyncSession, search: str = "", bu
             }
         )
 
+    paged_items, pagination = _paginate_report_items(
+        items,
+        page=page,
+        page_size=page_size,
+    )
     return {
         "asOf": datetime.utcnow().isoformat() + "Z",
         "buckets": list(buckets.values()),
-        "items": items,
+        "items": paged_items,
         "totalQuantity": sum(item["quantity"] for item in items),
         "totalCost": sum(item["totalCost"] for item in items),
+        "pagination": pagination,
     }
 
 
-async def get_inventory_reconciliation_report(session: AsyncSession, search: str = "", issue_type: str = "") -> dict:
+async def get_inventory_reconciliation_report(
+    session: AsyncSession,
+    search: str = "",
+    issue_type: str = "",
+    *,
+    page: int = 1,
+    page_size: int | None = None,
+) -> dict:
     issue_type = issue_type.strip().upper()
     valid_issue_types = {
         "",
@@ -422,11 +466,17 @@ async def get_inventory_reconciliation_report(session: AsyncSession, search: str
         key = row.get("issueType")
         if key in summary:
             summary[key]["count"] += 1
+    paged_rows, pagination = _paginate_report_items(
+        rows,
+        page=page,
+        page_size=page_size,
+    )
     return {
         "asOf": datetime.utcnow().isoformat() + "Z",
         "summary": list(summary.values()),
         "totalIssues": sum(item["count"] for item in summary.values()),
-        "items": rows,
+        "items": paged_rows,
+        "pagination": pagination,
     }
 
 

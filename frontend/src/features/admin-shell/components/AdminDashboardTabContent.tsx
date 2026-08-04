@@ -21,6 +21,7 @@ const AdminInventoryOutboundsTab = React.lazy(() => import('../../admin-inventor
 const AdminProductInteractionsTab = React.lazy(() => import('../../admin-interactions/components/AdminProductInteractionsTab'));
 const AdminOrdersTab = React.lazy(() => import('../../admin-orders/components/AdminOrdersTab'));
 const AdminOverviewTab = React.lazy(() => import('../../admin-overview/components/AdminOverviewTab'));
+const AdminReportsTab = React.lazy(() => import('../../admin-reports/components/AdminReportsTab'));
 const AdminPermissionsTab = React.lazy(() => import('../../admin-permissions/components/AdminPermissionsTab'));
 const AdminProductsTab = React.lazy(() => import('../../admin-products/components/AdminProductsTab'));
 const AdminUsedProductsTab = React.lazy(() => import('../../admin-used-products/components/AdminUsedProductsTab'));
@@ -115,6 +116,8 @@ function renderTab(tab: AdminTab, admin: any, sharedProps: Record<string, any>) 
           setTab={admin.setTab}
         />
       );
+    case 'reports':
+      return <AdminReportsTab reportAccess={admin.reportAccess} />;
     case 'products':
       return <AdminProductsTab {...sharedProps} />;
     case 'usedProducts':

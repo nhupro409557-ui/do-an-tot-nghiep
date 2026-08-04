@@ -23,6 +23,7 @@ from app.api.routers.admin_payment_methods import router as admin_payment_method
 from app.api.routers.admin_store_info import router as admin_store_info_router
 from app.api.routers.admin_used_products import router as admin_used_products_router
 from app.api.routers.admin_purchase_orders import router as admin_purchase_orders_router
+from app.api.routers.admin_reports import router as admin_reports_router
 
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -49,3 +50,4 @@ router.include_router(admin_payment_methods_router)
 router.include_router(admin_store_info_router)
 router.include_router(admin_used_products_router)
 router.include_router(admin_purchase_orders_router)
+router.include_router(admin_reports_router)

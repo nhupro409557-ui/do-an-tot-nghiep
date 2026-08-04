@@ -1,0 +1,185 @@
+[
+  {
+    "id": "price_promotion_product_dialogue",
+    "title": "Kiểm tra giá và mã giảm giá",
+    "turns": [
+      {
+        "message": "Sản phẩm này giá bao nhiêu?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Giá đã giảm chưa?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Có mã nào dùng thêm được không?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Tôi là thành viên hạng vàng.",
+        "expected_intents": [
+          "LOYALTY",
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Tôi còn 500 điểm thưởng.",
+        "expected_intents": [
+          "LOYALTY"
+        ]
+      },
+      {
+        "message": "Nếu dùng cả điểm và mã thì tổng tiền là bao nhiêu?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION",
+          "LOYALTY"
+        ]
+      },
+      {
+        "message": "Phí vận chuyển đã được tính chưa?",
+        "expected_intents": [
+          "STORE_POLICY"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "price_promotion_budget_dialogue",
+    "title": "Tìm sản phẩm theo ngân sách",
+    "turns": [
+      {
+        "message": "Tôi muốn mua điện thoại.",
+        "expected_intents": [
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_SEARCH"
+        ]
+      },
+      {
+        "message": "Ngân sách tối đa 10 triệu.",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION",
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Có mẫu nào đang giảm giá không?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Tôi thanh toán bằng thẻ ngân hàng.",
+        "expected_intents": [
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Mẫu nào có tổng giá sau ưu đãi thấp nhất?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION",
+          "PRODUCT_RECOMMENDATION"
+        ]
+      },
+      {
+        "message": "Có được trả góp 0% không?",
+        "expected_intents": [
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Mỗi tháng tôi phải trả bao nhiêu?",
+        "expected_intents": [
+          "STORE_POLICY",
+          "PRICE_AND_PROMOTION"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "price_promotion_bulk_dialogue",
+    "title": "Mua nhiều sản phẩm",
+    "turns": [
+      {
+        "message": "Tôi muốn mua ba sản phẩm này.",
+        "expected_intents": [
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_SEARCH"
+        ]
+      },
+      {
+        "message": "Mua theo combo có rẻ hơn không?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Có mã giảm giá cho đơn trên 5 triệu không?",
+        "expected_intents": [
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Tôi có thể dùng thêm điểm thành viên không?",
+        "expected_intents": [
+          "LOYALTY",
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Đơn hàng có được miễn phí vận chuyển không?",
+        "expected_intents": [
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Tổng số tiền cuối cùng tôi phải trả là bao nhiêu?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "price_promotion_expired_dialogue",
+    "title": "Khuyến mãi hết hạn",
+    "turns": [
+      {
+        "message": "Chương trình này còn áp dụng không?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Tôi thấy quảng cáo ghi giảm 30%.",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Tại sao trong giỏ hàng chỉ giảm 20%?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Khuyến mãi áp dụng cho phiên bản nào?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION"
+        ]
+      },
+      {
+        "message": "Nếu chương trình đã hết, có ưu đãi nào thay thế không?",
+        "expected_intents": [
+          "PRICE_AND_PROMOTION"
+        ]
+      }
+    ]
+  }
+]

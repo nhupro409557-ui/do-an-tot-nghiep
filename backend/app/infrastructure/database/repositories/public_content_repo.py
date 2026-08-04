@@ -171,7 +171,9 @@ async def get_own_review_for_edit(session: AsyncSession, *, review_id: UUID, pro
         await session.execute(
             text(
                 """
-                SELECT id, review_window_expires_at
+                SELECT id,
+                       review_window_expires_at,
+                       media_urls AS "mediaUrls"
                 FROM product_reviews
                 WHERE id = :review_id
                   AND product_id = :product_id

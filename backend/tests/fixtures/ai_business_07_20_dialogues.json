@@ -1,0 +1,888 @@
+[
+  {
+    "id": "business_07_dialogue",
+    "group": 7,
+    "title": "Phụ kiện và dịch vụ đi kèm",
+    "turns": [
+      {
+        "message": "Điện thoại này dùng ốp nào?",
+        "expected_intents": [
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "STORE_POLICY",
+          "WARRANTY_POLICY",
+          "PRICE_AND_PROMOTION",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Tôi muốn loại chống sốc.",
+        "expected_intents": [
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "STORE_POLICY",
+          "WARRANTY_POLICY",
+          "PRICE_AND_PROMOTION",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Có hàng chính hãng không?",
+        "expected_intents": [
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "STORE_POLICY",
+          "WARRANTY_POLICY",
+          "PRICE_AND_PROMOTION",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Giá dưới 500.000 đồng.",
+        "expected_intents": [
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "STORE_POLICY",
+          "WARRANTY_POLICY",
+          "PRICE_AND_PROMOTION",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Có thể dán kính luôn tại cửa hàng không?",
+        "expected_intents": [
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "STORE_POLICY",
+          "WARRANTY_POLICY",
+          "PRICE_AND_PROMOTION",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Nếu mua cả ốp và kính thì có giảm giá không?",
+        "expected_intents": [
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "STORE_POLICY",
+          "WARRANTY_POLICY",
+          "PRICE_AND_PROMOTION",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_08_dialogue",
+    "group": 8,
+    "title": "Giỏ hàng và đặt hàng",
+    "turns": [
+      {
+        "message": "Tôi muốn đặt hai chiếc điện thoại.",
+        "expected_intents": [
+          "CART_SUPPORT",
+          "ACCOUNT_SUPPORT",
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT",
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Một chiếc màu đen và một chiếc màu trắng.",
+        "expected_intents": [
+          "CART_SUPPORT",
+          "ACCOUNT_SUPPORT",
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT",
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Giao đến hai địa chỉ khác nhau được không?",
+        "expected_intents": [
+          "CART_SUPPORT",
+          "ACCOUNT_SUPPORT",
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT",
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Tôi muốn dùng voucher và điểm thưởng.",
+        "expected_intents": [
+          "CART_SUPPORT",
+          "ACCOUNT_SUPPORT",
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT",
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Tổng tiền cuối cùng là bao nhiêu?",
+        "expected_intents": [
+          "CART_SUPPORT",
+          "ACCOUNT_SUPPORT",
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT",
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Sau khi đặt, tôi có thể đổi địa chỉ không?",
+        "expected_intents": [
+          "CART_SUPPORT",
+          "ACCOUNT_SUPPORT",
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "STOCK_AVAILABILITY",
+          "COMPLAINT",
+          "STORE_POLICY"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_09_dialogue",
+    "group": 9,
+    "title": "Theo dõi đơn hàng",
+    "turns": [
+      {
+        "message": "Đơn hàng của tôi đang ở đâu?",
+        "expected_intents": [
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "COMPLAINT",
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Hệ thống báo đang giao từ sáng.",
+        "expected_intents": [
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "COMPLAINT",
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Tôi chưa nhận được cuộc gọi nào.",
+        "expected_intents": [
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "COMPLAINT",
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Tôi cần rời nhà lúc 18 giờ.",
+        "expected_intents": [
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "COMPLAINT",
+          "STORE_POLICY"
+        ]
+      },
+      {
+        "message": "Có thể liên hệ tài xế hoặc hẹn giao lại ngày mai không?",
+        "expected_intents": [
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "COMPLAINT",
+          "STORE_POLICY"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_10_dialogue",
+    "group": 10,
+    "title": "Thanh toán và trả góp",
+    "turns": [
+      {
+        "message": "Tôi muốn mua trả góp sản phẩm này.",
+        "expected_intents": [
+          "STORE_POLICY",
+          "ACCOUNT_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "ORDER_LOOKUP",
+          "LOYALTY",
+          "COMPLAINT",
+          "UNSUPPORTED_REQUEST"
+        ]
+      },
+      {
+        "message": "Giá 20 triệu và tôi có thể trả trước 5 triệu.",
+        "expected_intents": [
+          "STORE_POLICY",
+          "ACCOUNT_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "ORDER_LOOKUP",
+          "LOYALTY",
+          "COMPLAINT",
+          "UNSUPPORTED_REQUEST"
+        ]
+      },
+      {
+        "message": "Tôi muốn trả trong 12 tháng.",
+        "expected_intents": [
+          "STORE_POLICY",
+          "ACCOUNT_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "ORDER_LOOKUP",
+          "LOYALTY",
+          "COMPLAINT",
+          "UNSUPPORTED_REQUEST"
+        ]
+      },
+      {
+        "message": "Tổng phí và số tiền mỗi tháng là bao nhiêu?",
+        "expected_intents": [
+          "STORE_POLICY",
+          "ACCOUNT_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "ORDER_LOOKUP",
+          "LOYALTY",
+          "COMPLAINT",
+          "UNSUPPORTED_REQUEST"
+        ]
+      },
+      {
+        "message": "Có thật sự là 0% không?",
+        "expected_intents": [
+          "STORE_POLICY",
+          "ACCOUNT_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "ORDER_LOOKUP",
+          "LOYALTY",
+          "COMPLAINT",
+          "UNSUPPORTED_REQUEST"
+        ]
+      },
+      {
+        "message": "Nếu tất toán sau sáu tháng thì mất phí bao nhiêu?",
+        "expected_intents": [
+          "STORE_POLICY",
+          "ACCOUNT_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "ORDER_LOOKUP",
+          "LOYALTY",
+          "COMPLAINT",
+          "UNSUPPORTED_REQUEST"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_11_dialogue",
+    "group": 11,
+    "title": "Giao hàng và nhận tại cửa hàng",
+    "turns": [
+      {
+        "message": "Tôi muốn nhận điện thoại trong hôm nay.",
+        "expected_intents": [
+          "STORE_POLICY",
+          "SHIPPING_LOOKUP",
+          "ORDER_LOOKUP",
+          "PRODUCT_SEARCH",
+          "COMPLAINT",
+          "STOCK_AVAILABILITY"
+        ]
+      },
+      {
+        "message": "Địa chỉ của tôi ở ngoại thành.",
+        "expected_intents": [
+          "STORE_POLICY",
+          "SHIPPING_LOOKUP",
+          "ORDER_LOOKUP",
+          "PRODUCT_SEARCH",
+          "COMPLAINT",
+          "STOCK_AVAILABILITY"
+        ]
+      },
+      {
+        "message": "Giao hỏa tốc có được không?",
+        "expected_intents": [
+          "STORE_POLICY",
+          "SHIPPING_LOOKUP",
+          "ORDER_LOOKUP",
+          "PRODUCT_SEARCH",
+          "COMPLAINT",
+          "STOCK_AVAILABILITY"
+        ]
+      },
+      {
+        "message": "Phí bao nhiêu?",
+        "expected_intents": [
+          "STORE_POLICY",
+          "SHIPPING_LOOKUP",
+          "ORDER_LOOKUP",
+          "PRODUCT_SEARCH",
+          "COMPLAINT",
+          "STOCK_AVAILABILITY"
+        ]
+      },
+      {
+        "message": "Nếu không giao kịp, tôi có thể chuyển sang nhận tại cửa hàng gần nhất không?",
+        "expected_intents": [
+          "STORE_POLICY",
+          "SHIPPING_LOOKUP",
+          "ORDER_LOOKUP",
+          "PRODUCT_SEARCH",
+          "COMPLAINT",
+          "STOCK_AVAILABILITY"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_12_dialogue",
+    "group": 12,
+    "title": "Đổi trả, bảo hành và hậu mãi",
+    "turns": [
+      {
+        "message": "Điện thoại của tôi bị lỗi màn hình.",
+        "expected_intents": [
+          "WARRANTY_POLICY",
+          "AFTER_SALES_LOOKUP",
+          "STORE_POLICY",
+          "PRODUCT_SEARCH",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "COMPLAINT",
+          "ORDER_LOOKUP"
+        ]
+      },
+      {
+        "message": "Tôi mua cách đây ba tháng.",
+        "expected_intents": [
+          "WARRANTY_POLICY",
+          "AFTER_SALES_LOOKUP",
+          "STORE_POLICY",
+          "PRODUCT_SEARCH",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "COMPLAINT",
+          "ORDER_LOOKUP"
+        ]
+      },
+      {
+        "message": "Máy không rơi và không vào nước.",
+        "expected_intents": [
+          "WARRANTY_POLICY",
+          "AFTER_SALES_LOOKUP",
+          "STORE_POLICY",
+          "PRODUCT_SEARCH",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "COMPLAINT",
+          "ORDER_LOOKUP"
+        ]
+      },
+      {
+        "message": "Tôi không còn hóa đơn giấy.",
+        "expected_intents": [
+          "WARRANTY_POLICY",
+          "AFTER_SALES_LOOKUP",
+          "STORE_POLICY",
+          "PRODUCT_SEARCH",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "COMPLAINT",
+          "ORDER_LOOKUP"
+        ]
+      },
+      {
+        "message": "Tôi có thể gửi tại chi nhánh gần nhất không?",
+        "expected_intents": [
+          "WARRANTY_POLICY",
+          "AFTER_SALES_LOOKUP",
+          "STORE_POLICY",
+          "PRODUCT_SEARCH",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "COMPLAINT",
+          "ORDER_LOOKUP"
+        ]
+      },
+      {
+        "message": "Thời gian sửa dự kiến bao lâu?",
+        "expected_intents": [
+          "WARRANTY_POLICY",
+          "AFTER_SALES_LOOKUP",
+          "STORE_POLICY",
+          "PRODUCT_SEARCH",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "COMPLAINT",
+          "ORDER_LOOKUP"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_13_dialogue",
+    "group": 13,
+    "title": "Sản phẩm đã qua sử dụng",
+    "turns": [
+      {
+        "message": "Tôi muốn mua iPhone cũ.",
+        "expected_intents": [
+          "USED_PRODUCT_ADVICE",
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "WARRANTY_POLICY",
+          "STORE_POLICY",
+          "LOYALTY",
+          "STOCK_AVAILABILITY"
+        ]
+      },
+      {
+        "message": "Ngân sách dưới 12 triệu.",
+        "expected_intents": [
+          "USED_PRODUCT_ADVICE",
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "WARRANTY_POLICY",
+          "STORE_POLICY",
+          "LOYALTY",
+          "STOCK_AVAILABILITY"
+        ]
+      },
+      {
+        "message": "Tôi cần pin trên 90%.",
+        "expected_intents": [
+          "USED_PRODUCT_ADVICE",
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "WARRANTY_POLICY",
+          "STORE_POLICY",
+          "LOYALTY",
+          "STOCK_AVAILABILITY"
+        ]
+      },
+      {
+        "message": "Máy không được thay màn hình.",
+        "expected_intents": [
+          "USED_PRODUCT_ADVICE",
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "WARRANTY_POLICY",
+          "STORE_POLICY",
+          "LOYALTY",
+          "STOCK_AVAILABILITY"
+        ]
+      },
+      {
+        "message": "Có bảo hành ít nhất sáu tháng không?",
+        "expected_intents": [
+          "USED_PRODUCT_ADVICE",
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "WARRANTY_POLICY",
+          "STORE_POLICY",
+          "LOYALTY",
+          "STOCK_AVAILABILITY"
+        ]
+      },
+      {
+        "message": "Cho tôi biết nhược điểm thực tế của từng máy.",
+        "expected_intents": [
+          "USED_PRODUCT_ADVICE",
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "PRODUCT_COMPARISON",
+          "PRICE_AND_PROMOTION",
+          "WARRANTY_POLICY",
+          "STORE_POLICY",
+          "LOYALTY",
+          "STOCK_AVAILABILITY"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_14_dialogue",
+    "group": 14,
+    "title": "Voucher và mã giảm giá",
+    "turns": [
+      {
+        "message": "Tôi có ba voucher trong tài khoản.",
+        "expected_intents": [
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Đơn hàng của tôi là 3 triệu đồng.",
+        "expected_intents": [
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Một mã giảm 10%, một mã giảm 300.000 đồng.",
+        "expected_intents": [
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Mã nào có lợi hơn?",
+        "expected_intents": [
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Tôi có thể dùng thêm mã miễn phí vận chuyển không?",
+        "expected_intents": [
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Nếu hủy đơn, các mã có được trả lại không?",
+        "expected_intents": [
+          "VOUCHER_SUPPORT",
+          "PRICE_AND_PROMOTION",
+          "LOYALTY",
+          "COMPLAINT"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_15_dialogue",
+    "group": 15,
+    "title": "Điểm thưởng và khách hàng thân thiết",
+    "turns": [
+      {
+        "message": "Tôi có bao nhiêu điểm?",
+        "expected_intents": [
+          "LOYALTY",
+          "ACCOUNT_SUPPORT",
+          "STORE_POLICY",
+          "PRICE_AND_PROMOTION",
+          "WARRANTY_POLICY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Tôi muốn mua đơn hàng 5 triệu đồng.",
+        "expected_intents": [
+          "LOYALTY",
+          "ACCOUNT_SUPPORT",
+          "STORE_POLICY",
+          "PRICE_AND_PROMOTION",
+          "WARRANTY_POLICY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Tôi được dùng tối đa bao nhiêu điểm?",
+        "expected_intents": [
+          "LOYALTY",
+          "ACCOUNT_SUPPORT",
+          "STORE_POLICY",
+          "PRICE_AND_PROMOTION",
+          "WARRANTY_POLICY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Sau giao dịch này tôi có đủ nâng hạng không?",
+        "expected_intents": [
+          "LOYALTY",
+          "ACCOUNT_SUPPORT",
+          "STORE_POLICY",
+          "PRICE_AND_PROMOTION",
+          "WARRANTY_POLICY",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Điểm mới sẽ được cộng khi đặt hàng hay khi nhận hàng?",
+        "expected_intents": [
+          "LOYALTY",
+          "ACCOUNT_SUPPORT",
+          "STORE_POLICY",
+          "PRICE_AND_PROMOTION",
+          "WARRANTY_POLICY",
+          "COMPLAINT"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_16_dialogue",
+    "group": 16,
+    "title": "Đánh giá và trải nghiệm sản phẩm",
+    "turns": [
+      {
+        "message": "Sản phẩm này được đánh giá tốt không?",
+        "expected_intents": [
+          "PRODUCT_REVIEW"
+        ]
+      },
+      {
+        "message": "Tôi quan tâm đến pin và độ nóng.",
+        "expected_intents": [
+          "PRODUCT_REVIEW"
+        ]
+      },
+      {
+        "message": "Hãy tóm tắt cả nhận xét tích cực và tiêu cực.",
+        "expected_intents": [
+          "PRODUCT_REVIEW"
+        ]
+      },
+      {
+        "message": "Các đánh giá này có phải từ người mua thật không?",
+        "expected_intents": [
+          "PRODUCT_REVIEW"
+        ]
+      },
+      {
+        "message": "Với nhu cầu chơi game, nhược điểm nào đáng lo nhất?",
+        "expected_intents": [
+          "PRODUCT_REVIEW"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_17_dialogue",
+    "group": 17,
+    "title": "Thông tin cửa hàng",
+    "turns": [
+      {
+        "message": "Cửa hàng gần tôi nhất ở đâu?",
+        "expected_intents": [
+          "STORE_POLICY",
+          "STOCK_AVAILABILITY",
+          "SHIPPING_LOOKUP",
+          "WARRANTY_POLICY",
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Tôi muốn đến sau 19 giờ.",
+        "expected_intents": [
+          "STORE_POLICY",
+          "STOCK_AVAILABILITY",
+          "SHIPPING_LOOKUP",
+          "WARRANTY_POLICY",
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Chi nhánh đó còn mở không?",
+        "expected_intents": [
+          "STORE_POLICY",
+          "STOCK_AVAILABILITY",
+          "SHIPPING_LOOKUP",
+          "WARRANTY_POLICY",
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Có chỗ đậu ô tô không?",
+        "expected_intents": [
+          "STORE_POLICY",
+          "STOCK_AVAILABILITY",
+          "SHIPPING_LOOKUP",
+          "WARRANTY_POLICY",
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "COMPLAINT"
+        ]
+      },
+      {
+        "message": "Tôi muốn xem sản phẩm và làm hồ sơ trả góp tại đó.",
+        "expected_intents": [
+          "STORE_POLICY",
+          "STOCK_AVAILABILITY",
+          "SHIPPING_LOOKUP",
+          "WARRANTY_POLICY",
+          "PRODUCT_SEARCH",
+          "PRODUCT_RECOMMENDATION",
+          "COMPLAINT"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_18_dialogue",
+    "group": 18,
+    "title": "Tài khoản khách hàng",
+    "turns": [
+      {
+        "message": "Tôi quên mật khẩu và không còn dùng số điện thoại cũ.",
+        "expected_intents": [
+          "ACCOUNT_SUPPORT",
+          "COMPLAINT",
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "WARRANTY_POLICY",
+          "LOYALTY"
+        ]
+      },
+      {
+        "message": "Tôi vẫn truy cập được email.",
+        "expected_intents": [
+          "ACCOUNT_SUPPORT",
+          "COMPLAINT",
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "WARRANTY_POLICY",
+          "LOYALTY"
+        ]
+      },
+      {
+        "message": "Tài khoản có nhiều đơn hàng và điểm thưởng.",
+        "expected_intents": [
+          "ACCOUNT_SUPPORT",
+          "COMPLAINT",
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "WARRANTY_POLICY",
+          "LOYALTY"
+        ]
+      },
+      {
+        "message": "Làm sao lấy lại tài khoản mà không mất dữ liệu?",
+        "expected_intents": [
+          "ACCOUNT_SUPPORT",
+          "COMPLAINT",
+          "ORDER_LOOKUP",
+          "SHIPPING_LOOKUP",
+          "WARRANTY_POLICY",
+          "LOYALTY"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "business_20_dialogue",
+    "group": 20,
+    "title": "Khiếu nại và hỗ trợ nhân viên",
+    "turns": [
+      {
+        "message": "Tôi đã thanh toán nhưng đơn bị hủy.",
+        "expected_intents": [
+          "COMPLAINT",
+          "UNSUPPORTED_REQUEST",
+          "STORE_POLICY",
+          "AFTER_SALES_LOOKUP",
+          "ORDER_LOOKUP"
+        ]
+      },
+      {
+        "message": "Tiền chưa được hoàn sau bảy ngày.",
+        "expected_intents": [
+          "COMPLAINT",
+          "UNSUPPORTED_REQUEST",
+          "STORE_POLICY",
+          "AFTER_SALES_LOOKUP",
+          "ORDER_LOOKUP"
+        ]
+      },
+      {
+        "message": "Voucher và điểm thưởng cũng chưa được trả lại.",
+        "expected_intents": [
+          "COMPLAINT",
+          "UNSUPPORTED_REQUEST",
+          "STORE_POLICY",
+          "AFTER_SALES_LOOKUP",
+          "ORDER_LOOKUP"
+        ]
+      },
+      {
+        "message": "Tôi đã liên hệ hai lần nhưng chưa được xử lý.",
+        "expected_intents": [
+          "COMPLAINT",
+          "UNSUPPORTED_REQUEST",
+          "STORE_POLICY",
+          "AFTER_SALES_LOOKUP",
+          "ORDER_LOOKUP"
+        ]
+      },
+      {
+        "message": "Tôi muốn gặp quản lý và nhận mã khiếu nại.",
+        "expected_intents": [
+          "COMPLAINT",
+          "UNSUPPORTED_REQUEST",
+          "STORE_POLICY",
+          "AFTER_SALES_LOOKUP",
+          "ORDER_LOOKUP"
+        ]
+      }
+    ]
+  }
+]

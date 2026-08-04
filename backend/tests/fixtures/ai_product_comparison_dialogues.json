@@ -1,0 +1,28 @@
+[
+  {
+    "id": "product_comparison_phone_dialogue",
+    "title": "So sánh điện thoại nhiều lượt",
+    "turns": [
+      {"message": "So sánh hai điện thoại này giúp tôi.", "expected_intents": ["PRODUCT_COMPARISON"]},
+      {"message": "Tôi thường chụp ảnh và xem phim.", "expected_intents": ["PRODUCT_RECOMMENDATION"]},
+      {"message": "Tôi cần pin lâu.", "expected_intents": ["PRODUCT_RECOMMENDATION"]},
+      {"message": "Tôi không chơi game nhiều.", "expected_intents": ["PRODUCT_RECOMMENDATION"]},
+      {"message": "Hai máy chênh nhau bao nhiêu tiền?", "expected_intents": ["PRODUCT_COMPARISON", "PRICE_AND_PROMOTION"]},
+      {"message": "Mẫu đắt hơn có đáng không?", "expected_intents": ["PRODUCT_COMPARISON", "PRODUCT_RECOMMENDATION"]},
+      {"message": "Nếu sử dụng ba năm, tôi nên chọn mẫu nào?", "expected_intents": ["PRODUCT_COMPARISON", "PRODUCT_RECOMMENDATION"]}
+    ]
+  },
+  {
+    "id": "product_comparison_laptop_dialogue",
+    "title": "So sánh laptop nhiều lượt",
+    "turns": [
+      {"message": "Tôi đang phân vân giữa hai laptop.", "expected_intents": ["PRODUCT_COMPARISON"]},
+      {"message": "Tôi học lập trình.", "expected_intents": ["PRODUCT_RECOMMENDATION"]},
+      {"message": "Thỉnh thoảng tôi chỉnh sửa video.", "expected_intents": ["PRODUCT_RECOMMENDATION"]},
+      {"message": "Tôi cần máy nhẹ để mang đi học.", "expected_intents": ["PRODUCT_RECOMMENDATION"]},
+      {"message": "So sánh hiệu năng, pin và trọng lượng.", "expected_intents": ["PRODUCT_COMPARISON"]},
+      {"message": "Mẫu nào dùng ổn định hơn trong bốn năm?", "expected_intents": ["PRODUCT_COMPARISON", "PRODUCT_RECOMMENDATION"]},
+      {"message": "Nếu nâng RAM sau này thì mẫu nào thuận tiện hơn?", "expected_intents": ["PRODUCT_COMPARISON"]}
+    ]
+  }
+]

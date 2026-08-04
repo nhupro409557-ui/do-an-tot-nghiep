@@ -1,10 +1,10 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user_id, require_permission
-from app.api.schemas.admin import SupplierPaymentPayload
+from app.api.schemas.admin import AccountPayableAdjustmentPayload, SupplierPaymentPayload, SupplierPaymentReversalPayload
 from app.application.services import account_payable_service
 from app.infrastructure.database.session import get_session
 
@@ -49,8 +49,46 @@ async def create_supplier_payment(
     payload: SupplierPaymentPayload,
     session: AsyncSession = Depends(get_session),
     current_user_id: UUID = Depends(get_current_user_id),
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=120),
 ) -> dict:
     return await account_payable_service.create_supplier_payment(
+        session,
+        payable_id=payable_id,
+        payload=payload,
+        current_user_id=current_user_id,
+        idempotency_key=idempotency_key,
+    )
+
+
+@router.post(
+    "/account-payables/{payable_id}/payment-reversals",
+    dependencies=[Depends(require_permission("payable:pay"))],
+)
+async def reverse_supplier_payment(
+    payable_id: UUID,
+    payload: SupplierPaymentReversalPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await account_payable_service.reverse_supplier_payment(
+        session,
+        payable_id=payable_id,
+        payload=payload,
+        current_user_id=current_user_id,
+    )
+
+
+@router.post(
+    "/account-payables/{payable_id}/adjustments",
+    dependencies=[Depends(require_permission("payable:pay"))],
+)
+async def create_account_payable_adjustment(
+    payable_id: UUID,
+    payload: AccountPayableAdjustmentPayload,
+    session: AsyncSession = Depends(get_session),
+    current_user_id: UUID = Depends(get_current_user_id),
+) -> dict:
+    return await account_payable_service.create_account_payable_adjustment(
         session,
         payable_id=payable_id,
         payload=payload,

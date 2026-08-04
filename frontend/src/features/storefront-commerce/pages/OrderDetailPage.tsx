@@ -2,6 +2,7 @@ import { useEffect, useReducer, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { customerCenterApi } from '../../account/services/customerCenterApi';
 import { adminOrdersApi } from '../../admin-orders/services/adminOrdersApi';
+import { ProductReviews } from '../../products/components/ProductReviews';
 
 const statusLabels: Record<string, string> = {
   PENDING: 'Chờ xử lý',
@@ -189,6 +190,7 @@ export default function OrderDetailPage() {
     initialOrderDetailState,
   );
   const [copied, setCopied] = useState(false);
+  const [openReviewItemId, setOpenReviewItemId] = useState<string | null>(null);
   const [showCancelForm, setShowCancelForm] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -485,27 +487,53 @@ export default function OrderDetailPage() {
               <div className="divide-y divide-slate-100">
                 {(order.items || []).map((item: any) => {
                   const usedDeviceId = orderItemUsedDeviceId(item);
+                  const productId = String(item.productId || '');
+                  const reviewItemId = String(item.id || productId);
+                  const reviewPanelId = `order-review-${reviewItemId}`;
+                  const isReviewOpen = openReviewItemId === reviewItemId;
                   return (
-                    <div key={item.id || usedDeviceId || item.productName} className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0">
-                      <div className="flex items-center gap-3.5">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-50 border border-slate-100 shrink-0">
-                          <ProductPlaceholderIcon />
+                    <div key={item.id || usedDeviceId || item.productName} className="py-4 first:pt-0 last:pb-0">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3.5">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-50 border border-slate-100 shrink-0">
+                            <ProductPlaceholderIcon />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-slate-800 text-sm hover:text-slate-900 cursor-default transition-colors">{item.productName}</p>
+                            {usedDeviceId ? (
+                              <div className="mt-1 inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                                Hàng cũ đã thẩm định
+                              </div>
+                            ) : null}
+                            <p className="mt-1 text-xs font-medium text-slate-400">
+                              {formatCurrency(item.price)} <span className="mx-1 text-slate-300">×</span> {item.quantity}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-semibold text-slate-800 text-sm hover:text-slate-900 cursor-default transition-colors">{item.productName}</p>
-                          {usedDeviceId ? (
-                            <div className="mt-1 inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
-                              Hàng cũ đã thẩm định
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-slate-900 text-sm">{formatCurrency(item.totalPrice)}</p>
+                        </div>
+                      </div>
+                      {order.status === 'COMPLETED' && productId && !usedDeviceId ? (
+                        <>
+                          <div className="mt-3 flex justify-end">
+                            <button
+                              type="button"
+                              aria-expanded={isReviewOpen}
+                              aria-controls={reviewPanelId}
+                              onClick={() => setOpenReviewItemId(isReviewOpen ? null : reviewItemId)}
+                              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-amber-300 bg-amber-50 px-4 text-sm font-bold text-amber-800 transition hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                            >
+                              {isReviewOpen ? 'Đóng đánh giá' : 'Đánh giá sản phẩm'}
+                            </button>
+                          </div>
+                          {isReviewOpen ? (
+                            <div id={reviewPanelId}>
+                              <ProductReviews productId={productId} displayMode="form" />
                             </div>
                           ) : null}
-                          <p className="mt-1 text-xs font-medium text-slate-400">
-                            {formatCurrency(item.price)} <span className="mx-1 text-slate-300">×</span> {item.quantity}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className="font-bold text-slate-900 text-sm">{formatCurrency(item.totalPrice)}</p>
-                      </div>
+                        </>
+                      ) : null}
                     </div>
                   );
                 })}

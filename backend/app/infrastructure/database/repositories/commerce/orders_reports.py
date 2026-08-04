@@ -129,13 +129,15 @@ async def get_product_stock_for_update(session: AsyncSession, product_id: UUID) 
 
 
 async def get_revenue_report(session: AsyncSession) -> dict:
+    from app.infrastructure.database.repositories.reporting.revenue import (
+        get_lifetime_revenue_summary,
+    )
+
     total_orders = await session.scalar(select(func.count(Order.id)))
-    completed_orders = await session.scalar(select(func.count(Order.id)).where(Order.status == "COMPLETED"))
-    total_revenue = await session.scalar(text("""
-        SELECT
-            (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE completed_at IS NOT NULL)
-            - (SELECT COALESCE(SUM(refund_amount), 0) FROM refund_transactions WHERE status = 'COMPLETED')
-    """))
+    completed_orders = await session.scalar(
+        select(func.count(Order.id)).where(Order.status == "COMPLETED")
+    )
+    revenue = await get_lifetime_revenue_summary(session)
     ai_interactions = await session.scalar(select(func.count(AIContextLog.id)))
     loyalty_points_used = await session.scalar(
         select(func.coalesce(func.sum(Order.loyalty_points_used), 0)).where(Order.status == "COMPLETED")
@@ -143,7 +145,7 @@ async def get_revenue_report(session: AsyncSession) -> dict:
     return {
         "total_orders": total_orders or 0,
         "completed_orders": completed_orders or 0,
-        "total_revenue": total_revenue or Decimal("0"),
+        "total_revenue": revenue["net_revenue"],
         "ai_interactions": ai_interactions or 0,
         "loyalty_points_used": loyalty_points_used or 0,
     }

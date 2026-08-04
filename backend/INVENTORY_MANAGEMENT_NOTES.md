@@ -1,5 +1,12 @@
 # Inventory Management Notes
 
+## Cập nhật 2026-07-30 - Phân trang báo cáo tuổi tồn và đối soát
+
+- API tuổi tồn và đối soát nhận tùy chọn `page/pageSize`; summary vẫn tính trên toàn bộ tập dữ liệu rồi mới chia trang items.
+- Consumer cũ không truyền `pageSize` tiếp tục nhận toàn bộ items để giữ tương thích; màn Báo cáo tổng hợp dùng 50 dòng/trang.
+- Hai bảng tuổi tồn và đối soát có trang độc lập, không còn cắt âm thầm bằng `slice(0, 50)`.
+- Kiểm tra read-only PostgreSQL xác nhận tổng bucket/tổng lỗi không đổi khi response items được giới hạn theo trang.
+
 ## Cập nhật 2026-07-14 - Tồn khả dụng theo biến thể cho chatbot
 
 - Truy vấn AI tính tồn công khai từng biến thể từ tổng `GREATEST(on_hand - reserved - safety_stock, 0)` của các bản ghi `inventory_levels`.
@@ -1415,3 +1422,17 @@
 - IMEI `309505790056127` được trả về trạng thái `SOLD` của đơn gốc được giữ lại; ba IMEI thay thế/test và ba serial tương ứng được trả về `IN_STOCK` tại `A-06-03`. Serial của đơn gốc cũng được giữ ở trạng thái `SOLD`.
 - Đã thu hồi 4.099 điểm phát sinh từ đơn test khỏi tài khoản thật; số dư sau đối soát là `1.005` điểm.
 - Bước kiểm tra cuối không còn tài khoản, sản phẩm, đơn, chứng từ, voucher, video, webhook, thông báo hoặc log bảo mật mang marker test đã chọn; chỉ giữ tên migration hợp lệ trong `schema_migrations`.
+
+# Cập nhật 2026-08-02 - Siết công nợ nhà cung cấp từ phiếu nhập mua
+
+- Phiếu nhập `NK_MUA` chỉ được hoàn tất khi metadata có `supplierId` hợp lệ và `invoiceNumber` không rỗng. Toàn bộ bước ghi kho và tạo công nợ vẫn nằm trong cùng transaction, nên lỗi công nợ sẽ hoàn tác phần ghi kho.
+- Số hóa đơn đang hiệu lực được kiểm tra theo cặp nhà cung cấp và số hóa đơn đã chuẩn hóa. Service dùng advisory lock để xử lý đồng thời; migration `103_account_payable_hardening.sql` bổ sung trigger PostgreSQL làm lớp bảo vệ cuối. Migration chạy trong transaction và dừng trước khi đổi schema nếu phát hiện dữ liệu trùng lịch sử, không tự ý xóa hoặc hợp nhất chứng từ.
+- Khoản trả trước hoặc trạng thái đã thanh toán trên phiếu nhập nay tạo một dòng `supplier_payments` có khóa idempotency theo phiếu và event `PAYMENT_RECORDED`, thay vì chỉ tăng trực tiếp `paid_amount` mà không có lịch sử.
+- API thanh toán bắt buộc `Idempotency-Key`; client admin giữ nguyên khóa cho đến khi request thành công. Mỗi thanh toán lưu thêm fingerprint của payload; cùng khóa nhưng khác số tiền, phương thức, ngày hoặc tham chiếu sẽ trả lỗi `409` thay vì báo thành công bằng giao dịch cũ.
+- Thanh toán không bị xóa khi hoàn tác: trạng thái chuyển `POSTED -> REVERSED`, lưu người thao tác, thời điểm, lý do và cập nhật lại số dư công nợ trong cùng transaction có khóa dòng.
+- Điều chỉnh tăng/giảm được lưu ở `account_payable_adjustments`; điều chỉnh giảm không được làm nghĩa vụ thấp hơn tổng tiền đã thanh toán hiệu lực.
+- Tiền tại schema/service công nợ dùng `Decimal` với 2 chữ số thập phân. Giao diện gửi số tiền dạng chuỗi để tránh tạo sai số nhị phân trước khi vào API.
+- Màn công nợ sửa bộ lọc dùng state cũ, bổ sung phân trang, khóa nút khi đang lưu, hiển thị lịch sử đảo thanh toán và lịch sử điều chỉnh. Request danh sách có sequence guard để response cũ không ghi đè bộ lọc mới; lỗi tải giữ lại dữ liệu thành công gần nhất và hiển thị cảnh báo.
+- Các thao tác thanh toán, đảo và điều chỉnh đều có trạng thái đang xử lý và thông báo lỗi riêng; lỗi làm mới sau khi thanh toán không còn bị báo nhầm thành lỗi ghi nhận thanh toán.
+- Modal chi tiết được tách thành component riêng và có thuộc tính dialog cơ bản cho trình đọc màn hình.
+- Đã viết test hồi quy service và test ràng buộc database công nợ; chưa chạy test, typecheck hoặc áp migration theo quy định cần người dùng chấp thuận.

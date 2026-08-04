@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Smartphone } from 'lucide-react';
 import { usedProductsApi } from '../../used-products/services/usedProductsApi';
+import type { UserBuybackRequest } from '../../used-products/types';
 import { Link } from 'react-router-dom';
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
@@ -16,13 +17,13 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
 
 export default function UserBuybackRequests() {
   const [loading, setLoading] = useState(true);
-  const [requests, setRequests] = useState<any[]>([]);
+  const [requests, setRequests] = useState<UserBuybackRequest[]>([]);
 
   useEffect(() => {
     let active = true;
     usedProductsApi.listBuybackRequests()
-      .then((res: any) => {
-        if (active) setRequests(res || []);
+      .then((res) => {
+        if (active) setRequests(Array.isArray(res.items) ? res.items : []);
       })
       .catch(() => {})
       .finally(() => {

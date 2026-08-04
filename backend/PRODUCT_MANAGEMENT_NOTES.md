@@ -1,5 +1,11 @@
 # Product Management Notes
 
+## Cập nhật 2026-07-30 - Nhận diện hàng cũ trong báo cáo hiệu quả sản phẩm
+
+- Báo cáo sản phẩm nối `order_items.used_device_id` với `used_devices` để dùng sản phẩm/biến thể catalog gốc khi có liên kết.
+- Thiết bị ngoài catalog dùng `device_code` làm SKU nhận diện riêng; không nhập hàng cũ vào tồn catalog và không thay đổi vòng đời thiết bị.
+- Số đơn theo sản phẩm đếm đơn duy nhất trong kỳ thay vì cộng số dòng đơn hàng.
+
 ## Cập nhật 2026-07-14 - Chuẩn hóa bảo hành sản phẩm điện thoại
 
 - Toàn bộ sản phẩm thuộc cây danh mục Điện thoại được đồng bộ chính sách bảo hành 12 tháng và một đổi một trong 30 ngày.

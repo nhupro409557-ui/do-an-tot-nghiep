@@ -1,8 +1,10 @@
-import { CreditCard, Eye, RefreshCw } from 'lucide-react';
-import { AdminBadge, AdminPanel, AdminTable, Input, SearchBox, Select } from '../../admin-shell/components/AdminDashboardParts';
+import { Eye, RefreshCw } from 'lucide-react';
+import { AdminBadge, AdminPanel, AdminTable, SearchBox, Select } from '../../admin-shell/components/AdminDashboardParts';
 import { currency } from '../../admin-shell/components/AdminDashboardConfig';
+import AccountPayableDetailDialog from './AccountPayableDetailDialog';
 
 type AdminAccountPayablesTabProps = Record<string, any>;
+type BadgeTone = 'red' | 'green' | 'blue' | 'yellow' | 'slate' | 'amber';
 
 const statusOptions: [string, string][] = [
   ['ALL', 'Tất cả trạng thái'],
@@ -14,34 +16,17 @@ const statusOptions: [string, string][] = [
 ];
 
 const statusLabel: Record<string, string> = {
-  OPEN: 'Chưa trả',
-  PARTIAL: 'Trả một phần',
-  OVERDUE: 'Quá hạn',
-  PAID: 'Đã trả đủ',
-  CANCELLED: 'Đã hủy',
+  OPEN: 'Chưa trả', PARTIAL: 'Trả một phần', OVERDUE: 'Quá hạn', PAID: 'Đã trả đủ', CANCELLED: 'Đã hủy',
 };
-
-type BadgeTone = 'red' | 'green' | 'blue' | 'yellow' | 'slate' | 'amber';
 
 const statusTone: Record<string, BadgeTone> = {
-  OPEN: 'amber',
-  PARTIAL: 'blue',
-  OVERDUE: 'red',
-  PAID: 'green',
-  CANCELLED: 'slate',
+  OPEN: 'amber', PARTIAL: 'blue', OVERDUE: 'red', PAID: 'green', CANCELLED: 'slate',
 };
-
-const paymentMethodOptions: [string, string][] = [
-  ['BANK_TRANSFER', 'Chuyển khoản'],
-  ['CASH', 'Tiền mặt'],
-  ['OTHER', 'Khác'],
-];
 
 function formatDate(value?: string | null) {
   if (!value) return '-';
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleDateString('vi-VN');
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('vi-VN');
 }
 
 function metric(label: string, value: string, helper: string) {
@@ -56,30 +41,13 @@ function metric(label: string, value: string, helper: string) {
 
 export default function AdminAccountPayablesTab(props: AdminAccountPayablesTabProps) {
   const {
-    query,
-    setQuery,
-    suppliers = [],
-    accountPayables = [],
-    accountPayableSummary = {},
-    accountPayablePage = 1,
-    accountPayableTotal = 0,
-    accountPayableStatusFilter,
-    setAccountPayableStatusFilter,
-    accountPayableSupplierFilter,
-    setAccountPayableSupplierFilter,
-    selectedPayable,
-    paymentForm,
-    setPaymentForm,
-    loadAccountPayables,
-    openPayableDetail,
-    closePayableDetail,
-    submitSupplierPayment,
-    canRecordSupplierPayment,
+    query, setQuery, suppliers = [], accountPayables = [], accountPayableSummary = {},
+    accountPayablePage = 1, accountPayableTotal = 0,
+    accountPayableStatusFilter, setAccountPayableStatusFilter,
+    accountPayableSupplierFilter, setAccountPayableSupplierFilter,
+    accountPayableLoading, accountPayableLoadError,
+    loadAccountPayables, openPayableDetail,
   } = props;
-  const selectedPayments = Array.isArray(selectedPayable?.payments) ? selectedPayable.payments : [];
-  const canSubmitPayment = Boolean(canRecordSupplierPayment)
-    && Number(selectedPayable?.remainingAmount || 0) > 0
-    && !['PAID', 'CANCELLED'].includes(String(selectedPayable?.status || ''));
 
   const supplierOptions: [string, string][] = [
     ['', 'Tất cả nhà cung cấp'],
@@ -93,11 +61,12 @@ export default function AdminAccountPayablesTab(props: AdminAccountPayablesTabPr
         action={(
           <button
             type="button"
+            disabled={accountPayableLoading}
             className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
             onClick={() => void loadAccountPayables(query, accountPayablePage)}
           >
-            <RefreshCw className="h-4 w-4" />
-            Làm mới
+            <RefreshCw className={`h-4 w-4 ${accountPayableLoading ? 'animate-spin' : ''}`} />
+            {accountPayableLoading ? 'Đang tải...' : 'Làm mới'}
           </button>
         )}
       >
@@ -108,7 +77,7 @@ export default function AdminAccountPayablesTab(props: AdminAccountPayablesTabPr
           {metric('Dòng công nợ', String(accountPayableTotal || 0), 'Theo phiếu nhập đã hoàn tất')}
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_220px_240px]">
+        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_220px_240px] md:items-end">
           <SearchBox value={query} onChange={setQuery} placeholder="Tìm phiếu nhập, hóa đơn hoặc nhà cung cấp" />
           <Select
             label="Trạng thái"
@@ -116,7 +85,7 @@ export default function AdminAccountPayablesTab(props: AdminAccountPayablesTabPr
             options={statusOptions}
             onChange={(value) => {
               setAccountPayableStatusFilter(value);
-              void loadAccountPayables(query, 1);
+              void loadAccountPayables(query, 1, { status: value });
             }}
           />
           <Select
@@ -125,13 +94,26 @@ export default function AdminAccountPayablesTab(props: AdminAccountPayablesTabPr
             options={supplierOptions}
             onChange={(value) => {
               setAccountPayableSupplierFilter(value);
-              void loadAccountPayables(query, 1);
+              void loadAccountPayables(query, 1, { supplierId: value });
             }}
           />
         </div>
 
+        {accountPayableLoadError && (
+          <div role="alert" className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            Không thể tải dữ liệu công nợ: {accountPayableLoadError} Dữ liệu đang hiển thị là lần tải thành công gần nhất.
+          </div>
+        )}
+
         <div className="mt-4">
-          <AdminTable headers={['Phiếu nhập', 'Nhà cung cấp', 'Hóa đơn', 'Ngày đến hạn', 'Tổng nợ', 'Đã trả', 'Còn nợ', 'Trạng thái', 'Thao tác']}>
+          <AdminTable
+            headers={['Phiếu nhập', 'Nhà cung cấp', 'Hóa đơn', 'Ngày đến hạn', 'Tổng nợ', 'Đã trả', 'Còn nợ', 'Trạng thái', 'Thao tác']}
+            currentPage={accountPayablePage}
+            totalPages={Math.max(1, Math.ceil(Number(accountPayableTotal || 0) / 50))}
+            totalCount={accountPayableTotal}
+            itemName="khoản công nợ"
+            onPageChange={(page) => void loadAccountPayables(query, page)}
+          >
             {accountPayables.map((item: any) => (
               <tr key={item.id} className="border-t border-slate-100">
                 <td className="px-4 py-3 text-sm font-bold text-slate-900">{item.sourceReferenceCode}</td>
@@ -155,88 +137,13 @@ export default function AdminAccountPayablesTab(props: AdminAccountPayablesTabPr
               </tr>
             ))}
             {!accountPayables.length && (
-              <tr>
-                <td colSpan={9} className="px-4 py-6 text-center text-sm font-semibold text-slate-500">Chưa có công nợ nhà cung cấp.</td>
-              </tr>
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-sm font-semibold text-slate-500">Chưa có công nợ nhà cung cấp.</td></tr>
             )}
           </AdminTable>
         </div>
       </AdminPanel>
 
-      {selectedPayable && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/40 p-4 sm:items-center">
-          <div className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-lg bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-              <div>
-                <h3 className="text-lg font-bold text-slate-950">Chi tiết công nợ</h3>
-                <p className="text-sm font-semibold text-slate-500">{selectedPayable.sourceReferenceCode} - {selectedPayable.supplierName || '-'}</p>
-              </div>
-              <button type="button" className="rounded-md px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100" onClick={closePayableDetail}>Đóng</button>
-            </div>
-            <div className="grid gap-4 p-5 md:grid-cols-3">
-              {metric('Tổng nợ', currency.format(Number(selectedPayable.principalAmount || 0)), `Hạn: ${formatDate(selectedPayable.dueDate)}`)}
-              {metric('Đã trả', currency.format(Number(selectedPayable.paidAmount || 0)), selectedPayable.invoiceNumber ? `HĐ: ${selectedPayable.invoiceNumber}` : 'Chưa có số hóa đơn')}
-              {metric('Còn nợ', currency.format(Number(selectedPayable.remainingAmount || 0)), statusLabel[selectedPayable.status] || selectedPayable.status)}
-            </div>
-            <div className="border-t border-slate-200 p-5">
-              <div className="mb-3 text-sm font-bold text-slate-800">Lịch sử thanh toán</div>
-              {selectedPayments.length ? (
-                <div className="overflow-x-auto rounded-md border border-slate-200">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500">
-                      <tr>
-                        <th className="px-3 py-2">Ngày</th>
-                        <th className="px-3 py-2">Số tiền</th>
-                        <th className="px-3 py-2">Phương thức</th>
-                        <th className="px-3 py-2">Mã tham chiếu</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {selectedPayments.map((payment: any) => (
-                        <tr key={payment.id}>
-                          <td className="px-3 py-2 text-slate-600">{formatDate(payment.paymentDate)}</td>
-                          <td className="px-3 py-2 font-bold text-slate-900">{currency.format(Number(payment.amount || 0))}</td>
-                          <td className="px-3 py-2 text-slate-600">{paymentMethodOptions.find(([value]) => value === payment.method)?.[1] || payment.method || '-'}</td>
-                          <td className="px-3 py-2 text-slate-600">{payment.referenceNo || '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="rounded-md border border-dashed border-slate-200 px-4 py-3 text-sm font-semibold text-slate-500">Chưa có thanh toán nào được ghi nhận.</div>
-              )}
-            </div>
-            {canSubmitPayment ? (
-              <form className="border-t border-slate-200 p-5" onSubmit={submitSupplierPayment}>
-                <div className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-800">
-                  <CreditCard className="h-4 w-4" />
-                  Ghi nhận thanh toán
-                </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Input label="Số tiền" type="number" value={paymentForm.amount} onChange={(value) => setPaymentForm({ ...paymentForm, amount: Number(value || 0) })} />
-                  <Input label="Ngày thanh toán" type="date" value={paymentForm.paymentDate} onChange={(value) => setPaymentForm({ ...paymentForm, paymentDate: value })} />
-                  <Select label="Phương thức" value={paymentForm.method} options={paymentMethodOptions} onChange={(value) => setPaymentForm({ ...paymentForm, method: value })} />
-                  <Input label="Mã tham chiếu" value={paymentForm.referenceNo} onChange={(value) => setPaymentForm({ ...paymentForm, referenceNo: value })} />
-                  <div className="md:col-span-2">
-                    <Input label="Ghi chú" value={paymentForm.note} onChange={(value) => setPaymentForm({ ...paymentForm, note: value })} />
-                  </div>
-                </div>
-                <div className="mt-4 flex justify-end gap-2">
-                  <button type="button" className="rounded-md border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700" onClick={closePayableDetail}>Hủy</button>
-                  <button type="submit" className="rounded-md bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700">Lưu thanh toán</button>
-                </div>
-              </form>
-            ) : (
-              <div className="border-t border-slate-200 p-5">
-                <div className="rounded-md bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
-                  Tài khoản hiện tại chỉ được xem công nợ hoặc khoản này không còn số dư cần thanh toán.
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <AccountPayableDetailDialog {...props} />
     </>
   );
 }

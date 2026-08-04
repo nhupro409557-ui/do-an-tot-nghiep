@@ -229,6 +229,8 @@ async def update_own_review(
         raise HTTPException(status_code=403, detail="Đánh giá này gắn với đơn hàng đã trả/hoàn, không thể chỉnh sửa.")
 
     media_urls = sanitize_media_urls(payload.mediaUrls)
+    previous_media_urls = review.get("mediaUrls") if isinstance(review.get("mediaUrls"), list) else []
+    removed_media_urls = [url for url in previous_media_urls if url not in media_urls]
     safe_user_name = sanitize_review_text(payload.userName)[:255]
     safe_comment = sanitize_review_text(payload.comment)
     normalized_comment = normalize_review_text(safe_comment)
@@ -260,6 +262,14 @@ async def update_own_review(
     )
     await sync_product_review_stats(session=session, product_id=product_id)
     await session.commit()
+    if removed_media_urls:
+        from app.application.services.review_media_service import delete_owned_review_images
+
+        delete_owned_review_images(
+            urls=removed_media_urls,
+            user_id=current_user_id,
+            product_id=product_id,
+        )
     return {"ok": True, "status": "PENDING", "message": "Đánh giá đã được cập nhật và quay lại hàng đợi kiểm duyệt."}
 
 
@@ -286,6 +296,15 @@ async def delete_own_review(
         raise HTTPException(status_code=404, detail="Không tìm thấy đánh giá.")
     await sync_product_review_stats(session=session, product_id=product_id)
     await session.commit()
+    previous_media_urls = review.get("mediaUrls") if isinstance(review.get("mediaUrls"), list) else []
+    if previous_media_urls:
+        from app.application.services.review_media_service import delete_owned_review_images
+
+        delete_owned_review_images(
+            urls=previous_media_urls,
+            user_id=current_user_id,
+            product_id=product_id,
+        )
     return {"ok": True}
 
 

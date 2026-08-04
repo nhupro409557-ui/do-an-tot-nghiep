@@ -12,7 +12,16 @@ export const adminAccountPayablesApi = {
   },
   adminGetAccountPayableSummary: () => request<any>('/admin/account-payables/summary'),
   adminGetAccountPayableDetail: (id: string) => request<any>(`/admin/account-payables/${encodeURIComponent(id)}`),
-  adminCreateSupplierPayment: (id: string, data: any) => request<any>(`/admin/account-payables/${encodeURIComponent(id)}/payments`, {
+  adminCreateSupplierPayment: (id: string, data: any, idempotencyKey: string) => request<any>(`/admin/account-payables/${encodeURIComponent(id)}/payments`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(data),
+  }),
+  adminReverseSupplierPayment: (id: string, paymentId: string, reason: string) => request<any>(`/admin/account-payables/${encodeURIComponent(id)}/payment-reversals`, {
+    method: 'POST',
+    body: JSON.stringify({ paymentId, reason }),
+  }),
+  adminCreateAccountPayableAdjustment: (id: string, data: { type: 'DEBIT' | 'CREDIT'; amount: string; reason: string }) => request<any>(`/admin/account-payables/${encodeURIComponent(id)}/adjustments`, {
     method: 'POST',
     body: JSON.stringify(data),
   }),

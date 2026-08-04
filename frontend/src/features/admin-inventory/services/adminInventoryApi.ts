@@ -59,17 +59,31 @@ export const adminInventoryApi = {
     body: JSON.stringify(data),
   }),
   adminGetInventoryDashboard: (search = '') => request<any>(`/admin/inventory/dashboard${search ? `?search=${encodeURIComponent(search)}` : ''}`),
-  adminGetInventoryAgingReport: (search = '', bucket = '') => {
+  adminGetInventoryAgingReport: (
+    search = '',
+    bucket = '',
+    page?: number,
+    pageSize?: number,
+  ) => {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (bucket) params.set('bucket', bucket);
+    if (page) params.set('page', String(page));
+    if (pageSize) params.set('pageSize', String(pageSize));
     const query = params.toString();
     return request<any>(`/admin/inventory/reports/aging${query ? `?${query}` : ''}`);
   },
-  adminGetInventoryReconciliationReport: (search = '', issueType = '') => {
+  adminGetInventoryReconciliationReport: (
+    search = '',
+    issueType = '',
+    page?: number,
+    pageSize?: number,
+  ) => {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (issueType) params.set('issueType', issueType);
+    if (page) params.set('page', String(page));
+    if (pageSize) params.set('pageSize', String(pageSize));
     const query = params.toString();
     return request<any>(`/admin/inventory/reports/reconciliation${query ? `?${query}` : ''}`);
   },

@@ -28,6 +28,7 @@ from app.application.services import birthday_voucher_service, loyalty_maintenan
 from app.config import settings
 from app.infrastructure.database.repositories import audit_repo
 from app.infrastructure.database.session import AsyncSessionFactory
+from app.workers.report_export_worker import run_report_export_worker_loop
 
 
 # Khởi tạo Logger chuẩn
@@ -41,6 +42,7 @@ async def lifespan(_: FastAPI):
     if settings.order_maintenance_enabled:
         maintenance_task = asyncio.create_task(run_order_maintenance_loop())
     birthday_voucher_task = asyncio.create_task(run_birthday_voucher_loop())
+    report_export_task = asyncio.create_task(run_report_export_worker_loop())
     try:
         yield
     finally:
@@ -51,6 +53,9 @@ async def lifespan(_: FastAPI):
         birthday_voucher_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await birthday_voucher_task
+        report_export_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await report_export_task
 
 
 app = FastAPI(

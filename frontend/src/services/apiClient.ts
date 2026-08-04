@@ -81,7 +81,12 @@ export async function requestBlob(path: string, options: RequestInit = {}): Prom
     });
   }
   if (!response.ok) {
-    throw new Error('Không thể xuất dữ liệu tồn kho.');
+    const body = await response.json().catch(() => ({}));
+    throw new Error(
+      typeof body.detail === 'string'
+        ? body.detail
+        : 'Không thể xuất dữ liệu.',
+    );
   }
   return response.blob();
 }

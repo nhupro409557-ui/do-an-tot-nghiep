@@ -130,18 +130,34 @@ async def get_inventory_dashboard(
 async def get_inventory_aging_report(
     search: str = Query(default=""),
     bucket: str = Query(default=""),
+    page: int = Query(default=1, ge=1),
+    page_size: int | None = Query(default=None, alias="pageSize", ge=1, le=100),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    return await inventory_service.get_inventory_aging_report(session, search, bucket)
+    return await inventory_service.get_inventory_aging_report(
+        session,
+        search,
+        bucket,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/inventory/reports/reconciliation", dependencies=[Depends(require_permission("inventory:read"))])
 async def get_inventory_reconciliation_report(
     search: str = Query(default=""),
     issue_type: str = Query(default="", alias="issueType"),
+    page: int = Query(default=1, ge=1),
+    page_size: int | None = Query(default=None, alias="pageSize", ge=1, le=100),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    return await inventory_service.get_inventory_reconciliation_report(session, search, issue_type)
+    return await inventory_service.get_inventory_reconciliation_report(
+        session,
+        search,
+        issue_type,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.post("/inventory/reconciliation/legacy-putaway", dependencies=[Depends(require_super_admin)])

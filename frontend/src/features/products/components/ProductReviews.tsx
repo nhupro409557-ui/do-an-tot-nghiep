@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
-import { Pencil, Star, Trash2 } from 'lucide-react';
+import { ImagePlus, Pencil, Star, Trash2, X } from 'lucide-react';
 import { publicApi } from '../../../services/publicApi';
 import { useAuth } from '../../../context/AuthContext';
 
@@ -17,19 +17,36 @@ interface Review {
 }
 
 const ratingStars = [1, 2, 3, 4, 5];
+const allowedReviewImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const maxReviewImages = 5;
+const maxReviewImageBytes = 5 * 1024 * 1024;
 
-export function ProductReviews({ productId }: { productId: string }) {
+type SelectedReviewImage = {
+  file: File;
+  previewUrl: string;
+};
+
+type ProductReviewsProps = {
+  productId: string;
+  displayMode?: 'full' | 'form';
+};
+
+export function ProductReviews({ productId, displayMode = 'full' }: ProductReviewsProps) {
   const { user } = useAuth();
-  return <ProductReviewsContent key={`${productId}-${user?.uid || 'guest'}`} productId={productId} user={user} />;
+  return <ProductReviewsContent key={`${productId}-${user?.uid || 'guest'}-${displayMode}`} productId={productId} user={user} displayMode={displayMode} />;
 }
 
-function ProductReviewsContent({ productId, user }: { productId: string; user: any }) {
+function ProductReviewsContent({ productId, user, displayMode }: ProductReviewsProps & { user: any }) {
+  const isFormOnly = displayMode === 'form';
+  const previewUrlsRef = useRef(new Set<string>());
   const [reviews, setReviews] = useState<Review[]>([]);
   const [newReview, setNewReview] = useState('');
-  const [mediaInput, setMediaInput] = useState('');
+  const [mediaUrls, setMediaUrls] = useState<string[]>([]);
+  const [selectedImages, setSelectedImages] = useState<SelectedReviewImage[]>([]);
   const [rating, setRating] = useState(5);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!isFormOnly);
   const [eligibility, setEligibility] = useState<any>(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(Boolean(user));
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [submitSuccess, setSubmitSuccess] = useState('');
@@ -40,10 +57,22 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
     setEditingReviewId(existingReview.id || null);
     setNewReview(existingReview.comment || '');
     setRating(Number(existingReview.rating || 5));
-    setMediaInput(Array.isArray(existingReview.mediaUrls) ? existingReview.mediaUrls.join('\n') : '');
+    setMediaUrls(Array.isArray(existingReview.mediaUrls) ? existingReview.mediaUrls : []);
+  }, []);
+
+  const clearSelectedImages = useCallback(() => {
+    previewUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+    previewUrlsRef.current.clear();
+    setSelectedImages([]);
+  }, []);
+
+  useEffect(() => () => {
+    previewUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+    previewUrlsRef.current.clear();
   }, []);
 
   useEffect(() => {
+    if (isFormOnly) return;
     let isActive = true;
     const fetchReviews = async () => {
       try {
@@ -74,7 +103,7 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
     return () => {
       isActive = false;
     };
-  }, [productId]);
+  }, [isFormOnly, productId]);
 
   useEffect(() => {
     if (!user) return;
@@ -91,12 +120,47 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
           canReview: false,
           message: 'Không thể kiểm tra quyền đánh giá lúc này.',
         });
+      })
+      .finally(() => {
+        if (isActive) setEligibilityLoading(false);
       });
     return () => {
       isActive = false;
     };
   }, [applyExistingReview, productId, user]);
 
+  const handleImageSelection = (files: FileList | null) => {
+    const nextFiles = Array.from(files || []);
+    if (nextFiles.length === 0) return;
+    if (mediaUrls.length + selectedImages.length + nextFiles.length > maxReviewImages) {
+      setSubmitError(`Mỗi đánh giá chỉ được tối đa ${maxReviewImages} ảnh.`);
+      return;
+    }
+    const unsupportedFile = nextFiles.find(file => !allowedReviewImageTypes.has(file.type));
+    if (unsupportedFile) {
+      setSubmitError(`Ảnh ${unsupportedFile.name} không đúng định dạng JPG, PNG hoặc WEBP.`);
+      return;
+    }
+    const oversizedFile = nextFiles.find(file => file.size > maxReviewImageBytes);
+    if (oversizedFile) {
+      setSubmitError(`Ảnh ${oversizedFile.name} vượt quá 5 MB.`);
+      return;
+    }
+
+    const nextImages = nextFiles.map(file => {
+      const previewUrl = URL.createObjectURL(file);
+      previewUrlsRef.current.add(previewUrl);
+      return { file, previewUrl };
+    });
+    setSelectedImages(current => [...current, ...nextImages]);
+    setSubmitError('');
+  };
+
+  const removeSelectedImage = (previewUrl: string) => {
+    URL.revokeObjectURL(previewUrl);
+    previewUrlsRef.current.delete(previewUrl);
+    setSelectedImages(current => current.filter(image => image.previewUrl !== previewUrl));
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -108,26 +172,29 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
     }
 
     const userName = user?.displayName || user?.email || 'Khách hàng';
-    const mediaUrls = mediaInput.split('\n').flatMap((item) => {
-      const trimmedUrl = item.trim();
-      return trimmedUrl ? [trimmedUrl] : [];
-    });
+    const normalizedComment = newReview.trim();
+    let uploadedUrls: string[] = [];
     setSubmitting(true);
     setSubmitError('');
     setSubmitSuccess('');
     try {
+      if (selectedImages.length > 0) {
+        const uploadedImages = await publicApi.uploadReviewImages(productId, selectedImages.map(image => image.file));
+        uploadedUrls = uploadedImages.map(image => image.url);
+      }
+      const nextMediaUrls = [...mediaUrls, ...uploadedUrls];
       const response = editingReviewId
         ? await publicApi.updateOwnReview(productId, editingReviewId, {
             userName,
             rating,
-            comment: newReview.trim(),
-            mediaUrls,
+            comment: normalizedComment,
+            mediaUrls: nextMediaUrls,
           })
         : await publicApi.createReview(productId, {
             userName,
             rating,
-            comment: newReview.trim(),
-            mediaUrls,
+            comment: normalizedComment,
+            mediaUrls: nextMediaUrls,
           });
       const nextReviewId = editingReviewId || ('id' in response ? response.id : editingReviewId);
       setEligibility({
@@ -142,17 +209,20 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
           id: nextReviewId,
           userName,
           rating,
-          comment: newReview.trim(),
-          mediaUrls,
+          comment: normalizedComment,
+          mediaUrls: nextMediaUrls,
           status: response.status || 'PENDING',
         },
       });
       setEditingReviewId(nextReviewId || null);
-      setNewReview('');
-      setMediaInput('');
-      setRating(5);
+      setMediaUrls(nextMediaUrls);
+      clearSelectedImages();
       setSubmitSuccess(response.message || 'Đánh giá đã được gửi.');
     } catch (err: any) {
+      if (uploadedUrls.length > 0) {
+        setMediaUrls(current => Array.from(new Set([...current, ...uploadedUrls])));
+        clearSelectedImages();
+      }
       setSubmitError(err.message || 'Không thể gửi đánh giá.');
     } finally {
       setSubmitting(false);
@@ -169,7 +239,8 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
       await publicApi.deleteOwnReview(productId, editingReviewId);
       setEditingReviewId(null);
       setNewReview('');
-      setMediaInput('');
+      setMediaUrls([]);
+      clearSelectedImages();
       setRating(5);
       setEligibility({
         ...eligibility,
@@ -189,30 +260,41 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
   };
 
   return (
-    <div className="mt-8 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
-      <h3 className="mb-6 font-display text-xl font-bold">Đánh giá & Nhận xét</h3>
+    <div className={isFormOnly ? 'mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4' : 'mt-8 rounded-xl border border-gray-100 bg-white p-6 shadow-sm'}>
+      <h3 className={isFormOnly ? 'mb-4 text-base font-bold text-slate-900' : 'mb-6 font-display text-xl font-bold'}>
+        {isFormOnly ? 'Đánh giá sản phẩm' : 'Đánh giá & Nhận xét'}
+      </h3>
 
       {!user ? (
-        <div className="mb-8 rounded-lg border border-amber-100 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+        <div className={`${isFormOnly ? '' : 'mb-8'} rounded-lg border border-amber-100 bg-amber-50 p-4 text-sm font-semibold text-amber-800`}>
           Vui lòng đăng nhập và chỉ những đơn hàng đã hoàn thành mới có thể đánh giá sản phẩm.
         </div>
+      ) : eligibilityLoading ? (
+        <div role="status" className={`${isFormOnly ? '' : 'mb-8'} rounded-lg border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-500`}>
+          Đang kiểm tra điều kiện đánh giá...
+        </div>
       ) : !eligibility?.canReview && !eligibility?.canEdit ? (
-        <div className="mb-8 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-600">
+        <div className={`${isFormOnly ? '' : 'mb-8'} rounded-lg border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600`}>
           {eligibility?.message || 'Chỉ khách hàng có đơn hàng đã hoàn thành mới có thể đánh giá sản phẩm này.'}
         </div>
       ) : null}
 
       {(eligibility?.canReview || eligibility?.canEdit) && (
-        <form onSubmit={handleSubmit} className="mb-8 rounded-lg border border-gray-200 bg-gray-50 p-4">
+        <form onSubmit={handleSubmit} className={`${isFormOnly ? '' : 'mb-8'} rounded-lg border border-gray-200 bg-white p-4`}>
           <div className="mb-3 flex items-center gap-2">
             <span className="text-sm font-semibold">Đánh giá của bạn:</span>
-            <div className="flex gap-1">
+            <div className="flex gap-1" aria-label="Chọn số sao đánh giá">
               {ratingStars.map((star) => (
-                <Star
+                <button
                   key={star}
-                  className={`h-5 w-5 cursor-pointer ${star <= rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+                  type="button"
+                  aria-label={`Chọn ${star} sao`}
+                  aria-pressed={rating === star}
                   onClick={() => setRating(star)}
-                />
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                >
+                  <Star className={`h-5 w-5 ${star <= rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`} />
+                </button>
               ))}
             </div>
           </div>
@@ -223,13 +305,66 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
             value={newReview}
             onChange={(event) => setNewReview(event.target.value)}
           />
-          <textarea
-            aria-label="Link ảnh hoặc video đánh giá"
-            placeholder="Tùy chọn: dán link ảnh/video, mỗi dòng một URL"
-            className="mb-3 min-h-[88px] w-full rounded-lg border border-gray-300 p-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-            value={mediaInput}
-            onChange={(event) => setMediaInput(event.target.value)}
-          />
+          <div className="mb-3">
+            <label
+              aria-disabled={submitting || mediaUrls.length + selectedImages.length >= maxReviewImages}
+              className={`inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 transition focus-within:ring-2 focus-within:ring-slate-300 ${submitting || mediaUrls.length + selectedImages.length >= maxReviewImages ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-slate-50'}`}
+            >
+              <input
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/webp"
+                disabled={submitting || mediaUrls.length + selectedImages.length >= maxReviewImages}
+                onChange={(event) => {
+                  handleImageSelection(event.currentTarget.files);
+                  event.currentTarget.value = '';
+                }}
+                className="sr-only"
+              />
+              <ImagePlus className="h-4 w-4" />
+              Thêm hình ảnh
+            </label>
+            <p className="mt-1.5 text-xs font-medium text-slate-500">Tối đa 5 ảnh JPG, PNG hoặc WEBP; mỗi ảnh không quá 5 MB.</p>
+          </div>
+          {(mediaUrls.length > 0 || selectedImages.length > 0) && (
+            <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {mediaUrls.map(url => {
+                const isVideo = /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url);
+                return (
+                  <div key={url} className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                    {isVideo ? (
+                      <video src={url} controls aria-label="Video đã tải lên cho đánh giá" className="h-28 w-full bg-black object-cover">
+                        <track kind="captions" />
+                      </video>
+                    ) : (
+                      <img src={url} alt="Ảnh đã tải lên cho đánh giá" className="h-28 w-full object-cover" />
+                    )}
+                    <button
+                      type="button"
+                      aria-label={isVideo ? 'Xóa video đã tải lên' : 'Xóa ảnh đã tải lên'}
+                      onClick={() => setMediaUrls(current => current.filter(item => item !== url))}
+                      className="absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-950/75 text-white transition hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-white"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                );
+              })}
+              {selectedImages.map(image => (
+                <div key={image.previewUrl} className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                  <img src={image.previewUrl} alt={`Ảnh đã chọn: ${image.file.name}`} className="h-28 w-full object-cover" />
+                  <button
+                    type="button"
+                    aria-label={`Bỏ ảnh ${image.file.name}`}
+                    onClick={() => removeSelectedImage(image.previewUrl)}
+                    className="absolute right-1.5 top-1.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-950/75 text-white transition hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-white"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           {submitError && <div className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">{submitError}</div>}
           {submitSuccess && <div className="mb-3 rounded-md bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">{submitSuccess}</div>}
           <div className="flex justify-end gap-3">
@@ -246,7 +381,7 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
         </form>
       )}
 
-      <div className="space-y-4">
+      {!isFormOnly && <div className="space-y-4">
         {loading && <div className="text-sm text-gray-400">Đang tải đánh giá...</div>}
         {!loading && reviews.length === 0 && <div className="text-sm text-gray-400">Chưa có đánh giá nào cho sản phẩm này.</div>}
         <LazyMotion features={domAnimation}>
@@ -311,7 +446,7 @@ function ProductReviewsContent({ productId, user }: { productId: string; user: a
             ))}
           </AnimatePresence>
         </LazyMotion>
-      </div>
+      </div>}
     </div>
   );
 }

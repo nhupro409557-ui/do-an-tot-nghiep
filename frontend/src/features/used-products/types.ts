@@ -46,3 +46,20 @@ export type StorefrontUsedProductDetail = StorefrontUsedProductListItem & {
   inspectionChecklist?: Record<string, boolean>;
   conditionScore?: number | null;
 };
+
+export type UserBuybackRequest = {
+  id: string;
+  requestCode: string;
+  productName: string;
+  imei: string;
+  status: string;
+  expectedPrice?: number | null;
+  proposedAcquisitionPrice?: number | null;
+};
+
+export type UserBuybackRequestsResponse = {
+  items: UserBuybackRequest[];
+  page: number;
+  limit: number;
+  total: number;
+};

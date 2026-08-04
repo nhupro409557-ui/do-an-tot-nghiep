@@ -1,0 +1,40 @@
+[
+  {
+    "id": "inventory_variant_phone_dialogue",
+    "title": "Kiểm tra tồn điện thoại theo biến thể",
+    "turns": [
+      {"message": "iPhone này còn hàng không?", "expected_intents": ["STOCK_AVAILABILITY"]},
+      {"message": "Bản 256 GB.", "expected_intents": ["PRODUCT_SEARCH", "STOCK_AVAILABILITY"]},
+      {"message": "Màu đen.", "expected_intents": ["PRODUCT_SEARCH", "STOCK_AVAILABILITY"]},
+      {"message": "Chi nhánh gần tôi còn không?", "expected_intents": ["STOCK_AVAILABILITY", "STORE_POLICY"]},
+      {"message": "Tôi cần nhận hôm nay.", "expected_intents": ["STOCK_AVAILABILITY", "STORE_POLICY"]},
+      {"message": "Nếu hết màu đen thì có màu nào cùng giá?", "expected_intents": ["PRODUCT_SEARCH", "PRICE_AND_PROMOTION", "PRODUCT_RECOMMENDATION"]},
+      {"message": "Có thể giữ hàng đến tối không?", "expected_intents": ["STORE_POLICY"]}
+    ]
+  },
+  {
+    "id": "inventory_variant_out_of_stock_dialogue",
+    "title": "Xử lý laptop hết hàng",
+    "turns": [
+      {"message": "Laptop này hết hàng rồi phải không?", "expected_intents": ["STOCK_AVAILABILITY"]},
+      {"message": "Khi nào có lại?", "expected_intents": ["STOCK_AVAILABILITY", "STORE_POLICY"]},
+      {"message": "Tôi có thể đặt trước không?", "expected_intents": ["STORE_POLICY"]},
+      {"message": "Cần đặt cọc bao nhiêu?", "expected_intents": ["STORE_POLICY", "PRICE_AND_PROMOTION"]},
+      {"message": "Giá có được giữ không?", "expected_intents": ["PRICE_AND_PROMOTION", "STORE_POLICY"]},
+      {"message": "Nếu hàng về muộn thì tôi có được hủy không?", "expected_intents": ["STORE_POLICY"]},
+      {"message": "Có mẫu nào tương đương đang có sẵn không?", "expected_intents": ["PRODUCT_RECOMMENDATION", "PRODUCT_SEARCH"]}
+    ]
+  },
+  {
+    "id": "inventory_variant_version_dialogue",
+    "title": "Xác định phiên bản sản phẩm",
+    "turns": [
+      {"message": "Sản phẩm này có mấy phiên bản?", "expected_intents": ["PRODUCT_SEARCH"]},
+      {"message": "Bản tiêu chuẩn và bản Pro khác nhau thế nào?", "expected_intents": ["PRODUCT_COMPARISON", "PRODUCT_SEARCH"]},
+      {"message": "Bản Pro còn màu xanh không?", "expected_intents": ["STOCK_AVAILABILITY", "PRODUCT_SEARCH"]},
+      {"message": "Đây là phiên bản Việt Nam hay quốc tế?", "expected_intents": ["PRODUCT_SEARCH", "PRODUCT_COMPARISON"]},
+      {"message": "Mã model chính xác là gì?", "expected_intents": ["PRODUCT_SEARCH"]},
+      {"message": "Tôi có thể kiểm tra mã model khi nhận hàng không?", "expected_intents": ["PRODUCT_SEARCH", "STORE_POLICY"]}
+    ]
+  }
+]

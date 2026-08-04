@@ -18,11 +18,6 @@ async def get_admin_overview_counts(session: AsyncSession) -> dict:
                 (SELECT COUNT(*) FROM orders WHERE status = 'PROCESSING') AS orders_processing,
                 (SELECT COUNT(*) FROM orders WHERE status IN ('CANCELLED', 'CANCELED')) AS orders_cancelled,
                 (SELECT COUNT(*) FROM orders WHERE status IN ('REFUNDED', 'RETURNED', 'RETURNING')) AS orders_refunded,
-                (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE completed_at IS NOT NULL)
-                  - (SELECT COALESCE(SUM(refund_amount), 0) FROM refund_transactions WHERE status = 'COMPLETED') AS total_revenue,
-                (SELECT COALESCE(SUM(CASE WHEN ilm.movement_type = 'SALE' THEN ilm.quantity * COALESCE(il.unit_cost, 0) WHEN ilm.movement_type = 'RETURN' THEN -ilm.quantity * COALESCE(il.unit_cost, 0) ELSE 0 END), 0)
-                 FROM inventory_lot_movements ilm JOIN inventory_lots il ON il.id = ilm.lot_id
-                 WHERE ilm.order_id IS NOT NULL AND ilm.movement_type IN ('SALE', 'RETURN')) AS total_cogs,
                 (SELECT COUNT(*) FROM vouchers) AS vouchers_total,
                 (SELECT COUNT(*) FROM vouchers WHERE status = 'ACTIVE') AS vouchers_active,
                 (SELECT COUNT(*) FROM vouchers WHERE status = 'ACTIVE' AND COALESCE(total_budget_cap, 0) > 0 AND (COALESCE(total_discount_used, 0) / total_budget_cap) >= 0.8) AS vouchers_risky,

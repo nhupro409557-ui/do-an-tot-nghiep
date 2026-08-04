@@ -18,7 +18,7 @@ import {
   TrendingUp,
   Zap,
 } from 'lucide-react';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts';
 import { EmptyState } from '../../admin-shell/components/AdminDashboardParts';
 
 type AdminOverviewTabProps = {
@@ -362,36 +362,39 @@ export default function AdminOverviewTab({
 
           {dailyRevenue.length > 0 ? (
             <div className="h-72 min-w-0" role="img" aria-label="Biểu đồ xu hướng doanh thu trong 14 ngày gần nhất">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                <AreaChart data={dailyRevenue} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="adminRevenueArea" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.22} />
-                      <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.01} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fontWeight: 600 }} stroke="#94a3b8" tickLine={false} axisLine={false} />
-                  <YAxis
-                    tickFormatter={(value) => compactCurrency.format(Number(value))}
-                    tick={{ fontSize: 11, fontWeight: 600 }}
-                    stroke="#94a3b8"
-                    width={56}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip content={renderTooltip} />
-                  <Area
-                    type="monotone"
-                    dataKey="total"
-                    stroke="#4f46e5"
-                    strokeWidth={2.5}
-                    fill="url(#adminRevenueArea)"
-                    activeDot={{ r: 5, fill: '#4f46e5', stroke: '#ffffff', strokeWidth: 3 }}
-                    isAnimationActive={false}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              <AreaChart
+                responsive
+                className="h-full w-full min-w-0"
+                data={dailyRevenue}
+                margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient id="adminRevenueArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.22} />
+                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.01} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fontWeight: 600 }} stroke="#94a3b8" tickLine={false} axisLine={false} />
+                <YAxis
+                  tickFormatter={(value) => compactCurrency.format(Number(value))}
+                  tick={{ fontSize: 11, fontWeight: 600 }}
+                  stroke="#94a3b8"
+                  width={56}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip content={renderTooltip} />
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  stroke="#4f46e5"
+                  strokeWidth={2.5}
+                  fill="url(#adminRevenueArea)"
+                  activeDot={{ r: 5, fill: '#4f46e5', stroke: '#ffffff', strokeWidth: 3 }}
+                  isAnimationActive={false}
+                />
+              </AreaChart>
             </div>
           ) : (
             <div className="flex h-72 items-center justify-center"><EmptyState text="Chưa có dữ liệu doanh thu theo ngày." /></div>
@@ -414,22 +417,25 @@ export default function AdminOverviewTab({
 
           {monthlyRevenue.length > 0 ? (
             <div className="h-72 min-w-0" role="img" aria-label="Biểu đồ so sánh doanh thu trong 6 tháng gần nhất">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                <BarChart data={monthlyRevenue} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fontWeight: 600 }} stroke="#94a3b8" tickLine={false} axisLine={false} />
-                  <YAxis
-                    tickFormatter={(value) => compactCurrency.format(Number(value))}
-                    tick={{ fontSize: 11, fontWeight: 600 }}
-                    stroke="#94a3b8"
-                    width={56}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip content={renderBarTooltip} cursor={{ fill: '#f8fafc' }} />
-                  <Bar dataKey="total" fill="#6366f1" radius={[6, 6, 2, 2]} maxBarSize={30} isAnimationActive={false} />
-                </BarChart>
-              </ResponsiveContainer>
+              <BarChart
+                responsive
+                className="h-full w-full min-w-0"
+                data={monthlyRevenue}
+                margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fontWeight: 600 }} stroke="#94a3b8" tickLine={false} axisLine={false} />
+                <YAxis
+                  tickFormatter={(value) => compactCurrency.format(Number(value))}
+                  tick={{ fontSize: 11, fontWeight: 600 }}
+                  stroke="#94a3b8"
+                  width={56}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip content={renderBarTooltip} cursor={{ fill: '#f8fafc' }} />
+                <Bar dataKey="total" fill="#6366f1" radius={[6, 6, 2, 2]} maxBarSize={30} isAnimationActive={false} />
+              </BarChart>
             </div>
           ) : (
             <div className="flex h-72 items-center justify-center"><EmptyState text="Chưa có dữ liệu doanh thu theo tháng." /></div>

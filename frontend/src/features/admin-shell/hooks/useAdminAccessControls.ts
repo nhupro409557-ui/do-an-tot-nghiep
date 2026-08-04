@@ -12,6 +12,7 @@ export function useAdminAccessControls(
   const canManageCustomerAccess = usePermission('sys:manage_users');
   const canManageCustomerProfile = useAnyPermission(['customer:update', 'customer:loyalty_adjust', 'customer:issue_voucher', 'sys:manage_users']);
   const canReadOverview = useAnyPermission(['overview:read']);
+  const canReadRevenueReports = usePermission('report:revenue_read');
   const canReadProducts = useAnyPermission(['product:read']);
   const canReadUsedProducts = useAnyPermission(['used_product:read']);
   const canManageProducts = useAnyPermission(['product:create', 'product:update', 'product:delete']);
@@ -39,9 +40,29 @@ export function useAdminAccessControls(
   const canReadStoreInfo = usePermission('store_info:read');
   const canReadServices = usePermission('service:read');
   const canReadFlashSales = usePermission('flash_sale:read');
+  const canReadReports = canReadRevenueReports
+    || canReadOrders
+    || canReadProducts
+    || canReadCustomers
+    || canReadInventory;
+
+  const reportAccess = useMemo(() => ({
+    revenue: canReadRevenueReports,
+    orders: canReadOrders,
+    products: canReadProducts,
+    customers: canReadCustomers,
+    inventory: canReadInventory,
+  }), [
+    canReadCustomers,
+    canReadInventory,
+    canReadOrders,
+    canReadProducts,
+    canReadRevenueReports,
+  ]);
 
   const tabAccess = useMemo<Record<AdminTab, boolean>>(() => ({
     overview: canReadOverview,
+    reports: canReadReports,
     products: canReadProducts,
     usedProducts: canReadUsedProducts,
     categories: canReadCategories,
@@ -76,6 +97,7 @@ export function useAdminAccessControls(
     canReadInventory,
     canReadOrders,
     canReadOverview,
+    canReadReports,
     canReadProducts,
     canReadUsedProducts,
     canReadReviews,
@@ -101,6 +123,7 @@ export function useAdminAccessControls(
     canManageCustomerAccess,
     canManageCustomerProfile,
     canUpdateContent,
+    reportAccess,
     tabAccess,
   };
 }

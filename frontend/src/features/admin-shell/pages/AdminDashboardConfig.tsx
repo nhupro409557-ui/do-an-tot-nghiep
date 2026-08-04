@@ -1,6 +1,7 @@
 import type React from 'react';
 import {
   BadgePercent,
+  BarChart3,
   Boxes,
   Bot,
   Building2,
@@ -24,7 +25,7 @@ import {
   Recycle,
 } from 'lucide-react';
 
-export type AdminTab = 'overview' | 'products' | 'usedProducts' | 'flashSales' | 'categories' | 'brands' | 'suppliers' | 'services' | 'orders' | 'afterSales' | 'vouchers' | 'customers' | 'inventoryReceipts' | 'accountPayables' | 'inventory' | 'inventoryOutbounds' | 'reviews' | 'interactions' | 'content' | 'banners' | 'audit' | 'aiCatalogIndex' | 'permissions' | 'paymentMethods' | 'storeInfo';
+export type AdminTab = 'overview' | 'reports' | 'products' | 'usedProducts' | 'flashSales' | 'categories' | 'brands' | 'suppliers' | 'services' | 'orders' | 'afterSales' | 'vouchers' | 'customers' | 'inventoryReceipts' | 'accountPayables' | 'inventory' | 'inventoryOutbounds' | 'reviews' | 'interactions' | 'content' | 'banners' | 'audit' | 'aiCatalogIndex' | 'permissions' | 'paymentMethods' | 'storeInfo';
 export type AdminTabGroup = 'Tổng quan' | 'Kinh doanh' | 'Danh mục hàng' | 'Vận hành' | 'Khách hàng' | 'Hệ thống';
 export type SpecField = { key: string; label: string; group?: string; type: string; required: boolean; variant: boolean; isFilterable?: boolean; filterType?: string; filterEnabled?: boolean; unit?: string; options?: string };
 export type CategoryFilterField = { key: string; label: string; type: string; enabled: boolean; source?: string };
@@ -187,6 +188,7 @@ export function categoryWarrantyPolicy(category: any, parent?: any): WarrantyPol
 
 export const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Tổng quan', icon: LayoutDashboard },
+  { id: 'reports', label: 'Báo cáo', icon: BarChart3 },
   { id: 'products', label: 'Sản phẩm', icon: Package },
   { id: 'usedProducts', label: 'Hàng cũ', icon: Recycle },
   { id: 'flashSales', label: 'Flash sale', icon: Zap },
@@ -222,6 +224,15 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
     label: 'Bảng điều khiển',
     title: 'Tổng quan điều hành',
     description: 'Khu vực đọc số liệu nhanh, theo dõi doanh thu, đơn hàng và cảnh báo vận hành.',
+  },
+  reports: {
+    active: 'bg-rose-900 text-white shadow-sm shadow-rose-900/50 border-l-4 border-l-white',
+    item: 'border-rose-100 bg-rose-50/70 text-rose-950 hover:bg-rose-100/80',
+    icon: 'bg-rose-100 text-rose-700 ring-rose-200',
+    surface: 'border-rose-100 bg-rose-50 text-rose-900',
+    label: 'Phân tích',
+    title: 'Báo cáo tổng hợp',
+    description: 'Phân tích doanh thu, đơn hàng và hiệu quả sản phẩm theo kỳ.',
   },
   products: {
     active: 'bg-red-600 text-white shadow-sm shadow-red-200',
@@ -443,6 +454,7 @@ export const tabTone: Record<AdminTab, { active: string; item: string; icon: str
 
 export const adminTabs: { id: AdminTab; label: string; group: AdminTabGroup; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Tổng quan', group: 'Tổng quan', icon: LayoutDashboard },
+  { id: 'reports', label: 'Báo cáo', group: 'Tổng quan', icon: BarChart3 },
   { id: 'orders', label: 'Đơn hàng', group: 'Kinh doanh', icon: ClipboardList },
   { id: 'afterSales', label: 'Đổi trả & bảo hành', group: 'Vận hành', icon: ShieldCheck },
   { id: 'vouchers', label: 'Voucher', group: 'Kinh doanh', icon: BadgePercent },
@@ -479,6 +491,15 @@ export const adminTabTone: Partial<Record<AdminTab, { active: string; item: stri
     label: 'Bảng điều khiển',
     title: 'Tổng quan điều hành',
     description: 'Khu vực đọc số liệu nhanh, theo dõi doanh thu, đơn hàng và cảnh báo vận hành.',
+  },
+  reports: {
+    active: 'border-rose-200 bg-rose-100 text-slate-800 shadow-sm shadow-rose-50',
+    item: 'border-rose-100 bg-rose-50 text-slate-700 hover:bg-rose-100/80',
+    icon: 'bg-rose-100 text-rose-700 ring-rose-200',
+    surface: 'border-rose-100 bg-rose-50 text-rose-900',
+    label: 'Phân tích',
+    title: 'Báo cáo tổng hợp',
+    description: 'Phân tích doanh thu, đơn hàng và hiệu quả sản phẩm theo kỳ.',
   },
   products: {
     active: 'border-rose-200 bg-rose-100 text-slate-800 shadow-sm shadow-rose-50',
@@ -673,6 +694,7 @@ export const adminTabTone: Partial<Record<AdminTab, { active: string; item: stri
 
 export const searchPlaceholderByTab: Record<AdminTab, string> = {
   overview: 'Tìm số liệu, cảnh báo hoặc khu vực cần theo dõi',
+  reports: 'Dùng bộ lọc trong phân hệ báo cáo',
   products: 'Tìm sản phẩm, SKU, thương hiệu',
   usedProducts: 'Tìm hồ sơ, thiết bị hoặc IMEI hàng cũ',
   flashSales: 'Tìm sản phẩm đang flash sale',

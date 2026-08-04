@@ -1,5 +1,9 @@
 import { request } from '../../../services/apiClient';
-import type { StorefrontUsedProductDetail, StorefrontUsedProductsResponse } from '../types';
+import type {
+  StorefrontUsedProductDetail,
+  StorefrontUsedProductsResponse,
+  UserBuybackRequestsResponse,
+} from '../types';
 
 export type UsedProductFilters = {
   search?: string;
@@ -30,6 +34,6 @@ export const usedProductsApi = {
     const query = new URLSearchParams();
     if (params.page) query.set('page', String(params.page));
     if (params.limit) query.set('limit', String(params.limit));
-    return request<any>(`/storefront/used-products/buyback-requests${query.size ? `?${query.toString()}` : ''}`);
+    return request<UserBuybackRequestsResponse>(`/storefront/used-products/buyback-requests${query.size ? `?${query.toString()}` : ''}`);
   },
 };

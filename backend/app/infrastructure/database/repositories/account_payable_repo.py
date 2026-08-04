@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -56,19 +56,55 @@ async def get_receipt_payable_source(session: AsyncSession, document_id: UUID) -
     return _row_dict(row) if row else None
 
 
+async def ensure_supplier_invoice_available(
+    session: AsyncSession,
+    *,
+    supplier_id: UUID,
+    invoice_number: str,
+    source_document_id: UUID,
+) -> None:
+    normalized_invoice = invoice_number.strip().lower()
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+        {"lock_key": f"supplier-invoice:{supplier_id}:{normalized_invoice}"},
+    )
+    duplicate = (
+        await session.execute(
+            text(
+                """
+                SELECT id
+                FROM account_payables
+                WHERE supplier_id = :supplier_id
+                  AND LOWER(BTRIM(invoice_number)) = :invoice_number
+                  AND source_document_id != :source_document_id
+                  AND status != 'CANCELLED'
+                LIMIT 1
+                """
+            ),
+            {
+                "supplier_id": supplier_id,
+                "invoice_number": normalized_invoice,
+                "source_document_id": source_document_id,
+            },
+        )
+    ).first()
+    if duplicate:
+        raise ValueError("Số hóa đơn này đã được dùng cho một phiếu nhập khác của nhà cung cấp.")
+
+
 async def upsert_payable_from_receipt(
     session: AsyncSession,
     *,
     source: dict,
     due_date: datetime,
     payment_term_days: int,
-    paid_amount: float,
+    paid_amount: Decimal,
     actor_id: UUID | None,
 ) -> dict:
     metadata = source.get("metadata") or {}
     supplier_id = metadata.get("supplierId") or None
-    principal_amount = float(source.get("principalAmount") or 0)
-    clamped_paid = max(0, min(float(paid_amount or 0), principal_amount))
+    principal_amount = Decimal(str(source.get("principalAmount") or 0))
+    clamped_paid = max(Decimal("0.00"), min(Decimal(str(paid_amount or 0)), principal_amount))
     status = "PAID" if principal_amount <= clamped_paid else ("PARTIAL" if clamped_paid > 0 else "OPEN")
     row = (
         await session.execute(
@@ -123,7 +159,7 @@ async def upsert_payable_from_receipt(
                 "invoice_date": metadata.get("invoiceDate"),
                 "principal_amount": principal_amount,
                 "paid_amount": clamped_paid,
-                "remaining_amount": max(principal_amount - clamped_paid, 0),
+                "remaining_amount": max(principal_amount - clamped_paid, Decimal("0.00")),
                 "payment_term_days": payment_term_days,
                 "due_date": due_date,
                 "status": status,
@@ -140,7 +176,7 @@ async def insert_payable_event(
     *,
     payable_id: UUID | str,
     event_type: str,
-    amount: float | None = None,
+    amount: Decimal | float | None = None,
     actor_id: UUID | None = None,
     metadata: dict | None = None,
 ) -> None:
@@ -250,6 +286,30 @@ async def get_account_payable_for_update(session: AsyncSession, payable_id: UUID
             {"id": payable_id},
         )
     ).mappings().first()
+    return dict(row) if row else None
+
+
+async def get_supplier_payment_by_idempotency_key(
+    session: AsyncSession,
+    *,
+    payable_id: UUID,
+    idempotency_key: str,
+) -> dict | None:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT id::text, payment_code AS "paymentCode", payment_date AS "paymentDate",
+                       amount, method, reference_no AS "referenceNo", note, status,
+                       reversed_at AS "reversedAt", reversal_reason AS "reversalReason",
+                       request_fingerprint AS "requestFingerprint"
+                FROM supplier_payments
+                WHERE payable_id = :payable_id AND idempotency_key = :idempotency_key
+                """
+            ),
+            {"payable_id": payable_id, "idempotency_key": idempotency_key},
+        )
+    ).mappings().first()
     return _row_dict(row) if row else None
 
 
@@ -258,12 +318,14 @@ async def insert_supplier_payment(
     *,
     payable_id: UUID,
     supplier_id: UUID | None,
-    amount: float,
+    amount: Decimal,
     payment_date: datetime,
     method: str,
     reference_no: str | None,
     note: str | None,
     created_by: UUID | None,
+    idempotency_key: str,
+    request_fingerprint: str,
 ) -> dict:
     row = (
         await session.execute(
@@ -271,25 +333,106 @@ async def insert_supplier_payment(
                 """
                 INSERT INTO supplier_payments (
                     id, payable_id, supplier_id, payment_code, payment_date,
-                    amount, method, reference_no, note, created_by
+                    amount, method, reference_no, note, created_by, idempotency_key, request_fingerprint
                 )
                 VALUES (
                     :id, :payable_id, :supplier_id, :payment_code, :payment_date,
-                    :amount, :method, :reference_no, :note, :created_by
+                    :amount, :method, :reference_no, :note, :created_by, :idempotency_key, :request_fingerprint
                 )
-                RETURNING id::text, payment_code AS "paymentCode"
+                RETURNING id::text, payment_code AS "paymentCode", payment_date AS "paymentDate",
+                          amount, method, reference_no AS "referenceNo", note, status
                 """
             ),
             {
                 "id": uuid4(),
                 "payable_id": payable_id,
                 "supplier_id": supplier_id,
-                "payment_code": f"TTNCC-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+                "payment_code": f"TTNCC-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid4().hex[:12].upper()}",
                 "payment_date": payment_date,
                 "amount": amount,
                 "method": method,
                 "reference_no": reference_no,
                 "note": note,
+                "created_by": created_by,
+                "idempotency_key": idempotency_key,
+                "request_fingerprint": request_fingerprint,
+            },
+        )
+    ).mappings().first()
+    return _row_dict(row)
+
+
+async def get_supplier_payment_for_update(
+    session: AsyncSession,
+    *,
+    payable_id: UUID,
+    payment_id: UUID,
+) -> dict | None:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT id, amount, status
+                FROM supplier_payments
+                WHERE id = :payment_id AND payable_id = :payable_id
+                FOR UPDATE
+                """
+            ),
+            {"payment_id": payment_id, "payable_id": payable_id},
+        )
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+async def reverse_supplier_payment(
+    session: AsyncSession,
+    *,
+    payment_id: UUID,
+    reason: str,
+    actor_id: UUID | None,
+) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE supplier_payments
+            SET status = 'REVERSED', reversed_at = NOW(), reversed_by = :actor_id,
+                reversal_reason = :reason
+            WHERE id = :payment_id AND status = 'POSTED'
+            """
+        ),
+        {"payment_id": payment_id, "reason": reason, "actor_id": actor_id},
+    )
+
+
+async def insert_account_payable_adjustment(
+    session: AsyncSession,
+    *,
+    payable_id: UUID,
+    adjustment_type: str,
+    amount: Decimal,
+    reason: str,
+    created_by: UUID | None,
+) -> dict:
+    row = (
+        await session.execute(
+            text(
+                """
+                INSERT INTO account_payable_adjustments (
+                    id, payable_id, adjustment_code, adjustment_type, amount, reason, created_by
+                ) VALUES (
+                    :id, :payable_id, :adjustment_code, :adjustment_type, :amount, :reason, :created_by
+                )
+                RETURNING id::text, adjustment_code AS "adjustmentCode",
+                          adjustment_type AS type, amount, reason, created_at AS "createdAt"
+                """
+            ),
+            {
+                "id": uuid4(),
+                "payable_id": payable_id,
+                "adjustment_code": f"DCNCC-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid4().hex[:12].upper()}",
+                "adjustment_type": adjustment_type,
+                "amount": amount,
+                "reason": reason,
                 "created_by": created_by,
             },
         )
@@ -297,12 +440,46 @@ async def insert_supplier_payment(
     return _row_dict(row)
 
 
+async def update_payable_principal_totals(
+    session: AsyncSession,
+    *,
+    payable_id: UUID,
+    principal_amount: Decimal,
+    paid_amount: Decimal,
+    remaining_amount: Decimal,
+    status: str,
+    actor_id: UUID | None,
+) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE account_payables
+            SET principal_amount = :principal_amount,
+                paid_amount = :paid_amount,
+                remaining_amount = :remaining_amount,
+                status = :status,
+                updated_by = :actor_id,
+                updated_at = NOW()
+            WHERE id = :id
+            """
+        ),
+        {
+            "id": payable_id,
+            "principal_amount": principal_amount,
+            "paid_amount": paid_amount,
+            "remaining_amount": remaining_amount,
+            "status": status,
+            "actor_id": actor_id,
+        },
+    )
+
+
 async def update_payable_payment_totals(
     session: AsyncSession,
     *,
     payable_id: UUID,
-    paid_amount: float,
-    remaining_amount: float,
+    paid_amount: Decimal,
+    remaining_amount: Decimal,
     status: str,
     actor_id: UUID | None,
 ) -> None:
@@ -375,7 +552,8 @@ async def get_account_payable_detail(session: AsyncSession, payable_id: UUID) ->
                     amount,
                     method,
                     reference_no AS "referenceNo",
-                    note,
+                    note, status, reversed_at AS "reversedAt",
+                    reversal_reason AS "reversalReason",
                     created_at AS "createdAt"
                 FROM supplier_payments
                 WHERE payable_id = :id
@@ -386,6 +564,36 @@ async def get_account_payable_detail(session: AsyncSession, payable_id: UUID) ->
         )
     ).mappings().all()
     detail["payments"] = [dict(item) for item in payment_rows]
+    adjustment_rows = (
+        await session.execute(
+            text(
+                """
+                SELECT id::text, adjustment_code AS "adjustmentCode",
+                       adjustment_type AS type, amount, reason, created_at AS "createdAt"
+                FROM account_payable_adjustments
+                WHERE payable_id = :id
+                ORDER BY created_at DESC
+                """
+            ),
+            {"id": payable_id},
+        )
+    ).mappings().all()
+    detail["adjustments"] = [dict(item) for item in adjustment_rows]
+    event_rows = (
+        await session.execute(
+            text(
+                """
+                SELECT id::text, event_type AS "eventType", amount, actor_id::text AS "actorId",
+                       metadata, created_at AS "createdAt"
+                FROM account_payable_events
+                WHERE payable_id = :id
+                ORDER BY created_at DESC
+                """
+            ),
+            {"id": payable_id},
+        )
+    ).mappings().all()
+    detail["events"] = [dict(item) for item in event_rows]
     return detail
 
 

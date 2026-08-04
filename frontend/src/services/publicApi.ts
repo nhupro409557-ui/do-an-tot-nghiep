@@ -220,6 +220,14 @@ export const publicApi = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
+  uploadReviewImages: (productId: string, files: File[]) => {
+    const body = new FormData();
+    files.forEach(file => body.append('files', file));
+    return request<Array<{ url: string }>>(`/products/${encodeURIComponent(productId)}/reviews/images`, {
+      method: 'POST',
+      body,
+    });
+  },
   updateOwnReview: (productId: string, reviewId: string, data: any) => request<{ ok: boolean; status: string; message: string }>(`/products/${productId}/reviews/${encodeURIComponent(reviewId)}`, {
     method: 'PATCH',
     body: JSON.stringify(data),

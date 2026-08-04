@@ -132,6 +132,7 @@ export function useAdminLogic() {
     canManageCustomerAccess,
     canManageCustomerProfile,
     canUpdateContent,
+    reportAccess,
     tabAccess,
   } = useAdminAccessControls(usePermission, useAnyPermission, Boolean(isSuperAdmin));
 
@@ -1096,6 +1097,7 @@ export function useAdminLogic() {
     canCreateContent,
     canUpdateContent,
     canDeleteContent,
+    reportAccess,
     canAccessAdmin,
     loading,
     usePermission,

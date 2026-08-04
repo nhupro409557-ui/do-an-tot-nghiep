@@ -1,0 +1,28 @@
+[
+  {
+    "id": "product_specification_phone_dialogue",
+    "title": "Kiểm tra cấu hình điện thoại nhiều lượt",
+    "turns": [
+      {"message": "Cho tôi xem thông số điện thoại này.", "expected_intents": ["PRODUCT_SEARCH"]},
+      {"message": "Máy có bao nhiêu RAM?", "expected_intents": ["PRODUCT_SEARCH"]},
+      {"message": "Bản 256 GB có dùng chip giống bản 128 GB không?", "expected_intents": ["PRODUCT_COMPARISON", "PRODUCT_SEARCH"]},
+      {"message": "Màn hình có tần số quét bao nhiêu?", "expected_intents": ["PRODUCT_SEARCH"]},
+      {"message": "Pin dùng thực tế được bao lâu?", "expected_intents": ["PRODUCT_SEARCH", "PRODUCT_RECOMMENDATION"]},
+      {"message": "Máy có chống nước không?", "expected_intents": ["PRODUCT_SEARCH"]},
+      {"message": "Có hỗ trợ sạc nhanh không?", "expected_intents": ["PRODUCT_SEARCH"]}
+    ]
+  },
+  {
+    "id": "product_specification_laptop_dialogue",
+    "title": "Kiểm tra cấu hình laptop nhiều lượt",
+    "turns": [
+      {"message": "Laptop này dùng chip gì?", "expected_intents": ["PRODUCT_SEARCH"]},
+      {"message": "RAM có nâng cấp được không?", "expected_intents": ["PRODUCT_SEARCH"]},
+      {"message": "Có thêm khe SSD không?", "expected_intents": ["PRODUCT_SEARCH"]},
+      {"message": "Card đồ họa dùng công suất bao nhiêu?", "expected_intents": ["PRODUCT_SEARCH"]},
+      {"message": "Máy nặng bao nhiêu?", "expected_intents": ["PRODUCT_SEARCH"]},
+      {"message": "Pin dùng được khoảng mấy giờ?", "expected_intents": ["PRODUCT_SEARCH", "PRODUCT_RECOMMENDATION"]},
+      {"message": "Có xuất được hai màn hình ngoài không?", "expected_intents": ["PRODUCT_SEARCH"]}
+    ]
+  }
+]

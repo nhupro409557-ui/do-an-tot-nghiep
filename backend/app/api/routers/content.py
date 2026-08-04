@@ -1,6 +1,6 @@
 ﻿from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request, status
+from fastapi import APIRouter, Depends, File, Header, Query, Request, UploadFile, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,7 @@ from app.api.schemas.content import (
     VideoCommentRequest,
     VideoViewHeartbeatRequest,
 )
-from app.application.services import public_content_service
+from app.application.services import public_content_service, review_media_service
 from app.infrastructure.cache import get_redis
 from app.infrastructure.database.session import get_session
 
@@ -43,6 +43,23 @@ async def create_review(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     return await public_content_service.create_review(product_id, payload, current_user_id, session)
+
+
+@router.post("/products/{product_id}/reviews/images", status_code=status.HTTP_201_CREATED)
+async def upload_review_images(
+    product_id: UUID,
+    request: Request,
+    files: list[UploadFile] = File(...),
+    current_user_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await review_media_service.upload_review_images(
+        product_id=product_id,
+        user_id=current_user_id,
+        files=files,
+        base_url=str(request.base_url).rstrip("/"),
+        session=session,
+    )
 
 
 @router.patch("/products/{product_id}/reviews/{review_id}")
