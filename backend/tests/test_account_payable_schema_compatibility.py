@@ -17,6 +17,8 @@ class AccountPayableSchemaCompatibilityTest(IsolatedAsyncioTestCase):
         self.assertIn("ADD COLUMN IF NOT EXISTS status", statements)
         self.assertIn("uq_supplier_payments_payable_idempotency", statements)
         self.assertIn("idx_supplier_payments_active", statements)
+        self.assertIn("CREATE TABLE IF NOT EXISTS account_payable_adjustments", statements)
+        self.assertIn("idx_account_payable_adjustments_payable", statements)
 
     async def test_existing_schema_does_not_run_ddl(self) -> None:
         session = AsyncMock()

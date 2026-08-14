@@ -206,6 +206,7 @@ async def list_account_payables(
 
 
 async def get_account_payable_detail(session: AsyncSession, payable_id: UUID) -> dict:
+    await account_payable_repo.ensure_supplier_payment_hardening_schema(session)
     detail = await account_payable_repo.get_account_payable_detail(session, payable_id)
     if not detail:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy công nợ nhà cung cấp.")
@@ -224,6 +225,7 @@ async def create_supplier_payment(
     current_user_id: UUID | None,
     idempotency_key: str | None,
 ) -> dict:
+    await account_payable_repo.ensure_supplier_payment_hardening_schema(session)
     normalized_key = idempotency_key.strip() if idempotency_key else ""
     if len(normalized_key) < 8:
         raise HTTPException(status_code=400, detail="Khóa chống ghi nhận trùng phải có ít nhất 8 ký tự.")
@@ -313,6 +315,7 @@ async def reverse_supplier_payment(
     payload: SupplierPaymentReversalPayload,
     current_user_id: UUID | None,
 ) -> dict:
+    await account_payable_repo.ensure_supplier_payment_hardening_schema(session)
     payable = await account_payable_repo.get_account_payable_for_update(session, payable_id)
     if not payable:
         raise HTTPException(status_code=404, detail="Không tìm thấy công nợ nhà cung cấp.")
@@ -369,6 +372,7 @@ async def create_account_payable_adjustment(
     payload: AccountPayableAdjustmentPayload,
     current_user_id: UUID | None,
 ) -> dict:
+    await account_payable_repo.ensure_supplier_payment_hardening_schema(session)
     payable = await account_payable_repo.get_account_payable_for_update(session, payable_id)
     if not payable:
         raise HTTPException(status_code=404, detail="Không tìm thấy công nợ nhà cung cấp.")

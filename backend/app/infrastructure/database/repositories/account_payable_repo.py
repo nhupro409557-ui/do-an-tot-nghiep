@@ -28,7 +28,7 @@ def _jsonable_value(value):
 
 
 async def ensure_supplier_payment_hardening_schema(session: AsyncSession) -> None:
-    has_status_column = await session.scalar(
+    has_hardening_schema = await session.scalar(
         text(
             """
             SELECT EXISTS (
@@ -38,16 +38,17 @@ async def ensure_supplier_payment_hardening_schema(session: AsyncSession) -> Non
                   AND table_name = 'supplier_payments'
                   AND column_name = 'status'
             )
+            AND to_regclass('public.account_payable_adjustments') IS NOT NULL
             """
         )
     )
-    if has_status_column:
+    if has_hardening_schema:
         return
 
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended('supplier-payment-hardening-schema', 0))")
     )
-    has_status_column = await session.scalar(
+    has_hardening_schema = await session.scalar(
         text(
             """
             SELECT EXISTS (
@@ -57,10 +58,11 @@ async def ensure_supplier_payment_hardening_schema(session: AsyncSession) -> Non
                   AND table_name = 'supplier_payments'
                   AND column_name = 'status'
             )
+            AND to_regclass('public.account_payable_adjustments') IS NOT NULL
             """
         )
     )
-    if has_status_column:
+    if has_hardening_schema:
         return
 
     await session.execute(
@@ -73,6 +75,30 @@ async def ensure_supplier_payment_hardening_schema(session: AsyncSession) -> Non
                 ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ,
                 ADD COLUMN IF NOT EXISTS reversed_by UUID REFERENCES users(id) ON DELETE SET NULL,
                 ADD COLUMN IF NOT EXISTS reversal_reason TEXT
+            """
+        )
+    )
+    await session.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS account_payable_adjustments (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                payable_id UUID NOT NULL REFERENCES account_payables(id) ON DELETE CASCADE,
+                adjustment_code VARCHAR(80) NOT NULL UNIQUE,
+                adjustment_type VARCHAR(20) NOT NULL CHECK (adjustment_type IN ('DEBIT', 'CREDIT')),
+                amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+                reason TEXT NOT NULL,
+                created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+    )
+    await session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_account_payable_adjustments_payable
+                ON account_payable_adjustments(payable_id, created_at DESC)
             """
         )
     )
