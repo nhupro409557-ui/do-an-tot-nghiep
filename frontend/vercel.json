@@ -1,5 +1,13 @@
 {
   "rewrites": [
-    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+    {
+      "source": "/api/:path*",
+      "destination": "https://do-an-tot-nghiep-8k43.vercel.app/api/:path*"
+    },
+    {
+      "source": "/uploads/:path*",
+      "destination": "https://do-an-tot-nghiep-8k43.vercel.app/uploads/:path*"
+    },
+    { "source": "/((?!api/|assets/|uploads/).*)", "destination": "/index.html" }
   ]
 }

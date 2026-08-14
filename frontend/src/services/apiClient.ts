@@ -1,7 +1,8 @@
 import { getAccessToken, isAccessTokenExpiringSoon, refreshSession } from './authDb';
 import { normalizeVietnameseEncoding } from '../utils/textEncoding';
+import { API_BASE_URL } from './apiBaseUrl';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+export { API_BASE_URL } from './apiBaseUrl';
 
 const NETWORK_RETRY_DELAY_MS = 250;
 
