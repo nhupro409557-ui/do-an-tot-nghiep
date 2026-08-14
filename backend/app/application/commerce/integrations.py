@@ -431,6 +431,37 @@ class ZaloPaySandboxGateway:
         ).hexdigest()
         return hmac.compare_digest(mac, expected)
 
+    async def query_payment(self, *, app_trans_id: str) -> dict:
+        if not self.is_configured():
+            return {"return_code": -1, "return_message": "ZaloPay chưa được cấu hình."}
+        mac_input = f"{settings.zalopay_app_id}|{app_trans_id}|{settings.zalopay_key1}"
+        mac = hmac.new(
+            settings.zalopay_key1.encode("utf-8"),
+            mac_input.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        payload = {
+            "app_id": settings.zalopay_app_id,
+            "app_trans_id": app_trans_id,
+            "mac": mac,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(settings.zalopay_query_endpoint, json=payload)
+                data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            import logging
+
+            logger = logging.getLogger("uvicorn.error")
+            logger.error("Lỗi khi truy vấn ZaloPay: %s", exc)
+            return {"return_code": -1, "return_message": str(exc)}
+        if not response.is_success:
+            return {
+                "return_code": -1,
+                "return_message": str(data.get("return_message") or f"HTTP error {response.status_code}"),
+            }
+        return data
+
     async def create_payment(
         self,
         *,

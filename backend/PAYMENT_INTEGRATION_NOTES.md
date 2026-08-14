@@ -16,3 +16,9 @@
 - Production cần cấu hình `ZALOPAY_APP_ID`, `ZALOPAY_KEY1`, `ZALOPAY_KEY2` và
   `ZALOPAY_CALLBACK_URL` bằng URL HTTPS công khai.
 - Callback phải được xác minh bằng `KEY2`; không tin dữ liệu trả về từ trình duyệt.
+- ZaloPay chỉ gửi callback khi thanh toán thành công, vì vậy thao tác hủy trên trang sandbox
+  có thể không tạo callback thất bại.
+- Khi giao dịch còn `PENDING`, API đọc trạng thái sẽ chủ động đối soát bằng `app_trans_id`.
+  Kết quả `return_code=2` là thất bại cuối cùng và phải chuyển giao dịch sang `FAILED`, đồng
+  thời chuyển đơn đang chờ thanh toán sang `PAYMENT_FAILED`. Kết quả `return_code=3` vẫn
+  đang xử lý nên không được kết luận thất bại.

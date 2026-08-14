@@ -15,6 +15,16 @@ def is_momo_terminal_failure(result: dict | None) -> bool:
     return result_code in MOMO_TERMINAL_FAILURE_CODES
 
 
+def is_zalopay_terminal_failure(result: dict | None) -> bool:
+    if not result or result.get("return_code") is None:
+        return False
+    try:
+        return_code = int(result["return_code"])
+    except (TypeError, ValueError):
+        return False
+    return return_code == 2
+
+
 class PaymentUseCase:
     def __init__(self, *, session: AsyncSession) -> None:
         self._session = session
@@ -47,6 +57,7 @@ class PaymentUseCase:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đơn hàng.")
 
         momo_result = None
+        zalopay_result = None
         if payment.status == "PENDING" and payment.provider == "MOMO":
             try:
                 momo_result = await self._momo_gateway.query_payment(
@@ -57,6 +68,16 @@ class PaymentUseCase:
                 import logging
                 logger = logging.getLogger("uvicorn.error")
                 logger.error("Lỗi khi đối soát tự động MoMo: %s", e)
+        elif payment.status == "PENDING" and payment.provider == "ZALOPAY":
+            try:
+                zalopay_result = await self._zalopay_gateway.query_payment(
+                    app_trans_id=payment.transaction_ref,
+                )
+            except Exception as e:
+                import logging
+
+                logger = logging.getLogger("uvicorn.error")
+                logger.error("Lỗi khi đối soát tự động ZaloPay: %s", e)
 
         now = datetime.now(timezone.utc)
         if momo_result and momo_result.get("resultCode") == 0 and order.status == "PENDING":
@@ -108,6 +129,40 @@ class PaymentUseCase:
                         order_id=payment.order_id,
                         internal_note=f"Đối soát MoMo xác nhận thanh toán thất bại: resultCode={result_code}.",
                         changed_by="momo-query-api",
+                    )
+            payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
+            order = await self._session.get(Order, payment.order_id)
+
+        elif payment.status == "PENDING" and is_zalopay_terminal_failure(zalopay_result):
+            await self._session.rollback()
+            async with self._session.begin():
+                payment = await commerce_repo.get_payment_transaction_by_id_for_update(
+                    self._session,
+                    payment_id,
+                )
+                if payment is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Không tìm thấy giao dịch thanh toán.",
+                    )
+                if payment.status == "PENDING":
+                    failure_message = str(
+                        zalopay_result.get("sub_return_message")
+                        or zalopay_result.get("return_message")
+                        or "ZaloPay xác nhận giao dịch thất bại."
+                    )
+                    payment.status = "FAILED"
+                    payment.failed_at = now
+                    payment.raw_response = {
+                        **(payment.raw_response or {}),
+                        "query_api": zalopay_result,
+                        "failure_message": failure_message,
+                    }
+                    commerce_repo.save_model(self._session, payment)
+                    await self._mark_order_payment_failed_if_pending(
+                        order_id=payment.order_id,
+                        internal_note="Đối soát ZaloPay xác nhận thanh toán thất bại.",
+                        changed_by="zalopay-query-api",
                     )
             payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
             order = await self._session.get(Order, payment.order_id)
