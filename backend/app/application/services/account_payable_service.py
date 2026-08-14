@@ -134,6 +134,7 @@ async def ensure_payable_for_completed_receipt(
     )
     payable_id = UUID(str(payable["id"]))
     if paid_amount > 0:
+        await account_payable_repo.ensure_supplier_payment_hardening_schema(session)
         prepayment_key = f"receipt-prepayment:{source['documentId']}"
         existing_payment = await account_payable_repo.get_supplier_payment_by_idempotency_key(
             session,

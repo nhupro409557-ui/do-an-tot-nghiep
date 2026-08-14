@@ -137,11 +137,17 @@ class AccountPayableServiceTest(IsolatedAsyncioTestCase):
             },
         }
         payment = {"id": str(uuid4()), "amount": Decimal("125000.00")}
+        ensure_schema = AsyncMock()
 
         with (
             patch.object(account_payable_service.account_payable_repo, "get_receipt_payable_source", AsyncMock(return_value=source)),
             patch.object(account_payable_service.account_payable_repo, "ensure_supplier_invoice_available", AsyncMock()),
             patch.object(account_payable_service.account_payable_repo, "upsert_payable_from_receipt", AsyncMock(return_value={"id": str(payable_id)})),
+            patch.object(
+                account_payable_service.account_payable_repo,
+                "ensure_supplier_payment_hardening_schema",
+                ensure_schema,
+            ),
             patch.object(account_payable_service.account_payable_repo, "get_supplier_payment_by_idempotency_key", AsyncMock(return_value=None)),
             patch.object(account_payable_service.account_payable_repo, "insert_supplier_payment", AsyncMock(return_value=payment)) as insert_payment,
             patch.object(account_payable_service.account_payable_repo, "insert_payable_event", AsyncMock()) as insert_event,
@@ -153,6 +159,7 @@ class AccountPayableServiceTest(IsolatedAsyncioTestCase):
             )
 
         insert_payment.assert_awaited_once()
+        ensure_schema.assert_awaited_once_with(session)
         payment_events = [
             call.kwargs for call in insert_event.await_args_list
             if call.kwargs.get("event_type") == "PAYMENT_RECORDED"

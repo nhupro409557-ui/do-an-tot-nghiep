@@ -27,6 +27,94 @@ def _jsonable_value(value):
     return value
 
 
+async def ensure_supplier_payment_hardening_schema(session: AsyncSession) -> None:
+    has_status_column = await session.scalar(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'supplier_payments'
+                  AND column_name = 'status'
+            )
+            """
+        )
+    )
+    if has_status_column:
+        return
+
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended('supplier-payment-hardening-schema', 0))")
+    )
+    has_status_column = await session.scalar(
+        text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'supplier_payments'
+                  AND column_name = 'status'
+            )
+            """
+        )
+    )
+    if has_status_column:
+        return
+
+    await session.execute(
+        text(
+            """
+            ALTER TABLE supplier_payments
+                ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(120),
+                ADD COLUMN IF NOT EXISTS request_fingerprint VARCHAR(64),
+                ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'POSTED',
+                ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS reversed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                ADD COLUMN IF NOT EXISTS reversal_reason TEXT
+            """
+        )
+    )
+    await session.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conname = 'ck_supplier_payments_status'
+                      AND conrelid = 'supplier_payments'::regclass
+                ) THEN
+                    ALTER TABLE supplier_payments
+                        ADD CONSTRAINT ck_supplier_payments_status
+                        CHECK (status IN ('POSTED', 'REVERSED'));
+                END IF;
+            END $$
+            """
+        )
+    )
+    await session.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_payments_payable_idempotency
+                ON supplier_payments(payable_id, idempotency_key)
+                WHERE idempotency_key IS NOT NULL
+            """
+        )
+    )
+    await session.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_supplier_payments_active
+                ON supplier_payments(payable_id, payment_date DESC)
+                WHERE status = 'POSTED'
+            """
+        )
+    )
+
+
 async def get_receipt_payable_source(session: AsyncSession, document_id: UUID) -> dict | None:
     row = (
         await session.execute(
