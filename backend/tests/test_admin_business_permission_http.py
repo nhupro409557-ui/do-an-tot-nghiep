@@ -110,6 +110,30 @@ class AdminBusinessPermissionHttpTest(unittest.IsolatedAsyncioTestCase):
                     self.assertLess(response.status_code, 400, response.text)
                     mocked.assert_awaited_once()
 
+    async def test_purchase_order_read_endpoints_return_403_without_inventory_read_permission(self) -> None:
+        order_id = uuid4()
+        for path in ("/api/admin/purchase-orders", f"/api/admin/purchase-orders/{order_id}"):
+            with self.subTest(path=path):
+                response = await self.client.get(path)
+                self.assertEqual(response.status_code, 403, response.text)
+
+    async def test_purchase_order_read_endpoints_allow_inventory_read_permission(self) -> None:
+        order_id = uuid4()
+        self.permissions = {"inventory:read"}
+        cases = [
+            ("/api/admin/purchase-orders", "list_purchase_orders", []),
+            (f"/api/admin/purchase-orders/{order_id}", "get_purchase_order", {"id": str(order_id)}),
+        ]
+        for path, service_method, result in cases:
+            with self.subTest(path=path):
+                with patch(
+                    f"app.api.routers.admin_purchase_orders.purchase_order_service.{service_method}",
+                    new=AsyncMock(return_value=result),
+                ) as mocked:
+                    response = await self.client.get(path)
+                    self.assertLess(response.status_code, 400, response.text)
+                    mocked.assert_awaited_once()
+
 
 if __name__ == "__main__":
     unittest.main()

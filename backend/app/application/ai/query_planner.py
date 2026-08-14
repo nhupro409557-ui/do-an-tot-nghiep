@@ -136,9 +136,12 @@ def _unique_matches(normalized: str, mapping: dict[str, tuple[str, ...]]) -> lis
     return [key for key, terms in mapping.items() if any(term in normalized for term in terms)]
 
 
-def _requested_colors(normalized: str) -> list[str]:
+def _requested_colors(normalized: str, original: str) -> list[str]:
     colors: list[str] = []
+    original_lower = original.lower()
     for term, display in COLOR_TERMS.items():
+        if term == "do" and "mẫu đó" in original_lower and "màu đỏ" not in original_lower:
+            continue
         patterns = (
             rf"\b(?:mau|ban mau|phien ban)\s+{re.escape(term)}\b",
             rf"\b(?:con|co san)\s+(?:mau\s+)?{re.escape(term)}\b",
@@ -171,7 +174,7 @@ def build_product_query_plan(
     primary_intent = "PRODUCT_COMPARISON" if comparison_requested else base_intent
     category = _category(normalized)
     min_price, max_price = _price_constraints(normalized)
-    colors = _requested_colors(normalized)
+    colors = _requested_colors(normalized, message)
     raw_storage = [
         re.sub(r"\s+", "", value).upper()
         for value in re.findall(r"\b\d+\s*(?:gb|tb)\b", normalized)

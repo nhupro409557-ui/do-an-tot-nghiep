@@ -20,6 +20,7 @@ from app.api.routers.auth_utils import (
     admin_mfa_row,
     super_admin_ip_allowed,
     list_permissions_for_user,
+    assert_standard_login_allowed,
     role_code,
     make_admin_mfa_token,
     decode_admin_mfa_token,
@@ -48,10 +49,12 @@ from app.api.routers.auth_utils import (
 
 from app.api.routers.auth_verification import router as verification_router
 from app.api.routers.auth_social import router as social_router
+from app.api.routers.auth_mfa_recovery import router as mfa_recovery_router
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 router.include_router(verification_router)
 router.include_router(social_router)
+router.include_router(mfa_recovery_router)
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -66,6 +69,7 @@ async def login(
         await audit_log(session, "login_failed", request, email=payload.email.lower())
         await session.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email hoặc mật khẩu không đúng.")
+    await assert_standard_login_allowed(session, request, user, provider="password")
     return await issue_auth_response(session, response, request, user)
 
 

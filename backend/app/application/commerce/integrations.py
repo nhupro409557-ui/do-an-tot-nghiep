@@ -100,7 +100,7 @@ class RefundGateway:
         return RefundResult(
             success=True,
             provider_ref=f"sandbox-refund-{order_code}",
-            message=f"Đã ghi nhận chứng từ hoàn tiền demo cho đơn {order_code} qua {provider}; hệ thống không thực hiện chuyển tiền thật.",
+            message=f"Đã ghi nhận chứng từ hoàn tiền cho đơn {order_code} qua {provider}; hệ thống không thực hiện chuyển tiền thật.",
             mode="sandbox-manual",
         )
 
@@ -121,7 +121,7 @@ class ShippingGateway:
             provider=normalized_provider,
             tracking_code=f"{normalized_provider.replace('MOCK_', '')}-{order_code[-8:]}",
             label_url=f"/mock-carriers/{normalized_provider.lower()}/labels/{order_code}",
-            message="Vận đơn demo đã được khởi tạo trong hệ thống nội bộ; không gửi sang đơn vị vận chuyển thật.",
+            message="Vận đơn nội bộ đã được khởi tạo trong hệ thống; không gửi sang đơn vị vận chuyển thật.",
         )
 
 
@@ -179,7 +179,7 @@ class SandboxShippingPricingService:
                 free_shipping_applied=True,
                 provider=normalized_provider,
                 service_name=str(profile["name"]),
-                note=f"{profile['name']}: Đơn hàng đạt điều kiện miễn phí vận chuyển trong mô phỏng demo.",
+                note=f"{profile['name']}: Đơn hàng đạt điều kiện miễn phí vận chuyển.",
             )
 
         # Trích xuất tọa độ cửa hàng từ DB
@@ -239,7 +239,7 @@ class SandboxShippingPricingService:
                 estimated_days = 4
             
             dist_type = "quãng đường di chuyển" if is_driving else "đường chim bay"
-            note_msg = f"{profile['name']}: Phí vận chuyển demo tính theo định vị ({dist_type} ~{distance:.1f} km), không tạo vận đơn thật."
+            note_msg = f"{profile['name']}: Phí vận chuyển tính theo định vị ({dist_type} ~{distance:.1f} km), vận đơn nội bộ."
 
         else:
             # Fallback tính phí theo từ khóa địa chỉ truyền thống
@@ -256,7 +256,7 @@ class SandboxShippingPricingService:
                 base_fee = Decimal(profile["far_fee"])
                 zone = "FAR_CITY"
                 estimated_days = 4
-            note_msg = f"{profile['name']}: Phí vận chuyển demo tính theo vùng địa chỉ (chưa có định vị chính xác), không tạo vận đơn thật."
+            note_msg = f"{profile['name']}: Phí vận chuyển tính theo vùng địa chỉ (chưa có định vị chính xác), vận đơn nội bộ."
 
         extra_item_fee = Decimal(max(0, item_count - 1)) * Decimal(profile["extra_item_fee"])
         return ShippingQuote(
@@ -315,7 +315,7 @@ class MoMoSandboxGateway:
         if not self.is_configured():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="MoMo Sandbox chưa được cấu hình. Vui lòng bổ sung Partner Code, Access Key và Secret Key.",
+                detail="Cổng thanh toán MoMo chưa được cấu hình. Vui lòng bổ sung Partner Code, Access Key và Secret Key.",
             )
 
         request_id = request_id or order_code
@@ -342,7 +342,7 @@ class MoMoSandboxGateway:
         ).hexdigest()
         payload = {
             "partnerCode": settings.momo_partner_code,
-            "partnerName": "ElectroMart Sandbox",
+            "partnerName": "ElectroMart",
             "storeId": "ElectroMartStore",
             "requestId": request_id,
             "amount": amount_int,
@@ -363,13 +363,13 @@ class MoMoSandboxGateway:
         except (httpx.HTTPError, ValueError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Không thể kết nối MoMo Sandbox: {exc}",
+                detail=f"Không thể kết nối MoMo: {exc}",
             ) from exc
         pay_url = data.get("payUrl") or data.get("deeplink") or data.get("shortLink")
         if not response.is_success or not pay_url:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=str(data.get("message") or "MoMo Sandbox không tạo được phiên thanh toán."),
+                detail=str(data.get("message") or "Cổng thanh toán MoMo không tạo được phiên thanh toán."),
             )
         return PaymentInitResult(
             success=response.is_success and bool(pay_url),
@@ -444,7 +444,7 @@ class ZaloPaySandboxGateway:
         if not self.is_configured():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="ZaloPay Sandbox chưa được cấu hình App ID, Key1 và Key2.",
+                detail="Cổng thanh toán ZaloPay chưa được cấu hình App ID, Key1 và Key2.",
             )
         app_time = int(datetime.now(timezone.utc).timestamp() * 1000)
         item = "[]"
@@ -486,13 +486,13 @@ class ZaloPaySandboxGateway:
         except (httpx.HTTPError, ValueError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Không thể kết nối ZaloPay Sandbox: {exc}",
+                detail=f"Không thể kết nối ZaloPay: {exc}",
             ) from exc
         checkout_url = data.get("order_url")
         if not response.is_success or int(data.get("return_code") or 0) != 1 or not checkout_url:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=str(data.get("sub_return_message") or data.get("return_message") or "ZaloPay không tạo được đơn thử nghiệm."),
+                detail=str(data.get("sub_return_message") or data.get("return_message") or "ZaloPay không tạo được đơn thanh toán."),
             )
         return PaymentInitResult(
             success=True,
@@ -556,7 +556,7 @@ class SePayPaymentGateway:
         if not self.is_configured():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="SePay Sandbox chưa được cấu hình Merchant ID và Secret Key.",
+                detail="Cổng thanh toán SePay chưa được cấu hình Merchant ID và Secret Key.",
             )
         fields: dict[str, str | int] = {
             "payment_method": "BANK_TRANSFER",
@@ -577,7 +577,7 @@ class SePayPaymentGateway:
             success=True,
             checkout_url=self.checkout_url(),
             provider_ref=order_invoice_number,
-            message="Đã tạo form thanh toán SePay Sandbox.",
+            message="Đã tạo form thanh toán SePay.",
             raw_response={
                 "mode": "sepay-sandbox" if (settings.sepay_env or "sandbox").lower() == "sandbox" else "sepay-live",
                 "checkout_method": "POST_FORM",

@@ -28,6 +28,8 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
         changed_by: str | None = None,
         issue_allocations: list | None = None,
         run_external_side_effects: bool = True,
+        customer_receipt_confirmed: bool = False,
+        actor_id: UUID | None = None,
     ) -> None:
         pending_shipping_registration = None
         refund_jobs = []
@@ -46,6 +48,17 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
 
             previous_status = order.status
             now = datetime.now(timezone.utc)
+
+            if (
+                status_value == "COMPLETED"
+                and status_value != previous_status
+                and order.order_purpose in {"WARRANTY_REPLACEMENT", "WARRANTY_RETURN", "RETURN_EXCHANGE"}
+                and not customer_receipt_confirmed
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cần xác nhận khách đã nhận máy hậu mãi trước khi hoàn tất đơn.",
+                )
 
             if assigned_staff_name is not None:
                 order.assigned_staff_name = assigned_staff_name.strip() or None
@@ -107,7 +120,7 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                             detail="Hàng khách chủ động trả phải được tiếp nhận qua hồ sơ đổi trả/hậu mãi.",
                         )
 
-                if status_value in {"PAID", "PROCESSING", "SHIPPED", "COMPLETED"} and order.payment_method != "COD":
+                if status_value in {"PAID", "PROCESSING", "SHIPPED", "COMPLETED"} and order.payment_method not in {"COD", "NO_PAYMENT"}:
                     paid_transactions = await commerce_repo.list_payment_transactions_for_update(self._session, order.id)
                     if not any(tx.status == "PAID" and Decimal(tx.amount) >= Decimal(order.total_amount) for tx in paid_transactions):
                         raise HTTPException(status_code=409, detail="Đơn online chưa có giao dịch thanh toán thành công.")
@@ -116,34 +129,35 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                 if status_value in {"PAID", "COMPLETED"}:
                     order.payment_status = "PAID"
                 if status_value == "SHIPPED":
-                    # Check if there is an outbound document linked to this order
-                    outbound_res = await self._session.execute(
-                        text("SELECT id, status, document_no FROM inventory_documents WHERE order_id = :order_id AND document_type = 'OUTBOUND'"),
-                        {"order_id": order.id}
-                    )
-                    outbound_row = outbound_res.mappings().first()
-                    if outbound_row:
-                        if outbound_row["status"] == "COMPLETED":
-                            # Physical inventory is already posted, skip shipping items logic.
-                            # But we MUST close active reservations as CONSUMED!
-                            await commerce_repo.close_active_order_reservations(
-                                self._session,
-                                order_id=order.id,
-                                status="CONSUMED",
-                            )
-                            await used_product_repo.mark_order_devices_sold(
-                                self._session,
-                                order_id=order.id,
-                                order_code=order.order_code,
-                            )
+                    if order.order_purpose != "WARRANTY_RETURN":
+                        # Check if there is an outbound document linked to this order
+                        outbound_res = await self._session.execute(
+                            text("SELECT id, status, document_no FROM inventory_documents WHERE order_id = :order_id AND document_type = 'OUTBOUND'"),
+                            {"order_id": order.id}
+                        )
+                        outbound_row = outbound_res.mappings().first()
+                        if outbound_row:
+                            if outbound_row["status"] == "COMPLETED":
+                                # Physical inventory is already posted, skip shipping items logic.
+                                # But we MUST close active reservations as CONSUMED!
+                                await commerce_repo.close_active_order_reservations(
+                                    self._session,
+                                    order_id=order.id,
+                                    status="CONSUMED",
+                                )
+                                await used_product_repo.mark_order_devices_sold(
+                                    self._session,
+                                    order_id=order.id,
+                                    order_code=order.order_code,
+                                )
+                            else:
+                                raise HTTPException(
+                                    status_code=status.HTTP_400_BAD_REQUEST,
+                                    detail=f"Đơn hàng đang có phiếu xuất kho chưa hoàn tất ({outbound_row['document_no']}). Vui lòng hoàn tất phiếu xuất kho để giao hàng."
+                                )
                         else:
-                            raise HTTPException(
-                                status_code=status.HTTP_400_BAD_REQUEST,
-                                detail=f"Đơn hàng đang có phiếu xuất kho chưa hoàn tất ({outbound_row['document_no']}). Vui lòng hoàn tất phiếu xuất kho để giao hàng."
-                            )
-                    else:
-                        # Fallback to default FIFO shipping
-                        await self._ship_order_items(order, issue_allocations=issue_allocations or [])
+                            # Fallback to default FIFO shipping
+                            await self._ship_order_items(order, issue_allocations=issue_allocations or [])
 
                     # Hoãn gọi API Shipping
                     if not order.tracking_code:
@@ -157,9 +171,26 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                     order.shipped_at = now
                 if status_value == "COMPLETED":
                     order.completed_at = now
+                    if order.payment_method == "COD" and Decimal(str(order.total_amount or 0)) > 0:
+                        paid_transactions = await commerce_repo.list_payment_transactions_for_update(self._session, order.id)
+                        if not any(tx.status == "PAID" for tx in paid_transactions):
+                            commerce_repo.save_model(
+                                self._session,
+                                PaymentTransaction(
+                                    id=uuid4(),
+                                    order_id=order.id,
+                                    provider="COD",
+                                    amount=order.total_amount,
+                                    status="PAID",
+                                    transaction_ref=f"{order.order_code}-COD",
+                                    attempt_number=1,
+                                    paid_at=now,
+                                    raw_response={"message": "Khách hàng đã thanh toán tiền mặt khi nhận hàng (COD)."},
+                                )
+                            )
                     await VoucherService(session=self._session).confirm_voucher_usage(order=order)
-                    if order.order_purpose in {"WARRANTY_REPLACEMENT", "RETURN_EXCHANGE"}:
-                        request_type = "WARRANTY" if order.order_purpose == "WARRANTY_REPLACEMENT" else "RETURN"
+                    if order.order_purpose in {"WARRANTY_REPLACEMENT", "WARRANTY_RETURN", "RETURN_EXCHANGE"}:
+                        request_type = "WARRANTY" if order.order_purpose in {"WARRANTY_REPLACEMENT", "WARRANTY_RETURN"} else "RETURN"
                         request_table = "warranty_requests" if request_type == "WARRANTY" else "return_requests"
                         request_id = order.warranty_request_id if request_type == "WARRANTY" else order.return_request_id
                         previous_request_status = await self._session.scalar(
@@ -179,9 +210,10 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                                         actor_id, note, metadata
                                     ) VALUES (
                                         :id, :reference_type, :reference_id, :old_status, 'COMPLETED',
-                                        NULL, :note, jsonb_build_object(
+                                        :actor_id, :note, jsonb_build_object(
                                             'orderId', CAST(CAST(:order_id AS UUID) AS TEXT),
-                                            'source', 'DELIVERY_COMPLETED'
+                                            'source', CAST(:confirmation_source AS TEXT),
+                                            'customerReceiptConfirmed', TRUE
                                         )
                                     )
                                     """
@@ -189,15 +221,76 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                                 {
                                     "id": uuid4(), "reference_type": request_type, "reference_id": request_id,
                                     "old_status": previous_request_status, "order_id": order.id,
+                                    "actor_id": actor_id,
+                                    "confirmation_source": (
+                                        "ADMIN_RECEIPT_CONFIRMED" if actor_id else "DELIVERY_COMPLETED"
+                                    ),
                                     "note": "Khách đã nhận máy hậu mãi; hồ sơ được hoàn tất tự động.",
                                 },
                             )
+                            if order.order_purpose == "RETURN_EXCHANGE":
+                                from app.application.after_sales.return_disposition import (
+                                    finalize_returned_identifier_disposition,
+                                )
+
+                                await finalize_returned_identifier_disposition(
+                                    self._session,
+                                    request_id=request_id,
+                                    actor_id=actor_id,
+                                )
+                            if order.order_purpose == "WARRANTY_RETURN":
+                                from app.application.after_sales.identifier_groups import (
+                                    lock_identifier_group,
+                                    update_locked_identifier_group_status,
+                                )
+
+                                repaired_items = (
+                                    await self._session.execute(
+                                        text(
+                                            """
+                                            SELECT wri.product_id, wri.product_variant_id,
+                                                   wri.imei, wri.serial_number, oi.used_device_id
+                                            FROM warranty_request_items wri
+                                            JOIN order_items oi ON oi.id = wri.order_item_id
+                                            WHERE wri.request_id = :request_id
+                                            """
+                                        ),
+                                        {"request_id": request_id},
+                                    )
+                                ).mappings().all()
+                                for repaired_item in repaired_items:
+                                    if repaired_item["imei"] or repaired_item["serial_number"]:
+                                        identifier_group = await lock_identifier_group(
+                                            self._session,
+                                            product_id=repaired_item["product_id"],
+                                            variant_id=repaired_item["product_variant_id"],
+                                            imei=repaired_item["imei"],
+                                            serial_number=repaired_item["serial_number"],
+                                        )
+                                        await update_locked_identifier_group_status(
+                                            self._session,
+                                            group=identifier_group,
+                                            target_status="SOLD",
+                                            allowed_statuses={"WARRANTY"},
+                                            clear_location=True,
+                                        )
+                                    if repaired_item["used_device_id"]:
+                                        await used_product_repo.transition_after_sales_device(
+                                            self._session,
+                                            device_id=repaired_item["used_device_id"],
+                                            target_status="SOLD",
+                                            allowed_statuses={"REPAIRING", "SOLD"},
+                                            event_type="DEVICE_WARRANTY_REPAIRED",
+                                            note="Khách đã nhận lại thiết bị sau sửa chữa bảo hành.",
+                                            metadata={"requestId": str(request_id), "orderId": str(order.id)},
+                                        )
                 if status_value == "PAID":
                     await VoucherService(session=self._session).confirm_voucher_usage(order=order)
                 if status_value == "CANCELLED":
                     order.cancelled_at = now
                     order.cancellation_reason = (cancellation_reason or order.cancellation_reason or "").strip() or None
-                    await self._release_or_restock_unshipped_order(order, reservation_status="CANCELLED")
+                    if order.order_purpose != "WARRANTY_RETURN":
+                        await self._release_or_restock_unshipped_order(order, reservation_status="CANCELLED")
 
                     # Cancel linked outbound document if it exists and is not completed
                     await self._session.execute(
@@ -210,6 +303,17 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                         ),
                         {"order_id": order.id, "actor_id": order.assigned_staff_name or order.user_id},
                     )
+                    if order.order_purpose == "WARRANTY_RETURN":
+                        from app.application.after_sales.fulfillment import handle_after_sales_order_cancelled
+
+                        await handle_after_sales_order_cancelled(
+                            self._session,
+                            order_id=order.id,
+                            order_purpose=order.order_purpose,
+                            warranty_request_id=order.warranty_request_id,
+                            changed_by=changed_by,
+                            reason=order.cancellation_reason,
+                        )
 
                     transactions = await commerce_repo.list_payment_transactions_for_update(self._session, order.id)
                     for tx in transactions:
@@ -350,6 +454,7 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
                             "shipping_provider": order.shipping_provider,
                             "tracking_code": order.tracking_code,
                             "refund_payment": refund_payment,
+                            "customer_receipt_confirmed": customer_receipt_confirmed,
                         },
                     ),
                 )
@@ -536,7 +641,13 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
         import asyncio
         asyncio.create_task(asyncio.to_thread(self._send_order_status_email, order=order, user=user))
 
-    async def execute_admin_update(self, *, order_id: UUID, request: AdminUpdateOrderRequest) -> None:
+    async def execute_admin_update(
+        self,
+        *,
+        order_id: UUID,
+        request: AdminUpdateOrderRequest,
+        actor_id: UUID | None = None,
+    ) -> None:
         await self.execute(
             order_id=order_id,
             status_value=request.status,
@@ -550,8 +661,10 @@ class CompleteOrderUseCase(CompleteOrderCarrierMixin, CompleteOrderFulfillmentMi
             return_tracking_code=request.return_tracking_code,
             return_received_condition=request.return_received_condition,
             refund_payment=request.refund_payment,
-            changed_by=request.changed_by,
+            changed_by=request.changed_by or (f"admin:{actor_id}" if actor_id else None),
             issue_allocations=request.issue_allocations,
+            customer_receipt_confirmed=request.customer_receipt_confirmed,
+            actor_id=actor_id,
         )
 
     async def _reverse_loyalty_for_closed_order(self, order: Order) -> None:

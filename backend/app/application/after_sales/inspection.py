@@ -47,8 +47,8 @@ async def _create_return_disposition_document(
     is_repair = disposition == "REPAIR"
     location_id = await session.scalar(text("""
         SELECT id FROM inventory_locations
-        WHERE is_active = TRUE
-          AND purpose IN ('DAMAGED', 'WARRANTY', 'QC', 'RETURN')
+                    WHERE status = 'ACTIVE'
+                      AND purpose IN ('DAMAGED', 'WARRANTY', 'QC', 'RETURN')
         ORDER BY CASE purpose
             WHEN 'DAMAGED' THEN 1 WHEN 'WARRANTY' THEN 2
             WHEN 'QC' THEN 3 ELSE 4 END, sort_order, code
@@ -146,6 +146,11 @@ async def inspect_request(
         raise HTTPException(status_code=400, detail="Kết quả QC không hợp lệ.")
 
     target, resolution_type = result_map[result]
+    if kind == "WARRANTY" and resolution_type == "REPAIR":
+        if payload.repair_channel not in {"INTERNAL", "MANUFACTURER"}:
+            raise HTTPException(status_code=400, detail="Vui lòng chọn sửa tại cửa hàng hoặc gửi bảo hành hãng.")
+        if payload.repair_channel == "MANUFACTURER" and not (payload.repair_provider_name or "").strip():
+            raise HTTPException(status_code=400, detail="Vui lòng nhập tên hãng hoặc trung tâm bảo hành.")
     items = await after_sales_repo.get_request_items(session, kind=kind, request_id=request_id)
     if kind == "RETURN" and resolution_type in {"REFUND", "EXCHANGE"}:
         if not payload.inventory_disposition:
@@ -210,6 +215,12 @@ async def inspect_request(
 
     if resolution_type in {"REPLACEMENT", "EXCHANGE"}:
         fulfillment_request = dict(request)
+        if payload.return_fulfillment_method:
+            fulfillment_request["fulfillment_method"] = payload.return_fulfillment_method
+        for field in ("recipient_name", "recipient_phone", "shipping_address", "shipping_provider"):
+            value = getattr(payload, field, None)
+            if value:
+                fulfillment_request[field] = value.strip()
         if exchange_amounts:
             fulfillment_request["balance_amount"] = exchange_amounts["balanceAmount"]
         await ensure_after_sales_order(
@@ -235,6 +246,9 @@ async def inspect_request(
         note=payload.qc_note,
         customer_fault=payload.customer_fault,
         depreciation_fee=payload.depreciation_fee if kind == "RETURN" else None,
+        repair_channel=payload.repair_channel if kind == "WARRANTY" and resolution_type == "REPAIR" else None,
+        repair_provider_name=payload.repair_provider_name if kind == "WARRANTY" and resolution_type == "REPAIR" else None,
+        return_fulfillment_method=payload.return_fulfillment_method if kind == "WARRANTY" and resolution_type == "REPLACEMENT" else None,
     )
     await _update_qc_note(
         session,

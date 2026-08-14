@@ -115,6 +115,15 @@ class AIInventoryVariantAnswerTest(unittest.TestCase):
         self.assertTrue(requested)
         self.assertEqual([variant["sku"] for variant in variants], ["IP17-BLK-256"])
 
+    def test_product_reference_mau_do_is_not_a_red_variant_request(self) -> None:
+        requested, variants = matching_product_variants(
+            self.product,
+            "iPhone 17 Pro còn hàng không? Mẫu đó hiện còn hàng không?",
+        )
+
+        self.assertFalse(requested)
+        self.assertEqual(variants, [])
+
     def test_stock_answer_uses_variant_stock_instead_of_product_total(self) -> None:
         product = dict(self.product)
         product["variantSelectionRequested"] = True

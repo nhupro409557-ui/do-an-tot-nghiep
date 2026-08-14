@@ -1,5 +1,5 @@
 import React, { useReducer } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   confirmPasswordResetByCode,
   createPendingPasswordReset,
@@ -16,6 +16,7 @@ type ForgotPasswordState = {
   error: string;
   message: string;
   loading: boolean;
+  adminContext: boolean;
 };
 
 const initialForgotPasswordState: ForgotPasswordState = {
@@ -25,6 +26,7 @@ const initialForgotPasswordState: ForgotPasswordState = {
   error: '',
   message: '',
   loading: false,
+  adminContext: false,
 };
 
 function mergeForgotPasswordState(state: ForgotPasswordState, patch: Partial<ForgotPasswordState>): ForgotPasswordState {
@@ -32,11 +34,13 @@ function mergeForgotPasswordState(state: ForgotPasswordState, patch: Partial<For
 }
 
 export default function ForgotPasswordPage() {
-  const [{ email, verificationCode, pendingReset, error, message, loading }, setFormState] = useReducer(
+  const [searchParams] = useSearchParams();
+  const [{ email, verificationCode, pendingReset, error, message, loading, adminContext }, setFormState] = useReducer(
     mergeForgotPasswordState,
     initialForgotPasswordState,
   );
   const navigate = useNavigate();
+  const isAdminRecovery = adminContext || searchParams.get('context') === 'admin';
 
   const handleSendCode = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -45,7 +49,11 @@ export default function ForgotPasswordPage() {
     try {
       const reset = await sendPasswordResetEmail(email.trim());
       const pending = createPendingPasswordReset(reset.email);
-      setFormState({ pendingReset: pending, message: 'Đã gửi mã xác nhận 6 số và liên kết đặt lại mật khẩu vào email của bạn.' });
+      setFormState({
+        pendingReset: pending,
+        adminContext: reset.adminContext,
+        message: 'Đã gửi mã xác nhận 6 số và liên kết đặt lại mật khẩu vào email của bạn.',
+      });
     } catch (err: any) {
       setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể gửi mã xác nhận đặt lại mật khẩu.') });
     } finally {
@@ -60,7 +68,8 @@ export default function ForgotPasswordPage() {
     setFormState({ error: '' });
     try {
       const resetToken = await confirmPasswordResetByCode(pendingReset.email, verificationCode);
-      navigate(`/reset-password?token=${encodeURIComponent(resetToken)}`);
+      const contextQuery = isAdminRecovery ? '&context=admin' : '';
+      navigate(`/reset-password?token=${encodeURIComponent(resetToken)}${contextQuery}`);
     } catch (err: any) {
       setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể xác nhận mã đặt lại mật khẩu.') });
     }
@@ -72,7 +81,11 @@ export default function ForgotPasswordPage() {
     try {
       const reset = await resendPasswordResetEmail(pendingReset.email);
       const pending = createPendingPasswordReset(reset.email);
-      setFormState({ pendingReset: pending, message: 'Đã gửi lại mã xác nhận mới. Mã cũ đã hết hiệu lực.' });
+      setFormState({
+        pendingReset: pending,
+        adminContext: reset.adminContext,
+        message: 'Đã gửi lại mã xác nhận mới. Mã cũ đã hết hiệu lực.',
+      });
     } catch (err: any) {
       setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể gửi lại mã xác nhận.') });
     } finally {
@@ -151,7 +164,9 @@ export default function ForgotPasswordPage() {
         )}
 
         <div className="mt-6 text-center text-sm">
-          <Link to="/login" className="font-bold text-primary hover:underline">Quay lại đăng nhập</Link>
+          <Link to={isAdminRecovery ? '/admin/login' : '/login'} className="font-bold text-primary hover:underline">
+            Quay lại đăng nhập
+          </Link>
         </div>
       </div>
     </div>

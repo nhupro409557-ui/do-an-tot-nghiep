@@ -10,13 +10,15 @@ const statusLabel: Record<string, string> = {
   QC_IN_PROGRESS: 'Đang kiểm tra QC',
   QC_APPROVED: 'Đã duyệt đổi trả',
   WARRANTY_ACCEPTED: 'Đã nhận bảo hành',
-  REPAIRING: 'Đang sửa chữa',
+  REPAIRING: 'Đang sửa máy bảo hành cho khách',
+  REPAIR_COMPLETED: 'Đã sửa xong máy bảo hành',
   REPLACEMENT_APPROVED: 'Đã duyệt thay máy',
   WAITING_FOR_STOCK: 'Đang chờ hàng',
   EXCHANGE_PROCESSING: 'Đang xử lý đổi máy',
   REPLACEMENT_PROCESSING: 'Đang xử lý máy thay thế',
-  REFUND_PROCESSING: 'Ghi nhận hoàn tiền demo',
+  REFUND_PROCESSING: 'Ghi nhận hoàn tiền',
   READY_TO_RETURN: 'Sẵn sàng trả máy',
+  RETURNING_TO_CUSTOMER: 'Đang gửi trả khách',
   COMPLETED: 'Hoàn tất xử lý',
   REJECTED: 'Bị từ chối',
   CANCELLED: 'Đã hủy',
@@ -28,12 +30,14 @@ const actionLabel: Record<string, string> = {
   QC_IN_PROGRESS: 'Bắt đầu kiểm QC',
   QC_APPROVED: 'Duyệt đổi trả',
   WARRANTY_ACCEPTED: 'Chấp nhận bảo hành',
-  REPAIRING: 'Bắt đầu sửa chữa',
+  REPAIRING: 'Bắt đầu sửa máy bảo hành',
+  REPAIR_COMPLETED: 'Xác nhận sửa xong máy bảo hành',
   READY_TO_RETURN: 'Sẵn sàng trả khách',
+  RETURNING_TO_CUSTOMER: 'Gửi máy đến khách',
   REPLACEMENT_APPROVED: 'Duyệt đổi máy mới',
   REPLACEMENT_PROCESSING: 'Đang đổi máy',
   EXCHANGE_PROCESSING: 'Đang đổi máy',
-  REFUND_PROCESSING: 'Ghi nhận hoàn tiền demo',
+  REFUND_PROCESSING: 'Ghi nhận hoàn tiền',
   COMPLETED: 'Hoàn tất hồ sơ',
   REJECTED: 'Từ chối yêu cầu',
 };
@@ -44,7 +48,9 @@ const actionStyles: Record<string, string> = {
   QC_APPROVED: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200',
   WARRANTY_ACCEPTED: 'bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200',
   REPAIRING: 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200',
+  REPAIR_COMPLETED: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200',
   READY_TO_RETURN: 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200',
+  RETURNING_TO_CUSTOMER: 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200',
   REPLACEMENT_APPROVED: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200',
   REPLACEMENT_PROCESSING: 'bg-cyan-50 text-cyan-700 hover:bg-cyan-100 border border-cyan-200',
   EXCHANGE_PROCESSING: 'bg-cyan-50 text-cyan-700 hover:bg-cyan-100 border border-cyan-200',
@@ -56,6 +62,8 @@ const actionStyles: Record<string, string> = {
 const dispositionStatusLabels: Record<string, string> = {
   DEFECTIVE_RETURNED: 'Lỗi trả về',
   INSPECTION_PENDING: 'Chờ thẩm định QC',
+  REPAIR_PENDING: 'Máy cũ thu hồi chờ sửa',
+  REPAIRED: 'Máy cũ đã sửa xong',
   RTV_PENDING: 'Chờ trả NCC (RTV)',
   LIQUIDATION_PENDING: 'Chờ thanh lý',
   RTV_COMPLETED: 'Đã trả NCC (RTV xong)',
@@ -64,7 +72,23 @@ const dispositionStatusLabels: Record<string, string> = {
   OUT_OF_SYSTEM: 'Đã xuất khỏi HT',
 };
 
-const completedDispositionStatuses = ['RTV_COMPLETED', 'LIQUIDATED', 'SCRAP', 'OUT_OF_SYSTEM'];
+const INITIAL_DEFECTIVE_ACTIONS = ['REPAIR_PENDING', 'RTV_COMPLETED', 'LIQUIDATED', 'SCRAP'];
+const REPAIR_RESULT_ACTIONS = ['REPAIRED', 'RTV_COMPLETED', 'LIQUIDATED', 'SCRAP'];
+
+const hasValidDeliveryDetails = (name: string, phone: string, address: string) => (
+  name.trim().length >= 2 && phone.trim().length >= 8 && address.trim().length >= 10
+);
+
+const completedDispositionStatuses = ['REPAIRED', 'RTV_COMPLETED', 'LIQUIDATED', 'SCRAP', 'OUT_OF_SYSTEM'];
+
+const distinctPhysicalDevices = (items: any[]) => {
+  const devices = new Map<string, any>();
+  items.forEach(item => {
+    const key = String(item.deviceKey || `${item.type || 'IDENTIFIER'}:${item.id}`);
+    if (!devices.has(key)) devices.set(key, item);
+  });
+  return Array.from(devices.values());
+};
 
 const statusStyles: Record<string, { bg: string; text: string; border: string }> = {
   SUBMITTED: { bg: 'bg-slate-50', text: 'text-slate-650', border: 'border-slate-200' },
@@ -73,12 +97,14 @@ const statusStyles: Record<string, { bg: string; text: string; border: string }>
   QC_APPROVED: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   WARRANTY_ACCEPTED: { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200' },
   REPAIRING: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  REPAIR_COMPLETED: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   REPLACEMENT_APPROVED: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   WAITING_FOR_STOCK: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
   EXCHANGE_PROCESSING: { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200' },
   REPLACEMENT_PROCESSING: { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200' },
   REFUND_PROCESSING: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   READY_TO_RETURN: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
+  RETURNING_TO_CUSTOMER: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
   COMPLETED: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   REJECTED: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
   CANCELLED: { bg: 'bg-slate-100', text: 'text-slate-500', border: 'border-slate-200' },
@@ -131,12 +157,14 @@ const warrantyActions: Record<string, string[]> = {
   SUBMITTED: ['RECEIVED', 'REJECTED'],
   RECEIVED: ['QC_IN_PROGRESS', 'REJECTED'],
   QC_IN_PROGRESS: ['WARRANTY_ACCEPTED', 'REPLACEMENT_APPROVED', 'REJECTED'],
-  WARRANTY_ACCEPTED: ['QC_IN_PROGRESS', 'REPAIRING', 'READY_TO_RETURN'],
-  REPAIRING: ['READY_TO_RETURN'],
+  WARRANTY_ACCEPTED: ['QC_IN_PROGRESS', 'REPAIRING'],
+  REPAIRING: ['REPAIR_COMPLETED'],
+  REPAIR_COMPLETED: ['READY_TO_RETURN', 'RETURNING_TO_CUSTOMER'],
   REPLACEMENT_APPROVED: ['QC_IN_PROGRESS', 'REPLACEMENT_PROCESSING'],
   WAITING_FOR_STOCK: ['QC_IN_PROGRESS', 'REPLACEMENT_APPROVED', 'REPLACEMENT_PROCESSING'],
   REPLACEMENT_PROCESSING: ['READY_TO_RETURN', 'COMPLETED'],
   READY_TO_RETURN: ['COMPLETED'],
+  RETURNING_TO_CUSTOMER: [],
 };
 
 type ReplacementIdentifierDraft = {
@@ -191,6 +219,7 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
   const canInspectAfterSales = usePermission('after_sales:inspect');
   const canRefundAfterSales = usePermission('after_sales:refund');
   const canExchangeAfterSales = usePermission('after_sales:exchange');
+  const canManageUsedProducts = usePermission('used_product:manage');
   const [section, setSection] = useState<'returns' | 'warranties' | 'defective'>('returns');
   const [returns, setReturns] = useState<any[]>([]);
   const [warranties, setWarranties] = useState<any[]>([]);
@@ -218,10 +247,18 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
   const [repairAction, setRepairAction] = useState('');
   const [repairParts, setRepairParts] = useState('');
   const [repairCost, setRepairCost] = useState('');
+  const [repairChannel, setRepairChannel] = useState<'INTERNAL' | 'MANUFACTURER'>('INTERNAL');
+  const [repairProviderName, setRepairProviderName] = useState('');
+  const [returnFulfillmentMethod, setReturnFulfillmentMethod] = useState<'STORE_PICKUP' | 'DELIVERY'>('STORE_PICKUP');
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+  const [shippingAddress, setShippingAddress] = useState('');
+  const [shippingProvider, setShippingProvider] = useState('');
   const [busy, setBusy] = useState(false);
   const [qcResult, setQcResult] = useState('');
   const [inventoryDisposition, setInventoryDisposition] = useState('USED_INTAKE');
   const [customerFault, setCustomerFault] = useState(false);
+  const [customerReceiptConfirmed, setCustomerReceiptConfirmed] = useState(false);
 
   // States dành cho Modal xem chi tiết
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -253,8 +290,10 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
       adminAfterSalesApi.getDefectiveDispositionReport(),
     ]);
     const [returnResult, warrantyResult, defectiveResult, defectiveReportResult] = results;
-    if (returnResult.status === 'fulfilled') setReturns(returnResult.value.items || []);
-    if (warrantyResult.status === 'fulfilled') setWarranties(warrantyResult.value.items || []);
+    const refreshedReturns = returnResult.status === 'fulfilled' ? returnResult.value.items || [] : returns;
+    const refreshedWarranties = warrantyResult.status === 'fulfilled' ? warrantyResult.value.items || [] : warranties;
+    if (returnResult.status === 'fulfilled') setReturns(refreshedReturns);
+    if (warrantyResult.status === 'fulfilled') setWarranties(refreshedWarranties);
     if (defectiveResult.status === 'fulfilled') setDefective(defectiveResult.value || []);
     if (defectiveReportResult.status === 'fulfilled') {
       setDefectiveReport(defectiveReportResult.value || { summary: {}, byStatus: [], byBrand: [], topProducts: [] });
@@ -267,6 +306,7 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
     setMessage(failedSections.length > 0
       ? `Không thể tải phần ${failedSections.join(', ')}. Các phần còn lại vẫn hoạt động.`
       : '');
+    return { returns: refreshedReturns, warranties: refreshedWarranties };
   }
 
   useEffect(() => {
@@ -300,11 +340,28 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
     setRepairAction(String(item.repairSummary?.action || ''));
     setRepairParts(String(item.repairSummary?.parts || ''));
     setRepairCost(item.repairSummary?.cost ? String(item.repairSummary.cost) : '');
+    setRepairChannel(item.repairChannel === 'MANUFACTURER' ? 'MANUFACTURER' : 'INTERNAL');
+    setRepairProviderName(String(item.repairProviderName || ''));
+    setReturnFulfillmentMethod(item.returnFulfillmentMethod === 'DELIVERY' || item.fulfillmentOrder?.fulfillmentMethod === 'DELIVERY' ? 'DELIVERY' : 'STORE_PICKUP');
+    setRecipientName(String(item.fulfillmentOrder?.recipientName || ''));
+    setRecipientPhone(String(item.fulfillmentOrder?.recipientPhone || ''));
+    setShippingAddress(String(item.fulfillmentOrder?.shippingAddress || ''));
+    setShippingProvider(String(item.fulfillmentOrder?.shippingProvider || ''));
     setQcResult(item.status === 'QC_IN_PROGRESS' ? (section === 'returns' ? 'APPROVE_EXCHANGE' : 'ACCEPT_REPAIR') : '');
     setInventoryDisposition(String(item.inventoryDisposition || 'USED_INTAKE'));
     setCustomerFault(false);
+    setCustomerReceiptConfirmed(false);
     setShowAdvanceModal(true);
   };
+
+  const requiresCustomerReceiptConfirmation = Boolean(
+    modalRequest
+    && modalTargetStatus === 'COMPLETED'
+    && (
+      (section === 'returns' && modalRequest.resolutionType === 'EXCHANGE')
+      || (section === 'warranties' && ['REPAIR', 'REPLACEMENT'].includes(modalRequest.resolutionType))
+    )
+  );
 
   const loadReplacementCandidates = async () => {
     if (!modalRequest || section !== 'warranties') return;
@@ -366,6 +423,19 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
         alert('Vui lòng nhập đánh giá QC chi tiết (tối thiểu 10 ký tự).');
         return;
       }
+      if (section === 'warranties' && qcResult === 'ACCEPT_REPAIR' && repairChannel === 'MANUFACTURER' && !repairProviderName.trim()) {
+        alert('Vui lòng nhập tên hãng hoặc trung tâm bảo hành.');
+        return;
+      }
+      if (
+        section === 'warranties'
+        && qcResult === 'APPROVE_REPLACEMENT'
+        && returnFulfillmentMethod === 'DELIVERY'
+        && !hasValidDeliveryDetails(recipientName, recipientPhone, shippingAddress)
+      ) {
+        alert('Tên người nhận cần ít nhất 2 ký tự, số điện thoại 8 ký tự và địa chỉ 10 ký tự.');
+        return;
+      }
       setBusy(true);
       try {
         const api = section === 'returns' ? adminAfterSalesApi.inspectReturn : adminAfterSalesApi.inspectWarranty;
@@ -377,13 +447,23 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
           shipping_deduction: section === 'returns' ? Number(shippingDeduction || 0) : 0,
           exchange_fee: section === 'returns' && exchangeFee !== '' ? Number(exchangeFee || 0) : null,
           inventory_disposition: section === 'returns' && qcResult !== 'REJECT' ? inventoryDisposition : null,
+          repair_channel: section === 'warranties' && qcResult === 'ACCEPT_REPAIR' ? repairChannel : undefined,
+          repair_provider_name: section === 'warranties' && qcResult === 'ACCEPT_REPAIR' && repairChannel === 'MANUFACTURER' ? repairProviderName.trim() : undefined,
+          return_fulfillment_method: section === 'warranties' && qcResult === 'APPROVE_REPLACEMENT' ? returnFulfillmentMethod : undefined,
+          recipient_name: returnFulfillmentMethod === 'DELIVERY' ? recipientName.trim() || undefined : undefined,
+          recipient_phone: returnFulfillmentMethod === 'DELIVERY' ? recipientPhone.trim() || undefined : undefined,
+          shipping_address: returnFulfillmentMethod === 'DELIVERY' ? shippingAddress.trim() || undefined : undefined,
+          shipping_provider: returnFulfillmentMethod === 'DELIVERY' ? shippingProvider.trim() || undefined : undefined,
         });
         setShowAdvanceModal(false);
-        await load();
+        const refreshed = await load();
         if (detailRequest && detailRequest.id === modalRequest.id) {
-          const list = section === 'returns' ? returns : warranties;
+          const list = section === 'returns' ? refreshed.returns : refreshed.warranties;
           const updated = list.find(r => r.id === modalRequest.id);
-          if (updated) setDetailRequest(updated);
+          if (updated) {
+            setDetailRequest(updated);
+            await loadDetailEvents(updated);
+          }
         }
       } catch (error) {
         alert(error instanceof Error ? error.message : 'Không thể ghi nhận kết quả QC.');
@@ -430,16 +510,16 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
     const needsRefundProof = section === 'returns' && modalTargetStatus === 'COMPLETED' && modalRequest.status === 'REFUND_PROCESSING';
     if (needsRefundProof) {
       if (!refundTransactionRef.trim()) {
-        alert('Vui lòng nhập mã giao dịch hoặc chứng từ hoàn tiền demo.');
+        alert('Vui lòng nhập mã giao dịch hoặc chứng từ hoàn tiền.');
         return;
       }
       if (!refundProofUrl.trim()) {
-        alert('Vui lòng cung cấp link hình ảnh/chứng từ hoàn tiền demo (proof URL).');
+        alert('Vui lòng cung cấp link hình ảnh/chứng từ hoàn tiền (proof URL).');
         return;
       }
     }
 
-    const needsRepairDetails = section === 'warranties' && ['READY_TO_RETURN', 'COMPLETED'].includes(modalTargetStatus) && modalRequest.resolutionType === 'REPAIR';
+    const needsRepairDetails = section === 'warranties' && modalTargetStatus === 'REPAIR_COMPLETED' && modalRequest.resolutionType === 'REPAIR';
     if (needsRepairDetails) {
       if (!repairDiagnosis.trim()) {
         alert('Vui lòng nhập chẩn đoán lỗi.');
@@ -449,6 +529,28 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
         alert('Vui lòng nhập hướng xử lý.');
         return;
       }
+    }
+    if (section === 'warranties' && modalTargetStatus === 'REPAIRING') {
+      if (repairChannel === 'MANUFACTURER' && !repairProviderName.trim()) {
+        alert('Vui lòng nhập tên hãng hoặc trung tâm bảo hành.');
+        return;
+      }
+    }
+    if (section === 'warranties' && modalTargetStatus === 'RETURNING_TO_CUSTOMER') {
+      if (!hasValidDeliveryDetails(recipientName, recipientPhone, shippingAddress)) {
+        alert('Tên người nhận cần ít nhất 2 ký tự, số điện thoại 8 ký tự và địa chỉ 10 ký tự.');
+        return;
+      }
+    }
+    if (section === 'warranties' && modalRequest.resolutionType === 'REPLACEMENT' && ['REPLACEMENT_APPROVED', 'REPLACEMENT_PROCESSING'].includes(modalTargetStatus) && returnFulfillmentMethod === 'DELIVERY') {
+      if (!hasValidDeliveryDetails(recipientName, recipientPhone, shippingAddress)) {
+        alert('Tên người nhận cần ít nhất 2 ký tự, số điện thoại 8 ký tự và địa chỉ 10 ký tự.');
+        return;
+      }
+    }
+    if (requiresCustomerReceiptConfirmation && !customerReceiptConfirmed) {
+      alert('Vui lòng xác nhận khách đã nhận máy trước khi hoàn tất hồ sơ.');
+      return;
     }
     setBusy(true);
     try {
@@ -470,19 +572,50 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
         repair_action: section === 'warranties' ? repairAction.trim() || undefined : undefined,
         repair_parts: section === 'warranties' ? repairParts.trim() || undefined : undefined,
         repair_cost: section === 'warranties' ? Number(repairCost || 0) : 0,
+        repair_channel: section === 'warranties' && modalRequest.resolutionType === 'REPAIR' ? repairChannel : undefined,
+        repair_provider_name: section === 'warranties' && repairChannel === 'MANUFACTURER' ? repairProviderName.trim() || undefined : undefined,
+        return_fulfillment_method: section === 'warranties' ? (modalTargetStatus === 'RETURNING_TO_CUSTOMER' ? 'DELIVERY' : modalTargetStatus === 'READY_TO_RETURN' ? 'STORE_PICKUP' : returnFulfillmentMethod) : undefined,
+        recipient_name: returnFulfillmentMethod === 'DELIVERY' || modalTargetStatus === 'RETURNING_TO_CUSTOMER' ? recipientName.trim() || undefined : undefined,
+        recipient_phone: returnFulfillmentMethod === 'DELIVERY' || modalTargetStatus === 'RETURNING_TO_CUSTOMER' ? recipientPhone.trim() || undefined : undefined,
+        shipping_address: returnFulfillmentMethod === 'DELIVERY' || modalTargetStatus === 'RETURNING_TO_CUSTOMER' ? shippingAddress.trim() || undefined : undefined,
+        shipping_provider: returnFulfillmentMethod === 'DELIVERY' || modalTargetStatus === 'RETURNING_TO_CUSTOMER' ? shippingProvider.trim() || undefined : undefined,
+        customer_receipt_confirmed: requiresCustomerReceiptConfirmation ? customerReceiptConfirmed : false,
       });
 
       setShowAdvanceModal(false);
-      await load();
+      const refreshed = await load();
 
       // Cập nhật lại chi tiết nếu đang mở xem chi tiết
       if (detailRequest && detailRequest.id === modalRequest.id) {
-        const list = section === 'returns' ? returns : warranties;
+        const list = section === 'returns' ? refreshed.returns : refreshed.warranties;
         const updated = list.find(r => r.id === modalRequest.id);
-        if (updated) setDetailRequest(updated);
+        if (updated) {
+          setDetailRequest(updated);
+          await loadDetailEvents(updated);
+        }
       }
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Không thể cập nhật trạng thái.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCreateRepairedUsedIntake = async (item: any) => {
+    const confirmed = window.confirm(
+      `Chuyển máy cũ ${item.identifier} sang quy trình hàng cũ? Máy vẫn phải được thẩm định và duyệt giá trước khi bán.`,
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    try {
+      const result = await adminAfterSalesApi.createRepairedUsedIntake(item.id, {
+        confirmed: true,
+        note: 'Admin chuyển máy cũ đã sửa sang quy trình thẩm định hàng cũ.',
+      });
+      await load();
+      setMessage(`Đã tạo hồ sơ hàng cũ ${result.requestCode}.`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Không thể chuyển máy đã sửa sang hàng cũ.');
     } finally {
       setBusy(false);
     }
@@ -540,10 +673,10 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
     }
   }
 
-  const handleOpenDispositionModal = (item: any) => {
+  const handleOpenDispositionModal = (item: any, initialStatus = 'REPAIR_PENDING') => {
     setSelectedDefective(item);
     setDispositionEvents([]);
-    setDispStatus(item.status);
+    setDispStatus(initialStatus);
     setDispReason('');
     setDocRef('');
     setPartner('');
@@ -561,7 +694,7 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
     try {
       await adminAfterSalesApi.updateDisposition(selectedDefective.id, {
         status: dispStatus,
-        reason: dispReason.trim() || 'Xử lý định đoạt IMEI lỗi.',
+        reason: dispReason.trim() || (dispositionStatusLabels[dispStatus] || 'Xử lý mã định danh lỗi.'),
         document_reference: docRef.trim() || undefined,
         partner_name: partner.trim() || undefined,
         recovery_value: parseFloat(recoveryVal) || 0
@@ -637,7 +770,7 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
   }, [defective, defectiveQuery, defectiveQuickFilter, defectiveStatusFilter]);
 
   const defectiveQuickCounts = useMemo(() => {
-    return defective.reduce(
+    return distinctPhysicalDevices(defective).reduce(
       (summary, item) => {
         const latest = item.latestDisposition || {};
         const recoveryValue = Number(latest.recoveryValue || 0);
@@ -655,7 +788,7 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
   }, [defective]);
 
   const defectiveSummary = useMemo(() => {
-    return filteredDefective.reduce(
+    return distinctPhysicalDevices(filteredDefective).reduce(
       (summary, item) => {
         const latest = item.latestDisposition || {};
         const averageUnitCost = Number(item.averageUnitCost || 0);
@@ -865,7 +998,7 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900">Báo cáo hàng lỗi và giá trị thu hồi</h3>
-                <p className="mt-1 text-xs font-semibold text-slate-500">Tổng hợp theo dữ liệu định đoạt IMEI lỗi, RTV, thanh lý và hủy phế phẩm.</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">Tổng hợp theo thiết bị vật lý, không cộng trùng IMEI và serial liên kết.</p>
               </div>
               <span className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
                 Tỷ lệ thu hồi {recoveryRate}%
@@ -873,7 +1006,7 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
             </div>
             <div className="grid gap-3 md:grid-cols-4">
               <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Tổng IMEI lỗi</div>
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Tổng thiết bị lỗi</div>
                 <div className="mt-2 text-2xl font-extrabold text-slate-900">{Number(reportSummary.total || 0)}</div>
                 <div className="mt-1 text-xs font-semibold text-slate-500">Đang xử lý: {Number(reportSummary.processing || 0)}</div>
               </div>
@@ -1008,7 +1141,7 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
 
           <div className="grid gap-3 md:grid-cols-4">
             <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-400">IMEI lỗi</div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Thiết bị lỗi</div>
               <div className="mt-2 text-2xl font-extrabold text-slate-900">{defectiveSummary.total}</div>
             </div>
             <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
@@ -1032,7 +1165,7 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
             <table className="w-full text-left text-sm divide-y divide-slate-100">
               <thead>
                 <tr className="bg-slate-50/50 text-slate-500 font-bold">
-                  <th className="p-4 text-xs uppercase tracking-wider">Mã IMEI lỗi</th>
+                  <th className="p-4 text-xs uppercase tracking-wider">IMEI / Serial lỗi</th>
                   <th className="p-4 text-xs uppercase tracking-wider">Sản phẩm</th>
                   <th className="p-4 text-xs uppercase tracking-wider">Trạng thái định đoạt</th>
                   <th className="p-4 text-xs uppercase tracking-wider">Giá trị trung bình</th>
@@ -1067,12 +1200,52 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
 ) : '-'}
                       </td>
                       <td className="p-4 text-right">
-                        {canUpdateAfterSales && <button
-                          onClick={() => handleOpenDispositionModal(item)}
-                          className="rounded-lg bg-slate-900 text-white px-3 py-1.5 text-xs font-bold hover:bg-slate-800 transition-colors"
-                        >
-                          Định đoạt
-                        </button>}
+                        {item.status === 'REPAIR_PENDING' ? (
+                          canUpdateAfterSales ? (
+                            <div className="flex flex-wrap justify-end gap-1.5">
+                              <button
+                                onClick={() => handleOpenDispositionModal(item, 'REPAIRED')}
+                                className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 transition-colors hover:bg-emerald-100"
+                              >
+                                Xác nhận sửa xong
+                              </button>
+                              <button
+                                onClick={() => handleOpenDispositionModal(item, 'RTV_COMPLETED')}
+                                className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 transition-colors hover:bg-rose-100"
+                              >
+                                Sửa không thành công
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-xs font-semibold text-amber-700">Máy cũ thu hồi đang sửa</span>
+                          )
+                        ) : item.status === 'REPAIRED' && item.usedIntake ? (
+                          <button
+                            type="button"
+                            onClick={() => { setQuery?.(item.usedIntake.requestCode || item.identifier); setTab?.('usedProducts'); }}
+                            className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700 transition-colors hover:bg-violet-100"
+                          >
+                            Mở hồ sơ {item.usedIntake.requestCode}
+                          </button>
+                        ) : item.status === 'REPAIRED' && item.type === 'IMEI' && canUpdateAfterSales && canManageUsedProducts ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void handleCreateRepairedUsedIntake(item)}
+                            className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700 transition-colors hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Chuyển sang hàng cũ
+                          </button>
+                        ) : completedDispositionStatuses.includes(item.status) ? (
+                          <span className="text-xs font-semibold text-emerald-700">Đã xử lý</span>
+                        ) : canUpdateAfterSales ? (
+                          <button
+                            onClick={() => handleOpenDispositionModal(item)}
+                            className="rounded-lg bg-slate-900 text-white px-3 py-1.5 text-xs font-bold hover:bg-slate-800 transition-colors"
+                          >
+                            Định đoạt
+                          </button>
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -1134,6 +1307,42 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
                       )}
                     </select>
                   </label>
+
+                  {section === 'warranties' && qcResult === 'ACCEPT_REPAIR' && (
+                    <div className="grid gap-3 rounded-xl border border-amber-100 bg-amber-50/40 p-3 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Kênh sửa chữa *</span>
+                        <select value={repairChannel} onChange={event => setRepairChannel(event.target.value as 'INTERNAL' | 'MANUFACTURER')} className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+                          <option value="INTERNAL">Sửa máy bảo hành tại cửa hàng</option>
+                          <option value="MANUFACTURER">Gửi máy bảo hành đến hãng</option>
+                        </select>
+                      </label>
+                      {repairChannel === 'MANUFACTURER' && <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Hãng / trung tâm bảo hành *</span>
+                        <input value={repairProviderName} onChange={event => setRepairProviderName(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Tên hãng hoặc trung tâm bảo hành" />
+                      </label>}
+                    </div>
+                  )}
+
+                  {section === 'warranties' && qcResult === 'APPROVE_REPLACEMENT' && (
+                    <div className="space-y-3 rounded-xl border border-cyan-100 bg-cyan-50/40 p-3">
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Cách giao máy thay thế *</span>
+                        <select value={returnFulfillmentMethod} onChange={event => setReturnFulfillmentMethod(event.target.value as 'STORE_PICKUP' | 'DELIVERY')} className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+                          <option value="STORE_PICKUP">Khách nhận tại cửa hàng</option>
+                          <option value="DELIVERY">Gửi máy đến khách</option>
+                        </select>
+                      </label>
+                      {returnFulfillmentMethod === 'DELIVERY' && (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <input aria-label="Tên người nhận máy thay thế" value={recipientName} onChange={event => setRecipientName(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Tên người nhận" />
+                          <input aria-label="Số điện thoại người nhận máy thay thế" value={recipientPhone} onChange={event => setRecipientPhone(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Số điện thoại" />
+                          <input aria-label="Địa chỉ giao máy thay thế" value={shippingAddress} onChange={event => setShippingAddress(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm sm:col-span-2" placeholder="Địa chỉ giao máy" />
+                          <input aria-label="Đơn vị vận chuyển máy thay thế" value={shippingProvider} onChange={event => setShippingProvider(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm sm:col-span-2" placeholder="Đơn vị vận chuyển (tùy chọn)" />
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <label className="flex items-center gap-2 py-1 select-none">
                     <input
@@ -1332,19 +1541,19 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
                         placeholder="0"
                         className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
                       />
-                      <span className="text-[10px] text-slate-400">Khoản phí này được dùng để tính số tiền hoàn trong hồ sơ demo, không chuyển tiền thật.</span>
+                      <span className="text-[10px] text-slate-400">Khoản phí này được dùng để tính số tiền hoàn trong hồ sơ.</span>
                     </div>
                   )}
 
                   {section === 'returns' && modalTargetStatus === 'COMPLETED' && modalRequest.status === 'REFUND_PROCESSING' && (
                     <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
-                      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-800">Chứng từ hoàn tiền demo</div>
+                      <div className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-800">Chứng từ hoàn tiền</div>
                       <p className="mb-3 text-xs leading-5 text-emerald-900/70">
-                        Luồng này chỉ ghi nhận mã giao dịch/chứng từ để phục vụ đối soát trong đồ án, không gọi API hoàn tiền thật.
+                        Luồng này chỉ ghi nhận mã giao dịch/chứng từ để phục vụ đối soát, không gọi API hoàn tiền.
                       </p>
                       <div className="space-y-3">
                         <label className="flex flex-col gap-1.5">
-                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mã giao dịch / chứng từ demo *</span>
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mã giao dịch / chứng từ *</span>
                           <input
                             value={refundTransactionRef}
                             onChange={e => setRefundTransactionRef(e.target.value)}
@@ -1376,9 +1585,83 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
                     </div>
                   )}
 
+                  {section === 'warranties' && modalRequest.resolutionType === 'REPLACEMENT' && ['REPLACEMENT_APPROVED', 'REPLACEMENT_PROCESSING'].includes(modalTargetStatus) && (
+                    <div className="space-y-3 rounded-xl border border-cyan-100 bg-cyan-50/40 p-3">
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Cách giao máy thay thế *</span>
+                        <select value={returnFulfillmentMethod} onChange={event => setReturnFulfillmentMethod(event.target.value as 'STORE_PICKUP' | 'DELIVERY')} className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+                          <option value="STORE_PICKUP">Khách nhận tại cửa hàng</option>
+                          <option value="DELIVERY">Gửi máy đến khách</option>
+                        </select>
+                      </label>
+                      {returnFulfillmentMethod === 'DELIVERY' && (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <input aria-label="Tên người nhận máy thay thế" value={recipientName} onChange={event => setRecipientName(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Tên người nhận" />
+                          <input aria-label="Số điện thoại nhận máy thay thế" value={recipientPhone} onChange={event => setRecipientPhone(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Số điện thoại" />
+                          <input aria-label="Địa chỉ giao máy thay thế" value={shippingAddress} onChange={event => setShippingAddress(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm sm:col-span-2" placeholder="Địa chỉ giao máy" />
+                          <input aria-label="Đơn vị vận chuyển máy thay thế" value={shippingProvider} onChange={event => setShippingProvider(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm sm:col-span-2" placeholder="Đơn vị vận chuyển (tùy chọn)" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {section === 'warranties' && modalRequest.resolutionType === 'REPAIR' && modalTargetStatus === 'REPAIRING' && (
+                    <div className="grid gap-3 rounded-xl border border-amber-100 bg-amber-50/40 p-3 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Kênh sửa chữa *</span>
+                        <select value={repairChannel} onChange={event => setRepairChannel(event.target.value as 'INTERNAL' | 'MANUFACTURER')} className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+                          <option value="INTERNAL">Sửa máy bảo hành tại cửa hàng</option>
+                          <option value="MANUFACTURER">Gửi máy bảo hành đến hãng</option>
+                        </select>
+                      </label>
+                      {repairChannel === 'MANUFACTURER' && <label className="flex flex-col gap-1.5">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Hãng / trung tâm bảo hành *</span>
+                        <input value={repairProviderName} onChange={event => setRepairProviderName(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Tên hãng hoặc trung tâm bảo hành" />
+                      </label>}
+                    </div>
+                  )}
+
+                  {section === 'warranties' && modalRequest.resolutionType === 'REPAIR' && modalTargetStatus === 'RETURNING_TO_CUSTOMER' && (
+                    <div className="grid gap-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3 sm:grid-cols-2">
+                      <input aria-label="Tên người nhận máy đã sửa" value={recipientName} onChange={event => setRecipientName(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Tên người nhận" />
+                      <input aria-label="Số điện thoại nhận máy đã sửa" value={recipientPhone} onChange={event => setRecipientPhone(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm" placeholder="Số điện thoại" />
+                      <input aria-label="Địa chỉ giao máy đã sửa" value={shippingAddress} onChange={event => setShippingAddress(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm sm:col-span-2" placeholder="Địa chỉ giao máy" />
+                      <input aria-label="Đơn vị vận chuyển máy đã sửa" value={shippingProvider} onChange={event => setShippingProvider(event.target.value)} className="rounded-xl border border-slate-200 p-3 text-sm sm:col-span-2" placeholder="Đơn vị vận chuyển (tùy chọn)" />
+                    </div>
+                  )}
+
                   {section === 'warranties'
                     && modalRequest.resolutionType === 'REPAIR'
-                    && ['REPAIRING', 'READY_TO_RETURN', 'COMPLETED'].includes(modalTargetStatus) && (
+                    && ['READY_TO_RETURN', 'RETURNING_TO_CUSTOMER', 'COMPLETED'].includes(modalTargetStatus)
+                    && modalRequest.repairSummary
+                    && Object.keys(modalRequest.repairSummary).length > 0 && (
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 text-xs text-slate-700">
+                      <div className="font-bold uppercase tracking-wider text-emerald-800">Kết quả sửa chữa đã lưu</div>
+                      <div className="mt-2 space-y-1">
+                        <div><strong>Chẩn đoán:</strong> {modalRequest.repairSummary.diagnosis || '-'}</div>
+                        <div><strong>Hướng xử lý:</strong> {modalRequest.repairSummary.action || '-'}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {requiresCustomerReceiptConfirmation && (
+                    <label className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 text-sm text-emerald-950">
+                      <input
+                        type="checkbox"
+                        checked={customerReceiptConfirmed}
+                        onChange={event => setCustomerReceiptConfirmed(event.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-emerald-300"
+                      />
+                      <span>
+                        <strong className="block">Xác nhận khách đã nhận máy</strong>
+                        Hệ thống sẽ ghi người thao tác và thời gian xác nhận vào timeline hậu mãi.
+                      </span>
+                    </label>
+                  )}
+
+                  {section === 'warranties'
+                    && modalRequest.resolutionType === 'REPAIR'
+                    && modalTargetStatus === 'REPAIR_COMPLETED' && (
                     <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3">
                       <div className="mb-3 text-xs font-bold uppercase tracking-wider text-amber-800">Chi tiết sửa chữa / bảo hành</div>
                       <div className="space-y-3">
@@ -1640,6 +1923,11 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
                             <div className="mt-1 text-[11px] font-semibold text-slate-500">
                               {event.actorName || 'Hệ thống'}{event.note ? ` · ${event.note}` : ''}
                             </div>
+                            {event.metadata?.customerReceiptConfirmed && (
+                              <div className="mt-2 inline-flex rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800">
+                                Admin đã xác nhận khách nhận máy
+                              </div>
+                            )}
                             {repair && (
                               <div className="mt-2 rounded-lg border border-amber-100 bg-white px-3 py-2 text-[11px] text-slate-700">
                                 {repair.diagnosis && <div><strong>Chẩn đoán:</strong> {repair.diagnosis}</div>}
@@ -1655,6 +1943,19 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
                   )}
                 </div>
               </div>
+
+              {section === 'warranties' && detailRequest.resolutionType === 'REPAIR' && (
+                <div className="grid gap-3 rounded-xl border border-amber-100 bg-amber-50/40 p-4 sm:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Kênh sửa chữa</div>
+                    <div className="mt-1 text-sm font-bold text-slate-900">{detailRequest.repairChannel === 'MANUFACTURER' ? 'Gửi máy bảo hành đến hãng' : 'Sửa máy bảo hành tại cửa hàng'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Đơn vị xử lý</div>
+                    <div className="mt-1 text-sm font-bold text-slate-900">{detailRequest.repairProviderName || 'Cửa hàng'}</div>
+                  </div>
+                </div>
+              )}
 
               {section === 'warranties' && detailRequest.repairSummary && Object.keys(detailRequest.repairSummary).length > 0 && (
                 <div>
@@ -1848,18 +2149,16 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
                   className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-sm focus:border-slate-900 focus:bg-white focus:outline-none transition-colors"
                   required
                 >
-                  <option value="INSPECTION_PENDING">Đang chờ thẩm định (QC)</option>
-                  <option value="RTV_PENDING">Chờ trả về nhà sản xuất (RTV)</option>
-                  <option value="LIQUIDATION_PENDING">Chờ thanh lý</option>
-                  <option value="RTV_COMPLETED">Đã trả về nhà cung cấp (RTV xong)</option>
-                  <option value="LIQUIDATED">Đã thanh lý</option>
-                  <option value="SCRAP">Hủy phế phẩm (Scrap)</option>
-                  <option value="OUT_OF_SYSTEM">Loại khỏi hệ thống</option>
+                  {(selectedDefective.status === 'REPAIR_PENDING' ? REPAIR_RESULT_ACTIONS : INITIAL_DEFECTIVE_ACTIONS).map(status => (
+                    <option key={status} value={status}>
+                      {dispositionStatusLabels[status] || status}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               {/* Tài liệu tham chiếu */}
-              <div className="flex flex-col gap-1.5">
+              {!['REPAIR_PENDING', 'REPAIRED'].includes(dispStatus) && <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Chứng từ / Tài liệu tham chiếu</label>
                 <input
                   type="text"
@@ -1868,10 +2167,10 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
                   placeholder="Mã phiếu xuất/hóa đơn thanh lý"
                   className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
                 />
-              </div>
+              </div>}
 
               {/* Tên đối tác */}
-              <div className="flex flex-col gap-1.5">
+              {!['REPAIR_PENDING', 'REPAIRED'].includes(dispStatus) && <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Đối tác thu hồi / Thanh lý</label>
                 <input
                   type="text"
@@ -1880,10 +2179,10 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
                   placeholder="Tên đối tác hoặc nhà phân phối"
                   className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
                 />
-              </div>
+              </div>}
 
               {/* Giá trị thu hồi */}
-              <div className="flex flex-col gap-1.5">
+              {['RTV_COMPLETED', 'LIQUIDATED'].includes(dispStatus) && <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Giá trị thu hồi (VNĐ)</label>
                 <input
                   type="number"
@@ -1892,17 +2191,16 @@ export default function AdminAfterSalesTab({ query = '', setTab, setQuery }: { q
                   placeholder="Số tiền thu về (nếu có)"
                   className="rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
                 />
-              </div>
+              </div>}
 
               {/* Lý do định đoạt */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Lý do / Mô tả chi tiết *</label>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ghi chú</label>
                 <textarea
                   value={dispReason}
                   onChange={e => setDispReason(e.target.value)}
-                  placeholder="Mô tả lý do định đoạt và kết quả kiểm định"
+                  placeholder={dispStatus === 'REPAIRED' ? 'Ghi nhận kết quả sửa chữa' : 'Mô tả lý do định đoạt và kết quả kiểm định'}
                   className="min-h-20 rounded-xl border border-slate-200 p-3 text-sm focus:border-slate-900 focus:outline-none transition-colors"
-                  required
                 />
               </div>
 

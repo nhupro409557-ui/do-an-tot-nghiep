@@ -43,6 +43,7 @@ async def get_revenue_summary(
                 FROM orders
                 WHERE completed_at >= :from_utc
                   AND completed_at < :to_utc
+                  AND COALESCE(order_purpose, 'SALE') <> 'WARRANTY_RETURN'
                   AND (
                     CAST(:channel AS text) IS NULL
                     OR order_type = CAST(:channel AS text)
@@ -57,6 +58,7 @@ async def get_revenue_summary(
                 FROM refund_transactions rt
                 JOIN orders o ON o.id = rt.order_id
                 WHERE rt.status = 'COMPLETED'
+                  AND COALESCE(o.order_purpose, 'SALE') <> 'WARRANTY_RETURN'
                   AND rt.completed_at >= :from_utc
                   AND rt.completed_at < :to_utc
                   AND (
@@ -124,9 +126,13 @@ async def get_lifetime_revenue_summary(session: AsyncSession) -> dict:
         text(
             """
             SELECT
-                (SELECT COUNT(*) FROM orders WHERE completed_at IS NOT NULL) AS completed_orders,
+                (SELECT COUNT(*) FROM orders
+                 WHERE completed_at IS NOT NULL
+                   AND COALESCE(order_purpose, 'SALE') <> 'WARRANTY_RETURN') AS completed_orders,
                 (SELECT COALESCE(SUM(total_amount), 0)
-                 FROM orders WHERE completed_at IS NOT NULL) AS gross_revenue,
+                 FROM orders
+                 WHERE completed_at IS NOT NULL
+                   AND COALESCE(order_purpose, 'SALE') <> 'WARRANTY_RETURN') AS gross_revenue,
                 (SELECT COALESCE(SUM(refund_amount), 0)
                  FROM refund_transactions WHERE status = 'COMPLETED') AS refund_amount,
                 (
@@ -192,6 +198,7 @@ async def get_revenue_series(
                 FROM orders
                 WHERE completed_at >= :from_utc
                   AND completed_at < :to_utc
+                  AND COALESCE(order_purpose, 'SALE') <> 'WARRANTY_RETURN'
                   AND (
                     CAST(:channel AS text) IS NULL
                     OR order_type = CAST(:channel AS text)
@@ -205,6 +212,7 @@ async def get_revenue_series(
                 FROM refund_transactions rt
                 JOIN orders o ON o.id = rt.order_id
                 WHERE rt.status = 'COMPLETED'
+                  AND COALESCE(o.order_purpose, 'SALE') <> 'WARRANTY_RETURN'
                   AND rt.completed_at >= :from_utc
                   AND rt.completed_at < :to_utc
                   AND (
@@ -266,6 +274,7 @@ async def get_revenue_breakdowns(
                 FROM orders
                 WHERE completed_at >= :from_utc
                   AND completed_at < :to_utc
+                  AND COALESCE(order_purpose, 'SALE') <> 'WARRANTY_RETURN'
                   AND (
                     CAST(:channel AS text) IS NULL
                     OR order_type = CAST(:channel AS text)
@@ -284,6 +293,7 @@ async def get_revenue_breakdowns(
                 FROM refund_transactions rt
                 JOIN orders o ON o.id = rt.order_id
                 WHERE rt.status = 'COMPLETED'
+                  AND COALESCE(o.order_purpose, 'SALE') <> 'WARRANTY_RETURN'
                   AND rt.completed_at >= :from_utc
                   AND rt.completed_at < :to_utc
                   AND (

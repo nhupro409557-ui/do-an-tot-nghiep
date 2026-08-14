@@ -20,7 +20,7 @@ export type AIAssistantResponse = {
   source_details?: Array<{ type: string; id: string; updated_at?: string | null }>;
   verification_passed?: boolean | null;
   answer_mode: AIAssistantAnswerMode;
-  provider_used: 'GEMINI' | 'SYSTEM';
+  provider_used: 'GEMINI' | 'GROQ' | 'SYSTEM';
   model_name?: string | null;
   fallback_reason?: string | null;
   handover_recommended?: boolean;

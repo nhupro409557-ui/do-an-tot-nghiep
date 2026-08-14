@@ -124,6 +124,33 @@ class AIProductRecommendationsTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([product["id"] for product in products], ["iphone-17-pro"])
 
+    async def test_exact_product_name_takes_priority_over_connector_that_looks_like_sku(self) -> None:
+        products_fixture = [
+            {
+                "id": "cable",
+                "name": "Cáp sạc Ugreen USB-C to USB-C 100W 2m",
+                "categoryName": "Phụ kiện",
+                "categorySlug": "accessories",
+            },
+            {
+                "id": "laptop",
+                "name": "Laptop USB-C",
+                "categoryName": "Laptop",
+                "categorySlug": "laptops",
+                "specifications": {"connectivity": "USB-C"},
+            },
+        ]
+        use_case = AIAssistantUseCase(session=None, redis=None)
+        with patch(
+            "app.application.ai.use_cases.ai_repo.list_active_products_for_ai",
+            new=AsyncMock(return_value=products_fixture),
+        ):
+            products = await use_case._find_products(
+                "Cáp sạc Ugreen USB-C to USB-C 100W 2m còn hàng không?"
+            )
+
+        self.assertEqual([product["id"] for product in products], ["cable"])
+
     async def test_slang_model_query_keeps_numeric_model_token(self) -> None:
         use_case = AIAssistantUseCase(session=None, redis=None)
         with patch(

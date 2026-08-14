@@ -28,7 +28,7 @@ type SelectedReviewImage = {
 
 type ProductReviewsProps = {
   productId: string;
-  displayMode?: 'full' | 'form';
+  displayMode?: 'full' | 'form' | 'list';
 };
 
 export function ProductReviews({ productId, displayMode = 'full' }: ProductReviewsProps) {
@@ -38,6 +38,7 @@ export function ProductReviews({ productId, displayMode = 'full' }: ProductRevie
 
 function ProductReviewsContent({ productId, user, displayMode }: ProductReviewsProps & { user: any }) {
   const isFormOnly = displayMode === 'form';
+  const isListOnly = displayMode === 'list';
   const previewUrlsRef = useRef(new Set<string>());
   const [reviews, setReviews] = useState<Review[]>([]);
   const [newReview, setNewReview] = useState('');
@@ -261,11 +262,11 @@ function ProductReviewsContent({ productId, user, displayMode }: ProductReviewsP
 
   return (
     <div className={isFormOnly ? 'mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4' : 'mt-8 rounded-xl border border-gray-100 bg-white p-6 shadow-sm'}>
-      <h3 className={isFormOnly ? 'mb-4 text-base font-bold text-slate-900' : 'mb-6 font-display text-xl font-bold'}>
-        {isFormOnly ? 'Đánh giá sản phẩm' : 'Đánh giá & Nhận xét'}
+      <h3 className="mb-4 text-xl font-bold">
+        {isFormOnly ? 'Đánh giá sản phẩm' : isListOnly ? 'Đánh giá từ khách hàng' : 'Đánh giá & Nhận xét'}
       </h3>
 
-      {!user ? (
+      {!isListOnly && (!user ? (
         <div className={`${isFormOnly ? '' : 'mb-8'} rounded-lg border border-amber-100 bg-amber-50 p-4 text-sm font-semibold text-amber-800`}>
           Vui lòng đăng nhập và chỉ những đơn hàng đã hoàn thành mới có thể đánh giá sản phẩm.
         </div>
@@ -277,9 +278,9 @@ function ProductReviewsContent({ productId, user, displayMode }: ProductReviewsP
         <div className={`${isFormOnly ? '' : 'mb-8'} rounded-lg border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600`}>
           {eligibility?.message || 'Chỉ khách hàng có đơn hàng đã hoàn thành mới có thể đánh giá sản phẩm này.'}
         </div>
-      ) : null}
+      ) : null)}
 
-      {(eligibility?.canReview || eligibility?.canEdit) && (
+      {!isListOnly && (eligibility?.canReview || eligibility?.canEdit) && (
         <form onSubmit={handleSubmit} className={`${isFormOnly ? '' : 'mb-8'} rounded-lg border border-gray-200 bg-white p-4`}>
           <div className="mb-3 flex items-center gap-2">
             <span className="text-sm font-semibold">Đánh giá của bạn:</span>

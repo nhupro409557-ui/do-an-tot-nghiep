@@ -34,9 +34,9 @@ export const adminOrdersApi = {
   cancelPayment: (id: string) => request<any>(`/payments/${encodeURIComponent(id)}/cancel`, {
     method: 'POST',
   }),
-  updateOrderStatus: (id: string, status: string) => request(`/orders/${id}/status`, {
+  updateOrderStatus: (id: string, status: string, customerReceiptConfirmed = false) => request(`/orders/${id}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, customer_receipt_confirmed: customerReceiptConfirmed }),
   }),
   adminUpdateOrder: (id: string, data: any) => request(`/orders/${encodeURIComponent(id)}/admin`, {
     method: 'PATCH',

@@ -132,6 +132,30 @@ async def ensure_admin_mfa_table(session: AsyncSession) -> None:
             """
         )
     )
+    await session.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS admin_mfa_recovery_codes (
+                user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                challenge_jti VARCHAR(64) NOT NULL,
+                code_hash CHAR(64) NOT NULL,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                expires_at TIMESTAMPTZ NOT NULL,
+                consumed_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT ck_admin_mfa_recovery_attempt_count
+                    CHECK (attempt_count >= 0 AND attempt_count <= 5)
+            )
+            """
+        )
+    )
+    await session.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS idx_admin_mfa_recovery_codes_expires_at "
+            "ON admin_mfa_recovery_codes(expires_at)"
+        )
+    )
 
 
 async def get_admin_mfa_row(session: AsyncSession, user_id: UUID) -> dict | None:
@@ -153,7 +177,10 @@ async def upsert_admin_mfa_secret(session: AsyncSession, *, user_id: UUID, secre
             INSERT INTO admin_mfa_settings (user_id, mfa_enabled, mfa_secret)
             VALUES (:user_id, FALSE, :secret)
             ON CONFLICT (user_id)
-            DO UPDATE SET mfa_secret = EXCLUDED.mfa_secret, updated_at = NOW()
+            DO UPDATE SET
+                mfa_enabled = FALSE,
+                mfa_secret = EXCLUDED.mfa_secret,
+                updated_at = NOW()
             """
         ),
         {"user_id": user_id, "secret": secret},
@@ -163,6 +190,85 @@ async def upsert_admin_mfa_secret(session: AsyncSession, *, user_id: UUID, secre
 async def enable_admin_mfa(session: AsyncSession, user_id: UUID) -> None:
     await session.execute(
         text("UPDATE admin_mfa_settings SET mfa_enabled = TRUE, updated_at = NOW() WHERE user_id = :user_id"),
+        {"user_id": user_id},
+    )
+
+
+async def replace_admin_mfa_recovery(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    challenge_jti: str,
+    code_hash: str,
+    expires_at: datetime,
+) -> None:
+    await ensure_admin_mfa_table(session)
+    await session.execute(
+        text(
+            """
+            INSERT INTO admin_mfa_recovery_codes
+                (user_id, challenge_jti, code_hash, attempt_count, expires_at, consumed_at)
+            VALUES
+                (:user_id, :challenge_jti, :code_hash, 0, :expires_at, NULL)
+            ON CONFLICT (user_id)
+            DO UPDATE SET
+                challenge_jti = EXCLUDED.challenge_jti,
+                code_hash = EXCLUDED.code_hash,
+                attempt_count = 0,
+                expires_at = EXCLUDED.expires_at,
+                consumed_at = NULL,
+                updated_at = NOW()
+            """
+        ),
+        {
+            "user_id": user_id,
+            "challenge_jti": challenge_jti,
+            "code_hash": code_hash,
+            "expires_at": expires_at,
+        },
+    )
+
+
+async def get_admin_mfa_recovery_for_update(session: AsyncSession, user_id: UUID) -> dict | None:
+    await ensure_admin_mfa_table(session)
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT challenge_jti, code_hash, attempt_count, expires_at, consumed_at
+                FROM admin_mfa_recovery_codes
+                WHERE user_id = :user_id
+                FOR UPDATE
+                """
+            ),
+            {"user_id": user_id},
+        )
+    ).mappings().one_or_none()
+    return dict(row) if row else None
+
+
+async def increment_admin_mfa_recovery_attempt(session: AsyncSession, user_id: UUID) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE admin_mfa_recovery_codes
+            SET attempt_count = LEAST(attempt_count + 1, 5), updated_at = NOW()
+            WHERE user_id = :user_id
+            """
+        ),
+        {"user_id": user_id},
+    )
+
+
+async def consume_admin_mfa_recovery(session: AsyncSession, user_id: UUID) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE admin_mfa_recovery_codes
+            SET consumed_at = NOW(), updated_at = NOW()
+            WHERE user_id = :user_id
+            """
+        ),
         {"user_id": user_id},
     )
 

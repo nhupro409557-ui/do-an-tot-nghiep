@@ -30,6 +30,8 @@ async def create_outbound_document_from_order(session: AsyncSession, order_id: U
     order = await session.get(Order, order_id, with_for_update=True)
     if not order:
         return None
+    if order.order_purpose == "WARRANTY_RETURN":
+        raise HTTPException(status_code=409, detail="Đơn gửi lại máy đã sửa không được phép tạo phiếu xuất kho.")
 
     # Check if outbound document already exists
     res = await session.execute(
@@ -45,6 +47,7 @@ async def create_outbound_document_from_order(session: AsyncSession, order_id: U
         {"order_id": order_id},
     )
     row = res.first()
+    document_id = None
     if row:
         if row[1] == "CANCELLED":
             await session.execute(
@@ -52,15 +55,22 @@ async def create_outbound_document_from_order(session: AsyncSession, order_id: U
                     """
                     UPDATE inventory_documents
                     SET status = 'DRAFT',
+                        document_no = :document_no,
                         cancelled_at = NULL,
                         cancelled_by = NULL,
                         note = 'Phát hành lại phiếu xuất khi đơn hàng tiếp tục xử lý.'
                     WHERE id = :document_id
                     """
                 ),
+                {"document_id": row[0], "document_no": f"OUT-{order.order_code}"},
+            )
+            await session.execute(
+                text("DELETE FROM inventory_document_lines WHERE document_id = :document_id"),
                 {"document_id": row[0]},
             )
-        return row[0]
+            document_id = row[0]
+        else:
+            return row[0]
 
     items = await commerce_repo.list_restock_items(session, order_id=order_id, order_code=order.order_code)
     shippable_items = [item for item in items if not item.get("used_device_id")]
@@ -71,19 +81,20 @@ async def create_outbound_document_from_order(session: AsyncSession, order_id: U
     location_row = await inventory_repo.get_inventory_location_by_code(session, "MAIN")
     location_id = location_row["id"] if location_row else None
 
-    document_id = uuid4()
+    document_id = document_id or uuid4()
     document_no = f"OUT-{order.order_code}"
 
-    await inventory_repo.insert_inventory_outbound_document(
-        session,
-        document_id=document_id,
-        document_no=document_no,
-        status="DRAFT",
-        reason="SO_OUTBOUND",
-        note=f"Phiếu xuất kho tự động cho đơn hàng {order.order_code}",
-        source_location_id=location_id,
-        order_id=order_id,
-    )
+    if not row:
+        await inventory_repo.insert_inventory_outbound_document(
+            session,
+            document_id=document_id,
+            document_no=document_no,
+            status="DRAFT",
+            reason="SO_OUTBOUND",
+            note=f"Phiếu xuất kho tự động cho đơn hàng {order.order_code}",
+            source_location_id=location_id,
+            order_id=order_id,
+        )
 
     for item in shippable_items:
         product_id = item["product_id"]

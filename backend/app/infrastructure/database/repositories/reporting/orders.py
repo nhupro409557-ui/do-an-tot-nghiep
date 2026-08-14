@@ -25,6 +25,7 @@ def _build_filters(
     clauses = [
         f"{date_column} >= :from_utc",
         f"{date_column} < :to_utc",
+        "COALESCE(o.order_purpose, 'SALE') <> 'WARRANTY_RETURN'",
         "(CAST(:status AS text) IS NULL OR o.status = CAST(:status AS text))",
         "(CAST(:channel AS text) IS NULL OR o.order_type = CAST(:channel AS text))",
         """(

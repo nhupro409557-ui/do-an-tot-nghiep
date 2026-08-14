@@ -81,13 +81,13 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
     setOrders((items) => items.map((item) => (item.id === detail.id ? { ...item, ...detail } : item)));
   }
 
-  async function updateOrderStatus(id: string, status: string) {
-    await adminOrdersApi.updateOrderStatus(id, status);
+  async function updateOrderStatus(id: string, status: string, customerReceiptConfirmed = false) {
+    await adminOrdersApi.updateOrderStatus(id, status, customerReceiptConfirmed);
     const detail = await adminOrdersApi.getOrderDetail(id);
     mergeOrderListItem(detail);
   }
 
-  async function saveOrderDraft(statusOverride?: string) {
+  async function saveOrderDraft(statusOverride?: string, customerReceiptConfirmed = false) {
     if (!selectedOrder) return;
     setOrderSaving(true);
     try {
@@ -104,6 +104,7 @@ export function useAdminOrdersLogic({ setOrders }: UseAdminOrdersLogicParams) {
         return_received_condition: orderDraft.returnReceivedCondition || null,
         refund_payment: orderDraft.refundPayment,
         issue_allocations: [],
+        customer_receipt_confirmed: customerReceiptConfirmed,
       });
       const detail = await adminOrdersApi.getOrderDetail(selectedOrder.id);
       setSelectedOrder(detail);

@@ -22,6 +22,10 @@ from app.application.ai.gemini_interactions import (
     GeminiInteractionError,
     create_gemini_interaction,
 )
+from app.application.ai.groq_interactions import (
+    GroqInteractionError,
+    create_groq_chat_completion,
+)
 from app.application.ai.local_circuit_breaker import (
     clear_local_model_state,
     is_local_circuit_open,
@@ -381,6 +385,9 @@ def matching_product_variants(product: dict, message: str) -> tuple[bool, list[d
             normalized,
         )
     ]
+    original_lower = message.lower()
+    if "mẫu đó" in original_lower and "màu đỏ" not in original_lower:
+        requested_colors = [color for color in requested_colors if color != "do"]
     has_storage_selector = bool(storage_values) and not (
         "ram" in normalized and "ssd" not in normalized and "dung luong" not in normalized and "ban " not in normalized
     )
@@ -1381,6 +1388,7 @@ class AIAssistantUseCase:
 
         def text_score(product: dict, fragment: str) -> int:
             name = normalize_text(str(product.get("name") or ""))
+            brand = normalize_text(str(product.get("brand") or ""))
             haystack = searchable_text(product)
             tokens = query_tokens(fragment)
             if not tokens:
@@ -1392,6 +1400,11 @@ class AIAssistantUseCase:
                 score += 350 + len(name)
             elif len(fragment.strip()) >= 4 and fragment.strip() in name:
                 score += 180
+            if brand and re.search(
+                rf"(?<![a-z0-9]){re.escape(brand)}(?![a-z0-9])",
+                fragment,
+            ):
+                score += 320
             matched = 0
             for token in tokens:
                 if re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", haystack):
@@ -1400,22 +1413,6 @@ class AIAssistantUseCase:
             if matched == len(tokens):
                 score += 120
             return score
-
-        requested_codes = re.findall(
-            r"\b(?:[a-z][a-z0-9]*[-_][a-z0-9_-]+|(?:sp|lap|nkd)\d+)\b",
-            normalized,
-        )
-        if requested_codes:
-            code_matches = [
-                product
-                for product in products
-                if any(
-                    re.search(rf"(?<![a-z0-9]){re.escape(code)}(?![a-z0-9])", searchable_text(product))
-                    for code in requested_codes
-                )
-            ]
-            if code_matches:
-                return code_matches[:5]
 
         comparison_text = re.sub(r"^(?:ss|so sanh|phan tich)\s+", "", normalized).strip()
         comparison_parts = [
@@ -1457,6 +1454,22 @@ class AIAssistantUseCase:
                 for product in exact_matches
                 if len(normalize_text(str(product.get("name") or ""))) == longest_name_length
             ][:3]
+
+        requested_codes = re.findall(
+            r"\b(?:[a-z][a-z0-9]*[-_][a-z0-9_-]+|(?:sp|lap|nkd)\d+)\b",
+            normalized,
+        )
+        if requested_codes:
+            code_matches = [
+                product
+                for product in products
+                if any(
+                    re.search(rf"(?<![a-z0-9]){re.escape(code)}(?![a-z0-9])", searchable_text(product))
+                    for code in requested_codes
+                )
+            ]
+            if code_matches:
+                return code_matches[:5]
 
         ranked: list[tuple[int, dict]] = []
         tokens = query_tokens(normalized)
@@ -1671,17 +1684,19 @@ class AIAssistantUseCase:
         intent: str,
         retrieved_context: dict,
     ) -> GeneratedAnswer:
+        failure_reasons = []
+        fallback_eligible = {
+            "MODEL_RATE_LIMITED",
+            "MODEL_BUSY",
+            "MODEL_TIMEOUT",
+            "MODEL_CONNECTION_ERROR",
+        }
+        last_model = None
+
         if settings.gemini_api_key:
             models = self._models_for_intent(intent)
-
-            failure_reasons = []
-            fallback_eligible = {
-                "MODEL_RATE_LIMITED",
-                "MODEL_BUSY",
-                "MODEL_TIMEOUT",
-                "MODEL_CONNECTION_ERROR",
-            }
             for index, model in enumerate(models):
+                last_model = model
                 if await self._is_model_circuit_open(model):
                     failure_reasons.append(f"{model}:CIRCUIT_OPEN")
                     continue
@@ -1708,23 +1723,38 @@ class AIAssistantUseCase:
                     if index == 0 and error.reason not in fallback_eligible:
                         break
 
-            return GeneratedAnswer(
-                answer=self._fallback_answer(
-                    intent=intent,
-                    retrieved_context=retrieved_context,
-                ),
-                answer_mode="DATABASE_FALLBACK",
-                provider_used="SYSTEM",
-                model_name=models[-1],
-                fallback_reason=";".join(failure_reasons),
-            )
+        if settings.groq_api_key and settings.groq_model:
+            model = settings.groq_model
+            last_model = model
+            if await self._is_model_circuit_open(model):
+                failure_reasons.append(f"{model}:CIRCUIT_OPEN")
+            else:
+                try:
+                    result = await self._call_groq(
+                        request,
+                        intent=intent,
+                        retrieved_context=retrieved_context,
+                        model=model,
+                    )
+                    await self._record_model_success(model)
+                    return GeneratedAnswer(
+                        answer=result.answer,
+                        answer_mode="GROUNDED_GENERATION",
+                        provider_used="GROQ",
+                        model_name=model,
+                        fallback_reason=";".join(failure_reasons) or None,
+                    )
+                except GroqInteractionError as error:
+                    failure_reasons.append(f"{model}:{error.reason}")
+                    if error.reason in fallback_eligible:
+                        await self._record_model_failure(model, reason=error.reason)
 
         return GeneratedAnswer(
             answer=self._fallback_answer(intent=intent, retrieved_context=retrieved_context),
             answer_mode="DATABASE_FALLBACK",
             provider_used="SYSTEM",
-            model_name=None,
-            fallback_reason="MODEL_NOT_CONFIGURED",
+            model_name=last_model,
+            fallback_reason=";".join(failure_reasons) or "MODEL_NOT_CONFIGURED",
         )
 
     def _models_for_intent(self, intent: str) -> list[str]:
@@ -1855,17 +1885,7 @@ class AIAssistantUseCase:
         previous_interaction_id: str | None,
         model: str,
     ):
-        answer_requirements = build_answer_requirements(
-            intent=intent,
-            message=request.message,
-        )
-        input_text = (
-            f"Intent: {intent}\n"
-            f"Answer requirements: {answer_requirements}\n"
-            f"Dynamic context: {json.dumps(request.dynamic_context.model_dump(mode='json'), ensure_ascii=False, default=as_jsonable)}\n"
-            f"Database context: {json.dumps(retrieved_context, ensure_ascii=False, default=as_jsonable)}\n"
-            f"Customer question: {request.message}"
-        )
+        input_text = self._build_model_input(request, intent, retrieved_context)
         is_primary_model = model == settings.gemini_model
         timeout_seconds = (
             min(settings.gemini_interaction_timeout_seconds, settings.gemini_primary_timeout_seconds)
@@ -1889,6 +1909,43 @@ class AIAssistantUseCase:
             tools=self._tool_declarations_for_intent(intent) if settings.ai_read_tools_enabled else None,
             tool_handler=lambda name, arguments: self._handle_model_tool(name, arguments),
             max_tool_calls=4,
+        )
+
+    async def _call_groq(
+        self,
+        request: AIAssistantRequest,
+        *,
+        intent: str,
+        retrieved_context: dict,
+        model: str,
+    ):
+        return await create_groq_chat_completion(
+            api_key=settings.groq_api_key,
+            model=model,
+            system_instruction=GEMINI_SYSTEM_INSTRUCTION,
+            input_text=self._build_model_input(request, intent, retrieved_context),
+            timeout_seconds=settings.groq_timeout_seconds,
+            max_retries=settings.groq_max_retries,
+            max_completion_tokens=settings.groq_max_completion_tokens,
+            reasoning_effort=settings.groq_reasoning_effort or None,
+        )
+
+    @staticmethod
+    def _build_model_input(
+        request: AIAssistantRequest,
+        intent: str,
+        retrieved_context: dict,
+    ) -> str:
+        answer_requirements = build_answer_requirements(
+            intent=intent,
+            message=request.message,
+        )
+        return (
+            f"Intent: {intent}\n"
+            f"Answer requirements: {answer_requirements}\n"
+            f"Dynamic context: {json.dumps(request.dynamic_context.model_dump(mode='json'), ensure_ascii=False, default=as_jsonable)}\n"
+            f"Database context: {json.dumps(retrieved_context, ensure_ascii=False, default=as_jsonable)}\n"
+            f"Customer question: {request.message}"
         )
 
     def _tool_declarations_for_intent(self, intent: str) -> list[dict]:
@@ -2438,10 +2495,12 @@ class AIAssistantUseCase:
             "QC_IN_PROGRESS": "đang kiểm tra kỹ thuật",
             "WARRANTY_ACCEPTED": "đã chấp nhận bảo hành",
             "REPAIRING": "đang sửa chữa",
+            "REPAIR_COMPLETED": "đã sửa xong",
             "REPLACEMENT_APPROVED": "đã duyệt đổi máy",
             "WAITING_FOR_STOCK": "đang chờ máy thay thế",
             "REPLACEMENT_PROCESSING": "đang xử lý máy thay thế",
             "READY_TO_RETURN": "sẵn sàng trả máy",
+            "RETURNING_TO_CUSTOMER": "đang gửi trả khách",
             "REFUND_PROCESSING": "đang hoàn tiền",
             "EXCHANGE_PROCESSING": "đang đổi sản phẩm",
             "COMPLETED": "đã hoàn tất",

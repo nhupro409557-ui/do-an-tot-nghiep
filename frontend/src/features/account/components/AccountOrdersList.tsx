@@ -10,6 +10,7 @@ const statusLabels: Record<string, string> = {
   RETURNING: 'Đang hoàn hàng',
   RETURNED: 'Đã hoàn hàng',
   REFUNDED: 'Đã hoàn tiền',
+  PAID: 'Đã thanh toán',
 };
 
 const statusStyles: Record<string, { bg: string; text: string }> = {
@@ -22,6 +23,7 @@ const statusStyles: Record<string, { bg: string; text: string }> = {
   RETURNING: { bg: 'bg-purple-50', text: 'text-purple-700' },
   RETURNED: { bg: 'bg-slate-50', text: 'text-slate-700' },
   REFUNDED: { bg: 'bg-slate-50', text: 'text-slate-700' },
+  PAID: { bg: 'bg-emerald-50', text: 'text-emerald-700' },
 };
 
 type AccountOrder = {
@@ -30,7 +32,7 @@ type AccountOrder = {
   status?: string | null;
   createdAt?: string | null;
   totalAmount?: number | string | null;
-  orderType?: 'SALE' | 'WARRANTY_REPLACEMENT' | 'RETURN_EXCHANGE' | null;
+  orderType?: 'SALE' | 'WARRANTY_REPLACEMENT' | 'WARRANTY_RETURN' | 'RETURN_EXCHANGE' | null;
 };
 
 type AccountOrdersListProps = {
@@ -61,7 +63,11 @@ export function AccountOrdersList({ orders, limit }: AccountOrdersListProps) {
         <div key={order.id} className="border border-gray-100 rounded-lg p-4 text-sm">
           {order.orderType && order.orderType !== 'SALE' && (
             <div className="mb-2 inline-flex rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700">
-              {order.orderType === 'WARRANTY_REPLACEMENT' ? 'Đơn giao máy bảo hành' : 'Đơn giao máy đổi trả'}
+              {order.orderType === 'WARRANTY_REPLACEMENT'
+                ? 'Đơn giao máy bảo hành'
+                : order.orderType === 'WARRANTY_RETURN'
+                  ? 'Đơn gửi lại máy đã sửa'
+                  : 'Đơn giao máy đổi trả'}
             </div>
           )}
           <div className="flex justify-between mb-2">

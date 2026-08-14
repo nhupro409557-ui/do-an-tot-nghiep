@@ -109,7 +109,7 @@ export function Footer() {
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-50 text-slate-500">
                   <MapPin className="h-4 w-4" />
                 </div>
-                <span className="mt-2 leading-relaxed">{storeInfo?.address || 'Hệ thống mô phỏng, hỗ trợ vận hành bán lẻ điện tử.'}</span>
+                <span className="mt-2 leading-relaxed">{storeInfo?.address || 'Hệ thống hỗ trợ vận hành bán lẻ điện tử.'}</span>
               </div>
             </div>}
           </div>

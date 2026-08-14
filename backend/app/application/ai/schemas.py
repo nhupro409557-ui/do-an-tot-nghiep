@@ -66,7 +66,7 @@ class AIAssistantResponse(BaseModel):
         "DATABASE_FALLBACK",
         "POLICY_REFUSAL",
     ] = "GEMINI"
-    provider_used: Literal["GEMINI", "SYSTEM"] = "GEMINI"
+    provider_used: Literal["GEMINI", "GROQ", "SYSTEM"] = "GEMINI"
     model_name: str | None = None
     fallback_reason: str | None = None
     confidence: float = Field(default=0.0, ge=0, le=1)

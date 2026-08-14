@@ -664,7 +664,7 @@ class CreateOrderUseCase:
                     if request.payment_method not in {"MOMO", "ZALOPAY", "SEPAY"}:
                         raise HTTPException(
                             status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Hiện hệ thống chỉ hỗ trợ COD, MoMo Sandbox, ZaloPay Sandbox và SePay Sandbox.",
+                            detail="Hiện hệ thống chỉ hỗ trợ COD, MoMo, ZaloPay và SePay.",
                         )
                     payment_transaction_id = uuid4()
                     if total == 0:
@@ -778,8 +778,8 @@ class CreateOrderUseCase:
                     payment_init = await self._zalopay_gateway.create_payment(
                         app_trans_id=provider_order_id,
                         amount=total,
-                        app_user=str(request.user_id or "electromart-sandbox"),
-                        description=f"ElectroMart Sandbox - Thanh toán đơn hàng {order.order_code}",
+                        app_user=str(request.user_id or "electromart"),
+                        description=f"ElectroMart - Thanh toán đơn hàng {order.order_code}",
                         callback_url=settings.zalopay_callback_url,
                         redirect_url=f"{settings.frontend_url.rstrip('/')}/payment/{payment_transaction_id}",
                     )

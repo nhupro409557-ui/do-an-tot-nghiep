@@ -25,7 +25,9 @@ async def collect_ai_operational_status(
         }
 
     circuit_breakers = []
-    for model in dict.fromkeys((settings.gemini_model, settings.gemini_fallback_model)):
+    for model in dict.fromkeys(
+        (settings.gemini_model, settings.gemini_fallback_model, settings.groq_model)
+    ):
         if not model:
             continue
         if not redis_is_available():

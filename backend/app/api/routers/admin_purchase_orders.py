@@ -12,7 +12,7 @@ from app.infrastructure.database.session import get_session
 router = APIRouter()
 
 
-@router.get("/purchase-orders", dependencies=[Depends(require_permission("inventory:view"))])
+@router.get("/purchase-orders", dependencies=[Depends(require_permission("inventory:read"))])
 async def list_purchase_orders(
     search: str = Query(default="", max_length=120), status: str = Query(default="", max_length=30),
     session: AsyncSession = Depends(get_session),
@@ -20,7 +20,7 @@ async def list_purchase_orders(
     return await purchase_order_service.list_purchase_orders(session, search, status)
 
 
-@router.get("/purchase-orders/{order_id}", dependencies=[Depends(require_permission("inventory:view"))])
+@router.get("/purchase-orders/{order_id}", dependencies=[Depends(require_permission("inventory:read"))])
 async def get_purchase_order(order_id: UUID, session: AsyncSession = Depends(get_session)) -> dict:
     return await purchase_order_service.get_purchase_order(session, order_id)
 

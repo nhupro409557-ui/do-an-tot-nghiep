@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from app.application.ai.contracts import VerificationResult
 from app.application.ai.gemini_interactions import GeminiInteractionError
+from app.application.ai.groq_interactions import GroqInteractionError, GroqInteractionResult
 from app.application.ai.local_circuit_breaker import (
     clear_local_model_state,
     get_local_circuit_status,
@@ -40,6 +41,102 @@ class _StatefulFakeRedis:
 
 
 class AIResilienceTest(unittest.IsolatedAsyncioTestCase):
+    async def test_uses_groq_after_both_gemini_models_fail(self) -> None:
+        redis = _StatefulFakeRedis()
+        use_case = AIAssistantUseCase(session=None, redis=redis)
+        request = AIAssistantRequest(conversation_id=uuid4(), message="Tư vấn iPhone")
+
+        with (
+            patch.object(settings, "gemini_api_key", "test-key"),
+            patch.object(settings, "gemini_model", "gemini-primary"),
+            patch.object(settings, "gemini_fallback_model", "gemini-fallback"),
+            patch.object(settings, "groq_api_key", "groq-test-key"),
+            patch.object(settings, "groq_model", "openai/gpt-oss-120b"),
+            patch.object(
+                use_case,
+                "_generate_with_model",
+                new=AsyncMock(side_effect=GeminiInteractionError("MODEL_TIMEOUT")),
+            ),
+            patch.object(
+                use_case,
+                "_call_groq",
+                new=AsyncMock(
+                    return_value=GroqInteractionResult(
+                        answer="Đây là câu trả lời từ Groq.",
+                        response_id="chatcmpl-fallback",
+                    )
+                ),
+            ) as call_groq,
+        ):
+            result = await use_case._generate_answer(
+                request,
+                intent="PRODUCT_RECOMMENDATION",
+                retrieved_context={"products": []},
+            )
+
+        self.assertEqual(result.answer, "Đây là câu trả lời từ Groq.")
+        self.assertEqual(result.answer_mode, "GROUNDED_GENERATION")
+        self.assertEqual(result.provider_used, "GROQ")
+        self.assertEqual(result.model_name, "openai/gpt-oss-120b")
+        self.assertIn("gemini-primary:MODEL_TIMEOUT", result.fallback_reason or "")
+        self.assertIn("gemini-fallback:MODEL_TIMEOUT", result.fallback_reason or "")
+        call_groq.assert_awaited_once()
+
+    async def test_uses_groq_when_gemini_is_not_configured(self) -> None:
+        use_case = AIAssistantUseCase(session=None, redis=_StatefulFakeRedis())
+        request = AIAssistantRequest(conversation_id=uuid4(), message="Tư vấn laptop")
+
+        with (
+            patch.object(settings, "gemini_api_key", ""),
+            patch.object(settings, "groq_api_key", "groq-test-key"),
+            patch.object(settings, "groq_model", "openai/gpt-oss-120b"),
+            patch.object(
+                use_case,
+                "_call_groq",
+                new=AsyncMock(
+                    return_value=GroqInteractionResult(
+                        answer="Câu trả lời từ Groq.",
+                        response_id="chatcmpl-only",
+                    )
+                ),
+            ),
+        ):
+            result = await use_case._generate_answer(
+                request,
+                intent="PRODUCT_ADVICE",
+                retrieved_context={},
+            )
+
+        self.assertEqual(result.provider_used, "GROQ")
+        self.assertEqual(result.fallback_reason, None)
+
+    async def test_returns_database_fallback_when_groq_also_fails(self) -> None:
+        use_case = AIAssistantUseCase(session=None, redis=_StatefulFakeRedis())
+        request = AIAssistantRequest(conversation_id=uuid4(), message="Tư vấn laptop")
+
+        with (
+            patch.object(settings, "gemini_api_key", ""),
+            patch.object(settings, "groq_api_key", "groq-test-key"),
+            patch.object(settings, "groq_model", "openai/gpt-oss-120b"),
+            patch.object(
+                use_case,
+                "_call_groq",
+                new=AsyncMock(side_effect=GroqInteractionError("MODEL_BUSY")),
+            ),
+        ):
+            result = await use_case._generate_answer(
+                request,
+                intent="PRODUCT_ADVICE",
+                retrieved_context={},
+            )
+
+        self.assertEqual(result.answer_mode, "DATABASE_FALLBACK")
+        self.assertEqual(result.provider_used, "SYSTEM")
+        self.assertEqual(
+            result.fallback_reason,
+            "openai/gpt-oss-120b:MODEL_BUSY",
+        )
+
     def test_comparison_prefers_lite_model_for_latency(self) -> None:
         use_case = AIAssistantUseCase(session=None, redis=None)
         with (
@@ -107,6 +204,7 @@ class AIResilienceTest(unittest.IsolatedAsyncioTestCase):
             patch.object(settings, "gemini_api_key", "test-key"),
             patch.object(settings, "gemini_model", "gemini-primary"),
             patch.object(settings, "gemini_fallback_model", "gemini-fallback"),
+            patch.object(settings, "groq_api_key", ""),
             patch.object(use_case, "_generate_with_model", new=AsyncMock(side_effect=GeminiInteractionError("MODEL_TIMEOUT"))),
         ):
             result = await use_case._generate_answer(

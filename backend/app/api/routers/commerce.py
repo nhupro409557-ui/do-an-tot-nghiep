@@ -333,12 +333,19 @@ async def update_order_status(
     _permission=Depends(require_permission("order:update")),
     session: AsyncSession = Depends(get_session),
     permissions: set[str] = Depends(get_user_permissions),
+    actor_id: UUID = Depends(get_current_user_id),
 ) -> None:
     if payload.status == "REFUNDED" and "order:refund" not in permissions:
         raise HTTPException(status_code=403, detail="Bạn không có quyền hoàn tiền đơn hàng.")
     if session.in_transaction():
         await session.rollback()
-    await CompleteOrderUseCase(session=session).execute(order_id=order_id, status_value=payload.status)
+    await CompleteOrderUseCase(session=session).execute(
+        order_id=order_id,
+        status_value=payload.status,
+        customer_receipt_confirmed=payload.customer_receipt_confirmed,
+        actor_id=actor_id,
+        changed_by=f"admin:{actor_id}",
+    )
 
 
 @router.post(
@@ -395,12 +402,17 @@ async def admin_update_order(
     _permission=Depends(require_permission("order:update")),
     session: AsyncSession = Depends(get_session),
     permissions: set[str] = Depends(get_user_permissions),
+    actor_id: UUID = Depends(get_current_user_id),
 ) -> None:
     if (payload.status == "REFUNDED" or payload.refund_payment) and "order:refund" not in permissions:
         raise HTTPException(status_code=403, detail="Bạn không có quyền hoàn tiền đơn hàng.")
     if session.in_transaction():
         await session.rollback()
-    await CompleteOrderUseCase(session=session).execute_admin_update(order_id=order_id, request=payload)
+    await CompleteOrderUseCase(session=session).execute_admin_update(
+        order_id=order_id,
+        request=payload,
+        actor_id=actor_id,
+    )
 
 
 @router.post("/orders/{order_id}/carrier/quote", response_model=CarrierShipmentResponse)

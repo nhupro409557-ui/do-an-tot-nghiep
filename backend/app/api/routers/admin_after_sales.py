@@ -6,10 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user_id, get_user_permissions, require_permission
 from app.application.after_sales import service
+from app.application.after_sales.identifier_groups import (
+    lock_identifier_group,
+    update_locked_identifier_group_status,
+)
 from app.application.after_sales.schemas import (
     AfterSalesTimelineNoteRequest,
     ImeiDispositionRequest,
     InspectAfterSalesRequest,
+    RepairedDeviceUsedIntakeRequest,
     UpdateAfterSalesStatusRequest,
 )
 from app.infrastructure.database.session import get_session
@@ -181,13 +186,32 @@ async def defective_identifiers(
         text(
             """
             SELECT pi.id::text id, 'IMEI' type, pi.imei identifier, pi.status,
+                   COALESCE('PAIR:' || pair.id::text, 'IMEI:' || pi.id::text) AS "deviceKey",
                    p.name AS "productName", pi.received_at AS "receivedAt",
-                   il.average_unit_cost AS "averageUnitCost",
+                   cost.average_unit_cost AS "averageUnitCost",
                    COALESCE(latest.event, '{}'::jsonb) AS "latestDisposition",
                    pi.updated_at
             FROM product_imeis pi
             JOIN products p ON p.id=pi.product_id
-            LEFT JOIN inventory_levels il ON il.variant_id IS NOT DISTINCT FROM pi.variant_id
+            LEFT JOIN product_identifier_pairs pair
+              ON pair.product_id = pi.product_id
+             AND pair.variant_id IS NOT DISTINCT FROM pi.variant_id
+             AND (pair.imei1 = pi.imei OR pair.imei2 = pi.imei)
+            LEFT JOIN LATERAL (
+                SELECT il.average_unit_cost
+                FROM inventory_levels il
+                WHERE il.variant_id IS NOT DISTINCT FROM pi.variant_id
+                  AND (
+                      il.product_id IS NOT DISTINCT FROM pi.product_id
+                      OR (pi.variant_id IS NOT NULL AND il.product_id IS NULL)
+                  )
+                  AND (pi.location_id IS NULL OR il.location_id IS NOT DISTINCT FROM pi.location_id)
+                ORDER BY
+                    (pi.location_id IS NOT NULL AND il.location_id IS NOT DISTINCT FROM pi.location_id) DESC,
+                    (COALESCE(il.average_unit_cost, 0) > 0) DESC,
+                    il.updated_at DESC
+                LIMIT 1
+            ) cost ON TRUE
             LEFT JOIN LATERAL (
                 SELECT jsonb_build_object(
                     'oldStatus', ev.old_status,
@@ -205,20 +229,39 @@ async def defective_identifiers(
                 LIMIT 1
             ) latest ON TRUE
             WHERE pi.status IN (
-                'DEFECTIVE_RETURNED','INSPECTION_PENDING','RTV_PENDING',
-                'LIQUIDATION_PENDING','RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'
+                'DEFECTIVE_RETURNED','INSPECTION_PENDING','REPAIR_PENDING','RTV_PENDING',
+                'LIQUIDATION_PENDING','REPAIRED','RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'
             ) AND (CAST(:status AS VARCHAR) IS NULL OR pi.status=CAST(:status AS VARCHAR))
 
             UNION ALL
 
             SELECT ps.id::text id, 'SERIAL' type, ps.serial_number identifier, ps.status,
+                   COALESCE('PAIR:' || pair.id::text, 'SERIAL:' || ps.id::text) AS "deviceKey",
                    p.name AS "productName", ps.received_at AS "receivedAt",
-                   il.average_unit_cost AS "averageUnitCost",
+                   cost.average_unit_cost AS "averageUnitCost",
                    COALESCE(latest.event, '{}'::jsonb) AS "latestDisposition",
                    ps.updated_at
             FROM product_serial_numbers ps
             JOIN products p ON p.id=ps.product_id
-            LEFT JOIN inventory_levels il ON il.variant_id IS NOT DISTINCT FROM ps.variant_id
+            LEFT JOIN product_identifier_pairs pair
+              ON pair.product_id = ps.product_id
+             AND pair.variant_id IS NOT DISTINCT FROM ps.variant_id
+             AND pair.serial_number = ps.serial_number
+            LEFT JOIN LATERAL (
+                SELECT il.average_unit_cost
+                FROM inventory_levels il
+                WHERE il.variant_id IS NOT DISTINCT FROM ps.variant_id
+                  AND (
+                      il.product_id IS NOT DISTINCT FROM ps.product_id
+                      OR (ps.variant_id IS NOT NULL AND il.product_id IS NULL)
+                  )
+                  AND (ps.location_id IS NULL OR il.location_id IS NOT DISTINCT FROM ps.location_id)
+                ORDER BY
+                    (ps.location_id IS NOT NULL AND il.location_id IS NOT DISTINCT FROM ps.location_id) DESC,
+                    (COALESCE(il.average_unit_cost, 0) > 0) DESC,
+                    il.updated_at DESC
+                LIMIT 1
+            ) cost ON TRUE
             LEFT JOIN LATERAL (
                 SELECT jsonb_build_object(
                     'oldStatus', ev.old_status,
@@ -236,15 +279,72 @@ async def defective_identifiers(
                 LIMIT 1
             ) latest ON TRUE
             WHERE ps.status IN (
-                'DEFECTIVE_RETURNED','INSPECTION_PENDING','RTV_PENDING',
-                'LIQUIDATION_PENDING','RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'
+                'DEFECTIVE_RETURNED','INSPECTION_PENDING','REPAIR_PENDING','RTV_PENDING',
+                'LIQUIDATION_PENDING','REPAIRED','RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'
             ) AND (CAST(:status AS VARCHAR) IS NULL OR ps.status=CAST(:status AS VARCHAR))
             ORDER BY updated_at DESC
             """
         ),
         {"status": status_value},
     )
-    return [dict(row._mapping) for row in result]
+    rows = [dict(row._mapping) for row in result]
+    if not rows:
+        return rows
+    intake_rows = (
+        await session.execute(
+            text(
+                """
+                SELECT id::text AS id, request_code AS "requestCode", status,
+                       imei, serial_number
+                FROM used_device_intake_requests
+                WHERE status NOT IN ('REJECTED', 'CANCELLED')
+                  AND (
+                    imei = ANY(CAST(:values AS VARCHAR[]))
+                    OR serial_number = ANY(CAST(:values AS VARCHAR[]))
+                  )
+                """
+            ),
+            {"values": [str(row["identifier"]) for row in rows]},
+        )
+    ).mappings().all()
+    intake_by_identifier = {}
+    for intake in intake_rows:
+        intake_data = {key: value for key, value in intake.items() if key not in {"imei", "serial_number"}}
+        if intake["imei"]:
+            intake_by_identifier[intake["imei"]] = intake_data
+        if intake["serial_number"]:
+            intake_by_identifier[intake["serial_number"]] = intake_data
+    for row in rows:
+        row["usedIntake"] = intake_by_identifier.get(row["identifier"])
+    return rows
+
+
+@router.post(
+    "/defective-identifiers/{identifier_id}/used-intake",
+    dependencies=[
+        Depends(require_permission("after_sales:update")),
+        Depends(require_permission("used_product:manage")),
+    ],
+)
+async def create_repaired_used_intake(
+    identifier_id: UUID,
+    payload: RepairedDeviceUsedIntakeRequest,
+    actor_id: UUID = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    if not payload.confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="Cần xác nhận chuyển máy đã sửa sang quy trình hàng cũ.",
+        )
+    from app.application.after_sales.used_intake import create_repaired_device_used_intake
+
+    return await create_repaired_device_used_intake(
+        session,
+        identifier_id=identifier_id,
+        actor_id=actor_id,
+        note=payload.note,
+    )
 
 
 @router.get("/reports/defective-disposition")
@@ -262,9 +362,10 @@ async def defective_disposition_report(
             FROM imei_disposition_events
             ORDER BY COALESCE(imei_id, serial_id), created_at DESC, id DESC
         ),
-        base AS (
+        identifier_base AS (
             SELECT
                 pi.id,
+                COALESCE('PAIR:' || pair.id::text, 'IMEI:' || pi.id::text) AS device_key,
                 pi.status,
                 pi.product_id,
                 p.name AS product_name,
@@ -276,25 +377,36 @@ async def defective_disposition_report(
             FROM product_imeis pi
             JOIN products p ON p.id = pi.product_id
             LEFT JOIN brands b ON b.id = p.brand_id
+            LEFT JOIN product_identifier_pairs pair
+              ON pair.product_id = pi.product_id
+             AND pair.variant_id IS NOT DISTINCT FROM pi.variant_id
+             AND (pair.imei1 = pi.imei OR pair.imei2 = pi.imei)
             LEFT JOIN latest ON latest.identifier_id = pi.id
             LEFT JOIN LATERAL (
                 SELECT il.average_unit_cost
                 FROM inventory_levels il
-                WHERE il.product_id IS NOT DISTINCT FROM pi.product_id
-                  AND il.variant_id IS NOT DISTINCT FROM pi.variant_id
+                WHERE il.variant_id IS NOT DISTINCT FROM pi.variant_id
+                  AND (
+                      il.product_id IS NOT DISTINCT FROM pi.product_id
+                      OR (pi.variant_id IS NOT NULL AND il.product_id IS NULL)
+                  )
                   AND (pi.location_id IS NULL OR il.location_id IS NOT DISTINCT FROM pi.location_id)
-                ORDER BY il.updated_at DESC
+                ORDER BY
+                    (pi.location_id IS NOT NULL AND il.location_id IS NOT DISTINCT FROM pi.location_id) DESC,
+                    (COALESCE(il.average_unit_cost, 0) > 0) DESC,
+                    il.updated_at DESC
                 LIMIT 1
             ) cost ON TRUE
             WHERE pi.status IN (
-                'DEFECTIVE_RETURNED','INSPECTION_PENDING','RTV_PENDING',
-                'LIQUIDATION_PENDING','RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'
+                'DEFECTIVE_RETURNED','INSPECTION_PENDING','REPAIR_PENDING','RTV_PENDING',
+                'LIQUIDATION_PENDING','REPAIRED','RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'
             )
 
             UNION ALL
 
             SELECT
                 ps.id,
+                COALESCE('PAIR:' || pair.id::text, 'SERIAL:' || ps.id::text) AS device_key,
                 ps.status,
                 ps.product_id,
                 p.name AS product_name,
@@ -306,20 +418,40 @@ async def defective_disposition_report(
             FROM product_serial_numbers ps
             JOIN products p ON p.id = ps.product_id
             LEFT JOIN brands b ON b.id = p.brand_id
+            LEFT JOIN product_identifier_pairs pair
+              ON pair.product_id = ps.product_id
+             AND pair.variant_id IS NOT DISTINCT FROM ps.variant_id
+             AND pair.serial_number = ps.serial_number
             LEFT JOIN latest ON latest.identifier_id = ps.id
             LEFT JOIN LATERAL (
                 SELECT il.average_unit_cost
                 FROM inventory_levels il
-                WHERE il.product_id IS NOT DISTINCT FROM ps.product_id
-                  AND il.variant_id IS NOT DISTINCT FROM ps.variant_id
+                WHERE il.variant_id IS NOT DISTINCT FROM ps.variant_id
+                  AND (
+                      il.product_id IS NOT DISTINCT FROM ps.product_id
+                      OR (ps.variant_id IS NOT NULL AND il.product_id IS NULL)
+                  )
                   AND (ps.location_id IS NULL OR il.location_id IS NOT DISTINCT FROM ps.location_id)
-                ORDER BY il.updated_at DESC
+                ORDER BY
+                    (ps.location_id IS NOT NULL AND il.location_id IS NOT DISTINCT FROM ps.location_id) DESC,
+                    (COALESCE(il.average_unit_cost, 0) > 0) DESC,
+                    il.updated_at DESC
                 LIMIT 1
             ) cost ON TRUE
             WHERE ps.status IN (
-                'DEFECTIVE_RETURNED','INSPECTION_PENDING','RTV_PENDING',
-                'LIQUIDATION_PENDING','RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'
+                'DEFECTIVE_RETURNED','INSPECTION_PENDING','REPAIR_PENDING','RTV_PENDING',
+                'LIQUIDATION_PENDING','REPAIRED','RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'
             )
+        ),
+        base AS (
+            SELECT DISTINCT ON (device_key)
+                id, device_key, status, product_id, product_name, brand_name,
+                average_unit_cost, recovery_value, document_reference, partner_name
+            FROM identifier_base
+            ORDER BY device_key,
+                     (document_reference IS NOT NULL AND document_reference <> '') DESC,
+                     recovery_value DESC,
+                     id
         )
     """
     summary = (await session.execute(
@@ -328,8 +460,8 @@ async def defective_disposition_report(
             + """
             SELECT
                 COUNT(*)::int AS total,
-                COUNT(*) FILTER (WHERE status IN ('RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'))::int AS completed,
-                COUNT(*) FILTER (WHERE status NOT IN ('RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'))::int AS processing,
+                COUNT(*) FILTER (WHERE status IN ('REPAIRED','RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'))::int AS completed,
+                COUNT(*) FILTER (WHERE status NOT IN ('REPAIRED','RTV_COMPLETED','LIQUIDATED','SCRAP','OUT_OF_SYSTEM'))::int AS processing,
                 COUNT(*) FILTER (WHERE document_reference IS NOT NULL AND document_reference <> '')::int AS documented,
                 COUNT(*) FILTER (WHERE recovery_value > 0)::int AS recovered,
                 COALESCE(SUM(average_unit_cost), 0) AS "inventoryValue",
@@ -405,24 +537,34 @@ async def list_disposition_events(
     result = await session.execute(
         text(
             """
-            SELECT
-                ev.id::text AS id,
-                ev.old_status AS "oldStatus",
-                ev.new_status AS "newStatus",
-                ev.reason,
-                ev.document_reference AS "documentReference",
-                ev.partner_name AS "partnerName",
-                COALESCE(ev.recovery_value, 0) AS "recoveryValue",
-                ev.actor_id::text AS "actorId",
-                COALESCE(u.full_name, u.email) AS "actorName",
-                u.email AS "actorEmail",
-                r.code AS "actorRole",
-                ev.created_at AS "createdAt"
-            FROM imei_disposition_events ev
-            LEFT JOIN users u ON u.id = ev.actor_id
-            LEFT JOIN roles r ON r.id = u.role_id
-            WHERE ev.imei_id = :id OR ev.serial_id = :id
-            ORDER BY ev.created_at DESC, ev.id DESC
+            SELECT *
+            FROM (
+                SELECT DISTINCT ON (
+                    ev.old_status, ev.new_status, ev.reason, ev.document_reference,
+                    ev.partner_name, ev.recovery_value, ev.actor_id, ev.created_at
+                )
+                    ev.id::text AS id,
+                    ev.old_status AS "oldStatus",
+                    ev.new_status AS "newStatus",
+                    ev.reason,
+                    ev.document_reference AS "documentReference",
+                    ev.partner_name AS "partnerName",
+                    COALESCE(ev.recovery_value, 0) AS "recoveryValue",
+                    ev.actor_id::text AS "actorId",
+                    COALESCE(u.full_name, u.email) AS "actorName",
+                    u.email AS "actorEmail",
+                    r.code AS "actorRole",
+                    ev.created_at AS "createdAt"
+                FROM imei_disposition_events ev
+                LEFT JOIN users u ON u.id = ev.actor_id
+                LEFT JOIN roles r ON r.id = u.role_id
+                WHERE ev.imei_id = :id OR ev.serial_id = :id
+                ORDER BY
+                    ev.old_status, ev.new_status, ev.reason, ev.document_reference,
+                    ev.partner_name, ev.recovery_value, ev.actor_id, ev.created_at,
+                    ev.id DESC
+            ) deduplicated
+            ORDER BY "createdAt" DESC, id DESC
             """
         ),
         {"id": identifier_id},
@@ -445,17 +587,29 @@ async def update_disposition(
             """
             SELECT pi.id, pi.status, pi.product_id, pi.variant_id, pi.location_id,
                    pi.imei AS identifier, p.name AS product_name,
-                   il.on_hand_quantity, il.average_unit_cost,
-                   loc.code AS location_code, loc.name AS location_name,
+                   cost.on_hand_quantity, cost.average_unit_cost,
+                   cost.location_code, cost.location_name,
                    'IMEI' AS type
             FROM product_imeis pi
             JOIN products p ON p.id = pi.product_id
-            LEFT JOIN inventory_levels il ON il.location_id IS NOT DISTINCT FROM pi.location_id
-              AND il.product_id IS NOT DISTINCT FROM pi.product_id
-              AND il.variant_id IS NOT DISTINCT FROM pi.variant_id
-            LEFT JOIN inventory_locations loc ON loc.id = pi.location_id
+            LEFT JOIN LATERAL (
+                SELECT il.on_hand_quantity, il.average_unit_cost,
+                       loc.code AS location_code, loc.name AS location_name
+                FROM inventory_levels il
+                LEFT JOIN inventory_locations loc ON loc.id = il.location_id
+                WHERE il.variant_id IS NOT DISTINCT FROM pi.variant_id
+                  AND (
+                      il.product_id IS NOT DISTINCT FROM pi.product_id
+                      OR (pi.variant_id IS NOT NULL AND il.product_id IS NULL)
+                  )
+                  AND (pi.location_id IS NULL OR il.location_id IS NOT DISTINCT FROM pi.location_id)
+                ORDER BY
+                    (pi.location_id IS NOT NULL AND il.location_id IS NOT DISTINCT FROM pi.location_id) DESC,
+                    (COALESCE(il.average_unit_cost, 0) > 0) DESC,
+                    il.updated_at DESC
+                LIMIT 1
+            ) cost ON TRUE
             WHERE pi.id=:id
-            FOR UPDATE
             """
         ),
         {"id": identifier_id},
@@ -468,17 +622,29 @@ async def update_disposition(
                 """
                 SELECT ps.id, ps.status, ps.product_id, ps.variant_id, ps.location_id,
                        ps.serial_number AS identifier, p.name AS product_name,
-                       il.on_hand_quantity, il.average_unit_cost,
-                       loc.code AS location_code, loc.name AS location_name,
+                       cost.on_hand_quantity, cost.average_unit_cost,
+                       cost.location_code, cost.location_name,
                        'SERIAL' AS type
                 FROM product_serial_numbers ps
                 JOIN products p ON p.id = ps.product_id
-                LEFT JOIN inventory_levels il ON il.location_id IS NOT DISTINCT FROM ps.location_id
-                  AND il.product_id IS NOT DISTINCT FROM ps.product_id
-                  AND il.variant_id IS NOT DISTINCT FROM ps.variant_id
-                LEFT JOIN inventory_locations loc ON loc.id = ps.location_id
+                LEFT JOIN LATERAL (
+                    SELECT il.on_hand_quantity, il.average_unit_cost,
+                           loc.code AS location_code, loc.name AS location_name
+                    FROM inventory_levels il
+                    LEFT JOIN inventory_locations loc ON loc.id = il.location_id
+                    WHERE il.variant_id IS NOT DISTINCT FROM ps.variant_id
+                      AND (
+                          il.product_id IS NOT DISTINCT FROM ps.product_id
+                          OR (ps.variant_id IS NOT NULL AND il.product_id IS NULL)
+                      )
+                      AND (ps.location_id IS NULL OR il.location_id IS NOT DISTINCT FROM ps.location_id)
+                    ORDER BY
+                        (ps.location_id IS NOT NULL AND il.location_id IS NOT DISTINCT FROM ps.location_id) DESC,
+                        (COALESCE(il.average_unit_cost, 0) > 0) DESC,
+                        il.updated_at DESC
+                    LIMIT 1
+                ) cost ON TRUE
                 WHERE ps.id=:id
-                FOR UPDATE
                 """
             ),
             {"id": identifier_id},
@@ -487,49 +653,49 @@ async def update_disposition(
     if not row:
         raise HTTPException(status_code=404, detail="Không tìm thấy mã định danh thiết bị lỗi.")
 
-    old_status = row.status
     new_status = payload.status.upper()
 
-    # 3. State machine validation
-    VALID_DISPOSITION_TRANSITIONS = {
-        "DEFECTIVE_RETURNED": {"INSPECTION_PENDING", "RTV_PENDING", "LIQUIDATION_PENDING", "SCRAP"},
-        "INSPECTION_PENDING": {"RTV_PENDING", "LIQUIDATION_PENDING", "SCRAP", "LIQUIDATED"},
-        "RTV_PENDING": {"RTV_COMPLETED"},
-        "LIQUIDATION_PENDING": {"LIQUIDATED"},
-        "RTV_COMPLETED": {"OUT_OF_SYSTEM"},
-        "LIQUIDATED": {"OUT_OF_SYSTEM"},
-        "SCRAP": {"OUT_OF_SYSTEM"},
-        "OUT_OF_SYSTEM": set(),
+    # 3. Khóa cặp thiết bị trước, sau đó khóa toàn bộ IMEI/serial theo thứ tự ổn định.
+    source_statuses = {
+        "DEFECTIVE_RETURNED", "INSPECTION_PENDING", "RTV_PENDING", "LIQUIDATION_PENDING",
     }
-
-    if new_status != old_status:
-        allowed = VALID_DISPOSITION_TRANSITIONS.get(old_status, set())
-        if new_status not in allowed:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Không thể chuyển trạng thái hàng lỗi từ {old_status} sang {new_status}."
-            )
-
-    # 4. Mandatory document reference check
-    terminal_states = {"RTV_COMPLETED", "LIQUIDATED", "SCRAP", "OUT_OF_SYSTEM"}
-    if new_status in terminal_states:
-        if not (payload.document_reference or "").strip():
-            raise HTTPException(
-                status_code=400,
-                detail="Trạng thái định đoạt cuối yêu cầu bắt buộc phải có thông tin chứng từ (document reference)."
-            )
-
-    # 5. Update status
-    if row.type == "IMEI":
-        await session.execute(
-            text("UPDATE product_imeis SET status=:status, updated_at=NOW() WHERE id=:id"),
-            {"status": new_status, "id": identifier_id},
-        )
-    else:
-        await session.execute(
-            text("UPDATE product_serial_numbers SET status=:status, updated_at=NOW() WHERE id=:id"),
-            {"status": new_status, "id": identifier_id},
-        )
+    completed_statuses = {"REPAIRED", "RTV_COMPLETED", "LIQUIDATED", "SCRAP"}
+    inventory_exit_statuses = {"RTV_COMPLETED", "LIQUIDATED", "SCRAP"}
+    group = await lock_identifier_group(
+        session,
+        product_id=row.product_id,
+        variant_id=row.variant_id,
+        imei=row.identifier if row.type == "IMEI" else None,
+        serial_number=row.identifier if row.type == "SERIAL" else None,
+    )
+    linked_identifiers = [
+        {
+            "id": identifier.id,
+            "status": identifier.status,
+            "identifier": identifier.value,
+            "type": identifier.kind,
+        }
+        for identifier in group.identifiers
+    ]
+    selected = next((identifier for identifier in linked_identifiers if identifier["id"] == identifier_id), None)
+    if not selected:
+        raise HTTPException(status_code=409, detail="Mã định danh đã thay đổi trong lúc xử lý.")
+    old_status = selected["status"]
+    if all(linked["status"] == new_status for linked in linked_identifiers):
+        return {"id": str(identifier_id), "status": new_status, "idempotent": True}
+    linked_statuses = {linked["status"] for linked in linked_identifiers}
+    if "REPAIR_PENDING" in linked_statuses:
+        if linked_statuses != {"REPAIR_PENDING"}:
+            raise HTTPException(status_code=409, detail="Nhóm IMEI/serial có trạng thái sửa chữa không đồng nhất.")
+        source_statuses = {"REPAIR_PENDING"}
+    elif new_status == "REPAIRED":
+        raise HTTPException(status_code=409, detail="Chỉ có thể xác nhận sửa xong khi thiết bị đang chờ sửa chữa.")
+    changed_identifiers = await update_locked_identifier_group_status(
+        session,
+        group=group,
+        target_status=new_status,
+        allowed_statuses=source_statuses,
+    )
 
     # 6. Log adjustment log if entering terminal state
     terminal_reference_prefix = {
@@ -538,7 +704,7 @@ async def update_disposition(
         "SCRAP": "SCRAP",
         "OUT_OF_SYSTEM": "OUT",
     }
-    if new_status in terminal_reference_prefix:
+    if new_status in inventory_exit_statuses:
         reference_code = f"{terminal_reference_prefix[new_status]}-{row.identifier}"
         note_parts = [
             f"Định đoạt thiết bị lỗi ({row.type}) {row.identifier}: {old_status} -> {new_status}.",
@@ -581,33 +747,40 @@ async def update_disposition(
             },
         )
 
-    # 7. Log disposition event
-    imei_id_val = identifier_id if row.type == "IMEI" else None
-    serial_id_val = identifier_id if row.type == "SERIAL" else None
-    await session.execute(
-        text(
-            """
-            INSERT INTO imei_disposition_events
-                (id, imei_id, serial_id, old_status, new_status, reason, document_reference,
-                 partner_name, recovery_value, actor_id)
-            VALUES (gen_random_uuid(), :imei_id, :serial_id, :old_status, :new_status, :reason,
-                    :document, :partner, :value, :actor_id)
-            """
-        ),
-        {
-            "imei_id": imei_id_val,
-            "serial_id": serial_id_val,
-            "old_status": old_status,
-            "new_status": new_status,
-            "reason": payload.reason,
-            "document": payload.document_reference,
-            "partner": payload.partner_name,
-            "value": payload.recovery_value,
-            "actor_id": actor_id,
-        },
-    )
+    # 7. Ghi audit cho từng mã liên kết trong cùng một giao dịch.
+    for linked in linked_identifiers:
+        if linked["status"] == new_status:
+            continue
+        await session.execute(
+            text(
+                """
+                INSERT INTO imei_disposition_events
+                    (id, imei_id, serial_id, old_status, new_status, reason, document_reference,
+                     partner_name, recovery_value, actor_id)
+                VALUES (gen_random_uuid(), :imei_id, :serial_id, :old_status, :new_status, :reason,
+                        :document, :partner, :value, :actor_id)
+                """
+            ),
+            {
+                "imei_id": linked["id"] if linked["type"] == "IMEI" else None,
+                "serial_id": linked["id"] if linked["type"] == "SERIAL" else None,
+                "old_status": linked["status"],
+                "new_status": new_status,
+                "reason": payload.reason,
+                "document": payload.document_reference,
+                "partner": payload.partner_name,
+                "value": payload.recovery_value,
+                "actor_id": actor_id,
+            },
+        )
+    updated_count = len(changed_identifiers)
     await session.commit()
-    return {"id": str(identifier_id), "status": new_status}
+    return {
+        "id": str(identifier_id),
+        "status": new_status,
+        "completed": new_status in completed_statuses,
+        "updatedIdentifiers": updated_count,
+    }
 
 
 @router.post("/maintenance", dependencies=[Depends(require_permission("after_sales:update"))])

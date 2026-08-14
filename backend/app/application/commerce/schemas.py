@@ -199,6 +199,7 @@ class PaymentStatusResponse(BaseModel):
 
 class UpdateOrderStatusRequest(BaseModel):
     status: str = Field(pattern="^(PENDING|CONFIRMED|PAID|PROCESSING|SHIPPED|COMPLETED|CANCELLED|REFUNDED|PAYMENT_FAILED|RETURNING|RETURNED)$")
+    customer_receipt_confirmed: bool = False
 
 
 class CancelOrderRequest(BaseModel):
@@ -226,6 +227,7 @@ class AdminUpdateOrderRequest(BaseModel):
     refund_payment: bool = False
     changed_by: str | None = Field(default=None, max_length=255)
     issue_allocations: list[OrderIssueAllocationPayload] = Field(default_factory=list, max_length=200)
+    customer_receipt_confirmed: bool = False
 
 
 class RevenueReportResponse(BaseModel):

@@ -114,6 +114,34 @@ def _ordinal_index(value: str) -> int | None:
     return words.get(match.group(1)) if match else None
 
 
+def _is_independent_catalog_extreme_query(value: str) -> bool:
+    """Nhận diện câu hỏi cực trị toàn danh mục để không kế thừa sản phẩm cũ."""
+    extreme_terms = ("cao nhat", "thap nhat", "dat nhat", "re nhat")
+    if not any(term in value for term in extreme_terms):
+        return False
+
+    comparison_scope_terms = ("trong hai", "hai san pham", "hai mau", "giua hai")
+    if any(term in value for term in comparison_scope_terms):
+        return False
+
+    collection_terms = (
+        "danh sach san pham",
+        "tat ca san pham",
+        "toan bo san pham",
+        "trong cua hang",
+    )
+    if any(term in value for term in collection_terms):
+        return True
+
+    return bool(
+        re.search(
+            r"\b(?:san pham|mat hang|dien thoai|laptop|may tinh|tablet|tai nghe|dong ho)\b"
+            r".{0,80}\b(?:cao nhat|thap nhat|dat nhat|re nhat)\b",
+            value,
+        )
+    )
+
+
 def resolve_follow_up(message: str, memory: ConversationMemorySnapshot) -> str:
     """Viết lại câu nối tiếp bằng thực thể đã xác minh; không tự tạo dữ liệu mới."""
     normalized = normalize_text(message)
@@ -124,6 +152,9 @@ def resolve_follow_up(message: str, memory: ConversationMemorySnapshot) -> str:
         return "Tôi muốn gặp nhân viên chăm sóc khách hàng."
 
     if any(term in normalized for term in NEGATIVE_FEEDBACK_TERMS):
+        return message
+
+    if _is_independent_catalog_extreme_query(normalized):
         return message
 
     products = _product_entities(memory.active_entities)
@@ -203,17 +234,30 @@ def _clean_product(product: dict) -> dict | None:
     }
 
 
-def active_entities_from_context(context: dict, previous: dict) -> dict:
+def active_entities_from_context(
+    context: dict,
+    previous: dict,
+    *,
+    preferred_products: list[dict] | None = None,
+) -> dict:
     entities = dict(previous or {})
     products: list[dict] = []
-    raw_products = context.get("products") if isinstance(context, dict) else None
+    raw_products = (
+        preferred_products
+        if preferred_products is not None
+        else (context.get("products") if isinstance(context, dict) else None)
+    )
     if isinstance(raw_products, list):
         for item in raw_products[:5]:
             if isinstance(item, dict):
                 cleaned = _clean_product(item)
                 if cleaned:
                     products.append(cleaned)
-    raw_product = context.get("product") if isinstance(context, dict) else None
+    raw_product = (
+        context.get("product")
+        if preferred_products is None and isinstance(context, dict)
+        else None
+    )
     if isinstance(raw_product, dict):
         cleaned = _clean_product(raw_product)
         if cleaned and not any(item.get("id") == cleaned.get("id") for item in products):
@@ -356,7 +400,11 @@ class ConversationMemoryService:
             if response.intent in ignored_intents
             else (response.intent or memory.active_intent)
         )
-        active_entities = active_entities_from_context(retrieved_context or {}, memory.active_entities)
+        active_entities = active_entities_from_context(
+            retrieved_context or {},
+            memory.active_entities,
+            preferred_products=response.recommended_products or None,
+        )
         now = datetime.now(timezone.utc)
         offered_at = memory.handover_offered_at
         cooldown = timedelta(minutes=max(1, settings.ai_handover_cooldown_minutes))

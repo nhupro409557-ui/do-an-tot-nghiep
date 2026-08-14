@@ -7,6 +7,18 @@ const currency = new Intl.NumberFormat('vi-VN', {
   maximumFractionDigits: 0,
 });
 
+const orderStatusLabels: Record<string, string> = {
+  PENDING: 'Chờ xử lý',
+  PROCESSING: 'Đang xử lý',
+  SHIPPED: 'Đang giao',
+  COMPLETED: 'Hoàn tất',
+  CANCELLED: 'Đã hủy',
+  PAYMENT_FAILED: 'Thanh toán lỗi',
+  RETURNING: 'Đang hoàn hàng',
+  RETURNED: 'Đã hoàn hàng',
+  REFUNDED: 'Đã hoàn tiền',
+};
+
 export default function OrderReportPanel({
   report,
   onPageChange,
@@ -39,7 +51,7 @@ export default function OrderReportPanel({
             <tr key={item.id}>
               <td className="px-4 py-3 font-semibold">{item.orderCode}</td>
               <td className="px-4 py-3">{item.customerName || 'Khách lẻ'}</td>
-              <td className="px-4 py-3">{item.status}</td>
+              <td className="px-4 py-3">{orderStatusLabels[item.status] || item.status}</td>
               <td className="px-4 py-3">{item.channel}</td>
               <td className="px-4 py-3">{item.paymentMethod}</td>
               <td className="px-4 py-3">{currency.format(Number(item.totalAmount))}</td>

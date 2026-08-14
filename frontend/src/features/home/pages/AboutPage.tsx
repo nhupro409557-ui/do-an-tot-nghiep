@@ -63,14 +63,14 @@ export default function AboutPage() {
           </p>
           <p>
             Trong phạm vi đồ án, ElectroMart Việt Nam được xem là một mô hình hệ thống thương mại điện tử có khả năng mở
-            rộng. Các chức năng được thiết kế nhằm mô phỏng quy trình vận hành của một website bán hàng công nghệ trong
+            rộng. Các chức năng được thiết kế nhằm thể hiện quy trình vận hành của một website bán hàng công nghệ trong
             thực tế, từ khâu hiển thị sản phẩm, tiếp nhận đơn hàng, xử lý thanh toán, quản lý tồn kho cho đến hỗ trợ
             người dùng sau mua hàng.
           </p>
           <p>
-            Do đây là đồ án luận văn ở mức demo, các thao tác tích hợp bên ngoài không phát sinh nghiệp vụ thật. Vận
-            chuyển chỉ dùng đơn vị mock và mã vận đơn mô phỏng; hoàn tiền chỉ ghi nhận chứng từ nội bộ; các cổng thanh
-            toán trực tuyến hoạt động trong môi trường sandbox, không phát sinh tiền thật.
+            Các thao tác tích hợp bên ngoài không phát sinh nghiệp vụ thật. Vận
+            chuyển chỉ dùng đơn vị mock và mã vận đơn thử nghiệm; hoàn tiền chỉ ghi nhận chứng từ nội bộ; các cổng thanh
+            toán trực tuyến hoạt động trong môi trường thử nghiệm, không phát sinh tiền thật.
           </p>
           <p>
             Việc xây dựng hệ thống ElectroMart Việt Nam góp phần thể hiện khả năng ứng dụng công nghệ thông tin vào lĩnh
@@ -178,7 +178,7 @@ export default function AboutPage() {
             {
               num: '6.3',
               title: 'Thanh toán thuận tiện và an toàn',
-              desc: 'Hệ thống hỗ trợ các phương thức thanh toán trực tuyến ở môi trường sandbox để mô phỏng quy trình giao dịch trong phạm vi đồ án. Các thao tác thanh toán không phát sinh tiền thật.',
+              desc: 'Hệ thống hỗ trợ các phương thức thanh toán trực tuyến đa dạng, an toàn và bảo mật.',
             },
             {
               num: '6.4',
@@ -210,7 +210,7 @@ export default function AboutPage() {
       content: (
         <div className="space-y-4 text-slate-600 leading-relaxed text-sm">
           <p>
-            ElectroMart Việt Nam là một hệ thống thương mại điện tử được xây dựng nhằm mô phỏng và đáp ứng các nhu cầu
+            ElectroMart Việt Nam là một hệ thống thương mại điện tử được xây dựng nhằm phục vụ và đáp ứng các nhu cầu
             cơ bản của hoạt động kinh doanh sản phẩm công nghệ trong môi trường trực tuyến. Với định hướng lấy người dùng
             làm trung tâm, hệ thống tập trung vào việc cung cấp thông tin minh bạch, quy trình mua hàng thuận tiện, khả
             năng quản lý hiệu quả và tiềm năng mở rộng trong tương lai.

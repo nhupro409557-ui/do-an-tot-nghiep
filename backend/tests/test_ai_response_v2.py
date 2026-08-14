@@ -23,6 +23,12 @@ class AIIntentRouterV2Test(unittest.TestCase):
         self.assertEqual(route_intent("Tôi có bao nhiêu điểm?").intent, "LOYALTY")
         self.assertEqual(route_intent("Kiểm tra EMV4212922531").intent, "ORDER_LOOKUP")
 
+    def test_routes_budget_advice_with_a_product_category_to_recommendation(self) -> None:
+        decision = route_intent("Tư vấn laptop cho sinh viên IT trong ngân sách 20 triệu đồng.")
+
+        self.assertEqual(decision.intent, "PRODUCT_RECOMMENDATION")
+        self.assertEqual(decision.route, "MODEL")
+
     def test_routes_policy_and_colloquial_messages(self) -> None:
         self.assertEqual(route_intent("Phí vận chuyển tính thế nào?").intent, "STORE_POLICY")
         self.assertEqual(route_intent("con ip17 ko").intent, "STOCK_AVAILABILITY")

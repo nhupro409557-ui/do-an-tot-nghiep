@@ -132,7 +132,7 @@ export default function PaymentPage() {
   const checkoutFields = payment?.checkout_fields || payment?.checkoutFields || {};
   const isZaloPay = payment?.provider === 'ZALOPAY';
   const isSePay = payment?.provider === 'SEPAY';
-  const providerName = isSePay ? 'SePay Sandbox' : isZaloPay ? 'ZaloPay Sandbox' : 'MoMo Sandbox';
+  const providerName = isSePay ? 'SePay' : isZaloPay ? 'ZaloPay' : 'MoMo';
   const providerColor = isSePay ? '#0f766e' : isZaloPay ? '#0068ff' : '#a50064';
 
   return (
@@ -141,7 +141,7 @@ export default function PaymentPage() {
         <div className="text-xs font-black uppercase tracking-[0.2em]" style={{ color: providerColor }}>{providerName}</div>
         <h1 className="mt-2 text-2xl font-bold text-slate-900">Thanh toán đơn {payment?.order_code || payment?.orderCode}</h1>
         <p className="mt-2 text-sm text-slate-500">
-          {isSePay ? 'Bạn sẽ được chuyển sang cổng SePay sandbox để hoàn tất thanh toán thử nghiệm; không phát sinh tiền thật.' : 'Đây là môi trường thanh toán sandbox của đồ án, không phát sinh tiền thật.'}
+          {isSePay ? 'Bạn sẽ được chuyển sang cổng SePay để hoàn tất thanh toán.' : 'Thanh toán an toàn và bảo mật.'}
         </p>
       </div>
 
@@ -224,7 +224,7 @@ export default function PaymentPage() {
               </div>
 
               <div className="text-[11px] text-center text-slate-500 italic mt-3 leading-relaxed">
-                Lưu ý: Đây là QR sandbox phục vụ demo luận văn. Không chuyển tiền thật; hệ thống chỉ dùng dữ liệu thử nghiệm để mô phỏng xác nhận thanh toán.
+                Lưu ý: Không chuyển tiền thật; hệ thống chỉ dùng dữ liệu giả lập để xác nhận thanh toán.
               </div>
             </div>
           ) : (
@@ -276,7 +276,7 @@ export default function PaymentPage() {
           <div className="rounded-xl bg-red-50 p-5 text-center text-red-700">
             <XCircle className="mx-auto mb-2" size={38} />
             <div className="font-bold">
-              {payment.status === 'EXPIRED' ? 'Phiên thanh toán đã hết hạn.' : 'Thanh toán thử nghiệm thất bại.'}
+              {payment.status === 'EXPIRED' ? 'Phiên thanh toán đã hết hạn.' : 'Thanh toán thất bại.'}
             </div>
             {payment.failure_message && <div className="mt-1 text-sm">{payment.failure_message}</div>}
           </div>

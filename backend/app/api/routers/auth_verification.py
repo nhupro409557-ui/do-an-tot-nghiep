@@ -34,6 +34,12 @@ from app.api.routers.auth_utils import (
 router = APIRouter()
 
 
+async def _password_reset_context(session: AsyncSession, user: User) -> tuple[bool, str]:
+    admin_context = bool(await auth_repo.list_permissions_for_user(session, user.id))
+    context_query = "&context=admin" if admin_context else ""
+    return admin_context, context_query
+
+
 @router.post("/register", response_model=AuthResponse)
 async def register(payload: RegisterRequest, session: AsyncSession = Depends(get_session)) -> AuthResponse:
     raise HTTPException(
@@ -164,6 +170,8 @@ async def forgot_password(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài khoản với email này.")
 
+    admin_context, context_query = await _password_reset_context(session, user)
+
     token = uuid4().hex
     verification_token = uuid4().hex
     code = make_six_digit_code()
@@ -177,8 +185,8 @@ async def forgot_password(
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
     )
     await session.commit()
-    send_auth_email(email, user.full_name or email, code, f"{settings.frontend_url}/reset-password?verify={verification_token}", "password_reset")
-    return ForgotPasswordResponse(ok=True, email=email)
+    send_auth_email(email, user.full_name or email, code, f"{settings.frontend_url}/reset-password?verify={verification_token}{context_query}", "password_reset")
+    return ForgotPasswordResponse(ok=True, email=email, adminContext=admin_context)
 
 
 @router.post("/forgot-password/resend", response_model=ForgotPasswordResponse)
@@ -194,6 +202,8 @@ async def resend_password_reset(
     user = await auth_repo.get_active_user_by_email(session, email)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài khoản với email này.")
+
+    admin_context, context_query = await _password_reset_context(session, user)
 
     if await auth_repo.get_password_reset_by_email_for_update(session, email) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy yêu cầu đặt lại mật khẩu đang chờ xác minh.")
@@ -211,8 +221,8 @@ async def resend_password_reset(
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=30),
     )
     await session.commit()
-    send_auth_email(email, user.full_name or email, code, f"{settings.frontend_url}/reset-password?verify={verification_token}", "password_reset")
-    return ForgotPasswordResponse(ok=True, email=email)
+    send_auth_email(email, user.full_name or email, code, f"{settings.frontend_url}/reset-password?verify={verification_token}{context_query}", "password_reset")
+    return ForgotPasswordResponse(ok=True, email=email, adminContext=admin_context)
 
 
 @router.post("/forgot-password/verify", response_model=VerifyPasswordResetResponse)

@@ -12,9 +12,9 @@ from app.infrastructure.database.repositories.warranty_snapshot import (
 
 ACTIVE_STATUSES = (
     "SUBMITTED", "RECEIVED", "QC_IN_PROGRESS", "QC_APPROVED", "WARRANTY_ACCEPTED",
-    "REPAIRING", "REPLACEMENT_APPROVED", "WAITING_FOR_STOCK", "WAITING_FOR_EXCHANGE_PAYMENT",
+    "REPAIRING", "REPAIR_COMPLETED", "REPLACEMENT_APPROVED", "WAITING_FOR_STOCK", "WAITING_FOR_EXCHANGE_PAYMENT",
     "EXCHANGE_PROCESSING", "REFUND_PROCESSING", "REPLACEMENT_PROCESSING",
-    "READY_TO_RETURN",
+    "READY_TO_RETURN", "RETURNING_TO_CUSTOMER",
 )
 
 
@@ -610,6 +610,21 @@ async def list_requests(
         """
         if kind == "WARRANTY" else "'{}'::jsonb"
     )
+    repair_route_select = (
+        """
+        r.repair_channel AS "repairChannel",
+        r.repair_provider_name AS "repairProviderName",
+        r.repair_sent_at AS "repairSentAt",
+        r.return_fulfillment_method AS "returnFulfillmentMethod"
+        """
+        if kind == "WARRANTY" else
+        """
+        NULL AS "repairChannel",
+        NULL AS "repairProviderName",
+        NULL AS "repairSentAt",
+        NULL AS "returnFulfillmentMethod"
+        """
+    )
     inventory_destination_select = """
         COALESCE(
             (SELECT jsonb_build_object(
@@ -641,6 +656,7 @@ async def list_requests(
                    {exchange_select},
                    r.qc_note AS "qcNote", r.sla_due_at AS "slaDueAt",
                    r.sla_breached_at AS "slaBreachedAt", r.created_at AS "createdAt",
+                   {repair_route_select},
                    (
                        SELECT jsonb_build_object(
                            'id', fulfillment.id::text,
@@ -648,7 +664,10 @@ async def list_requests(
                            'status', fulfillment.status,
                            'shippingProvider', fulfillment.shipping_provider,
                            'trackingCode', fulfillment.tracking_code,
-                           'fulfillmentMethod', fulfillment.fulfillment_method
+                           'fulfillmentMethod', fulfillment.fulfillment_method,
+                           'recipientName', fulfillment.recipient_name,
+                           'recipientPhone', fulfillment.recipient_phone,
+                           'shippingAddress', fulfillment.shipping_address
                        )
                        FROM orders fulfillment
                        WHERE fulfillment.{"return_request_id" if kind == "RETURN" else "warranty_request_id"} = r.id
@@ -727,6 +746,9 @@ async def update_request_status(
     session: AsyncSession, *, kind: str, request_id: UUID, status_value: str,
     resolution_type: str | None, note: str | None, customer_fault: bool,
     depreciation_fee: float | None = None,
+    repair_channel: str | None = None,
+    repair_provider_name: str | None = None,
+    return_fulfillment_method: str | None = None,
 ) -> None:
     request_table, _ = _table(kind)
     extra = ""
@@ -741,19 +763,38 @@ async def update_request_status(
         extra += ", cancelled_at = NOW()"
     fault_set = ", customer_fault = :customer_fault" if kind == "RETURN" else ""
     depreciation_set = ", depreciation_fee = GREATEST(COALESCE(:depreciation_fee, depreciation_fee), 0)" if kind == "RETURN" else ""
+    repair_set = ""
+    if kind == "WARRANTY":
+        repair_set = """
+            , repair_channel = COALESCE(:repair_channel, repair_channel)
+            , repair_provider_name = CASE
+                WHEN CAST(:repair_channel AS VARCHAR) = 'INTERNAL' THEN NULL
+                ELSE COALESCE(:repair_provider_name, repair_provider_name)
+              END
+            , repair_sent_at = CASE
+                WHEN CAST(:repair_channel AS VARCHAR) = 'MANUFACTURER'
+                     AND CAST(:status AS VARCHAR) = 'REPAIRING'
+                    THEN COALESCE(repair_sent_at, NOW())
+                ELSE repair_sent_at
+              END
+            , return_fulfillment_method = COALESCE(:return_fulfillment_method, return_fulfillment_method)
+        """
     await session.execute(
         text(
             f"""
             UPDATE {request_table}
             SET status = :status, resolution_type = COALESCE(:resolution_type, resolution_type),
                 admin_note = COALESCE(:note, admin_note), updated_at = NOW()
-                {fault_set} {depreciation_set} {extra}
+                {fault_set} {depreciation_set} {repair_set} {extra}
             WHERE id = :id
             """
         ),
         {
             "id": request_id, "status": status_value, "resolution_type": resolution_type,
             "note": note, "customer_fault": customer_fault, "depreciation_fee": depreciation_fee,
+            "repair_channel": repair_channel,
+            "repair_provider_name": repair_provider_name,
+            "return_fulfillment_method": return_fulfillment_method,
         },
     )
 

@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     gemini_primary_max_retries: int = 0
     gemini_embedding_model: str = "gemini-embedding-2"
     gemini_embedding_output_dimensionality: int = 768
+    groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-120b"
+    groq_reasoning_effort: str = "medium"
+    groq_timeout_seconds: float = 12.0
+    groq_max_retries: int = 1
+    groq_max_completion_tokens: int = 700
     ai_pgvector_dual_write_enabled: bool = True
     ai_pgvector_search_percent: int = 100
     ai_response_v2_enabled: bool = True

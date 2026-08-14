@@ -629,7 +629,7 @@ const ProductDetailContent = ({
         <SuggestedProducts currentProductId={product.id} category={product.categorySlug} />
         <ProductQuestions productId={product.id} />
         <div id="product-reviews">
-          <ProductReviews productId={product.id} />
+          <ProductReviews productId={product.id} displayMode="list" />
         </div>
       </div>
 

@@ -14,6 +14,7 @@ const statusLabels: Record<string, string> = {
   RETURNING: 'Đang hoàn hàng',
   RETURNED: 'Đã hoàn hàng',
   REFUNDED: 'Đã hoàn tiền',
+  PAID: 'Đã thanh toán',
 };
 
 const statusStyles: Record<string, { bg: string; text: string; border: string }> = {
@@ -26,14 +27,15 @@ const statusStyles: Record<string, { bg: string; text: string; border: string }>
   RETURNING: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
   RETURNED: { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
   REFUNDED: { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
+  PAID: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
 };
 
 const paymentLabels: Record<string, string> = {
   NO_PAYMENT: 'Không yêu cầu thanh toán',
   COD: 'Thanh toán khi nhận hàng (COD)',
-  MOMO: 'Ví MoMo Sandbox',
-  ZALOPAY: 'Ví ZaloPay Sandbox',
-  SEPAY: 'SePay Sandbox',
+  MOMO: 'Ví MoMo',
+  ZALOPAY: 'Ví ZaloPay',
+  SEPAY: 'SePay',
   VNPAY: 'VNPAY',
 };
 
@@ -179,7 +181,7 @@ const AlertCircleIcon = () => (
 const orderSteps = [
   { label: 'Đã đặt đơn', desc: 'Đặt hàng thành công', icon: CartIcon },
   { label: 'Đang xử lý', desc: 'Shop đang chuẩn bị hàng', icon: ProcessingIcon },
-  { label: 'Đang giao hàng', desc: 'Vận chuyển mô phỏng đã nhận', icon: ShippingIcon },
+  { label: 'Đang giao hàng', desc: 'Vận chuyển đã nhận', icon: ShippingIcon },
   { label: 'Hoàn tất', desc: 'Đã nhận hàng thành công', icon: CompletedIcon },
 ];
 
@@ -342,7 +344,11 @@ export default function OrderDetailPage() {
             <p className="mt-1.5 text-sm text-slate-500">Đặt lúc {formatDate(order.createdAt)}</p>
             {order.orderType && order.orderType !== 'SALE' && (
               <div className="mt-3 inline-flex rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                {order.orderType === 'WARRANTY_REPLACEMENT' ? 'Đơn giao máy bảo hành' : 'Đơn giao máy đổi trả'}
+                {order.orderType === 'WARRANTY_REPLACEMENT'
+                  ? 'Đơn giao máy bảo hành'
+                  : order.orderType === 'WARRANTY_RETURN'
+                    ? 'Đơn gửi lại máy đã sửa'
+                    : 'Đơn giao máy đổi trả'}
               </div>
             )}
           </div>
@@ -543,7 +549,7 @@ export default function OrderDetailPage() {
             {/* Card Lịch trình vận chuyển (Timeline) */}
             <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
               <h2 className="text-lg font-bold text-slate-900 border-b border-slate-100 pb-4 mb-5">
-                Cập nhật vận chuyển mô phỏng
+                Cập nhật vận chuyển
               </h2>
               <div className="relative pl-6 space-y-6 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100">
                 {shipmentEvents.map((event, index) => {
@@ -573,7 +579,7 @@ export default function OrderDetailPage() {
                 })}
                 {!shipmentEvents.length && (
                   <div className="py-2 text-center text-sm text-slate-400">
-                    Chưa có cập nhật vận chuyển mô phỏng nào cho đơn hàng này.
+                    Chưa có cập nhật vận chuyển nào cho đơn hàng này.
                   </div>
                 )}
               </div>
@@ -660,7 +666,7 @@ export default function OrderDetailPage() {
                   <div className="border-t border-slate-100 pt-5 flex items-start gap-3">
                     <BoxIcon />
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Đơn vị vận chuyển demo</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Đơn vị vận chuyển</span>
                       {order.shippingProvider && (
                         <p className="mt-0.5 text-sm font-semibold text-slate-800">{order.shippingProvider}</p>
                       )}
@@ -673,7 +679,7 @@ export default function OrderDetailPage() {
                         </div>
                       )}
                       <p className="mt-2 text-[11px] leading-4 text-slate-400">
-                        Vận đơn này phục vụ demo luận văn, không được gửi sang hãng vận chuyển thật.
+                        Vận đơn nội bộ.
                       </p>
                     </div>
                   </div>

@@ -767,6 +767,13 @@ def _contains_any(value: str, terms: tuple[str, ...] | list[str]) -> bool:
 def _looks_like_product_comparison(value: str) -> bool:
     if _contains_any(value, ("hang cu", "may cu", "dien thoai cu", "laptop cu")):
         return False
+    catalog_price_extreme = _contains_any(value, ("cao nhat", "thap nhat", "dat nhat", "re nhat")) and _contains_any(
+        value,
+        ("danh sach san pham", "tat ca san pham", "toan bo san pham", "trong cua hang"),
+    )
+    explicit_pair_scope = _contains_any(value, ("trong hai", "hai san pham", "hai mau", "giua hai"))
+    if catalog_price_extreme and not explicit_pair_scope:
+        return False
     if _contains_any(
         value,
         (
@@ -1472,7 +1479,7 @@ def route_intent(message: str) -> IntentDecision:
     ):
         return IntentDecision("PRODUCT_RECOMMENDATION", 0.94, "MODEL", True)
 
-    if _contains_any(
+    product_listing_query = _contains_any(
         normalized,
         (
             "san pham moi nhat",
@@ -1486,7 +1493,12 @@ def route_intent(message: str) -> IntentDecision:
             "nhung loai san pham nao",
             "loai san pham nao",
         ),
-    ):
+    )
+    catalog_price_extreme = _contains_any(
+        normalized,
+        ("cao nhat", "thap nhat", "dat nhat", "re nhat"),
+    ) and _contains_any(normalized, ("gia", "danh sach san pham"))
+    if product_listing_query and not catalog_price_extreme:
         return IntentDecision("PRODUCT_SEARCH", 0.97, "MODEL")
 
     if _contains_any(normalized, ("ma san pham", "sku", "ma vach")) or re.search(
@@ -1691,6 +1703,27 @@ def route_intent(message: str) -> IntentDecision:
     if generic_budget_advice:
         return IntentDecision("PRODUCT_RECOMMENDATION", 0.93, "MODEL", True)
 
+    specific_budget_advice = (
+        _contains_any(normalized, SPECIFIC_CATALOG_TERMS)
+        and bool(re.search(r"\b\d+(?:[.,]\d+)?\s*(?:tr|trieu|cu|m|dong)\b", normalized))
+        and _contains_any(
+            normalized,
+            (
+                "tu van",
+                "phu hop",
+                "nen mua",
+                "nen chon",
+                "sinh vien",
+                "hoc tap",
+                "hoc lap trinh",
+                "choi game",
+                "chup anh",
+            ),
+        )
+    )
+    if specific_budget_advice:
+        return IntentDecision("PRODUCT_RECOMMENDATION", 0.95, "MODEL")
+
     price_signal_text = re.sub(r"\b(?:danh gia|gia tri|gia dinh)\b", "", normalized)
     has_compact_budget = bool(
         re.search(r"\b\d+(?:[.,]\d+)?\s*(?:tr|trieu|cu)\b", normalized)
@@ -1699,7 +1732,10 @@ def route_intent(message: str) -> IntentDecision:
     )
     if has_compact_budget or _contains_any(
         price_signal_text,
-        ("gia", "khuyen mai", "giam gia", "uu dai", "voucher", "dat nhat", "re nhat", "re hon", "trieu"),
+        (
+            "gia", "khuyen mai", "giam gia", "uu dai", "voucher", "cao nhat", "thap nhat",
+            "dat nhat", "re nhat", "re hon", "trieu",
+        ),
     ):
         return IntentDecision("PRICE_AND_PROMOTION", 0.94, "DETERMINISTIC")
 

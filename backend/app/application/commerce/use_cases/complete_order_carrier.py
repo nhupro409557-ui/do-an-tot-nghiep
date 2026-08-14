@@ -60,8 +60,8 @@ class CompleteOrderCarrierMixin:
             await self._insert_shipment_event(
                 order=order,
                 event_code="CREATED",
-                title="Đã tạo vận đơn thử nghiệm",
-                description="Vận đơn được tạo bằng mock carrier, không phát sinh giao hàng thật.",
+                title="Đã tạo vận đơn",
+                description="Vận đơn nội bộ.",
                 source="MOCK_CARRIER",
             )
             await self._insert_order_history(
@@ -69,7 +69,7 @@ class CompleteOrderCarrierMixin:
                 old_status=order.status,
                 new_status=order.status,
                 changed_by="mock-carrier",
-                note=f"Tạo vận đơn thử nghiệm {order.tracking_code}.",
+                note=f"Tạo vận đơn {order.tracking_code}.",
             )
 
         return await self.quote_carrier_shipment(order_id=order_id, provider=provider)
@@ -84,8 +84,8 @@ class CompleteOrderCarrierMixin:
             await self._insert_shipment_event(
                 order=order,
                 event_code="CANCELLED",
-                title="Đã huỷ vận đơn thử nghiệm",
-                description=(reason or "Admin huỷ vận đơn trên môi trường mô phỏng.").strip(),
+                title="Đã huỷ vận đơn",
+                description=(reason or "Admin huỷ vận đơn.").strip(),
                 source="MOCK_CARRIER",
             )
             await self._insert_order_history(
@@ -93,11 +93,11 @@ class CompleteOrderCarrierMixin:
                 old_status=order.status,
                 new_status=order.status,
                 changed_by="mock-carrier",
-                note=(reason or "Huỷ vận đơn thử nghiệm.").strip(),
+                note=(reason or "Huỷ vận đơn.").strip(),
             )
         response = await self.quote_carrier_shipment(order_id=order_id, provider=None)
         response.carrier_status = "CANCELLED"
-        response.message = "Đã huỷ vận đơn thử nghiệm; trạng thái đơn hàng không bị đổi tự động."
+        response.message = "Đã huỷ vận đơn; trạng thái đơn hàng không bị đổi tự động."
         return response
 
     async def update_carrier_event(
@@ -108,12 +108,12 @@ class CompleteOrderCarrierMixin:
         note: str | None = None,
     ) -> CarrierShipmentResponse:
         titles = {
-            "CREATED": "Đã tạo vận đơn thử nghiệm",
+            "CREATED": "Đã tạo vận đơn",
             "HANDED_TO_CARRIER": "Đơn hàng đã bàn giao cho đơn vị vận chuyển",
             "IN_TRANSIT": "Đơn hàng đang được giao",
             "DELIVERED": "Đơn hàng đã được giao",
             "DELIVERY_FAILED": "Giao hàng không thành công",
-            "CANCELLED": "Đã huỷ vận đơn thử nghiệm",
+            "CANCELLED": "Đã huỷ vận đơn",
         }
         if event_code not in titles:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Trạng thái vận chuyển không hợp lệ.")
@@ -151,6 +151,7 @@ class CompleteOrderCarrierMixin:
                     status_value="COMPLETED",
                     internal_note="Đơn hàng được hoàn tất từ sự kiện giao hàng DELIVERED.",
                     changed_by="mock-carrier",
+                    customer_receipt_confirmed=True,
                 )
         response = await self.quote_carrier_shipment(order_id=order_id, provider=None)
         response.carrier_status = event_code

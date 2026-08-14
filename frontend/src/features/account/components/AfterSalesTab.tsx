@@ -16,7 +16,7 @@ const qcStatuses = new Set(['RECEIVED', 'QC_IN_PROGRESS']);
 const processingStatuses = new Set([
   'QC_APPROVED', 'WARRANTY_ACCEPTED', 'REPAIRING', 'REPLACEMENT_APPROVED',
   'WAITING_FOR_STOCK', 'WAITING_FOR_EXCHANGE_PAYMENT', 'EXCHANGE_PROCESSING', 'REPLACEMENT_PROCESSING',
-  'REFUND_PROCESSING', 'READY_TO_RETURN'
+  'REFUND_PROCESSING', 'REPAIR_COMPLETED', 'READY_TO_RETURN', 'RETURNING_TO_CUSTOMER'
 ]);
 const closedStatuses = new Set(['REJECTED', 'CANCELLED', 'CLOSED_EXPIRED']);
 
@@ -51,13 +51,15 @@ const statusLabel: Record<string, string> = {
   QC_IN_PROGRESS: 'Đang kiểm tra QC',
   QC_APPROVED: 'Đã duyệt đổi trả',
   WARRANTY_ACCEPTED: 'Đã nhận bảo hành',
-  REPAIRING: 'Đang sửa chữa',
+  REPAIRING: 'Máy bảo hành của bạn đang được sửa',
+  REPAIR_COMPLETED: 'Máy bảo hành của bạn đã sửa xong',
   REPLACEMENT_APPROVED: 'Đã duyệt thay máy',
   WAITING_FOR_STOCK: 'Đang chờ hàng',
   EXCHANGE_PROCESSING: 'Đang xử lý đổi máy',
   REPLACEMENT_PROCESSING: 'Đang xử lý máy thay thế',
   REFUND_PROCESSING: 'Đang hoàn tiền',
   READY_TO_RETURN: 'Sẵn sàng trả máy',
+  RETURNING_TO_CUSTOMER: 'Đang gửi máy về cho bạn',
   COMPLETED: 'Hoàn tất xử lý',
   REJECTED: 'Bị từ chối',
   CANCELLED: 'Đã hủy',
@@ -71,12 +73,14 @@ const statusStyles: Record<string, { bg: string; text: string; border: string }>
   QC_APPROVED: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   WARRANTY_ACCEPTED: { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200' },
   REPAIRING: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  REPAIR_COMPLETED: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   REPLACEMENT_APPROVED: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   WAITING_FOR_STOCK: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
   EXCHANGE_PROCESSING: { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200' },
   REPLACEMENT_PROCESSING: { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200' },
   REFUND_PROCESSING: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   READY_TO_RETURN: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
+  RETURNING_TO_CUSTOMER: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
   COMPLETED: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
   REJECTED: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
   CANCELLED: { bg: 'bg-slate-100', text: 'text-slate-500', border: 'border-slate-250' },
@@ -87,6 +91,16 @@ statusLabel.WAITING_FOR_EXCHANGE_PAYMENT = 'Chờ thanh toán chênh lệch';
 statusStyles.WAITING_FOR_EXCHANGE_PAYMENT = { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+const customerAfterSalesStatusLabel = (item: any) => {
+  if (item.status === 'REPAIRING' && item.repairChannel === 'MANUFACTURER') {
+    return item.repairProviderName
+      ? `Đã gửi bảo hành tại ${item.repairProviderName}`
+      : 'Đã gửi bảo hành hãng';
+  }
+  if (item.status === 'WARRANTY_ACCEPTED' && item.resolutionType === 'REPAIR') return 'Chờ sửa chữa';
+  return statusLabel[item.status] || item.status;
+};
 
 type WarrantyTone = 'emerald' | 'rose' | 'slate' | 'blue';
 
@@ -1036,7 +1050,7 @@ export function AfterSalesTab({ kind, orders }: Props) {
                     </div>
                   </div>
                   <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-bold border ${style.bg} ${style.text} ${style.border}`}>
-                    {statusLabel[item.status] || item.status}
+                    {customerAfterSalesStatusLabel(item)}
                   </span>
                 </div>
 
@@ -1056,6 +1070,13 @@ export function AfterSalesTab({ kind, orders }: Props) {
                       </span>
                     ))}
                   </div>
+                  {item.repairSummary?.diagnosis && (
+                    <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-xs text-emerald-900">
+                      <div className="font-extrabold">Kết quả sửa chữa</div>
+                      <div className="mt-1">Chẩn đoán: {item.repairSummary.diagnosis}</div>
+                      {item.repairSummary.action && <div className="mt-1">Đã xử lý: {item.repairSummary.action}</div>}
+                    </div>
+                  )}
                   {item.status === 'WAITING_FOR_EXCHANGE_PAYMENT' && (
                     <div className="mt-3 rounded-lg border border-orange-100 bg-orange-50 p-3 text-xs font-semibold text-orange-800">
                       <div>Khách cần thanh toán chênh lệch: {formatCurrency(item.balanceAmount)}</div>

@@ -15,6 +15,7 @@ from app.api.routers.auth_utils import (
     AuthResponse,
     customer_role_id,
     issue_auth_response,
+    assert_standard_login_allowed,
 )
 
 router = APIRouter()
@@ -139,6 +140,7 @@ async def google_login(
         from app.api.routers.auth_utils import sync_and_link_offline_orders
         await sync_and_link_offline_orders(session, user)
     else:
+        await assert_standard_login_allowed(session, request, user, provider="google")
         current_profile = dict(user.profile_json or {})
         current_profile.update({"displayName": profile["name"] or user.full_name, "avatarUrl": profile["picture"]})
         user.full_name = profile["name"] or user.full_name

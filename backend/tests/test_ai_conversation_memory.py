@@ -55,6 +55,22 @@ class AIConversationResolutionTest(unittest.TestCase):
         message = "iPhone 17 Pro còn hàng không?"
         self.assertEqual(resolve_follow_up(message, self.memory), message)
 
+    def test_catalog_highest_price_question_does_not_inherit_previous_product(self) -> None:
+        message = "Sản phẩm nào có giá cao nhất trong danh sách sản phẩm?"
+
+        resolved = resolve_follow_up(message, self.memory)
+
+        self.assertEqual(resolved, message)
+        self.assertEqual(route_intent(resolved).intent, "PRICE_AND_PROMOTION")
+
+    def test_catalog_lowest_price_follow_up_does_not_inherit_previous_product(self) -> None:
+        message = "Còn sản phẩm có giá thấp nhất thì sao?"
+
+        resolved = resolve_follow_up(message, self.memory)
+
+        self.assertEqual(resolved, message)
+        self.assertEqual(route_intent(resolved).intent, "PRICE_AND_PROMOTION")
+
     def test_affirmation_after_handover_becomes_staff_request(self) -> None:
         self.memory.handover_offered_at = datetime.now(timezone.utc)
         resolved = resolve_follow_up("Đồng ý", self.memory)
@@ -71,6 +87,18 @@ class AIConversationResolutionTest(unittest.TestCase):
         )
         self.assertEqual(entities["products"][0], {"id": "p1", "name": "Điện thoại mẫu", "slug": None})
         self.assertEqual(entities["order"], {"orderCode": "EMV4212922531", "status": None})
+
+    def test_prioritizes_products_selected_for_the_response(self) -> None:
+        entities = active_entities_from_context(
+            {"products": [{"id": "raw-1", "name": "Kết quả truy xuất đầu tiên"}]},
+            self.memory.active_entities,
+            preferred_products=[{"id": "selected-1", "name": "Sản phẩm vừa trả lời"}],
+        )
+
+        self.assertEqual(
+            entities["products"],
+            [{"id": "selected-1", "name": "Sản phẩm vừa trả lời", "slug": None}],
+        )
 
 
 class AIConversationFailureTrackingTest(unittest.IsolatedAsyncioTestCase):

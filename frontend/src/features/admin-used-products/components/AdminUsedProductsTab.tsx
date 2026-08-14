@@ -579,7 +579,7 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
     }
     if (item.status === 'APPRAISED' && canApprove) {
       return (
-        <button type="button" onClick={() => item.sourceType === 'RETURNED_USED' ? void changeStatus(item, 'ACCEPTED') : openAcquisitionConfirmation(item)} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 text-xs font-bold text-white">
+        <button type="button" onClick={() => ['RETURNED_USED', 'AFTER_SALES_REPAIRED'].includes(item.sourceType) ? void changeStatus(item, 'ACCEPTED') : openAcquisitionConfirmation(item)} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 text-xs font-bold text-white">
           <BadgeCheck className="h-3.5 w-3.5" /> Xác nhận thu mua
         </button>
       );
@@ -655,7 +655,13 @@ export default function AdminUsedProductsTab({ usePermission = () => false, uplo
                 <tr key={item.id} className="align-top hover:bg-slate-50/70">
                   <td className="px-3 py-3">
                     <div className="font-bold text-slate-900">{item.requestCode}</div>
-                    <div className="mt-1 text-xs text-slate-500">{item.sourceType === 'RETURNED_USED' ? 'Máy hoàn đã sử dụng' : 'Thu mua từ người dùng'}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {item.sourceType === 'RETURNED_USED'
+                        ? 'Máy hoàn đã sử dụng'
+                        : item.sourceType === 'AFTER_SALES_REPAIRED'
+                          ? 'Máy cũ hậu mãi đã sửa'
+                          : 'Thu mua từ người dùng'}
+                    </div>
                   </td>
                   <td className="px-3 py-3">
                     <div className="font-semibold text-slate-800">{item.productName}</div>

@@ -298,8 +298,15 @@ export default function AdminVouchersTab(props: AdminVouchersTabProps) {
           <Input label="Mã voucher" value={voucherForm.code} required onChange={(value) => setVoucherForm({ ...voucherForm, code: value.toUpperCase() })} />
           <Select label="Mục tiêu" value={voucherForm.campaignType} onChange={(value) => setVoucherForm({ ...voucherForm, campaignType: value })} options={voucherCampaignOptions} />
           <Select label="Đối tượng" value={voucherForm.audienceType} onChange={(value) => setVoucherForm({ ...voucherForm, audienceType: value, firstOrderOnly: value === 'NEW_CUSTOMER', hiddenCode: value === 'HIDDEN', abandonedCartOnly: value === 'ABANDONED_CART', assignedUserId: value === 'SPECIFIC_USER' ? voucherForm.assignedUserId : '', assignedUserIds: value === 'SPECIFIC_USER' ? voucherForm.assignedUserIds : [], eligibleTiers: value === 'MEMBER_TIER' ? voucherForm.eligibleTiers : [] })} options={voucherAudienceOptions} />
-          <Select label="Loại giảm" value={voucherForm.discountType} onChange={(value) => setVoucherForm({ ...voucherForm, discountType: value })} options={[['FIXED', 'Số tiền'], ['PERCENT', 'Phần trăm']]} />
-          <Input label="Giá trị" type="number" min={1} max={voucherForm.discountType === 'PERCENT' ? 100 : undefined} value={voucherForm.discountAmount} onChange={(value) => setVoucherForm({ ...voucherForm, discountAmount: Number(value) })} />
+          <Select label="Loại giảm" value={voucherForm.discountType} onChange={(value) => setVoucherForm({ ...voucherForm, discountType: value, discountAmount: value === 'PERCENT' ? Math.min(Number(voucherForm.discountAmount), 100) : voucherForm.discountAmount })} options={[['FIXED', 'Số tiền'], ['PERCENT', 'Phần trăm']]} />
+          <Input label={voucherForm.discountType === 'PERCENT' ? "Giá trị (%)" : "Giá trị (VNĐ)"} type="number" min={1} max={voucherForm.discountType === 'PERCENT' ? 100 : undefined} value={voucherForm.discountAmount} onChange={(value) => {
+            let num = Number(value);
+            if (voucherForm.discountType === 'PERCENT') {
+              if (num < 0) num = 0;
+              if (num > 100) num = 100;
+            }
+            setVoucherForm({ ...voucherForm, discountAmount: num });
+          }} />
           <Input label="Đơn tối thiểu" type="number" min={0} value={voucherForm.minOrderValue} onChange={(value) => setVoucherForm({ ...voucherForm, minOrderValue: Number(value) })} />
           {voucherForm.discountType === 'PERCENT' && <Input label="Giảm tối đa" type="number" min={0} value={voucherForm.maxDiscount} onChange={(value) => setVoucherForm({ ...voucherForm, maxDiscount: Number(value) })} />}
           <Input label="Tổng lượt dùng" type="number" min={0} value={voucherForm.usageLimit} onChange={(value) => setVoucherForm({ ...voucherForm, usageLimit: Number(value) })} />

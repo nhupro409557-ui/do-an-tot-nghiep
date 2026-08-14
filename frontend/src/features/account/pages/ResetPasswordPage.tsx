@@ -31,6 +31,9 @@ export default function ResetPasswordPage() {
     initialResetPasswordState,
   );
   const navigate = useNavigate();
+  const isAdminRecovery = searchParams.get('context') === 'admin';
+  const loginPath = isAdminRecovery ? '/admin/login' : '/login';
+  const forgotPasswordPath = isAdminRecovery ? '/forgot-password?context=admin' : '/forgot-password';
 
   useEffect(() => {
     const directToken = searchParams.get('token');
@@ -66,7 +69,7 @@ export default function ResetPasswordPage() {
     try {
       await resetPasswordWithToken(resetToken, password);
       setFormState({ message: 'Đã đổi mật khẩu thành công. Bạn có thể đăng nhập bằng mật khẩu mới.' });
-      setTimeout(() => navigate('/login'), 1200);
+      setTimeout(() => navigate(loginPath), 1200);
     } catch (err: any) {
       setFormState({ error: getAuthErrorMessage(err.code, err.message || 'Không thể đặt lại mật khẩu.') });
     } finally {
@@ -121,7 +124,7 @@ export default function ResetPasswordPage() {
         </form>
 
         <div className="mt-6 text-center text-sm">
-          <Link to="/forgot-password" className="font-bold text-primary hover:underline">Gửi lại mã xác nhận</Link>
+          <Link to={forgotPasswordPath} className="font-bold text-primary hover:underline">Gửi lại mã xác nhận</Link>
         </div>
       </div>
     </div>

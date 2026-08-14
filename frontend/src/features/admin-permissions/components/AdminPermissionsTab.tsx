@@ -52,6 +52,11 @@ const moduleLabels: Record<string, string> = {
   used_product: 'Thu mua máy cũ',
   service: 'Quản lý dịch vụ đi kèm',
   flash_sale: 'Quản lý flash sale',
+  after_sales: 'Quản lý hậu mãi',
+  payable: 'Quản lý công nợ',
+  report: 'Báo cáo quản trị',
+  staff: 'Quyền nhân viên cũ',
+  store_info: 'Thông tin cửa hàng',
 };
 
 const permissionLabels: Record<string, { title: string; description: string }> = {
@@ -114,6 +119,18 @@ const permissionLabels: Record<string, { title: string; description: string }> =
   'order:update': {
     title: 'Cập nhật đơn hàng',
     description: 'Xác nhận đơn, chuyển trạng thái giao hàng, xử lý hủy/hoàn đơn',
+  },
+  'order:carrier': {
+    title: 'Quản lý vận đơn',
+    description: 'Cập nhật vận đơn và các sự kiện trong quá trình giao hàng',
+  },
+  'order:maintenance': {
+    title: 'Bảo trì đơn hàng',
+    description: 'Chạy các tác vụ bảo trì và đối soát trạng thái đơn hàng',
+  },
+  'order:refund': {
+    title: 'Xác nhận hoàn tiền đơn hàng',
+    description: 'Cho phép xác nhận và xử lý hoàn tiền cho đơn hàng',
   },
   'voucher:read': {
     title: 'Xem khuyến mãi',
@@ -242,6 +259,102 @@ const permissionLabels: Record<string, { title: string; description: string }> =
   'used_product:approve': {
     title: 'Duyệt thu mua máy cũ',
     description: 'Duyệt quyết định thu mua và xác nhận mức giá giao dịch cuối cùng',
+  },
+  'after_sales:read': {
+    title: 'Xem hồ sơ hậu mãi',
+    description: 'Xem yêu cầu trả hàng, bảo hành và lịch sử xử lý hậu mãi',
+  },
+  'after_sales:update': {
+    title: 'Cập nhật hồ sơ hậu mãi',
+    description: 'Cập nhật trạng thái, ghi chú và sự kiện của hồ sơ hậu mãi',
+  },
+  'after_sales:inspect': {
+    title: 'Kiểm định hậu mãi',
+    description: 'Ghi nhận kết quả kiểm định hàng trả hoặc thiết bị bảo hành',
+  },
+  'after_sales:exchange': {
+    title: 'Đổi sản phẩm bảo hành',
+    description: 'Xác nhận đổi thiết bị hoặc sản phẩm trong quy trình bảo hành',
+  },
+  'after_sales:refund': {
+    title: 'Xử lý hoàn tiền hậu mãi',
+    description: 'Phê duyệt và xử lý hoàn tiền từ hồ sơ trả hàng hoặc bảo hành',
+  },
+  'payable:read': {
+    title: 'Xem công nợ nhà cung cấp',
+    description: 'Xem số dư, kỳ hạn và lịch sử công nợ với nhà cung cấp',
+  },
+  'payable:pay': {
+    title: 'Thanh toán công nợ',
+    description: 'Ghi nhận và điều chỉnh giao dịch thanh toán công nợ nhà cung cấp',
+  },
+  'report:revenue_read': {
+    title: 'Xem báo cáo doanh thu',
+    description: 'Xem số liệu doanh thu và các báo cáo tài chính liên quan',
+  },
+  'report:profit_read': {
+    title: 'Xem giá vốn và lợi nhuận',
+    description: 'Xem giá vốn, biên lợi nhuận và số liệu lợi nhuận nhạy cảm',
+  },
+  'service:read': {
+    title: 'Xem dịch vụ đi kèm',
+    description: 'Xem danh sách và thông tin các dịch vụ đi kèm sản phẩm',
+  },
+  'service:create': {
+    title: 'Thêm dịch vụ đi kèm',
+    description: 'Tạo mới dịch vụ đi kèm để áp dụng cho sản phẩm',
+  },
+  'service:update': {
+    title: 'Cập nhật dịch vụ đi kèm',
+    description: 'Sửa thông tin hoặc trạng thái của dịch vụ đi kèm',
+  },
+  'service:delete': {
+    title: 'Xóa dịch vụ đi kèm',
+    description: 'Xóa dịch vụ đi kèm không còn được sử dụng',
+  },
+  'flash_sale:read': {
+    title: 'Xem flash sale',
+    description: 'Xem danh sách và trạng thái các chương trình flash sale',
+  },
+  'flash_sale:create': {
+    title: 'Thêm flash sale',
+    description: 'Tạo mới chương trình flash sale cho sản phẩm',
+  },
+  'flash_sale:update': {
+    title: 'Cập nhật flash sale',
+    description: 'Sửa thời gian, mức giảm và trạng thái chương trình flash sale',
+  },
+  'flash_sale:delete': {
+    title: 'Xóa flash sale',
+    description: 'Xóa chương trình flash sale không còn áp dụng',
+  },
+  'store_info:read': {
+    title: 'Xem thông tin cửa hàng',
+    description: 'Xem thông tin và chính sách cửa hàng trong trang quản trị',
+  },
+  'store_info:update': {
+    title: 'Cập nhật thông tin cửa hàng',
+    description: 'Sửa thông tin liên hệ và nội dung chính sách của cửa hàng',
+  },
+  'staff:read': {
+    title: 'Xem nhân viên (quyền cũ)',
+    description: 'Mã quyền tương thích cũ; luồng hiện tại dùng quyền quản lý nhân viên hệ thống',
+  },
+  'staff:create': {
+    title: 'Tạo nhân viên (quyền cũ)',
+    description: 'Mã quyền tương thích cũ; không còn được endpoint hiện tại kiểm tra',
+  },
+  'staff:update': {
+    title: 'Cập nhật nhân viên (quyền cũ)',
+    description: 'Mã quyền tương thích cũ; không còn được endpoint hiện tại kiểm tra',
+  },
+  'staff:reset_password': {
+    title: 'Đặt lại mật khẩu nhân viên (quyền cũ)',
+    description: 'Mã quyền tương thích cũ; không còn được endpoint hiện tại kiểm tra',
+  },
+  'staff:audit': {
+    title: 'Xem nhật ký nhân viên (quyền cũ)',
+    description: 'Mã quyền tương thích cũ; luồng hiện tại dùng quyền xem nhật ký bảo mật',
   },
 };
 
@@ -387,7 +500,7 @@ export default function AdminPermissionsTab(props: AdminPermissionsTabProps) {
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                   <div className="text-sm font-bold text-slate-900">Danh mục quyền có thể cấp riêng</div>
                   <div className="mt-1 text-xs font-medium text-slate-500">
-                    Hệ thống có {permissions.length} quyền thuộc {Object.keys(permissionsByModule).length} nhóm chức năng. Các quyền này chỉ có hiệu lực với nhân viên khi Super Admin cấp trực tiếp cho tài khoản đó.
+                    Hệ thống có {permissions.length} quyền thuộc {Object.keys(permissionsByModule).length} nhóm chức năng. Quyền hiệu lực của nhân viên gồm quyền mặc định theo vai trò và quyền được cấp trực tiếp, sau khi loại các quyền bị từ chối.
                   </div>
                 </div>
                 <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">

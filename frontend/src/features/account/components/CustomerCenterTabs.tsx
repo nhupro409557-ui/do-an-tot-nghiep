@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { customerCenterApi } from '../services/customerCenterApi';
-
+import { adminVouchersApi } from '../../admin-vouchers/services/adminVouchersApi';
 const voucherStatusLabels: Record<string, string> = {
   AVAILABLE: 'Có thể sử dụng',
   RESERVED: 'Đang giữ chỗ',
@@ -35,19 +35,33 @@ const transactionStatusStyles: Record<string, string> = {
 export function VoucherWalletTab() {
   const navigate = useNavigate();
   const [items, setItems] = useState<any[]>([]);
-  useEffect(() => { customerCenterApi.listVouchers().then(setItems).catch(() => setItems([])); }, []);
+  useEffect(() => {
+    Promise.all([
+      adminVouchersApi.listPublicVouchers().catch(() => []),
+      customerCenterApi.listVouchers().catch(() => []),
+    ]).then(([publicVouchers, privateVouchers]) => {
+      const byCode = new Map();
+      publicVouchers.forEach((voucher: any) => {
+        byCode.set(String(voucher.code || '').toUpperCase(), { ...voucher, status: 'AVAILABLE' });
+      });
+      privateVouchers.forEach((voucher: any) => {
+        byCode.set(String(voucher.code || '').toUpperCase(), voucher);
+      });
+      setItems(Array.from(byCode.values()));
+    });
+  }, []);
   return (
     <section className="rounded-xl bg-white p-6 shadow-sm">
       <h3 className="font-bold text-slate-900">Ví voucher của tôi</h3>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         {items.map(item => (
-          <article key={item.id} className="rounded-xl border border-dashed border-red-200 bg-red-50/40 p-4">
+          <article key={item.id || item.code} className="rounded-xl border border-dashed border-red-200 bg-red-50/40 p-4">
             <div className="text-lg font-black text-[#d70018]">{item.code}</div>
             <p className="mt-1 text-sm text-slate-600">{voucherStatusLabels[item.status] || item.status} · Hết hạn: {item.expires_at || item.expiresAt ? new Date(item.expires_at || item.expiresAt).toLocaleDateString('vi-VN') : 'Theo chương trình'}</p>
             {item.status === 'AVAILABLE' && <button type="button" onClick={() => { localStorage.setItem('selectedVoucherCode', item.code); navigate('/checkout'); }} className="mt-3 rounded-lg bg-[#d70018] px-4 py-2 text-sm font-bold text-white">Áp dụng vào giỏ</button>}
           </article>
         ))}
-        {!items.length && <p className="text-sm text-slate-500">Bạn chưa nhận voucher nào.</p>}
+        {!items.length && <p className="text-sm text-slate-500">Không có voucher nào hiện có.</p>}
       </div>
     </section>
   );

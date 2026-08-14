@@ -109,6 +109,30 @@ class AIQueryPlannerConversationTest(unittest.TestCase):
         self.assertIn("HONOR 400 5G", resolved)
         self.assertIn("So sánh", resolved)
 
+    def test_product_reference_mau_do_is_not_treated_as_red_color(self) -> None:
+        memory = ConversationMemorySnapshot(
+            conversation_id=uuid4(),
+            user_id=None,
+            active_intent="PRICE_AND_PROMOTION",
+            active_entities={
+                "products": [
+                    {"id": "p1", "name": "Cáp sạc Ugreen USB-C to USB-C 100W 2m"},
+                ]
+            },
+        )
+
+        resolved = resolve_follow_up("Mẫu đó hiện còn hàng không?", memory)
+        decision = route_intent(resolved)
+        plan = build_product_query_plan(
+            resolved,
+            base_intent=decision.intent,
+            base_needs_clarification=decision.needs_clarification,
+        )
+
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan.constraints.category, "ACCESSORY")
+        self.assertEqual(plan.constraints.colors, [])
+
 
 class AIQueryPlannerVerificationTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -161,6 +185,51 @@ class AIQueryPlannerVerificationTest(unittest.TestCase):
 
 
 class AIQueryPlannerProductSelectionTest(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_brand_comparison_keeps_both_requested_brands(self) -> None:
+        def product(identifier: str, name: str, brand: str, description: str = "") -> dict:
+            return {
+                "id": identifier,
+                "name": name,
+                "slug": identifier,
+                "brand": brand,
+                "description": description,
+                "price": 10_000_000,
+                "salePrice": 10_000_000,
+                "categoryName": "Điện thoại",
+                "categorySlug": "dien-thoai",
+                "specifications": {},
+                "variants": [],
+                "availableStock": 5,
+                "rating": 0,
+                "favoriteCount": 0,
+            }
+
+        message = "So sánh iPhone và Samsung, máy nào phù hợp để chụp ảnh và dùng lâu dài?"
+        plan = build_product_query_plan(
+            message,
+            base_intent="PRODUCT_COMPARISON",
+            base_needs_clarification=True,
+        )
+        use_case = AIAssistantUseCase(session=object(), redis=AsyncMock())
+        rows = [
+            product("iphone-17", "iPhone 17", "Apple"),
+            product("galaxy-s26", "Samsung Galaxy S26", "Samsung"),
+            product(
+                "tecno-spark",
+                "TECNO Spark",
+                "TECNO",
+                "Máy phù hợp để chụp ảnh và dùng lâu dài.",
+            ),
+        ]
+
+        with patch(
+            "app.application.ai.use_cases.ai_repo.list_active_products_for_ai",
+            new=AsyncMock(return_value=rows),
+        ):
+            selected = await use_case._find_products(message, query_plan=plan)
+
+        self.assertEqual([item["brand"] for item in selected[:2]], ["Apple", "Samsung"])
+
     async def test_generic_comparison_respects_budget_color_stock_and_battery_priority(self) -> None:
         def product(name: str, price: int, battery: int, color: str = "Đen") -> dict:
             return {

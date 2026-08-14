@@ -1,4 +1,5 @@
 import hashlib
+import html
 import random
 import secrets
 import smtplib
@@ -118,6 +119,7 @@ class ForgotPasswordRequest(BaseModel):
 class ForgotPasswordResponse(BaseModel):
     ok: bool
     email: EmailStr
+    adminContext: bool = False
 
 class VerifyPasswordResetRequest(BaseModel):
     email: EmailStr | None = None
@@ -247,18 +249,44 @@ async def store_refresh_session(session: AsyncSession, request: Request, user_id
 async def refresh_token_by_hash(session: AsyncSession, token_hash: str) -> str | None:
     return await auth_repo.get_valid_refresh_token_hash(session, token_hash)
 
-def send_auth_email(email: str, name: str, code: str, link: str, purpose: str) -> None:
+def send_auth_email(email: str, name: str, code: str, link: str | None, purpose: str) -> None:
     if not settings.smtp_username or not settings.smtp_password:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="SMTP is not configured.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="SMTP chưa được cấu hình.")
 
     sender = settings.smtp_from_email or settings.smtp_username
     brand_name = "ElectroMart VietNam"
     is_password_reset = purpose == "password_reset"
-    action_name = "Dat lai mat khau" if is_password_reset else "Xac nhan tai khoan"
-    intro = (
-        f"Ban yeu cau dat lai mat khau tai khoan {brand_name}."
-        if is_password_reset
-        else f"Ban yeu cau dang ky tai khoan {brand_name}."
+    is_mfa_recovery = purpose == "admin_mfa_recovery"
+    if is_mfa_recovery:
+        action_name = "Khôi phục mã 2FA quản trị"
+        intro = f"Bạn vừa yêu cầu thiết lập lại mã 2FA cho tài khoản quản trị {brand_name}."
+    elif is_password_reset:
+        action_name = "Đặt lại mật khẩu"
+        intro = f"Bạn vừa yêu cầu đặt lại mật khẩu tài khoản {brand_name}."
+    else:
+        action_name = "Xác nhận tài khoản"
+        intro = f"Bạn vừa yêu cầu đăng ký tài khoản {brand_name}."
+    valid_minutes = 30 if is_password_reset else 15
+    warning_text = (
+        "Nếu bạn không thực hiện yêu cầu này, hãy đổi mật khẩu ngay."
+        if is_password_reset or is_mfa_recovery
+        else "Nếu bạn không thực hiện yêu cầu này, bạn có thể bỏ qua email."
+    )
+
+    safe_name = html.escape(name)
+    safe_link = html.escape(link or "", quote=True)
+    link_text = f"Hoặc mở liên kết này để xác nhận tự động: {link}" if link else ""
+    link_html = (
+        f"""
+          <p>Hoặc bấm nút bên dưới để xác nhận tự động:</p>
+          <p>
+            <a href="{safe_link}" style="background:#d70018;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block">
+              {action_name}
+            </a>
+          </p>
+        """
+        if link
+        else ""
     )
 
     message = EmailMessage()
@@ -268,14 +296,15 @@ def send_auth_email(email: str, name: str, code: str, link: str, purpose: str) -
     message.set_content(
         "\n".join(
             [
-                f"Xin chao {name},",
+                f"Xin chào {name},",
                 "",
                 intro,
-                f"Ma xac nhan cua ban la: {code}",
+                f"Mã xác nhận của bạn là: {code}",
                 "",
-                f"Hoac bam vao lien ket nay de xac nhan tu dong: {link}",
+                link_text,
                 "",
-                "Ma xac nhan co hieu luc trong 15 phut.",
+                f"Mã xác nhận có hiệu lực trong {valid_minutes} phút.",
+                warning_text,
             ]
         )
     )
@@ -283,17 +312,13 @@ def send_auth_email(email: str, name: str, code: str, link: str, purpose: str) -
         f"""
         <div style="font-family:Arial,sans-serif;line-height:1.6;color:#111827">
           <h2 style="color:#d70018">{action_name} {brand_name}</h2>
-          <p>Xin chao <strong>{name}</strong>,</p>
+          <p>Xin chào <strong>{safe_name}</strong>,</p>
           <p>{intro}</p>
-          <p>Ma xac nhan cua ban:</p>
+          <p>Mã xác nhận của bạn:</p>
           <div style="font-size:28px;font-weight:700;letter-spacing:6px;color:#d70018">{code}</div>
-          <p>Hoac bam nut ben duoi de xac nhan tu dong:</p>
-          <p>
-            <a href="{link}" style="background:#d70018;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block">
-              {action_name}
-            </a>
-          </p>
-          <p style="color:#6b7280;font-size:13px">Ma xac nhan co hieu luc trong 15 phut.</p>
+          {link_html}
+          <p style="color:#6b7280;font-size:13px">Mã xác nhận có hiệu lực trong {valid_minutes} phút.</p>
+          <p style="color:#6b7280;font-size:13px">{warning_text}</p>
         </div>
         """,
         subtype="html",
@@ -305,7 +330,7 @@ def send_auth_email(email: str, name: str, code: str, link: str, purpose: str) -
             smtp.login(settings.smtp_username, settings.smtp_password)
             smtp.send_message(message)
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Khong gui duoc email xac nhan.") from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Không gửi được email xác nhận.") from exc
 
 def make_token(user_id: UUID, request: Request | None = None) -> str:
     now = datetime.now(timezone.utc)
@@ -321,17 +346,24 @@ def make_token(user_id: UUID, request: Request | None = None) -> str:
         payload["fp"] = request_fingerprint(request)
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
-def make_admin_mfa_token(user_id: UUID, scope: str, request: Request) -> str:
+def make_admin_mfa_token(
+    user_id: UUID,
+    scope: str,
+    request: Request,
+    *,
+    expires_minutes: int = 5,
+    token_jti: str | None = None,
+) -> str:
     now = datetime.now(timezone.utc)
     return jwt.encode(
         {
             "sub": str(user_id),
             "typ": "admin_mfa",
             "scope": scope,
-            "jti": uuid4().hex,
+            "jti": token_jti or uuid4().hex,
             "fp": request_fingerprint(request),
             "iat": int(now.timestamp()),
-            "exp": now + timedelta(minutes=5),
+            "exp": now + timedelta(minutes=expires_minutes),
         },
         settings.jwt_secret_key,
         algorithm=settings.jwt_algorithm,
@@ -449,6 +481,30 @@ async def to_profile_response(session: AsyncSession, user: User) -> ProfileRespo
 
 async def list_permissions_for_user(session: AsyncSession, user_id: UUID) -> list[str]:
     return await auth_repo.list_permissions_for_user(session, user_id)
+
+
+async def assert_standard_login_allowed(
+    session: AsyncSession,
+    request: Request,
+    user: User,
+    *,
+    provider: str,
+) -> None:
+    if not await list_permissions_for_user(session, user.id):
+        return
+    await audit_log(
+        session,
+        "admin_login_bypass_blocked",
+        request,
+        user_id=user.id,
+        email=user.email,
+        metadata={"provider": provider},
+    )
+    await session.commit()
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Tài khoản quản trị phải đăng nhập tại trang Admin và hoàn tất xác thực 2FA.",
+    )
 
 def admin_login_key(request: Request, email: str) -> str:
     return f"admin_login:{email.lower()}:{request_ip(request)}"

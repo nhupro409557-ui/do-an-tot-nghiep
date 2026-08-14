@@ -503,7 +503,7 @@ async def list_requests(
     limit: int,
     sort: str,
 ) -> dict:
-    return await after_sales_repo.list_requests(
+    result = await after_sales_repo.list_requests(
         session,
         kind=kind,
         user_id=user_id,
@@ -512,6 +512,60 @@ async def list_requests(
         limit=min(max(1, limit), 100),
         descending=sort != "created_at",
     )
+    if user_id is None:
+        return result
+    result["items"] = [_to_customer_after_sales_request(item) for item in result.get("items", [])]
+    return result
+
+
+_CUSTOMER_REQUEST_FIELDS = {
+    "id", "requestCode", "orderId", "orderCode", "status", "reason", "resolutionType",
+    "customerFault", "depreciationFee", "exchangeProductId", "exchangeVariantId",
+    "exchangeQuantity", "exchangeUnitPrice", "exchangeFee", "exchangeShippingFee",
+    "balanceAmount", "paymentStatus", "paymentDueAt", "exchangeProductName",
+    "exchangeVariantSku", "exchangeVariantLabel", "slaDueAt", "createdAt",
+    "repairChannel", "repairProviderName", "repairSentAt", "returnFulfillmentMethod",
+}
+_CUSTOMER_FULFILLMENT_FIELDS = {
+    "id", "orderCode", "status", "shippingProvider", "trackingCode", "fulfillmentMethod",
+    "recipientName", "recipientPhone", "shippingAddress",
+}
+_CUSTOMER_ITEM_FIELDS = {
+    "id", "orderItemId", "productId", "variantId", "productName", "quantity", "imei",
+    "serialNumber", "replacementImei", "replacementImeis", "replacementSecondaryImeis",
+    "replacementSerialNumbers",
+}
+_CUSTOMER_ATTACHMENT_FIELDS = {"id", "originalName", "url", "contentType", "sizeBytes", "createdAt"}
+_CUSTOMER_REPAIR_FIELDS = {"diagnosis", "action", "stage", "updatedAt"}
+
+
+def _public_fields(source: dict | None, allowed: set[str]) -> dict | None:
+    if not source:
+        return None
+    return {key: source.get(key) for key in allowed if key in source}
+
+
+def _to_customer_after_sales_request(item: dict) -> dict:
+    public = {key: item.get(key) for key in _CUSTOMER_REQUEST_FIELDS if key in item}
+    public["items"] = [
+        _public_fields(dict(line), _CUSTOMER_ITEM_FIELDS) or {}
+        for line in (item.get("items") or [])
+    ]
+    public["attachments"] = [
+        _public_fields(dict(attachment), _CUSTOMER_ATTACHMENT_FIELDS) or {}
+        for attachment in (item.get("attachments") or [])
+    ]
+    public["repairSummary"] = _public_fields(
+        dict(item.get("repairSummary") or {}),
+        _CUSTOMER_REPAIR_FIELDS,
+    ) or {}
+    fulfillment = _public_fields(
+        dict(item.get("fulfillmentOrder") or {}),
+        _CUSTOMER_FULFILLMENT_FIELDS,
+    )
+    if fulfillment:
+        public["fulfillmentOrder"] = fulfillment
+    return public
 
 
 async def list_request_events(session: AsyncSession, *, kind: str, request_id: UUID) -> list[dict]:
@@ -601,7 +655,6 @@ async def admin_update_status(
                 status_code=400,
                 detail="Cần nhập lý do đánh giá lại QC tối thiểu 10 ký tự.",
             )
-        await after_sales_repo.release_allocations(session, kind=kind, request_id=request_id)
         from app.application.after_sales.fulfillment import cancel_after_sales_order_for_reinspection
         await cancel_after_sales_order_for_reinspection(
             session,
@@ -609,6 +662,7 @@ async def admin_update_status(
             request_id=request_id,
             reason=f"Đánh giá lại QC: {reason}",
         )
+        await after_sales_repo.release_allocations(session, kind=kind, request_id=request_id)
         await session.execute(
             text(
                 """
@@ -673,11 +727,29 @@ async def admin_update_status(
             status_code=409,
             detail="Hồ sơ còn tiền chênh lệch cần thanh toán, phải chuyển qua bước chờ thanh toán trước.",
         )
-    if kind == "WARRANTY" and target in {"READY_TO_RETURN", "COMPLETED"} and request.get("resolution_type") == "REPAIR":
+    repair_channel = (payload.repair_channel or request.get("repair_channel") or "").strip().upper()
+    repair_provider_name = (payload.repair_provider_name or request.get("repair_provider_name") or "").strip()
+    if (
+        kind == "WARRANTY"
+        and request.get("resolution_type") == "REPAIR"
+        and request["status"] in {"REPAIRING", "REPAIR_COMPLETED", "READY_TO_RETURN", "RETURNING_TO_CUSTOMER"}
+    ):
+        existing_channel = str(request.get("repair_channel") or "").strip().upper()
+        existing_provider = str(request.get("repair_provider_name") or "").strip()
+        if payload.repair_channel and existing_channel and repair_channel != existing_channel:
+            raise HTTPException(status_code=409, detail="Không thể đổi kênh sửa chữa sau khi đã bắt đầu sửa máy.")
+        if payload.repair_provider_name and existing_provider and repair_provider_name != existing_provider:
+            raise HTTPException(status_code=409, detail="Không thể đổi đơn vị bảo hành sau khi đã gửi sửa máy.")
+    if kind == "WARRANTY" and target == "REPAIRING" and request.get("resolution_type") == "REPAIR":
+        if repair_channel not in {"INTERNAL", "MANUFACTURER"}:
+            raise HTTPException(status_code=400, detail="Vui lòng chọn sửa tại cửa hàng hoặc gửi bảo hành hãng.")
+        if repair_channel == "MANUFACTURER" and not repair_provider_name:
+            raise HTTPException(status_code=400, detail="Vui lòng nhập tên hãng hoặc trung tâm bảo hành.")
+    if kind == "WARRANTY" and target == "REPAIR_COMPLETED" and request.get("resolution_type") == "REPAIR":
         if not (payload.repair_diagnosis or "").strip() or not (payload.repair_action or "").strip():
             raise HTTPException(
                 status_code=400,
-                detail="Luồng sửa chữa bảo hành bắt buộc phải nhập chẩn đoán lỗi và hướng xử lý."
+                detail="Cần nhập chẩn đoán lỗi và nội dung đã sửa trước khi xác nhận sửa xong."
             )
     if target == "COMPLETED" and kind == "RETURN" and request.get("resolution_type") == "REFUND":
         refund_proof_url = (payload.refund_proof_url or "").strip()
@@ -686,6 +758,24 @@ async def admin_update_status(
                 status_code=400,
                 detail="Cần cung cấp link hình ảnh/chứng từ hoàn tiền (proof URL) trước khi hoàn tất hồ sơ.",
             )
+
+    requires_receipt_confirmation = target == "COMPLETED" and (
+        (
+            kind == "WARRANTY"
+            and request.get("resolution_type") in {"REPAIR", "REPLACEMENT"}
+            and request["status"] in {"REPAIR_COMPLETED", "READY_TO_RETURN", "RETURNING_TO_CUSTOMER", "REPLACEMENT_PROCESSING"}
+        )
+        or (
+            kind == "RETURN"
+            and request.get("resolution_type") == "EXCHANGE"
+            and request["status"] == "EXCHANGE_PROCESSING"
+        )
+    )
+    if requires_receipt_confirmation and not payload.customer_receipt_confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="Cần xác nhận khách đã nhận máy trước khi hoàn tất hồ sơ hậu mãi.",
+        )
 
     items = await after_sales_repo.get_request_items(session, kind=kind, request_id=request_id)
     if (
@@ -770,6 +860,12 @@ async def admin_update_status(
     if target in {"EXCHANGE_PROCESSING", "REPLACEMENT_PROCESSING", "REPLACEMENT_APPROVED"}:
         from app.application.after_sales.fulfillment import ensure_after_sales_outbound
         fulfillment_request = dict(request)
+        if payload.return_fulfillment_method:
+            fulfillment_request["fulfillment_method"] = payload.return_fulfillment_method
+        for field in ("recipient_name", "recipient_phone", "shipping_address", "shipping_provider"):
+            value = getattr(payload, field, None)
+            if value:
+                fulfillment_request[field] = value.strip()
         if kind == "RETURN":
             fulfillment_request["payment_status"] = "PAID" if request["status"] == "WAITING_FOR_EXCHANGE_PAYMENT" else request.get("payment_status")
         await ensure_after_sales_outbound(
@@ -777,6 +873,22 @@ async def admin_update_status(
             kind=kind,
             request=fulfillment_request,
             items=items,
+        )
+
+    if kind == "WARRANTY" and target == "RETURNING_TO_CUSTOMER" and request.get("resolution_type") == "REPAIR":
+        from app.application.after_sales.fulfillment import ensure_after_sales_order
+        delivery_request = dict(request)
+        delivery_request["fulfillment_method"] = "DELIVERY"
+        for field in ("recipient_name", "recipient_phone", "shipping_address", "shipping_provider"):
+            value = getattr(payload, field, None)
+            if value:
+                delivery_request[field] = value.strip()
+        await ensure_after_sales_order(
+            session,
+            kind="WARRANTY",
+            request=delivery_request,
+            items=items,
+            order_purpose="WARRANTY_RETURN",
         )
 
     replacement_imei = (payload.replacement_imei or "").strip()
@@ -879,10 +991,33 @@ async def admin_update_status(
         note=payload.note,
         customer_fault=payload.customer_fault,
         depreciation_fee=depreciation_to_store,
+        repair_channel=repair_channel or None,
+        repair_provider_name=repair_provider_name or None,
+        return_fulfillment_method=(
+            "DELIVERY" if target == "RETURNING_TO_CUSTOMER"
+            else "STORE_PICKUP" if target == "READY_TO_RETURN" and request.get("resolution_type") == "REPAIR"
+            else payload.return_fulfillment_method
+        ),
     )
+    if kind == "RETURN" and target == "COMPLETED":
+        from app.application.after_sales.return_disposition import (
+            finalize_returned_identifier_disposition,
+        )
+
+        await finalize_returned_identifier_disposition(
+            session,
+            request_id=request_id,
+            actor_id=actor_id,
+        )
     repair_metadata = None
     if kind == "WARRANTY":
         repair_metadata = _repair_metadata_from_payload(payload, target)
+    if requires_receipt_confirmation:
+        repair_metadata = {
+            **(repair_metadata or {}),
+            "customerReceiptConfirmed": True,
+            "confirmationSource": "ADMIN",
+        }
     await after_sales_repo.insert_event(
         session,
         kind=kind,
@@ -924,12 +1059,20 @@ async def admin_update_status(
                 if not transitioned:
                     raise HTTPException(status_code=409, detail="Trạng thái thiết bị cũ không hợp lệ để hoàn tất bảo hành.")
     label = label_for(kind)
+    customer_status_labels = {
+        "WARRANTY_ACCEPTED": "chờ sửa chữa",
+        "REPAIRING": "đã gửi bảo hành hãng" if repair_channel == "MANUFACTURER" else "đang sửa chữa",
+        "REPAIR_COMPLETED": "đã sửa xong",
+        "READY_TO_RETURN": "sẵn sàng trả máy tại cửa hàng",
+        "RETURNING_TO_CUSTOMER": "đang gửi máy về cho khách",
+        "COMPLETED": "hoàn tất",
+    }
     await after_sales_repo.notify(
         session,
         user_id=request["user_id"],
         type_value="after_sales",
         title=f"Cập nhật yêu cầu {label}",
-        message=f"Yêu cầu {request['request_code']} đã chuyển sang trạng thái {target}.",
+        message=f"Yêu cầu {request['request_code']} đã chuyển sang trạng thái {customer_status_labels.get(target, target)}.",
         entity_type=kind,
         entity_id=request_id,
         immediate=target in {"REJECTED", "COMPLETED"},
@@ -945,7 +1088,7 @@ def _repair_metadata_from_payload(payload: UpdateAfterSalesStatusRequest, target
     parts = (payload.repair_parts or "").strip()
     repair_cost = float(payload.repair_cost or 0)
     has_repair_data = bool(diagnosis or action or parts or repair_cost > 0)
-    if not has_repair_data and target not in {"REPAIRING", "READY_TO_RETURN"}:
+    if not has_repair_data and target != "REPAIRING":
         return None
     return {
         "repair": {
@@ -954,6 +1097,8 @@ def _repair_metadata_from_payload(payload: UpdateAfterSalesStatusRequest, target
             "parts": parts or None,
             "cost": repair_cost,
             "stage": target,
+            "channel": payload.repair_channel,
+            "providerName": (payload.repair_provider_name or "").strip() or None,
         }
     }
 
@@ -965,24 +1110,55 @@ async def sync_warranty_imei_status(
     target: str,
     replacement_imei: str | None = None,
 ) -> None:
-    if not items:
+    from app.application.after_sales.identifier_groups import (
+        lock_identifier_group,
+        update_locked_identifier_group_status,
+    )
+
+    if not items or target not in {"WARRANTY_ACCEPTED", "COMPLETED", "REJECTED", "CANCELLED"}:
         return
+    has_replacement = bool((replacement_imei or "").strip()) or any(
+        bool(item.get("replacement_imei"))
+        or bool(item.get("replacement_imeis"))
+        or bool(item.get("replacement_serial_numbers"))
+        for item in items
+    )
+    if target == "COMPLETED" and has_replacement:
+        # Hoàn tất theo hướng đổi máy không được đưa định danh lỗi trở lại trạng thái bán.
+        return
+
     for item in items:
         imei_val = item.get("imei")
-        if not imei_val:
+        serial_val = item.get("serial_number")
+        if not imei_val and not serial_val:
             continue
+        group = await lock_identifier_group(
+            session,
+            product_id=item["product_id"],
+            variant_id=item.get("product_variant_id"),
+            imei=imei_val,
+            serial_number=serial_val,
+        )
         if target == "WARRANTY_ACCEPTED":
-            await session.execute(
-                text("UPDATE product_imeis SET status='WARRANTY', updated_at=NOW() WHERE imei=:imei AND status='SOLD'"),
-                {"imei": imei_val},
+            await update_locked_identifier_group_status(
+                session,
+                group=group,
+                target_status="WARRANTY",
+                allowed_statuses={"SOLD"},
             )
-        elif target == "COMPLETED" and not replacement_imei:
-            await session.execute(
-                text("UPDATE product_imeis SET status='SOLD', location_id=NULL, updated_at=NOW() WHERE imei=:imei AND status='WARRANTY'"),
-                {"imei": imei_val},
+        elif target == "COMPLETED":
+            await update_locked_identifier_group_status(
+                session,
+                group=group,
+                target_status="SOLD",
+                allowed_statuses={"WARRANTY"},
+                clear_location=True,
             )
         elif target in {"REJECTED", "CANCELLED"}:
-            await session.execute(
-                text("UPDATE product_imeis SET status='SOLD', location_id=NULL, updated_at=NOW() WHERE imei=:imei AND status='WARRANTY'"),
-                {"imei": imei_val},
+            await update_locked_identifier_group_status(
+                session,
+                group=group,
+                target_status="SOLD",
+                allowed_statuses={"WARRANTY"},
+                clear_location=True,
             )

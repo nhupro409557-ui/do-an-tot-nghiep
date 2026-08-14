@@ -155,8 +155,12 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
       window.alert(`Không thể chuyển đơn hàng sang trạng thái Đang giao (SHIPPED). Phiếu xuất kho liên kết (${selectedOrder.outboundDocument.documentNo}) chưa được hoàn tất bốc hàng.`);
       return;
     }
+    const isCompleting = orderDraft.status === 'COMPLETED' && selectedOrder.status !== 'COMPLETED';
+    if (isCompleting && !window.confirm('Xác nhận khách đã nhận máy? Hệ thống sẽ ghi người thao tác và thời gian vào lịch sử đơn hàng.')) {
+      return;
+    }
     if (typeof saveOrderDraft === 'function') {
-      saveOrderDraft();
+      saveOrderDraft(undefined, isCompleting);
     }
   };
 
@@ -178,7 +182,11 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
         await openOrderPanel(order.id);
         return;
       }
-      await updateOrderStatus(order.id, nextStatus);
+      const customerReceiptConfirmed = nextStatus === 'COMPLETED';
+      if (customerReceiptConfirmed && !window.confirm('Xác nhận khách đã nhận máy? Hệ thống sẽ lưu thao tác này vào lịch sử đơn hàng.')) {
+        return;
+      }
+      await updateOrderStatus(order.id, nextStatus, customerReceiptConfirmed);
     } catch (error) {
       setStatusUpdateError(error instanceof Error ? error.message : 'Không thể cập nhật trạng thái đơn hàng.');
     }
@@ -222,7 +230,11 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                 <div className="font-mono text-xs">{order.orderCode || compactId(order.id)}</div>
                 {order.orderType && order.orderType !== 'SALE' && (
                   <div className="mt-1 inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[10px] font-bold text-cyan-700">
-                    {order.orderType === 'WARRANTY_REPLACEMENT' ? 'Giao máy bảo hành' : 'Giao máy đổi trả'}
+                    {order.orderType === 'WARRANTY_REPLACEMENT'
+                      ? 'Giao máy bảo hành'
+                      : order.orderType === 'WARRANTY_RETURN'
+                        ? 'Gửi lại máy đã sửa'
+                        : 'Giao máy đổi trả'}
                   </div>
                 )}
                 <div className="mt-1 text-xs text-slate-500">{order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '-'}</div>
@@ -439,9 +451,6 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                               </button>
                             ))}
                           </div>
-                          <p className="mt-3 text-xs leading-5 text-slate-500">
-                            Đây là môi trường mô phỏng cho đồ án. Hệ thống không gọi GHN/GHTK thật và không phát sinh vận chuyển thật.
-                          </p>
                         </AdminPanel>
                       )}
 
@@ -568,7 +577,7 @@ export default function AdminOrdersTab(props: AdminOrdersTabProps) {
                           <div>Hoàn tiền: {selectedOrder.refundedAt ? new Date(selectedOrder.refundedAt).toLocaleString('vi-VN') : 'Chưa hoàn tiền'}</div>
                           {(selectedOrder.payments || []).map((payment: any) => (
                             <div key={payment.id} className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
-                              <div className="font-bold">{payment.provider} Sandbox · Lần {payment.attemptNumber || 1}</div>
+                              <div className="font-bold">{payment.provider} · Lần {payment.attemptNumber || 1}</div>
                               <div>Trạng thái: {paymentStatusLabels[payment.status] || payment.status}</div>
                               <div>Mã giao dịch: {payment.transactionRef || '-'}</div>
                               <div>Hết hạn: {payment.expiresAt ? new Date(payment.expiresAt).toLocaleString('vi-VN') : '-'}</div>

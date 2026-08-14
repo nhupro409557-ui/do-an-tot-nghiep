@@ -4,6 +4,14 @@ import type { MockUser, PendingPasswordReset, PendingRegistration } from './auth
 export type { MockUser, PendingPasswordReset, PendingRegistration } from './authTypes';
 export { getAuthErrorMessage } from './authErrors';
 
+export type AdminMfaChallenge = {
+  requiresMfa?: boolean;
+  requiresMfaSetup?: boolean;
+  tempToken: string;
+  mfaSecret?: string;
+  otpauthUrl?: string;
+};
+
 let currentUser: MockUser | null = readAuthJson('auth_user', null);
 let currentProfile: any | null = readAuthJson('auth_user_profile', null);
 let authToken: string | null = null;
@@ -104,12 +112,12 @@ export async function signInWithEmailAndPassword(email: string, password: string
   return currentUser!;
 }
 
-export async function adminSignInWithEmailAndPassword(email: string, password: string): Promise<any> {
-  const payload = await apiRequest<any>('/auth/admin/login', {
+export async function adminSignInWithEmailAndPassword(email: string, password: string): Promise<MockUser | AdminMfaChallenge> {
+  const payload = await apiRequest<AdminMfaChallenge | { token: string; user: MockUser; profile: any }>('/auth/admin/login', {
     method: 'POST',
     body: JSON.stringify({ email: email.trim(), password }),
   });
-  if (payload.requiresMfa || payload.requiresMfaSetup) return payload;
+  if ('tempToken' in payload) return payload;
   persistAuth(payload);
   return currentUser!;
 }
@@ -121,6 +129,21 @@ export async function verifyAdminMfa(tempToken: string, code: string): Promise<M
     body: JSON.stringify({ code }),
   }));
   return currentUser!;
+}
+
+export async function startAdminMfaRecovery(tempToken: string) {
+  return apiRequest<{ ok: boolean; email: string; recoveryToken: string }>('/auth/admin/mfa-recovery/start', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${tempToken}` },
+  });
+}
+
+export async function verifyAdminMfaRecovery(tempToken: string, code: string) {
+  return apiRequest<AdminMfaChallenge>('/auth/admin/mfa-recovery/verify', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${tempToken}` },
+    body: JSON.stringify({ code: code.trim() }),
+  });
 }
 
 export async function createUserWithEmailAndPassword(email: string, password: string, displayName: string): Promise<MockUser> {
@@ -201,14 +224,14 @@ export async function deleteCurrentUser() {
 }
 
 export async function sendPasswordResetEmail(email: string) {
-  return apiRequest<{ email: string }>('/auth/forgot-password', {
+  return apiRequest<{ email: string; adminContext: boolean }>('/auth/forgot-password', {
     method: 'POST',
     body: JSON.stringify({ email: email.trim() }),
   });
 }
 
 export async function resendPasswordResetEmail(email: string) {
-  return apiRequest<{ email: string }>('/auth/forgot-password/resend', {
+  return apiRequest<{ email: string; adminContext: boolean }>('/auth/forgot-password/resend', {
     method: 'POST',
     body: JSON.stringify({ email: email.trim() }),
   });

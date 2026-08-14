@@ -42,8 +42,7 @@ async def ensure_return_to_stock_inbound(
                 """
                 SELECT id, code, name
                 FROM inventory_locations
-                WHERE is_active = TRUE
-                  AND status = 'ACTIVE'
+                    WHERE status = 'ACTIVE'
                   AND purpose IN ('STORAGE', 'VIRTUAL')
                 ORDER BY CASE WHEN code = 'MAIN' THEN 0 ELSE 1 END, sort_order, code
                 LIMIT 1

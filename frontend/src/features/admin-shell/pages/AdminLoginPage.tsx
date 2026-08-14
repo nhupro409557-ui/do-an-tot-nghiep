@@ -1,16 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, KeyRound, LockKeyhole, ShieldCheck, Store, UserRoundCog } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { adminSignInWithEmailAndPassword, getAuthErrorMessage, verifyAdminMfa } from '../../../services/authDb';
+import {
+  adminSignInWithEmailAndPassword,
+  getAuthErrorMessage,
+  startAdminMfaRecovery,
+  verifyAdminMfa,
+  verifyAdminMfaRecovery,
+} from '../../../services/authDb';
+import type { AdminMfaChallenge } from '../../../services/authDb';
 import { useAuth } from '../../../context/AuthContext';
-
-type MfaChallenge = {
-  requiresMfa?: boolean;
-  requiresMfaSetup?: boolean;
-  tempToken: string;
-  mfaSecret?: string;
-  otpauthUrl?: string;
-};
 
 export default function AdminLoginPage() {
   const navigate = useNavigate();
@@ -18,7 +17,11 @@ export default function AdminLoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
-  const [challenge, setChallenge] = useState<MfaChallenge | null>(null);
+  const [challenge, setChallenge] = useState<AdminMfaChallenge | null>(null);
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoveryToken, setRecoveryToken] = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -31,10 +34,11 @@ export default function AdminLoginPage() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError('');
+    setNotice('');
     setLoading(true);
     try {
       const result = await adminSignInWithEmailAndPassword(email.trim(), password);
-      if (result?.requiresMfa || result?.requiresMfaSetup) {
+      if ('tempToken' in result && (result.requiresMfa || result.requiresMfaSetup)) {
         setChallenge(result);
         setOtpCode('');
         return;
@@ -45,6 +49,55 @@ export default function AdminLoginPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleStartMfaRecovery() {
+    if (!challenge?.requiresMfa) return;
+    setError('');
+    setNotice('');
+    setLoading(true);
+    try {
+      const result = await startAdminMfaRecovery(challenge.tempToken);
+      setRecoveryEmail(result.email);
+      setRecoveryToken(result.recoveryToken);
+      setRecoveryCode('');
+      setNotice(`Mã khôi phục đã được gửi đến ${result.email}.`);
+    } catch (err: any) {
+      setError(err.message || 'Không thể gửi mã khôi phục 2FA.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyMfaRecovery(event: React.FormEvent) {
+    event.preventDefault();
+    if (!recoveryToken) return;
+    setError('');
+    setNotice('');
+    setLoading(true);
+    try {
+      const setupChallenge = await verifyAdminMfaRecovery(recoveryToken, recoveryCode);
+      setChallenge(setupChallenge);
+      setRecoveryEmail('');
+      setRecoveryToken('');
+      setRecoveryCode('');
+      setOtpCode('');
+      setNotice('Email đã được xác minh. Hãy thiết lập lại ứng dụng Authenticator.');
+    } catch (err: any) {
+      setError(err.message || 'Mã khôi phục không hợp lệ hoặc đã hết hạn.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleBackToLogin() {
+    setChallenge(null);
+    setRecoveryEmail('');
+    setRecoveryToken('');
+    setRecoveryCode('');
+    setOtpCode('');
+    setError('');
+    setNotice('');
   }
 
   async function handleVerifyMfa(event: React.FormEvent) {
@@ -70,7 +123,7 @@ export default function AdminLoginPage() {
             <ShieldCheck className="h-4 w-4 text-white" />
             Khu vực quản trị
           </div>
-          <h1 className="mt-8 text-3xl font-bold text-white">Đăng nhập Admin Console</h1>
+          <div className="mt-8 text-3xl font-bold text-white">Đăng nhập Admin Console</div>
           <p className="mt-3 max-w-md text-sm leading-6 text-red-50">
             Truy cập bảng điều khiển để quản lý sản phẩm, đơn hàng, voucher, tồn kho và dữ liệu vận hành.
           </p>
@@ -97,17 +150,26 @@ export default function AdminLoginPage() {
               {challenge ? <KeyRound className="h-6 w-6" /> : <UserRoundCog className="h-6 w-6" />}
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-slate-900">{challenge ? 'Xác thực MFA' : 'Đăng nhập quản trị'}</h2>
+              <h1 className="text-2xl font-bold text-slate-900">
+                {recoveryEmail ? 'Khôi phục mã 2FA' : challenge ? 'Xác thực MFA' : 'Đăng nhập quản trị'}
+              </h1>
               <p className="text-sm text-slate-500">
-                {challenge?.requiresMfaSetup ? 'Quét hoặc nhập secret vào Google Authenticator/Authy rồi nhập mã OTP.' : challenge ? 'Nhập mã OTP từ ứng dụng xác thực.' : 'Chỉ tài khoản có quyền admin mới truy cập được trang này.'}
+                {recoveryEmail
+                  ? `Nhập mã 6 số đã gửi đến ${recoveryEmail}.`
+                  : challenge?.requiresMfaSetup
+                    ? 'Quét hoặc nhập secret vào Google Authenticator/Authy rồi nhập mã OTP.'
+                    : challenge
+                      ? 'Nhập mã OTP từ ứng dụng xác thực.'
+                      : 'Chỉ tài khoản có quyền admin mới truy cập được trang này.'}
               </p>
             </div>
           </div>
 
-          {error && <div className="mb-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</div>}
+          {error && <div role="alert" className="mb-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</div>}
+          {notice && <div role="status" aria-live="polite" className="mb-5 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{notice}</div>}
 
           {!challenge ? (
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} aria-busy={loading} className="space-y-5">
               <label className="block">
                 <span className="mb-2 block text-sm font-bold text-slate-700">Email admin</span>
                 <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@company.vn" className="h-12 w-full rounded-md border border-slate-200 px-4 text-sm outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100" />
@@ -119,12 +181,45 @@ export default function AdminLoginPage() {
                   <input type="password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Nhập mật khẩu admin" className="h-12 w-full rounded-md border border-red-200 bg-red-50 pl-11 pr-4 text-sm text-red-900 outline-none transition placeholder:text-red-300 focus:border-red-500 focus:bg-white focus:ring-2 focus:ring-red-100" />
                 </div>
               </label>
+              <div className="text-right">
+                <Link to="/forgot-password?context=admin" className="text-sm font-semibold text-red-600 transition-colors hover:text-red-700 hover:underline">
+                  Quên mật khẩu?
+                </Link>
+              </div>
               <button type="submit" disabled={loading} className="flex h-12 w-full items-center justify-center rounded-md bg-red-600 px-4 text-sm font-bold text-white shadow-md shadow-red-200/50 transition hover:bg-red-700 disabled:opacity-70">
                 {loading ? 'Đang kiểm tra quyền...' : 'Tiếp tục'}
               </button>
             </form>
+          ) : recoveryEmail ? (
+            <form onSubmit={handleVerifyMfaRecovery} aria-busy={loading} className="space-y-5">
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-slate-700">Mã xác nhận qua Gmail</span>
+                <input
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  minLength={6}
+                  maxLength={6}
+                  required
+                  value={recoveryCode}
+                  onChange={(event) => setRecoveryCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  className="h-12 w-full rounded-md border border-slate-200 px-4 text-center font-mono text-lg tracking-[0.35em] outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
+                />
+              </label>
+              <button type="submit" disabled={loading || recoveryCode.length !== 6} className="flex h-12 w-full items-center justify-center rounded-md bg-red-600 px-4 text-sm font-bold text-white shadow-md shadow-red-200/50 transition hover:bg-red-700 disabled:opacity-70">
+                {loading ? 'Đang xác minh...' : 'Xác minh và đặt lại 2FA'}
+              </button>
+              <button type="button" disabled={loading} onClick={handleStartMfaRecovery} className="h-11 w-full rounded-md border border-red-200 px-4 text-sm font-bold text-red-600 disabled:opacity-70">
+                Gửi lại mã qua Gmail
+              </button>
+              <button type="button" onClick={handleBackToLogin} className="h-11 w-full rounded-md border border-slate-200 px-4 text-sm font-bold text-slate-700">
+                Quay lại đăng nhập
+              </button>
+            </form>
           ) : (
-            <form onSubmit={handleVerifyMfa} className="space-y-5">
+            <form onSubmit={handleVerifyMfa} aria-busy={loading} className="space-y-5">
               {challenge.requiresMfaSetup && (
                 <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
                   <div className="text-sm font-bold text-slate-800">Mã bí mật MFA</div>
@@ -134,12 +229,17 @@ export default function AdminLoginPage() {
               )}
               <label className="block">
                 <span className="mb-2 block text-sm font-bold text-slate-700">Mã OTP</span>
-                <input inputMode="numeric" pattern="[0-9]*" required value={otpCode} onChange={(event) => setOtpCode(event.target.value)} placeholder="123456" className="h-12 w-full rounded-md border border-slate-200 px-4 text-center font-mono text-lg tracking-[0.35em] outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100" />
+                <input inputMode="numeric" pattern="[0-9]*" required value={otpCode} onChange={(event) => setOtpCode(event.target.value)} placeholder="123456" autoComplete="one-time-code" autoFocus className="h-12 w-full rounded-md border border-slate-200 px-4 text-center font-mono text-lg tracking-[0.35em] outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100" />
               </label>
               <button type="submit" disabled={loading} className="flex h-12 w-full items-center justify-center rounded-md bg-red-600 px-4 text-sm font-bold text-white shadow-md shadow-red-200/50 transition hover:bg-red-700 disabled:opacity-70">
                 {loading ? 'Đang xác thực...' : 'Xác thực và vào Admin'}
               </button>
-              <button type="button" onClick={() => setChallenge(null)} className="h-11 w-full rounded-md border border-slate-200 px-4 text-sm font-bold text-slate-700">
+              {challenge.requiresMfa && (
+                <button type="button" disabled={loading} onClick={handleStartMfaRecovery} className="h-11 w-full rounded-md border border-red-200 px-4 text-sm font-bold text-red-600 disabled:opacity-70">
+                  Quên mã 2FA? Gửi mã qua Gmail
+                </button>
+              )}
+              <button type="button" onClick={handleBackToLogin} className="h-11 w-full rounded-md border border-slate-200 px-4 text-sm font-bold text-slate-700">
                 Quay lại đăng nhập
               </button>
             </form>

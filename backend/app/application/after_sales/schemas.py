@@ -46,6 +46,19 @@ class UpdateAfterSalesStatusRequest(BaseModel):
     repair_action: str | None = Field(default=None, max_length=2000)
     repair_parts: str | None = Field(default=None, max_length=2000)
     repair_cost: float = Field(default=0, ge=0)
+    repair_channel: str | None = Field(default=None, pattern="^(INTERNAL|MANUFACTURER)$")
+    repair_provider_name: str | None = Field(default=None, max_length=255)
+    return_fulfillment_method: str | None = Field(default=None, pattern="^(DELIVERY|STORE_PICKUP)$")
+    recipient_name: str | None = Field(default=None, min_length=2, max_length=255)
+    recipient_phone: str | None = Field(default=None, min_length=8, max_length=30)
+    shipping_address: str | None = Field(default=None, min_length=10, max_length=1000)
+    shipping_provider: str | None = Field(default=None, max_length=120)
+    customer_receipt_confirmed: bool = False
+
+
+class RepairedDeviceUsedIntakeRequest(BaseModel):
+    confirmed: bool = False
+    note: str | None = Field(default=None, max_length=2000)
 
 
 class InspectAfterSalesRequest(BaseModel):
@@ -57,6 +70,13 @@ class InspectAfterSalesRequest(BaseModel):
     exchange_fee: float | None = Field(default=None, ge=0)
     exchange_shipping_fee: float = Field(default=0, ge=0)
     inventory_disposition: str | None = Field(default=None, pattern="^(NEW_STOCK|USED_INTAKE|REPAIR|SCRAP)$")
+    repair_channel: str | None = Field(default=None, pattern="^(INTERNAL|MANUFACTURER)$")
+    repair_provider_name: str | None = Field(default=None, max_length=255)
+    return_fulfillment_method: str | None = Field(default=None, pattern="^(DELIVERY|STORE_PICKUP)$")
+    recipient_name: str | None = Field(default=None, min_length=2, max_length=255)
+    recipient_phone: str | None = Field(default=None, min_length=8, max_length=30)
+    shipping_address: str | None = Field(default=None, min_length=10, max_length=1000)
+    shipping_provider: str | None = Field(default=None, max_length=120)
 
 
 class AfterSalesTimelineNoteRequest(BaseModel):
@@ -64,8 +84,8 @@ class AfterSalesTimelineNoteRequest(BaseModel):
 
 
 class ImeiDispositionRequest(BaseModel):
-    status: str
-    reason: str = Field(min_length=3, max_length=2000)
+    status: str = Field(pattern="^(REPAIR_PENDING|REPAIRED|RTV_COMPLETED|LIQUIDATED|SCRAP)$")
+    reason: str = Field(default="Xử lý mã định danh lỗi.", min_length=3, max_length=2000)
     document_reference: str | None = Field(default=None, max_length=160)
     partner_name: str | None = Field(default=None, max_length=255)
     recovery_value: float | None = Field(default=None, ge=0)
