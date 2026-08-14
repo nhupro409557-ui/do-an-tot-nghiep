@@ -6,6 +6,7 @@ import type { Swiper as SwiperType } from 'swiper';
 import { Autoplay } from 'swiper/modules';
 import { CategoryMegaMenu } from '../../../components/layout/CategoryMegaMenu';
 import { ImageWithFallback } from '../../../components/ui/ImageWithFallback';
+import { resolveImageUrl } from '../../../services/productMedia';
 import { adminContentApi } from '../../admin-content/services/adminContentApi';
 
 import 'swiper/css';
@@ -205,7 +206,7 @@ export const HomeBanner = () => {
                   <Link to={banner.href || '/products'} className="relative block h-full w-full overflow-hidden bg-slate-100">
                     {banner.imageUrl ? (
                       <ImageWithFallback
-                        src={banner.imageUrl}
+                        src={resolveImageUrl(banner.imageUrl)}
                         alt={banner.title}
                         className="h-full w-full object-fill"
                         loading="eager"

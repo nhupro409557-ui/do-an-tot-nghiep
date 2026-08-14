@@ -200,19 +200,31 @@ def request_fingerprint(request: Request) -> str:
 def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
+def refresh_cookie_security() -> tuple[bool, str]:
+    secure = settings.frontend_url.strip().lower().startswith("https://")
+    return secure, "none" if secure else "lax"
+
 def set_refresh_cookie(response: Response, token: str) -> None:
+    secure, samesite = refresh_cookie_security()
     response.set_cookie(
         key=REFRESH_COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=secure,
+        samesite=samesite,
         max_age=REFRESH_TOKEN_DAYS * 24 * 60 * 60,
         path="/api/auth",
     )
 
 def clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(key=REFRESH_COOKIE_NAME, path="/api/auth")
+    secure, samesite = refresh_cookie_security()
+    response.delete_cookie(
+        key=REFRESH_COOKIE_NAME,
+        path="/api/auth",
+        secure=secure,
+        httponly=True,
+        samesite=samesite,
+    )
 
 async def audit_log(
     session: AsyncSession,

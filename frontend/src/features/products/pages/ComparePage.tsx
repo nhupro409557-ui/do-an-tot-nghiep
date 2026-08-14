@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { publicApi } from '../../../services/publicApi';
 import { ImageWithFallback } from '../../../components/ui/ImageWithFallback';
 import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
+import { formatCompareSpecValue } from './compareSpecValue';
 
 // Danh sách các thông số cần hiển thị
 const specKeys = [
@@ -176,7 +177,7 @@ export default function ComparePage() {
                         // Sử dụng font-mono để các thông số điện tử dóng hàng chuẩn xác
                         className="p-6 border-b border-gray-100 font-mono text-gray-800 tracking-tight text-[13px] md:text-sm"
                       >
-                        {product.specs?.[spec.key] || '-'}
+                        {formatCompareSpecValue(product.specs?.[spec.key])}
                       </m.td>
                     ))}
                   </AnimatePresence>

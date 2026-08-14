@@ -3,10 +3,10 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 from app.api.routers.ai_assistant import _traffic_origin
+from app.application.ai.historical_synthetic_classifier import candidate_log_ids
 from app.application.ai.schemas import AIAssistantRequest
 from app.application.ai.service_query_planner import build_service_query_plan
 from app.application.ai.use_cases import AIAssistantUseCase
-from scripts.classify_historical_ai_e2e_logs import candidate_log_ids
 
 
 class AIServiceQueryPlannerTest(unittest.TestCase):

@@ -13,6 +13,7 @@ import {
   type AIAssistantRequest,
 } from '../../services/aiAssistantApi';
 import robotAvatar from '../../assets/chatbot-robot.png';
+import { buildAssistantProductHref } from './assistantProductLink';
 
 type Message = {
   id: string;
@@ -339,9 +340,7 @@ export const AIChatWidget = () => {
                           {msg.products.map((product) => (
                             <a
                               key={product.id || product.slug || product.name}
-                              href={product.isUsed
-                                ? `/used-products/${product.slug || product.id}`
-                                : `/products/${product.slug || product.id}`}
+                              href={buildAssistantProductHref(product)}
                               aria-label={`Xem sản phẩm ${product.name}`}
                               className="flex gap-2 rounded-xl border border-gray-100 bg-gray-50 p-2.5 text-left hover:bg-red-50 hover:border-red-100 transition-colors"
                             >
