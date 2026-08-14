@@ -1,6 +1,20 @@
 from .common import *
 from .complete_order import CompleteOrderUseCase
 
+
+MOMO_TERMINAL_FAILURE_CODES = {1001, 1002, 1003, 1004, 1005, 1006, 1007, 1017, 1026}
+
+
+def is_momo_terminal_failure(result: dict | None) -> bool:
+    if not result or result.get("resultCode") is None:
+        return False
+    try:
+        result_code = int(result["resultCode"])
+    except (TypeError, ValueError):
+        return False
+    return result_code in MOMO_TERMINAL_FAILURE_CODES
+
+
 class PaymentUseCase:
     def __init__(self, *, session: AsyncSession) -> None:
         self._session = session
@@ -60,6 +74,39 @@ class PaymentUseCase:
                         order_id=payment.order_id,
                         status_value="PAID",
                         internal_note="Xác nhận thanh toán qua đối soát API MoMo.",
+                        changed_by="momo-query-api",
+                    )
+            payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
+            order = await self._session.get(Order, payment.order_id)
+
+        elif payment.status == "PENDING" and is_momo_terminal_failure(momo_result):
+            await self._session.rollback()
+            async with self._session.begin():
+                payment = await commerce_repo.get_payment_transaction_by_id_for_update(
+                    self._session,
+                    payment_id,
+                )
+                if payment is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Không tìm thấy giao dịch thanh toán.",
+                    )
+                if payment.status == "PENDING":
+                    result_code = int(momo_result["resultCode"])
+                    failure_message = str(
+                        momo_result.get("message") or f"MoMo resultCode={result_code}"
+                    )
+                    payment.status = "FAILED"
+                    payment.failed_at = now
+                    payment.raw_response = {
+                        **(payment.raw_response or {}),
+                        "query_api": momo_result,
+                        "failure_message": failure_message,
+                    }
+                    commerce_repo.save_model(self._session, payment)
+                    await self._mark_order_payment_failed_if_pending(
+                        order_id=payment.order_id,
+                        internal_note=f"Đối soát MoMo xác nhận thanh toán thất bại: resultCode={result_code}.",
                         changed_by="momo-query-api",
                     )
             payment = await commerce_repo.get_payment_transaction(self._session, payment_id)
