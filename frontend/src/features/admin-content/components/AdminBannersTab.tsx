@@ -2,6 +2,7 @@ import type React from 'react';
 import { useState } from 'react';
 import { Image, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { AdminBadge, AdminPanel, AdminTable, FileInput, Input, MediaPreview, SearchBox, Select, SubmitButtons } from '../../admin-shell/components/AdminDashboardParts';
+import { resolveImageUrl } from '../../../services/productMedia';
 
 type AdminBannersTabProps = Record<string, any>;
 
@@ -111,11 +112,12 @@ export default function AdminBannersTab(props: AdminBannersTabProps) {
         {filteredBanners.map((item: any) => {
           const product = Array.isArray(item.products) ? item.products[0] : null;
           const category = Array.isArray(item.categories) ? item.categories[0] : null;
+          const bannerImageUrl = item.bannerImageUrl || item.thumbnailUrl;
           return (
             <tr key={item.id}>
               <td className="px-4 py-3">
                 <div className="flex items-center gap-3">
-                  {item.bannerImageUrl || item.thumbnailUrl ? <img src={item.bannerImageUrl || item.thumbnailUrl} alt="" className="h-14 w-24 rounded-md object-cover" /> : <div className="flex h-14 w-24 items-center justify-center rounded-md bg-slate-100 text-slate-400"><Image className="h-5 w-5" /></div>}
+                  {bannerImageUrl ? <img src={resolveImageUrl(bannerImageUrl)} alt="" className="h-14 w-24 rounded-md object-cover" /> : <div className="flex h-14 w-24 items-center justify-center rounded-md bg-slate-100 text-slate-400"><Image className="h-5 w-5" /></div>}
                   <div>
                     <div className="font-semibold text-slate-900">{item.title}</div>
                     <div className="text-xs text-slate-500">{item.description || '-'}</div>

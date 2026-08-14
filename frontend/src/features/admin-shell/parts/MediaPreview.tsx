@@ -1,5 +1,6 @@
 import React from 'react';
 import { GripVertical, Star, X } from 'lucide-react';
+import { resolveImageUrl } from '../../../services/productMedia';
 
 export function MediaPreview({
   title,
@@ -52,7 +53,7 @@ export function MediaPreview({
               primaryItem === item ? 'border-amber-300 ring-2 ring-amber-100' : 'border-slate-200'
             } ${onReorder ? 'cursor-grab active:cursor-grabbing' : ''}`}
           >
-            <img src={item} alt="" className="h-full w-full object-contain" />
+            <img src={resolveImageUrl(item)} alt="" className="h-full w-full object-contain" />
             {onReorder && (
               <span className="absolute bottom-1 left-1 rounded bg-white/90 p-0.5 text-slate-500 shadow-sm" title="Kéo để đổi thứ tự">
                 <GripVertical className="h-3 w-3" />
