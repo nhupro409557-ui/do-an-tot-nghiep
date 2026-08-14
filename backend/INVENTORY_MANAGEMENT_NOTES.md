@@ -16,5 +16,6 @@
 
 - Font Arial tùy chỉnh chỉ được dùng khi đủ cả ba tệp thường, đậm và nghiêng; đồng thời phải
   đăng ký họ font với ReportLab để các thẻ in đậm/in nghiêng trong `Paragraph` được ánh xạ đúng.
-- Môi trường không có font Windows (như Vercel) dùng Roboto đóng gói cùng backend thay vì trả về
-  tên font `EMVArial-*` chưa đăng ký; cách này tránh lỗi 500 và vẫn giữ đầy đủ dấu tiếng Việt.
+- Môi trường không có font Windows (như Vercel) dùng bốn tệp Roboto đã rút gọn và đóng gói trong
+  `app/assets/fonts`; cách này tránh lỗi 500, giữ đầy đủ dấu tiếng Việt và không làm vượt giới hạn
+  dung lượng hàm serverless.

@@ -12,7 +12,6 @@ from docx.enum.section import WD_SECTION
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Pt
-from font_roboto import Roboto, RobotoBold, RobotoBoldItalic, RobotoItalic
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
@@ -37,6 +36,7 @@ RECEIPT_REASON_LABELS = {
     "NK_KHOI_TAO": "Nhập kho khởi tạo",
     "NK_KHAC": "Nhập khác",
 }
+PDF_FONT_DIR = Path(__file__).resolve().parents[2] / "assets" / "fonts"
 
 
 def _register_pdf_fonts() -> tuple[str, str, str]:
@@ -48,7 +48,12 @@ def _register_pdf_fonts() -> tuple[str, str, str]:
         font_paths = (regular, bold, italic, bold)
         family = "EMVArial"
     else:
-        font_paths = (Roboto, RobotoBold, RobotoItalic, RobotoBoldItalic)
+        font_paths = (
+            PDF_FONT_DIR / "Roboto-Regular.ttf",
+            PDF_FONT_DIR / "Roboto-Bold.ttf",
+            PDF_FONT_DIR / "Roboto-Italic.ttf",
+            PDF_FONT_DIR / "Roboto-BoldItalic.ttf",
+        )
         family = "EMVRoboto"
     try:
         normal_name = family
@@ -76,10 +81,10 @@ def _register_pdf_fonts() -> tuple[str, str, str]:
 def _register_packaged_pdf_fonts() -> tuple[str, str, str]:
     family = "EMVRoboto"
     faces = {
-        family: Roboto,
-        f"{family}-Bold": RobotoBold,
-        f"{family}-Italic": RobotoItalic,
-        f"{family}-BoldItalic": RobotoBoldItalic,
+        family: PDF_FONT_DIR / "Roboto-Regular.ttf",
+        f"{family}-Bold": PDF_FONT_DIR / "Roboto-Bold.ttf",
+        f"{family}-Italic": PDF_FONT_DIR / "Roboto-Italic.ttf",
+        f"{family}-BoldItalic": PDF_FONT_DIR / "Roboto-BoldItalic.ttf",
     }
     for name, path in faces.items():
         pdfmetrics.registerFont(TTFont(name, path))
