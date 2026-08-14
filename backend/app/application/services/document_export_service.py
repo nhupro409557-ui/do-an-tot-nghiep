@@ -12,6 +12,7 @@ from docx.enum.section import WD_SECTION
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Pt
+from font_roboto import Roboto, RobotoBold, RobotoBoldItalic, RobotoItalic
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
@@ -43,17 +44,53 @@ def _register_pdf_fonts() -> tuple[str, str, str]:
     regular = windows_fonts / "arial.ttf"
     bold = windows_fonts / "arialbd.ttf"
     italic = windows_fonts / "ariali.ttf"
+    if all(font_path.exists() for font_path in (regular, bold, italic)):
+        font_paths = (regular, bold, italic, bold)
+        family = "EMVArial"
+    else:
+        font_paths = (Roboto, RobotoBold, RobotoItalic, RobotoBoldItalic)
+        family = "EMVRoboto"
     try:
-        if regular.exists():
-            pdfmetrics.registerFont(TTFont("EMVArial", str(regular)))
-        if bold.exists():
-            pdfmetrics.registerFont(TTFont("EMVArial-Bold", str(bold)))
-        if italic.exists():
-            pdfmetrics.registerFont(TTFont("EMVArial-Italic", str(italic)))
-        return "EMVArial", "EMVArial-Bold", "EMVArial-Italic"
+        normal_name = family
+        bold_name = f"{family}-Bold"
+        italic_name = f"{family}-Italic"
+        bold_italic_name = f"{family}-BoldItalic"
+        pdfmetrics.registerFont(TTFont(normal_name, str(font_paths[0])))
+        pdfmetrics.registerFont(TTFont(bold_name, str(font_paths[1])))
+        pdfmetrics.registerFont(TTFont(italic_name, str(font_paths[2])))
+        pdfmetrics.registerFont(TTFont(bold_italic_name, str(font_paths[3])))
+        pdfmetrics.registerFontFamily(
+            family,
+            normal=normal_name,
+            bold=bold_name,
+            italic=italic_name,
+            boldItalic=bold_italic_name,
+        )
+        return normal_name, bold_name, italic_name
     except Exception:
-        pass
-    return "Helvetica", "Helvetica-Bold", "Helvetica-Oblique"
+        if family == "EMVArial":
+            return _register_packaged_pdf_fonts()
+        raise
+
+
+def _register_packaged_pdf_fonts() -> tuple[str, str, str]:
+    family = "EMVRoboto"
+    faces = {
+        family: Roboto,
+        f"{family}-Bold": RobotoBold,
+        f"{family}-Italic": RobotoItalic,
+        f"{family}-BoldItalic": RobotoBoldItalic,
+    }
+    for name, path in faces.items():
+        pdfmetrics.registerFont(TTFont(name, path))
+    pdfmetrics.registerFontFamily(
+        family,
+        normal=family,
+        bold=f"{family}-Bold",
+        italic=f"{family}-Italic",
+        boldItalic=f"{family}-BoldItalic",
+    )
+    return family, f"{family}-Bold", f"{family}-Italic"
 
 
 def _num(value: Any) -> Decimal:

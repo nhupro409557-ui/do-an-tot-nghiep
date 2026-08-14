@@ -21,6 +21,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "langgraph>=1.0.0",
     "reportlab>=4.2.0",
+    "font-roboto==0.0.1",
     "python-docx>=1.1.0",
     "cocoindex>=1.0.15",
     "tzdata>=2025.2",
@@ -30,6 +31,7 @@ dependencies = [
 test = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
+    "pypdf>=5.0.0",
 ]
 
 [build-system]

@@ -11,3 +11,10 @@
   Khóa advisory theo transaction ngăn nhiều request serverless cùng thay đổi schema.
 - Luồng cần kiểm tra sau triển khai: `DRAFT` → `APPROVED` → `COMPLETED`, tồn thực tế tăng,
   giá vốn bình quân cập nhật và chứng từ công nợ/thanh toán không bị tạo trùng khi thử lại.
+
+## Xuất PDF phiếu nhập
+
+- Font Arial tùy chỉnh chỉ được dùng khi đủ cả ba tệp thường, đậm và nghiêng; đồng thời phải
+  đăng ký họ font với ReportLab để các thẻ in đậm/in nghiêng trong `Paragraph` được ánh xạ đúng.
+- Môi trường không có font Windows (như Vercel) dùng Roboto đóng gói cùng backend thay vì trả về
+  tên font `EMVArial-*` chưa đăng ký; cách này tránh lỗi 500 và vẫn giữ đầy đủ dấu tiếng Việt.
