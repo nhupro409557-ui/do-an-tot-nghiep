@@ -1,4 +1,5 @@
 import React from 'react';
+import { resolveImageUrl } from '../../../services/productMedia';
 
 export function VideoPreview({
   title,
@@ -9,14 +10,15 @@ export function VideoPreview({
   url: string;
   onRemove?: () => void;
 }) {
+  const mediaUrl = resolveImageUrl(url);
   const embedUrl = (() => {
-    if (url.includes('youtube.com/embed/')) return url;
-    if (url.includes('youtu.be/'))
-      return `https://www.youtube.com/embed/${url.split('youtu.be/')[1].split(/[/?&]/)[0]}`;
-    if (url.includes('youtube.com/shorts/'))
-      return `https://www.youtube.com/embed/${url.split('youtube.com/shorts/')[1].split(/[/?&]/)[0]}`;
-    if (url.includes('youtube.com/watch') && url.includes('v='))
-      return `https://www.youtube.com/embed/${url.split('v=')[1].split('&')[0]}`;
+    if (mediaUrl.includes('youtube.com/embed/')) return mediaUrl;
+    if (mediaUrl.includes('youtu.be/'))
+      return `https://www.youtube.com/embed/${mediaUrl.split('youtu.be/')[1].split(/[/?&]/)[0]}`;
+    if (mediaUrl.includes('youtube.com/shorts/'))
+      return `https://www.youtube.com/embed/${mediaUrl.split('youtube.com/shorts/')[1].split(/[/?&]/)[0]}`;
+    if (mediaUrl.includes('youtube.com/watch') && mediaUrl.includes('v='))
+      return `https://www.youtube.com/embed/${mediaUrl.split('v=')[1].split('&')[0]}`;
     return '';
   })();
   return (
@@ -32,7 +34,7 @@ export function VideoPreview({
             allowFullScreen
           />
         ) : (
-          <video src={url} controls className="max-h-72 w-full rounded-lg bg-black" />
+          <video src={mediaUrl} controls className="max-h-72 w-full rounded-lg bg-black" />
         )}
         {onRemove && (
           <div className="mt-3 flex justify-end">

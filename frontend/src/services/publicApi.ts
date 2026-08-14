@@ -1,4 +1,5 @@
 import { request } from './apiClient';
+import { formatVideoMediaData } from './contentMedia';
 import { formatProductDemoData, resolveImageUrl } from './productMedia';
 
 function getAnalyticsSessionId() {
@@ -263,14 +264,7 @@ export const publicApi = {
       if (params.limit) search.set('limit', String(params.limit));
       const data = await request<any>(`/videos${search.toString() ? `?${search.toString()}` : ''}`);
       const items = Array.isArray(data) ? data : data.items || [];
-      return items.map((video: any) => {
-        if (video.product) {
-          video.product = formatProductDemoData(video.product);
-        }
-        if (video.videoUrl) video.videoUrl = resolveImageUrl(video.videoUrl);
-        if (video.thumbnailUrl) video.thumbnailUrl = resolveImageUrl(video.thumbnailUrl);
-        return video;
-      });
+      return items.map(formatVideoMediaData);
     } catch {
       return [];
     }
@@ -279,7 +273,9 @@ export const publicApi = {
     const search = new URLSearchParams();
     search.set('page', String(params.page || 1));
     search.set('limit', String(params.limit || 24));
-    return request<any>(`/videos?${search.toString()}`);
+    const data = await request<any>(`/videos?${search.toString()}`);
+    const items = (Array.isArray(data) ? data : data.items || []).map(formatVideoMediaData);
+    return Array.isArray(data) ? items : { ...data, items };
   },
   recordVideoView: (videoId: string, data: any = {}, deviceId?: string) => request<any>(`/videos/${encodeURIComponent(videoId)}/view`, {
     method: 'POST',

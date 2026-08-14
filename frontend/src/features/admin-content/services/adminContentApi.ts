@@ -1,4 +1,5 @@
 import { request } from '../../../services/apiClient';
+import { formatVideoMediaData } from '../../../services/contentMedia';
 
 export const adminContentApi = {
   listBanners: () => request<any[]>('/banners'),
@@ -11,7 +12,7 @@ export const adminContentApi = {
     method: 'PATCH',
     body: JSON.stringify(data),
   }),
-  adminListContent: () => request<any[]>('/admin/content'),
+  adminListContent: () => request<any[]>('/admin/content').then((items) => items.map(formatVideoMediaData)),
   adminCreateContent: (data: any) => request<{ id: string }>('/admin/content', {
     method: 'POST',
     body: JSON.stringify(data),
@@ -21,7 +22,7 @@ export const adminContentApi = {
     body: JSON.stringify(data),
   }),
   adminDeleteContent: (id: string) => request(`/admin/content/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  adminListVideos: () => request<any[]>('/admin/videos'),
+  adminListVideos: () => request<any[]>('/admin/videos').then((items) => items.map(formatVideoMediaData)),
   adminCreateVideo: (data: any) => request<{ id: string }>('/admin/videos', {
     method: 'POST',
     body: JSON.stringify(data),
