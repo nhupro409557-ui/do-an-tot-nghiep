@@ -1,6 +1,6 @@
 import { request } from './apiClient';
 import { formatVideoMediaData } from './contentMedia';
-import { formatProductDemoData, resolveImageUrl } from './productMedia';
+import { formatProductDemoData, formatProductImageGalleryData, resolveImageUrl } from './productMedia';
 
 function getAnalyticsSessionId() {
   const key = 'catalog_analytics_session_id';
@@ -102,7 +102,8 @@ export const publicApi = {
     if (params.page) search.set('page', String(params.page));
     if (params.limit) search.set('limit', String(params.limit));
     try {
-      return await request<any>(`/catalog/images${search.toString() ? `?${search.toString()}` : ''}`);
+      const data = await request<any>(`/catalog/images${search.toString() ? `?${search.toString()}` : ''}`);
+      return formatProductImageGalleryData(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       if (!message.includes('404')) throw error;
@@ -167,7 +168,7 @@ export const publicApi = {
       const totalImages = items.reduce((sum: number, item: any) => sum + Number(item.imageCount || 0), 0);
       const totalPages = Math.max(1, Math.ceil(totalProducts / limit));
       const start = (page - 1) * limit;
-      return {
+      return formatProductImageGalleryData({
         items: items.slice(start, start + limit),
         categories: Array.from(categoriesMap.values()).sort((a, b) => b.count - a.count),
         totalImages,
@@ -176,14 +177,15 @@ export const publicApi = {
         limit,
         totalPages,
         hasMore: page < totalPages,
-      };
+      });
     }
   },
 
   resolveProductImage: async (viewId: string, params: { limit?: number } = {}) => {
     const search = new URLSearchParams();
     if (params.limit) search.set('limit', String(params.limit));
-    return request<any>(`/catalog/images/resolve/${encodeURIComponent(viewId)}${search.toString() ? `?${search.toString()}` : ''}`);
+    const data = await request<any>(`/catalog/images/resolve/${encodeURIComponent(viewId)}${search.toString() ? `?${search.toString()}` : ''}`);
+    return formatProductImageGalleryData(data);
   },
 
   parseSearchIntent: (data: any) => request<any>('/catalog/search-intent', {
