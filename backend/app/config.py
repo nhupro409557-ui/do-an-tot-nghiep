@@ -1,12 +1,23 @@
+import hashlib
 import os
-import secrets
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
+DEFAULT_DATABASE_URL = "postgresql+asyncpg://postgres:anhnhu057@localhost:5432/postgres"
+
+
+def default_jwt_secret_key() -> str:
+    """Keep JWT signatures stable when serverless instances share one database."""
+    database_url = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+    material = f"electromart-jwt-fallback:{database_url}".encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
 class Settings(BaseSettings):
-    database_url: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:anhnhu057@localhost:5432/postgres")
-    jwt_secret_key: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
+    database_url: str = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+    jwt_secret_key: str = Field(default_factory=default_jwt_secret_key)
     jwt_algorithm: str = "HS256"
     redis_url: str = "redis://localhost:6379/0"
     ai_rate_limit_per_minute: int = 20
