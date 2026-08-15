@@ -8,6 +8,7 @@ from app.infrastructure.database.repositories.warranty_snapshot import (
     order_item_effective_warranty_months_sql,
     order_item_extra_warranty_months_lateral_sql,
 )
+from app.infrastructure.storage import media_storage
 
 
 ACTIVE_STATUSES = (
@@ -706,8 +707,8 @@ async def list_requests(
                            'id', a.id::text,
                            'originalName', a.original_name,
                            'url', CASE
-                               WHEN a.storage_key LIKE 'uploads/%' THEN '/media/' || substr(a.storage_key, 9)
-                               ELSE '/media/' || ltrim(a.storage_key, '/')
+                               WHEN a.storage_key LIKE 'uploads/%' THEN :media_public_path || '/' || substr(a.storage_key, 9)
+                               ELSE :media_public_path || '/' || ltrim(a.storage_key, '/')
                            END,
                            'contentType', a.content_type,
                            'sizeBytes', a.size_bytes,
@@ -726,7 +727,7 @@ async def list_requests(
             OFFSET :offset LIMIT :limit
             """
         ),
-        params,
+        {**params, "media_public_path": media_storage.public_path},
     )
     return {
         "items": [dict(row._mapping) for row in result],

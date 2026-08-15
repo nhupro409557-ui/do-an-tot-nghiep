@@ -2,12 +2,14 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.shared.exceptions import BusinessException
+
 from app.infrastructure.storage import media_storage
+from app.shared.exceptions import BusinessException
 
 
 def managed_media_urls(urls: list[str]) -> list[str]:
     return [url for url in urls if url and media_storage.file_key_from_url(url)]
+
 
 async def list_assets_by_public_urls(session: AsyncSession, urls: list[str]) -> list[dict]:
     if not urls:

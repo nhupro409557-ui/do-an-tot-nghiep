@@ -2,11 +2,10 @@ import unicodedata
 from uuid import UUID
 
 from fastapi import HTTPException
-
-from app.infrastructure.storage import media_storage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.repositories import product_repo
+from app.infrastructure.storage import media_storage
 
 
 PRODUCT_PUBLICATION_STATUSES = {"ACTIVE", "INACTIVE", "DISCONTINUED"}
