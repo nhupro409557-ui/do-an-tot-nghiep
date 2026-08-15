@@ -19,6 +19,7 @@ from app.api.routers.commerce import router as commerce_router
 from app.api.routers.content import router as content_router
 from app.api.routers.after_sales import router as after_sales_router
 from app.api.routers.loyalty import router as loyalty_router
+from app.api.routers.media import router as media_router
 from app.api.routers.storefront import router as storefront_router
 from app.api.routers.users import router as users_router
 from app.api.routers.used_products import router as used_products_router
@@ -66,7 +67,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.mount("/uploads", StaticFiles(directory="uploads", check_dir=False), name="uploads")
+app.mount(
+    "/uploads",
+    StaticFiles(directory=settings.media_local_directory, check_dir=False),
+    name="uploads",
+)
 
 
 SENSITIVE_AUDIT_KEYS = {"password", "token", "secret", "mfa_secret", "authorization", "refresh_token"}
@@ -218,3 +223,4 @@ app.include_router(content_router, prefix="/api")
 app.include_router(after_sales_router, prefix="/api")
 app.include_router(storefront_router, prefix="/api")
 app.include_router(used_products_router, prefix="/api")
+app.include_router(media_router)

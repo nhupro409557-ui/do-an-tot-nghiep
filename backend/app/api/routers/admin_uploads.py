@@ -11,6 +11,7 @@ from app.config import settings
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.database.session import get_session
+from app.infrastructure.storage import StorageReadOnlyError, media_storage
 
 
 router = APIRouter(prefix="/uploads")
@@ -92,50 +93,14 @@ async def create_presigned_upload(
     if payload.size > max_size:
         raise HTTPException(status_code=400, detail="File is too large.")
     file_key = f"{payload.folder}/{uuid4().hex}{extension}"
-    if not all([settings.s3_bucket, settings.s3_access_key_id, settings.s3_secret_access_key, settings.s3_public_base_url]):
-        base_url = str(request.base_url).rstrip("/")
-        public_url = f"{base_url}/uploads/{file_key}"
-        await session.execute(
-            text(
-                """
-                INSERT INTO media_assets (id, public_url, file_key, folder, content_type, size_bytes, created_at)
-                VALUES (:id, :public_url, :file_key, :folder, :content_type, :size_bytes, NOW())
-                """
-            ),
-            {
-                "id": uuid4(),
-                "public_url": public_url,
-                "file_key": file_key,
-                "folder": payload.folder,
-                "content_type": payload.contentType,
-                "size_bytes": payload.size,
-            }
+    if not media_storage.supports_runtime_upload:
+        raise HTTPException(
+            status_code=409,
+            detail="Kho bundled chỉ đọc; hãy thêm tệp vào Git rồi triển khai lại.",
         )
-        await session.commit()
-        return {
-            "uploadUrl": f"{base_url}/api/admin/uploads/local/{file_key}",
-            "fileKey": file_key,
-            "publicUrl": public_url,
-            "expiresIn": settings.s3_presign_expires_seconds,
-            "storage": "local",
-        }
 
-    import boto3
-
-    client = boto3.client(
-        "s3",
-        endpoint_url=settings.s3_endpoint_url or None,
-        region_name=settings.s3_region,
-        aws_access_key_id=settings.s3_access_key_id,
-        aws_secret_access_key=settings.s3_secret_access_key,
-    )
-    upload_url = client.generate_presigned_url(
-        "put_object",
-        Params={"Bucket": settings.s3_bucket, "Key": file_key, "ContentType": payload.contentType},
-        ExpiresIn=settings.s3_presign_expires_seconds,
-        HttpMethod="PUT",
-    )
-    public_url = f"{settings.s3_public_base_url.rstrip('/')}/{file_key}"
+    base_url = str(request.base_url).rstrip("/")
+    public_url = media_storage.public_url(file_key, base_url)
     await session.execute(
         text(
             """
@@ -153,11 +118,20 @@ async def create_presigned_upload(
         }
     )
     await session.commit()
+    if media_storage.driver == "s3":
+        return {
+            "uploadUrl": media_storage.create_presigned_put_url(file_key, payload.contentType),
+            "fileKey": file_key,
+            "publicUrl": public_url,
+            "expiresIn": settings.s3_presign_expires_seconds,
+            "storage": "s3",
+        }
     return {
-        "uploadUrl": upload_url,
+        "uploadUrl": f"{base_url}/api/admin/uploads/local/{file_key}",
         "fileKey": file_key,
         "publicUrl": public_url,
         "expiresIn": settings.s3_presign_expires_seconds,
+        "storage": "local",
     }
 
 
@@ -172,6 +146,11 @@ async def upload_local_file(
     if folder not in ALLOWED_UPLOAD_FOLDERS:
         raise HTTPException(status_code=400, detail="Invalid upload folder.")
     require_upload_permission(folder, permissions)
+    if media_storage.driver != "local":
+        raise HTTPException(
+            status_code=409,
+            detail="Endpoint upload local không khả dụng với kho lưu trữ hiện tại.",
+        )
     safe_filename = Path(filename).name
     content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
     allowed_types = {**ALLOWED_IMAGE_TYPES, **ALLOWED_VIDEO_TYPES}
@@ -198,13 +177,13 @@ async def upload_local_file(
         raise HTTPException(status_code=400, detail="Content module only accepts JPG, PNG, WEBP, MP4, WEBM.")
     if len(body) > max_size:
         raise HTTPException(status_code=400, detail="File is too large.")
-    upload_dir = Path("uploads") / folder
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    (upload_dir / safe_filename).write_bytes(body)
-    
     base_url = str(request.base_url).rstrip("/")
-    public_url = f"{base_url}/uploads/{folder}/{safe_filename}"
     file_key = f"{folder}/{safe_filename}"
+    try:
+        media_storage.write_bytes(file_key, body, content_type)
+    except StorageReadOnlyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    public_url = media_storage.public_url(file_key, base_url)
     exists = await session.scalar(
         text("SELECT EXISTS(SELECT 1 FROM media_assets WHERE public_url = :public_url)"),
         {"public_url": public_url}
