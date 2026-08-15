@@ -7,32 +7,37 @@ from app.infrastructure.storage import media_storage
 from app.shared.exceptions import BusinessException
 
 
-def managed_media_urls(urls: list[str]) -> list[str]:
-    return [url for url in urls if url and media_storage.file_key_from_url(url)]
+def managed_media_keys(references: list[str]) -> list[str]:
+    keys: list[str] = []
+    for reference in references:
+        file_key = media_storage.file_key_from_reference(reference) if reference else None
+        if file_key and file_key not in keys:
+            keys.append(file_key)
+    return keys
 
 
-async def list_assets_by_public_urls(session: AsyncSession, urls: list[str]) -> list[dict]:
-    if not urls:
+async def list_assets_by_file_keys(session: AsyncSession, file_keys: list[str]) -> list[dict]:
+    if not file_keys:
         return []
     result = await session.execute(
-        text("SELECT id, public_url, file_key, folder, associated_entity_id FROM media_assets WHERE public_url = ANY(:urls)"),
-        {"urls": urls}
+        text("SELECT id, public_url, file_key, folder, associated_entity_id FROM media_assets WHERE file_key = ANY(:file_keys)"),
+        {"file_keys": file_keys}
     )
     return [dict(r) for r in result.mappings().all()]
 
 async def associate_assets_with_entity(session: AsyncSession, urls: list[str], entity_type: str, entity_id: UUID) -> None:
-    urls = managed_media_urls(urls)
-    if urls:
+    file_keys = managed_media_keys(urls)
+    if file_keys:
         await session.execute(
             text(
                 """
                 UPDATE media_assets
                 SET associated_entity_type = :entity_type,
                     associated_entity_id = :entity_id
-                WHERE public_url = ANY(:urls)
+                WHERE file_key = ANY(:file_keys)
                 """
             ),
-            {"urls": urls, "entity_type": entity_type, "entity_id": entity_id}
+            {"file_keys": file_keys, "entity_type": entity_type, "entity_id": entity_id}
         )
     await session.execute(
         text(
@@ -42,28 +47,28 @@ async def associate_assets_with_entity(session: AsyncSession, urls: list[str], e
                 associated_entity_id = NULL
             WHERE associated_entity_id = :entity_id
               AND associated_entity_type = :entity_type
-              AND NOT (public_url = ANY(:urls))
+              AND NOT (file_key = ANY(:file_keys))
             """
         ),
-        {"urls": urls or [""], "entity_type": entity_type, "entity_id": entity_id}
+        {"file_keys": file_keys or [""], "entity_type": entity_type, "entity_id": entity_id}
     )
 
 async def validate_media_assets(session: AsyncSession, *, entity_id: UUID, urls: list[str], allowed_folder: str, parent_id: UUID | None = None) -> None:
-    uploaded_urls = managed_media_urls(urls)
-    if not uploaded_urls:
+    uploaded_keys = managed_media_keys(urls)
+    if not uploaded_keys:
         return
 
-    assets = await list_assets_by_public_urls(session, uploaded_urls)
-    assets_by_url = {asset["public_url"]: asset for asset in assets}
+    assets = await list_assets_by_file_keys(session, uploaded_keys)
+    assets_by_key = {asset["file_key"]: asset for asset in assets}
 
-    for url in uploaded_urls:
-        asset = assets_by_url.get(url)
+    for file_key in uploaded_keys:
+        asset = assets_by_key.get(file_key)
         if not asset:
             raise HTTPException(
                 status_code=400,
                 detail={
                     "code": "MEDIA_ASSET_NOT_FOUND",
-                    "message": f"Tệp media {url} chưa được upload hợp lệ.",
+                    "message": f"Tệp media {file_key} chưa được upload hợp lệ.",
                 }
             )
         if asset["folder"] != allowed_folder:
@@ -79,7 +84,7 @@ async def validate_media_assets(session: AsyncSession, *, entity_id: UUID, urls:
                 status_code=400,
                 detail={
                     "code": "MEDIA_ASSET_ALREADY_ASSOCIATED",
-                    "message": f"Tệp media {url} đã được sử dụng bởi thực thể khác.",
+                    "message": f"Tệp media {file_key} đã được sử dụng bởi thực thể khác.",
                 }
             )
 
@@ -92,8 +97,8 @@ async def claim_media_assets(
     allowed_folder: str,
     parent_id: UUID | None = None,
 ) -> None:
-    uploaded = managed_media_urls(urls)
-    if uploaded:
+    uploaded_keys = managed_media_keys(urls)
+    if uploaded_keys:
         rows = (
             await session.execute(
                 text(
@@ -101,18 +106,18 @@ async def claim_media_assets(
                     UPDATE media_assets
                     SET associated_entity_type = :entity_type,
                         associated_entity_id = :entity_id
-                    WHERE public_url = ANY(:urls)
+                    WHERE file_key = ANY(:file_keys)
                       AND folder = :allowed_folder
                       AND (
                           associated_entity_id IS NULL
                           OR associated_entity_id = :entity_id
                           OR (CAST(:parent_id AS UUID) IS NOT NULL AND associated_entity_id = CAST(:parent_id AS UUID))
                       )
-                    RETURNING public_url
+                    RETURNING file_key
                     """
                 ),
                 {
-                    "urls": uploaded,
+                    "file_keys": uploaded_keys,
                     "entity_type": entity_type,
                     "entity_id": entity_id,
                     "parent_id": parent_id,
@@ -121,7 +126,7 @@ async def claim_media_assets(
             )
         ).scalars().all()
 
-        if set(rows) != set(uploaded):
+        if set(rows) != set(uploaded_keys):
             raise BusinessException(
                 409,
                 "MEDIA_ASSET_CLAIM_FAILED",
@@ -137,10 +142,10 @@ async def claim_media_assets(
                 associated_entity_id = NULL
             WHERE associated_entity_id = :entity_id
               AND associated_entity_type = :entity_type
-              AND NOT (public_url = ANY(:urls))
+              AND NOT (file_key = ANY(:file_keys))
             """
         ),
-        {"urls": uploaded or [""], "entity_type": entity_type, "entity_id": entity_id},
+        {"file_keys": uploaded_keys or [""], "entity_type": entity_type, "entity_id": entity_id},
     )
 
 
@@ -154,7 +159,7 @@ async def assert_all_product_media_claimed(
     external = [
         url
         for url in urls
-        if url and not url.startswith("/images/") and not media_storage.file_key_from_url(url)
+        if url and not url.startswith("/images/") and not media_storage.file_key_from_reference(url)
     ]
     if external:
         raise BusinessException(400, "MEDIA_EXTERNAL_NOT_ALLOWED", "Media sản phẩm phải được upload qua hệ thống.")

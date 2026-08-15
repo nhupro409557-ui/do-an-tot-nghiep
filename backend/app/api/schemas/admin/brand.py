@@ -1,6 +1,8 @@
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.api.schemas.media_reference import normalize_media_reference
 
 
 class BrandPayload(BaseModel):
@@ -14,6 +16,8 @@ class BrandPayload(BaseModel):
     logoAltText: str | None = Field(default=None, max_length=255)
     landingTitle: str | None = Field(default=None, max_length=255)
     version: int | None = Field(default=None, ge=1)
+
+    _normalize_media = field_validator("logoUrl", mode="before")(normalize_media_reference)
 
 class BrandCodeCheckPayload(BaseModel):
     code: str = Field(min_length=1, max_length=80)

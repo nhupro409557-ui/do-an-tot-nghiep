@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+
+from app.api.schemas.media_reference import normalize_media_reference
 
 
 class CategoryPayload(BaseModel):
@@ -24,6 +26,8 @@ class CategoryPayload(BaseModel):
     warrantyPolicy: dict = Field(default_factory=dict)
     allowSpecTypeMigration: bool = False
     version: int | None = Field(default=None, ge=1)
+
+    _normalize_media = field_validator("iconUrl", "bannerUrl", mode="before")(normalize_media_reference)
 
 class CategorySlugCheckPayload(BaseModel):
     slug: str = Field(min_length=1, max_length=120)

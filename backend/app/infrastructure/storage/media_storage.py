@@ -14,6 +14,16 @@ class StorageReadOnlyError(RuntimeError):
 
 class MediaStorage:
     ALLOWED_DRIVERS = {"auto", "local", "bundled", "s3"}
+    MANAGED_ROOT_FOLDERS = {
+        "after-sales",
+        "brands",
+        "categories",
+        "content",
+        "inventory",
+        "products",
+        "reviews",
+        "used-products",
+    }
 
     def __init__(self, storage_settings=settings):
         self.settings = storage_settings
@@ -100,7 +110,37 @@ class MediaStorage:
                     return None
         return None
 
+    def file_key_from_reference(self, reference: str) -> str | None:
+        file_key = self.file_key_from_url(reference)
+        if file_key:
+            return file_key
+
+        parsed_reference = urlparse(str(reference or "").strip())
+        if parsed_reference.scheme or parsed_reference.netloc:
+            return None
+        candidate = unquote(parsed_reference.path).replace("\\", "/").lstrip("/")
+        if not candidate:
+            return None
+        root_folder = candidate.split("/", 1)[0]
+        if root_folder not in self.MANAGED_ROOT_FOLDERS:
+            return None
+        try:
+            return self._normalize_file_key(candidate)
+        except ValueError:
+            return None
+
+    def is_managed_reference_candidate(self, reference: str) -> bool:
+        parsed_reference = urlparse(str(reference or "").strip())
+        path = unquote(parsed_reference.path).replace("\\", "/")
+        if path.startswith(f"{self.public_path}/") or path.startswith("/uploads/"):
+            return True
+        candidate = path.lstrip("/")
+        return candidate.split("/", 1)[0] in self.MANAGED_ROOT_FOLDERS
+
     def normalize_storage_key(self, storage_key: str) -> str:
+        reference_key = self.file_key_from_reference(storage_key)
+        if reference_key:
+            return reference_key
         normalized = str(storage_key or "").strip().replace("\\", "/").lstrip("/")
         if normalized.startswith("uploads/"):
             normalized = normalized[len("uploads/"):]

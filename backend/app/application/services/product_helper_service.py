@@ -159,7 +159,7 @@ def validate_optimized_media(payload: object) -> None:
     for image in images:
         if image and not (
             image.startswith("/images/")
-            or media_storage.file_key_from_url(image)
+            or media_storage.file_key_from_reference(image)
             or image.startswith("data:")
         ):
             raise HTTPException(status_code=400, detail=f"Định dạng URL ảnh không hợp lệ: {image}")

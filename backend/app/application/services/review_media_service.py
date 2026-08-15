@@ -21,7 +21,7 @@ async def delete_owned_review_images(*, urls: list[str], user_id: UUID, product_
     allowed_extensions = set(ALLOWED_REVIEW_IMAGE_TYPES.values())
 
     for raw_url in urls:
-        file_key = media_storage.file_key_from_url(str(raw_url))
+        file_key = media_storage.file_key_from_reference(str(raw_url))
         if not file_key or not file_key.startswith(expected_prefix):
             continue
         if not any(file_key.lower().endswith(extension) for extension in allowed_extensions):
@@ -89,8 +89,12 @@ async def upload_review_images(
             except StorageReadOnlyError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             created_keys.append(file_key)
-            public_url = media_storage.public_url(file_key, base_url)
-            results.append({"url": public_url})
+            results.append(
+                {
+                    "fileKey": file_key,
+                    "url": media_storage.public_url(file_key, base_url),
+                }
+            )
     except Exception:
         for file_key in created_keys:
             try:

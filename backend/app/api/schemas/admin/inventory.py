@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+
+from app.api.schemas.media_reference import normalize_media_reference, normalize_media_reference_items
 
 RECEIPT_STATUS_PATTERN = "^(DRAFT|PROCESSING_IMEI|PENDING_APPROVAL|PENDING_SHORTAGE_APPROVAL|APPROVED|COMPLETED|CANCELLED)$"
 
@@ -42,6 +44,8 @@ class InventoryReceiptAttachmentPayload(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     url: str = Field(min_length=1, max_length=1000)
     note: str | None = Field(default=None, max_length=500)
+
+    _normalize_media = field_validator("url", mode="before")(normalize_media_reference)
 
 class InventoryReceiptAttachmentsPayload(BaseModel):
     attachments: list[InventoryReceiptAttachmentPayload] = Field(default_factory=list, max_length=20)
@@ -127,6 +131,8 @@ class InventoryReceiptLineQualityPayload(BaseModel):
     failedLocationId: UUID | None = None
     failedImeis: list[str] = Field(default_factory=list, max_length=500)
     failedSerialNumbers: list[str] = Field(default_factory=list, max_length=500)
+
+    _normalize_media = field_validator("images", mode="before")(normalize_media_reference_items)
 
 class InventoryReceiptQualityPayload(BaseModel):
     qualityStatus: str = Field(pattern="^(PENDING|PASSED|FAILED)$")

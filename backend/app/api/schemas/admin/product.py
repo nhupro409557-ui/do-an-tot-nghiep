@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+
+from app.api.schemas.media_reference import normalize_media_reference, normalize_media_reference_list
 
 
 class ProductBulkActionPayload(BaseModel):
@@ -31,6 +33,9 @@ class ProductVariantPayload(BaseModel):
     compareAtPrice: float | None = Field(default=None, ge=0)
     status: str = Field(default="active", max_length=50)
     attributes: dict = Field(default_factory=dict)
+
+    _normalize_media = field_validator("imageUrl", mode="before")(normalize_media_reference)
+    _normalize_media_list = field_validator("images", mode="before")(normalize_media_reference_list)
 
 class ProductAccessoryOfferPayload(BaseModel):
     productId: UUID
@@ -77,6 +82,9 @@ class ProductPayload(BaseModel):
     updatedAt: str | None = None
     version: int | None = Field(default=None, ge=1)
     options: list[dict] = Field(default_factory=list)
+
+    _normalize_media = field_validator("imageUrl", "videoUrl", mode="before")(normalize_media_reference)
+    _normalize_media_list = field_validator("images", mode="before")(normalize_media_reference_list)
 
     @model_validator(mode="after")
     def validate_price_relation(self) -> "ProductPayload":

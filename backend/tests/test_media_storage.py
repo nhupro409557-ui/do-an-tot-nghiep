@@ -103,6 +103,40 @@ def test_extracts_file_key_from_legacy_direct_s3_url(tmp_path):
     ) == "products/photo.webp"
 
 
+@pytest.mark.parametrize(
+    ("reference", "expected"),
+    [
+        ("products/photo.webp", "products/photo.webp"),
+        ("categories/123/banner.webp", "categories/123/banner.webp"),
+        ("brands/456/logo.webp", "brands/456/logo.webp"),
+        ("content/banners/home.webp", "content/banners/home.webp"),
+        ("reviews/user/product/photo.webp", "reviews/user/product/photo.webp"),
+        ("after-sales/return/request/photo.webp", "after-sales/return/request/photo.webp"),
+        ("inventory/receipt.pdf", "inventory/receipt.pdf"),
+        ("used-products/device/photo.webp", "used-products/device/photo.webp"),
+    ],
+)
+def test_extracts_file_key_from_database_storage_reference(tmp_path, reference, expected):
+    storage = MediaStorage(make_settings(tmp_path))
+
+    assert storage.file_key_from_reference(reference) == expected
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "https://cdn.example.com/photo.webp",
+        "https://www.youtube.com/watch?v=demo",
+        "/images/placeholder.webp",
+        "not-a-managed-folder/photo.webp",
+    ],
+)
+def test_does_not_treat_external_or_frontend_assets_as_storage_keys(tmp_path, reference):
+    storage = MediaStorage(make_settings(tmp_path))
+
+    assert storage.file_key_from_reference(reference) is None
+
+
 @pytest.mark.parametrize("file_key", ["../secret.txt", "/absolute.jpg", "content/../../secret.txt"])
 def test_rejects_unsafe_file_keys(tmp_path, file_key):
     storage = MediaStorage(make_settings(tmp_path))

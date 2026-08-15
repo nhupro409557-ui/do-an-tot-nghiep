@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+
+from app.api.schemas.media_reference import normalize_media_reference
 
 
 class ContentCommentPayload(BaseModel):
@@ -34,6 +36,13 @@ class ContentPayload(BaseModel):
     publishedAt: str | None = None
     isActive: bool = True
     version: int | None = Field(default=None, ge=1)
+
+    _normalize_media = field_validator(
+        "videoUrl",
+        "thumbnailUrl",
+        "bannerImageUrl",
+        mode="before",
+    )(normalize_media_reference)
 
 class AdminVideoCommentReplyPayload(BaseModel):
     body: str = Field(min_length=1, max_length=1000)

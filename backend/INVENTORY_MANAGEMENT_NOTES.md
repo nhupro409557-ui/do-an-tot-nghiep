@@ -23,5 +23,7 @@
 ## Tệp đính kèm nhập kho
 
 - Upload qua khu vực `inventory` dùng module media storage chung và URL ổn định `/media/{fileKey}`.
+- Database lưu `inventory/<uuid>.<ext>`; payload URL cũ được chuẩn hóa về `fileKey`. Ảnh QC lồng
+  trong JSON cũng áp dụng cùng quy tắc nhưng vẫn giữ chú thích của từng ảnh.
 - Chế độ `bundled` chỉ đọc nên không dùng để tải chứng từ mới trực tiếp trên Vercel.
 - Khi dùng S3-compatible storage, giữ nguyên giới hạn tài liệu 20 MB và cấp quyền bucket tối thiểu.

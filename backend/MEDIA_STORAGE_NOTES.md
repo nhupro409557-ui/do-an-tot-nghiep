@@ -2,8 +2,13 @@
 
 ## Hợp đồng đường dẫn
 
-- Media do hệ thống quản lý dùng URL ổn định `/media/{fileKey}`. Database có thể tiếp tục chứa URL
-  `/uploads/...` cũ; backend vẫn phục vụ đường dẫn này để tương thích dữ liệu lịch sử.
+- Các bảng nghiệp vụ lưu `fileKey` tương đối, không lưu domain, ổ đĩa hoặc tiền tố URL. Ví dụ:
+  `products/<uuid>.webp`, `categories/<uuid>.webp` hoặc `content/<uuid>.mp4`.
+- API vẫn nhận `fileKey`, URL `/media/...`, `/uploads/...` và URL S3 cũ; tại biên ghi dữ liệu,
+  media do hệ thống quản lý được chuẩn hóa về `fileKey`.
+- Database có thể tiếp tục chứa URL `/uploads/...` hoặc `/media/...` lịch sử; backend vẫn phục vụ
+  và chuẩn hóa các giá trị này để tương thích. Khi bản ghi cũ được chỉnh sửa, giá trị managed media
+  sẽ được lưu lại dưới dạng `fileKey`.
 - `fileKey` không chứa domain và có dạng `content/<uuid>.mp4`, `products/<uuid>.webp`,
   `reviews/<userId>/<productId>/<uuid>.webp` hoặc `after-sales/...`.
 - Không lưu khóa truy cập storage trong source code. Mọi khóa S3 phải là biến môi trường Sensitive.
@@ -42,6 +47,10 @@ Tài khoản truy cập chỉ nên có quyền đọc, ghi và xóa object trong
 2. Cập nhật biến môi trường storage.
 3. Redeploy backend.
 4. Kiểm tra URL `/media/...`; không cần sửa từng banner, sản phẩm hoặc video mới.
+
+Frontend nhận `fileKey` từ upload để lưu vào biểu mẫu và chỉ ghép `${backend}/media/{fileKey}` khi
+hiển thị. `media_assets.public_url` là metadata tương thích của registry upload; quan hệ giữa asset
+và sản phẩm/danh mục/thương hiệu được đối chiếu bằng `media_assets.file_key`.
 
 File cũ có URL tuyệt đối `/uploads/...` vẫn hoạt động qua route tương thích. Khi có đợt migration dữ
 liệu riêng, nên chuyển URL cũ về `/media/{fileKey}` nhưng không bắt buộc cho lần triển khai này.

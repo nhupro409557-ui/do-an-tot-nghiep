@@ -45,6 +45,8 @@ async def test_deletes_only_owned_review_images(tmp_path, monkeypatch):
     owned_image.write_bytes(b"review-image")
     stable_image = upload_dir / "stable.webp"
     stable_image.write_bytes(b"review-image")
+    storage_key_image = upload_dir / "storage-key.png"
+    storage_key_image.write_bytes(b"review-image")
     unrelated_image = tmp_path / "outside.jpg"
     unrelated_image.write_bytes(b"outside-image")
 
@@ -52,6 +54,7 @@ async def test_deletes_only_owned_review_images(tmp_path, monkeypatch):
         urls=[
             f"http://localhost:8000/uploads/reviews/{user_id}/{product_id}/owned.jpg",
             f"http://localhost:8000/media/reviews/{user_id}/{product_id}/stable.webp",
+            f"reviews/{user_id}/{product_id}/storage-key.png",
             "http://localhost:8000/outside.jpg",
         ],
         user_id=user_id,
@@ -60,4 +63,5 @@ async def test_deletes_only_owned_review_images(tmp_path, monkeypatch):
 
     assert not owned_image.exists()
     assert not stable_image.exists()
+    assert not storage_key_image.exists()
     assert unrelated_image.exists()

@@ -6,6 +6,8 @@ from datetime import date
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.api.schemas.media_reference import normalize_media_reference_items, normalize_media_reference_list
+
 
 class UsedDeviceIntakePayload(BaseModel):
     sourceType: Literal["USER_BUYBACK", "RETURNED_USED"]
@@ -77,6 +79,8 @@ class UsedDeviceInspectionPayload(BaseModel):
     proposedSalePrice: Decimal | None = Field(default=None, ge=0)
     note: str | None = Field(default=None, max_length=4000)
 
+    _normalize_media = field_validator("evidence", mode="before")(normalize_media_reference_items)
+
     @field_validator("conditionGrade", "conditionScore")
     @classmethod
     def require_condition_for_appraisal(cls, value):
@@ -94,6 +98,8 @@ class UsedDeviceListingPayload(BaseModel):
     manufacturerWarrantyActivatedAt: date | None = None
     manufacturerWarrantyTotalMonths: int | None = Field(default=None, ge=1, le=60)
     priceComparisonNote: str | None = Field(default=None, max_length=1000)
+
+    _normalize_media = field_validator("images", mode="before")(normalize_media_reference_list)
 
     @field_validator("highlights")
     @classmethod
