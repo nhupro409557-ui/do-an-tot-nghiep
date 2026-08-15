@@ -18,3 +18,21 @@ test('giữ nguyên URL CDN và đường dẫn ảnh tĩnh của frontend', () 
   assert.equal(resolveMediaUrl('https://cdn.example.com/banner.png', 'https://api.example.com/api'), 'https://cdn.example.com/banner.png');
   assert.equal(resolveMediaUrl('/images/banner.png', 'https://api.example.com/api'), '/images/banner.png');
 });
+
+test('ghép storage key trong database với đường dẫn media của backend', () => {
+  assert.equal(
+    resolveMediaUrl('products/123/photo.webp', 'https://api.example.com/api'),
+    'https://api.example.com/media/products/123/photo.webp',
+  );
+  assert.equal(
+    resolveMediaUrl('content/banners/home.webp', 'https://api.example.com/api'),
+    'https://api.example.com/media/content/banners/home.webp',
+  );
+});
+
+test('không dựng URL cho storage key có thành phần đi ngược thư mục', () => {
+  assert.equal(
+    resolveMediaUrl('products/../secret.txt', 'https://api.example.com/api'),
+    '',
+  );
+});

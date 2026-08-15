@@ -26,8 +26,8 @@
 
 ## Kho lưu trữ media có thể thay đổi
 
-- Upload mới nhận URL ổn định `/media/{fileKey}` từ backend. Frontend không ghép domain của nhà cung
-  cấp storage và không cần biết file đang nằm ở local, Git/bundled hay S3.
+- Upload mới dùng `fileKey` để lưu vào biểu mẫu/database. Frontend ghép backend hiện tại với
+  `/media/{fileKey}` tại thời điểm hiển thị và không cần biết file nằm ở local, Git/bundled hay S3.
 - `/uploads/...` tiếp tục được chuẩn hóa để hỗ trợ dữ liệu cũ. Không đổi `resolveImageUrl`,
   `resolveMediaUrl` hoặc `formatVideoMediaData` thành URL của một nhà cung cấp cụ thể.
 - Khi backend chạy `bundled`, biểu mẫu upload sẽ nhận lỗi 409 vì bản deploy chỉ đọc. File mới phải

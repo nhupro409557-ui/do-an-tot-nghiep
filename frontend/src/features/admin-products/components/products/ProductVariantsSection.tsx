@@ -2,6 +2,7 @@ import React from 'react';
 import { Image, Plus, Trash2 } from 'lucide-react';
 import { FileInput } from '../../../admin-shell/components/AdminDashboardParts';
 import { productApi } from '../../../../services/productApi';
+import { resolveImageUrl } from '../../../../services/productMedia';
 
 interface ProductVariantsSectionProps {
   productForm: any;
@@ -282,7 +283,7 @@ export default function ProductVariantsSection(props: ProductVariantsSectionProp
                       <div className="mt-1 flex items-center gap-2">
                         {variant.imageUrl ? (
                           <img
-                            src={variant.imageUrl}
+                            src={resolveImageUrl(variant.imageUrl)}
                             alt=""
                             className="h-8 w-8 rounded-md border border-slate-200 object-contain"
                           />

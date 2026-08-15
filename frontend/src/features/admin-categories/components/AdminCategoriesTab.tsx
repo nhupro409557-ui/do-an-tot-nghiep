@@ -3,6 +3,7 @@ import { Download, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { categoryApi } from '../../../services/categoryApi';
 import { AdminBadge, AdminPanel, AdminTable, Checkbox, CollapsibleSection, FileInput, Input, MetricCard, SearchBox, Select, SubmitButtons } from '../../admin-shell/components/AdminDashboardParts';
 import { CategoryTableRow } from './CategoryTableRow';
+import { resolveImageUrl } from '../../../services/productMedia';
 
 type AdminCategoriesTabProps = Record<string, any>;
 
@@ -196,7 +197,7 @@ export default function AdminCategoriesTab(props: AdminCategoriesTabProps) {
           {(categoryForm.iconUrl || categoryForm.bannerUrl) && (
             <div className="grid gap-3 md:col-span-3 md:grid-cols-2">
               {categoryForm.iconUrl && <img src={categoryForm.iconUrl} alt="" className="h-24 w-full rounded-md border border-slate-200 object-cover" />}
-              {categoryForm.bannerUrl && <img src={categoryForm.bannerUrl} alt="" className="h-24 w-full rounded-md border border-slate-200 object-cover" />}
+              {categoryForm.bannerUrl && <img src={resolveImageUrl(categoryForm.bannerUrl)} alt="" className="h-24 w-full rounded-md border border-slate-200 object-cover" />}
             </div>
           )}
           <div className="rounded-md border border-slate-200 bg-white p-3 md:col-span-5">

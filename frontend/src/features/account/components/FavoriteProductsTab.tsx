@@ -1,4 +1,5 @@
 import { Heart } from 'lucide-react';
+import { resolveImageUrl } from '../../../services/productMedia';
 
 type FavoriteProduct = {
   id: string;
@@ -52,7 +53,7 @@ export function FavoriteProductsTab({ favorites, onOpenProduct, onRemoveFavorite
                 onClick={() => onOpenProduct(product)}
               />
               <div className="aspect-square mb-3 relative flex items-center justify-center p-2">
-                <img src={product.imageUrl || ''} alt={product.name} className="w-full h-full object-contain" />
+                <img src={resolveImageUrl(product.imageUrl)} alt={product.name} className="w-full h-full object-contain" />
                 <button
                   type="button"
                   onClick={(event) => {

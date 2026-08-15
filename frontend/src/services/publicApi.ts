@@ -226,7 +226,7 @@ export const publicApi = {
   uploadReviewImages: (productId: string, files: File[]) => {
     const body = new FormData();
     files.forEach(file => body.append('files', file));
-    return request<Array<{ url: string }>>(`/products/${encodeURIComponent(productId)}/reviews/images`, {
+    return request<Array<{ fileKey: string; url: string }>>(`/products/${encodeURIComponent(productId)}/reviews/images`, {
       method: 'POST',
       body,
     });

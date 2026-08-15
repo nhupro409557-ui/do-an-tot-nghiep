@@ -2,6 +2,7 @@ import { useEffect, useReducer } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { adminBrandsApi } from '../../admin-brands/services/adminBrandsApi';
 import { ProductCard } from '../components/ProductCard';
+import { resolveImageUrl } from '../../../services/productMedia';
 
 type BrandLandingState = {
   brand: any | null;
@@ -80,7 +81,7 @@ export default function BrandLandingPage() {
     <div className="mx-auto max-w-7xl space-y-8 py-6">
       <section className="grid gap-6 rounded-lg border border-slate-200 bg-white p-6 md:grid-cols-[180px_1fr] md:items-center">
         <div className="flex h-32 w-32 items-center justify-center rounded-lg border border-slate-100 bg-slate-50">
-          {brand.logoUrl ? <img className="max-h-24 max-w-24 object-contain" src={brand.logoUrl} alt={brand.logoAltText || `${brand.name} logo`} /> : <span className="text-3xl font-bold text-red-600">{String(brand.name).slice(0, 1)}</span>}
+          {brand.logoUrl ? <img className="max-h-24 max-w-24 object-contain" src={resolveImageUrl(brand.logoUrl)} alt={brand.logoAltText || `${brand.name} logo`} /> : <span className="text-3xl font-bold text-red-600">{String(brand.name).slice(0, 1)}</span>}
         </div>
         <div>
           <p className="text-sm font-semibold uppercase text-red-600">{brand.code}</p>

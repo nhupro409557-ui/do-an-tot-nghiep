@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AdminBadge, AdminPanel, AdminTable, SearchBox } from '../../admin-shell/components/AdminDashboardParts';
+import { resolveImageUrl } from '../../../services/productMedia';
 
 type AdminProductInteractionsTabProps = Record<string, any>;
 type InteractionMode = 'comments' | 'questions';
@@ -78,7 +79,7 @@ export default function AdminProductInteractionsTab(props: AdminProductInteracti
               {comment.moderationReason && <div className="mt-1 text-xs font-semibold text-amber-700">Tự động ẩn: {comment.moderationReason}</div>}
             </td>
             <td className="px-4 py-3">
-              {comment.imageUrl ? <img src={comment.imageUrl} alt="" className="h-12 w-12 rounded-lg object-cover" /> : '-'}
+              {comment.imageUrl ? <img src={resolveImageUrl(comment.imageUrl)} alt="" className="h-12 w-12 rounded-lg object-cover" /> : '-'}
             </td>
             <td className="px-4 py-3">
               <AdminBadge tone={comment.isHidden ? 'amber' : comment.isRetracted ? 'slate' : 'green'}>

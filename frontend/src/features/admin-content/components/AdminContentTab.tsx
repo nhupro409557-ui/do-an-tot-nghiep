@@ -2,6 +2,7 @@ import React from 'react';
 import { AdminBadge, AdminPanel, AdminTable, Checkbox, CollapsibleSection, FileInput, Input, MediaPreview, SearchBox, Select, VideoPreview } from '../../admin-shell/components/AdminDashboardParts';
 import { Edit2, Eye, MessageSquare, Plus, Trash2, X } from 'lucide-react';
 import { contentStatusOptions, videoCategoryOptions, videoSourceOptions } from '../../admin-shell/pages/AdminDashboardConfig';
+import { resolveImageUrl } from '../../../services/productMedia';
 
 type AdminContentTabProps = Record<string, any>;
 
@@ -110,7 +111,7 @@ export default function AdminContentTab(props: AdminContentTabProps) {
               {videoProductChoices.map((product: any) => (
                 <label key={product.id} className="flex cursor-pointer items-center gap-3 rounded-md border border-slate-200 p-2 text-sm transition hover:bg-slate-50">
                   <input type="checkbox" checked={selectedVideoProductIds.includes(product.id)} onChange={(event) => setVideoProductSelected(product.id, event.target.checked)} className="h-4 w-4 accent-red-600" />
-                  {product.imageUrl && <img src={product.imageUrl} alt="" className="h-10 w-10 rounded bg-slate-50 object-contain" />}
+                  {product.imageUrl && <img src={resolveImageUrl(product.imageUrl)} alt="" className="h-10 w-10 rounded bg-slate-50 object-contain" />}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold text-slate-900">{product.name}</span>
                     <span className="block truncate text-xs text-slate-500">{product.brand || product.categoryName || product.category || 'Sản phẩm'}</span>
@@ -142,12 +143,12 @@ export default function AdminContentTab(props: AdminContentTabProps) {
             <td className="px-4 py-3">
               <div className="flex items-center gap-2">
                 {(item.thumbnailUrl || item.bannerImageUrl) ? (
-                  <img src={item.thumbnailUrl || item.bannerImageUrl} alt="" className="h-14 w-20 rounded-md border border-slate-200 object-cover" />
+                  <img src={resolveImageUrl(item.thumbnailUrl || item.bannerImageUrl)} alt="" className="h-14 w-20 rounded-md border border-slate-200 object-cover" />
                 ) : (
                   <div className="flex h-14 w-20 items-center justify-center rounded-md border border-dashed border-slate-200 text-[10px] font-bold text-slate-400">CHƯA CÓ TỆP</div>
                 )}
                 {item.videoUrl && (
-                  <a href={item.videoUrl} target="_blank" rel="noreferrer" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700" title="Mở video">
+                  <a href={resolveImageUrl(item.videoUrl)} target="_blank" rel="noreferrer" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700" title="Mở video">
                     <Eye className="h-4 w-4" />
                   </a>
                 )}

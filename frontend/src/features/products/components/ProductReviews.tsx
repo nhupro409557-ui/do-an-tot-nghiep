@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
 import { ImagePlus, Pencil, Star, Trash2, X } from 'lucide-react';
 import { publicApi } from '../../../services/publicApi';
+import { resolveImageUrl } from '../../../services/productMedia';
 import { useAuth } from '../../../context/AuthContext';
 
 interface Review {
@@ -181,7 +182,7 @@ function ProductReviewsContent({ productId, user, displayMode }: ProductReviewsP
     try {
       if (selectedImages.length > 0) {
         const uploadedImages = await publicApi.uploadReviewImages(productId, selectedImages.map(image => image.file));
-        uploadedUrls = uploadedImages.map(image => image.url);
+        uploadedUrls = uploadedImages.map(image => image.fileKey);
       }
       const nextMediaUrls = [...mediaUrls, ...uploadedUrls];
       const response = editingReviewId
@@ -334,11 +335,11 @@ function ProductReviewsContent({ productId, user, displayMode }: ProductReviewsP
                 return (
                   <div key={url} className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                     {isVideo ? (
-                      <video src={url} controls aria-label="Video đã tải lên cho đánh giá" className="h-28 w-full bg-black object-cover">
+                      <video src={resolveImageUrl(url)} controls aria-label="Video đã tải lên cho đánh giá" className="h-28 w-full bg-black object-cover">
                         <track kind="captions" />
                       </video>
                     ) : (
-                      <img src={url} alt="Ảnh đã tải lên cho đánh giá" className="h-28 w-full object-cover" />
+                      <img src={resolveImageUrl(url)} alt="Ảnh đã tải lên cho đánh giá" className="h-28 w-full object-cover" />
                     )}
                     <button
                       type="button"
@@ -421,11 +422,11 @@ function ProductReviewsContent({ productId, user, displayMode }: ProductReviewsP
                   {review.mediaUrls.map((url) => {
                     const isVideo = /\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(url);
                     return isVideo ? (
-                      <video key={url} aria-label="Video đính kèm đánh giá" src={url} controls className="h-28 w-full rounded-lg border border-gray-200 bg-black object-cover">
+                      <video key={url} aria-label="Video đính kèm đánh giá" src={resolveImageUrl(url)} controls className="h-28 w-full rounded-lg border border-gray-200 bg-black object-cover">
                         <track kind="captions" />
                       </video>
                     ) : (
-                      <img key={url} src={url} alt="Đính kèm đánh giá" className="h-28 w-full rounded-lg border border-gray-200 object-cover" />
+                      <img key={url} src={resolveImageUrl(url)} alt="Đính kèm đánh giá" className="h-28 w-full rounded-lg border border-gray-200 object-cover" />
                     );
                   })}
                 </div>

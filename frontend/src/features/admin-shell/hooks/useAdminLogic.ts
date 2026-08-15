@@ -828,7 +828,7 @@ export function useAdminLogic() {
           durationSeconds,
         });
 
-        const { uploadUrl, publicUrl, storage } = res;
+        const { uploadUrl, fileKey, storage } = res;
 
         const headers: Record<string, string> = {
           'Content-Type': file.type,
@@ -854,7 +854,7 @@ export function useAdminLogic() {
           throw new Error(`Tải file lên thất bại với mã lỗi: ${uploadRes.status}`);
         }
 
-        urls.push(publicUrl);
+        urls.push(fileKey);
       } catch (error) {
         console.error('Lỗi khi tải file:', error);
         alert(error instanceof Error ? error.message : 'Tải file lên thất bại.');

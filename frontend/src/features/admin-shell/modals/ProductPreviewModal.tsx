@@ -2,6 +2,7 @@ import React from 'react';
 import { AdminBadge, MiniMetric } from '../components/AdminDashboardParts';
 import { X, Image } from 'lucide-react';
 import { compactId, productStatusLabel } from '../pages/AdminDashboardConfig';
+import { resolveImageUrl } from '../../../services/productMedia';
 
 type ProductPreviewModalProps = Record<string, any>;
 
@@ -28,9 +29,9 @@ export default function ProductPreviewModal(props: ProductPreviewModalProps) {
         </div>
         <div className="grid gap-5 p-5 md:grid-cols-[260px_minmax(0,1fr)]">
           <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
-            {previewProduct.imageUrl ? <img src={previewProduct.imageUrl} alt="" className="h-56 w-full object-contain" /> : <Image className="mx-auto h-16 w-16 text-slate-300" />}
+            {previewProduct.imageUrl ? <img src={resolveImageUrl(previewProduct.imageUrl)} alt="" className="h-56 w-full object-contain" /> : <Image className="mx-auto h-16 w-16 text-slate-300" />}
             <div className="mt-3 flex flex-wrap gap-2">
-              {(previewProduct.images || []).slice(0, 4).map((url: string) => <img key={url} src={url} alt="" className="h-12 w-12 rounded-md border border-slate-200 object-contain" />)}
+              {(previewProduct.images || []).slice(0, 4).map((url: string) => <img key={url} src={resolveImageUrl(url)} alt="" className="h-12 w-12 rounded-md border border-slate-200 object-contain" />)}
             </div>
           </div>
           <div className="min-w-0">

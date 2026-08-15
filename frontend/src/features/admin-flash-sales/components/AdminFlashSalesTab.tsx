@@ -2,6 +2,7 @@ import type React from 'react';
 import { useState } from 'react';
 import { Check, Pencil, Plus, Search, Trash2, X, Zap } from 'lucide-react';
 import { AdminBadge, AdminPanel, AdminTable, Input, SearchBox, Select, SubmitButtons } from '../../admin-shell/components/AdminDashboardParts';
+import { resolveImageUrl } from '../../../services/productMedia';
 
 type AdminFlashSalesTabProps = Record<string, any>;
 
@@ -154,7 +155,7 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
                           }`}
                         >
                           {product.imageUrl ? (
-                            <img src={product.imageUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-slate-100 bg-white object-contain" />
+                            <img src={resolveImageUrl(product.imageUrl)} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-slate-100 bg-white object-contain" />
                           ) : (
                             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
                               <Zap className="h-4 w-4" />
@@ -210,7 +211,7 @@ export default function AdminFlashSalesTab(props: AdminFlashSalesTabProps) {
           <tr key={item.id}>
             <td className="px-4 py-3">
               <div className="flex items-center gap-3">
-                {item.imageUrl ? <img src={item.imageUrl} alt="" className="h-11 w-11 rounded-md object-contain" /> : <div className="flex h-11 w-11 items-center justify-center rounded-md bg-red-50 text-red-600"><Zap className="h-5 w-5" /></div>}
+                {item.imageUrl ? <img src={resolveImageUrl(item.imageUrl)} alt="" className="h-11 w-11 rounded-md object-contain" /> : <div className="flex h-11 w-11 items-center justify-center rounded-md bg-red-50 text-red-600"><Zap className="h-5 w-5" /></div>}
                 <div>
                   <div className="font-semibold text-slate-900">{item.productName}</div>
                   <div className="text-xs text-slate-500">

@@ -1,6 +1,7 @@
 import React from 'react';
 import { CheckCircle2, EyeOff, Image, RotateCcw, Trash2 } from 'lucide-react';
 import { AdminBadge, AdminTable, RowActions } from '../../../admin-shell/components/AdminDashboardParts';
+import { resolveImageUrl } from '../../../../services/productMedia';
 
 interface ProductTableSectionProps {
   selectedProductIds: string[];
@@ -143,7 +144,7 @@ export default function ProductTableSection(props: ProductTableSectionProps) {
             <td className="px-4 py-3">
               {product.imageUrl ? (
                 <img
-                  src={product.imageUrl}
+                  src={resolveImageUrl(product.imageUrl)}
                   alt=""
                   className="h-11 w-11 rounded-md object-contain"
                 />

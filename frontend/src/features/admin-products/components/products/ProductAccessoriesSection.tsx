@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image, Plus, Trash2 } from 'lucide-react';
 import { Input, Select } from '../../../admin-shell/components/AdminDashboardParts';
+import { resolveImageUrl } from '../../../../services/productMedia';
 
 interface ProductAccessoriesSectionProps {
   productForm: any;
@@ -184,7 +185,7 @@ export default function ProductAccessoriesSection(props: ProductAccessoriesSecti
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     {item.imageUrl ? (
-                      <img src={item.imageUrl} alt="" className="h-12 w-12 rounded-md border border-slate-200 object-contain" />
+                      <img src={resolveImageUrl(item.imageUrl)} alt="" className="h-12 w-12 rounded-md border border-slate-200 object-contain" />
                     ) : (
                       <div className="flex h-12 w-12 items-center justify-center rounded-md border border-slate-200 bg-white">
                         <Image className="h-4 w-4 text-slate-300" />
