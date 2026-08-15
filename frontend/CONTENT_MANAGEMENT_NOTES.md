@@ -23,3 +23,12 @@
   `images[].url`, `product.videoUrl` và media biến thể bằng `formatProductImageGalleryData` trước khi
   giao cho trang ảnh; nếu không, các ảnh đầu có thể hiển thị nhưng ảnh biến thể phía sau báo
   “Chưa có ảnh”.
+
+## Kho lưu trữ media có thể thay đổi
+
+- Upload mới nhận URL ổn định `/media/{fileKey}` từ backend. Frontend không ghép domain của nhà cung
+  cấp storage và không cần biết file đang nằm ở local, Git/bundled hay S3.
+- `/uploads/...` tiếp tục được chuẩn hóa để hỗ trợ dữ liệu cũ. Không đổi `resolveImageUrl`,
+  `resolveMediaUrl` hoặc `formatVideoMediaData` thành URL của một nhà cung cấp cụ thể.
+- Khi backend chạy `bundled`, biểu mẫu upload sẽ nhận lỗi 409 vì bản deploy chỉ đọc. File mới phải
+  được thêm vào Git rồi triển khai lại, hoặc chuyển backend sang `local`/`s3`.

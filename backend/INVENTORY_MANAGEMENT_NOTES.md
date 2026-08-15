@@ -19,3 +19,9 @@
 - Môi trường không có font Windows (như Vercel) dùng bốn tệp Roboto đã rút gọn và đóng gói trong
   `app/assets/fonts`; cách này tránh lỗi 500, giữ đầy đủ dấu tiếng Việt và không làm vượt giới hạn
   dung lượng hàm serverless.
+
+## Tệp đính kèm nhập kho
+
+- Upload qua khu vực `inventory` dùng module media storage chung và URL ổn định `/media/{fileKey}`.
+- Chế độ `bundled` chỉ đọc nên không dùng để tải chứng từ mới trực tiếp trên Vercel.
+- Khi dùng S3-compatible storage, giữ nguyên giới hạn tài liệu 20 MB và cấp quyền bucket tối thiểu.
