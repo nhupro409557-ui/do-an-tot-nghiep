@@ -1,3 +1,4 @@
+import asyncio
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -153,7 +154,7 @@ async def run_maintenance(session: AsyncSession) -> dict:
     deleted_files = 0
     for attachment in await after_sales_repo.cleanup_due_attachments(session):
         try:
-            media_storage.delete(attachment["storage_key"])
+            await asyncio.to_thread(media_storage.delete, attachment["storage_key"])
             await after_sales_repo.mark_attachment_deleted(session, attachment["id"])
             deleted_files += 1
         except (OSError, StorageReadOnlyError):

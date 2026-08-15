@@ -265,7 +265,7 @@ async def update_own_review(
     if removed_media_urls:
         from app.application.services.review_media_service import delete_owned_review_images
 
-        delete_owned_review_images(
+        await delete_owned_review_images(
             urls=removed_media_urls,
             user_id=current_user_id,
             product_id=product_id,
@@ -300,7 +300,7 @@ async def delete_own_review(
     if previous_media_urls:
         from app.application.services.review_media_service import delete_owned_review_images
 
-        delete_owned_review_images(
+        await delete_owned_review_images(
             urls=previous_media_urls,
             user_id=current_user_id,
             product_id=product_id,

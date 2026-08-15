@@ -34,7 +34,8 @@ def test_rejects_unsupported_review_image_type():
     assert "JPG, PNG hoặc WEBP" in str(exc_info.value.detail)
 
 
-def test_deletes_only_owned_review_images(tmp_path, monkeypatch):
+@pytest.mark.asyncio
+async def test_deletes_only_owned_review_images(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     user_id = uuid4()
     product_id = uuid4()
@@ -47,7 +48,7 @@ def test_deletes_only_owned_review_images(tmp_path, monkeypatch):
     unrelated_image = tmp_path / "outside.jpg"
     unrelated_image.write_bytes(b"outside-image")
 
-    delete_owned_review_images(
+    await delete_owned_review_images(
         urls=[
             f"http://localhost:8000/uploads/reviews/{user_id}/{product_id}/owned.jpg",
             f"http://localhost:8000/media/reviews/{user_id}/{product_id}/stable.webp",

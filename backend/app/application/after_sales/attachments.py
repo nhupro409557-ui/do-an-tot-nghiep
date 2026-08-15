@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 from uuid import UUID, uuid4
 
@@ -63,7 +64,7 @@ async def add_attachments(
             attachment_id = uuid4()
             filename = f"{attachment_id}{ALLOWED_UPLOAD_TYPES[content_type]}"
             storage_key = f"after-sales/{kind.lower()}/{request_id}/{filename}"
-            media_storage.write_bytes(storage_key, data, content_type)
+            await asyncio.to_thread(media_storage.write_bytes, storage_key, data, content_type)
             created_keys.append(storage_key)
             await session.execute(
                 text(
@@ -92,12 +93,17 @@ async def add_attachments(
         return results
     except StorageReadOnlyError as exc:
         await session.rollback()
+        for storage_key in created_keys:
+            try:
+                await asyncio.to_thread(media_storage.delete, storage_key)
+            except (OSError, StorageReadOnlyError):
+                pass
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception:
         await session.rollback()
         for storage_key in created_keys:
             try:
-                media_storage.delete(storage_key)
+                await asyncio.to_thread(media_storage.delete, storage_key)
             except (OSError, StorageReadOnlyError):
                 pass
         raise

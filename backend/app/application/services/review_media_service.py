@@ -1,3 +1,4 @@
+import asyncio
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, UploadFile
@@ -15,7 +16,7 @@ MAX_REVIEW_IMAGES_PER_UPLOAD = 5
 MAX_STORED_REVIEW_IMAGES_PER_PRODUCT = 20
 
 
-def delete_owned_review_images(*, urls: list[str], user_id: UUID, product_id: UUID) -> None:
+async def delete_owned_review_images(*, urls: list[str], user_id: UUID, product_id: UUID) -> None:
     expected_prefix = f"reviews/{user_id}/{product_id}/"
     allowed_extensions = set(ALLOWED_REVIEW_IMAGE_TYPES.values())
 
@@ -26,7 +27,7 @@ def delete_owned_review_images(*, urls: list[str], user_id: UUID, product_id: UU
         if not any(file_key.lower().endswith(extension) for extension in allowed_extensions):
             continue
         try:
-            media_storage.delete(file_key)
+            await asyncio.to_thread(media_storage.delete, file_key)
         except (OSError, StorageReadOnlyError):
             pass
 
@@ -65,7 +66,7 @@ async def upload_review_images(
         raise HTTPException(status_code=403, detail=eligibility.get("message") or "Bạn chưa đủ điều kiện tải ảnh đánh giá.")
 
     storage_prefix = f"reviews/{user_id}/{product_id}"
-    stored_count = media_storage.count(storage_prefix)
+    stored_count = await asyncio.to_thread(media_storage.count, storage_prefix)
     if stored_count + len(files) > MAX_STORED_REVIEW_IMAGES_PER_PRODUCT:
         raise HTTPException(status_code=400, detail="Bạn đã tải quá nhiều ảnh cho sản phẩm này.")
 
@@ -79,7 +80,12 @@ async def upload_review_images(
             extension = validate_review_image(upload.content_type or "", data)
             file_key = f"{storage_prefix}/{uuid4().hex}{extension}"
             try:
-                media_storage.write_bytes(file_key, data, upload.content_type or "application/octet-stream")
+                await asyncio.to_thread(
+                    media_storage.write_bytes,
+                    file_key,
+                    data,
+                    upload.content_type or "application/octet-stream",
+                )
             except StorageReadOnlyError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             created_keys.append(file_key)
@@ -88,7 +94,7 @@ async def upload_review_images(
     except Exception:
         for file_key in created_keys:
             try:
-                media_storage.delete(file_key)
+                await asyncio.to_thread(media_storage.delete, file_key)
             except (OSError, StorageReadOnlyError):
                 pass
         raise
