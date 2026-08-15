@@ -77,12 +77,25 @@ class MediaStorage:
         return f"{self.settings.s3_public_base_url.rstrip('/')}/{quote(normalized, safe='/')}"
 
     def file_key_from_url(self, url: str) -> str | None:
-        path = unquote(urlparse(str(url or "")).path).replace("\\", "/")
+        parsed_url = urlparse(str(url or ""))
+        path = unquote(parsed_url.path).replace("\\", "/")
         prefixes = [f"{self.public_path}/", "/uploads/"]
         for prefix in prefixes:
             if path.startswith(prefix):
                 try:
                     return self._normalize_file_key(path[len(prefix):])
+                except ValueError:
+                    return None
+        if self.settings.s3_public_base_url:
+            parsed_base = urlparse(self.settings.s3_public_base_url.rstrip("/"))
+            base_path = parsed_base.path.rstrip("/")
+            if (
+                parsed_url.scheme == parsed_base.scheme
+                and parsed_url.netloc == parsed_base.netloc
+                and path.startswith(f"{base_path}/")
+            ):
+                try:
+                    return self._normalize_file_key(path[len(base_path) + 1:])
                 except ValueError:
                     return None
         return None

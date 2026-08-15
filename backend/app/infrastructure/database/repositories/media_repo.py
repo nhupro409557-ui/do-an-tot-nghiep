@@ -3,6 +3,11 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.shared.exceptions import BusinessException
+from app.infrastructure.storage import media_storage
+
+
+def managed_media_urls(urls: list[str]) -> list[str]:
+    return [url for url in urls if url and media_storage.file_key_from_url(url)]
 
 async def list_assets_by_public_urls(session: AsyncSession, urls: list[str]) -> list[dict]:
     if not urls:
@@ -14,7 +19,7 @@ async def list_assets_by_public_urls(session: AsyncSession, urls: list[str]) -> 
     return [dict(r) for r in result.mappings().all()]
 
 async def associate_assets_with_entity(session: AsyncSession, urls: list[str], entity_type: str, entity_id: UUID) -> None:
-    urls = [url for url in urls if url and "/uploads/" in url]
+    urls = managed_media_urls(urls)
     if urls:
         await session.execute(
             text(
@@ -42,7 +47,7 @@ async def associate_assets_with_entity(session: AsyncSession, urls: list[str], e
     )
 
 async def validate_media_assets(session: AsyncSession, *, entity_id: UUID, urls: list[str], allowed_folder: str, parent_id: UUID | None = None) -> None:
-    uploaded_urls = [url for url in urls if url and "/uploads/" in url]
+    uploaded_urls = managed_media_urls(urls)
     if not uploaded_urls:
         return
 
@@ -85,7 +90,7 @@ async def claim_media_assets(
     allowed_folder: str,
     parent_id: UUID | None = None,
 ) -> None:
-    uploaded = [u for u in urls if u and "/uploads/" in u]
+    uploaded = managed_media_urls(urls)
     if uploaded:
         rows = (
             await session.execute(
@@ -144,7 +149,11 @@ async def assert_all_product_media_claimed(
     entity_id: UUID,
     parent_id: UUID | None = None,
 ) -> None:
-    external = [u for u in urls if u and not u.startswith("/images/") and "/uploads/" not in u]
+    external = [
+        url
+        for url in urls
+        if url and not url.startswith("/images/") and not media_storage.file_key_from_url(url)
+    ]
     if external:
         raise BusinessException(400, "MEDIA_EXTERNAL_NOT_ALLOWED", "Media sản phẩm phải được upload qua hệ thống.")
 
@@ -156,4 +165,3 @@ async def assert_all_product_media_claimed(
         allowed_folder="products",
         parent_id=parent_id,
     )
-

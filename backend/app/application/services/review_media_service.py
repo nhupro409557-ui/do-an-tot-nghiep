@@ -1,9 +1,9 @@
-from pathlib import Path
-from urllib.parse import unquote, urlparse
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.infrastructure.storage import StorageReadOnlyError, media_storage
 
 ALLOWED_REVIEW_IMAGE_TYPES = {
     "image/jpeg": ".jpg",
@@ -16,23 +16,18 @@ MAX_STORED_REVIEW_IMAGES_PER_PRODUCT = 20
 
 
 def delete_owned_review_images(*, urls: list[str], user_id: UUID, product_id: UUID) -> None:
-    upload_dir = (Path("uploads") / "reviews" / str(user_id) / str(product_id)).resolve()
-    expected_prefix = f"/uploads/reviews/{user_id}/{product_id}/"
+    expected_prefix = f"reviews/{user_id}/{product_id}/"
     allowed_extensions = set(ALLOWED_REVIEW_IMAGE_TYPES.values())
 
     for raw_url in urls:
-        url_path = unquote(urlparse(str(raw_url)).path).replace("\\", "/")
-        if not url_path.startswith(expected_prefix):
+        file_key = media_storage.file_key_from_url(str(raw_url))
+        if not file_key or not file_key.startswith(expected_prefix):
             continue
-        filename = Path(url_path).name
-        if not filename or Path(filename).suffix.lower() not in allowed_extensions:
-            continue
-        target = (upload_dir / filename).resolve()
-        if target.parent != upload_dir:
+        if not any(file_key.lower().endswith(extension) for extension in allowed_extensions):
             continue
         try:
-            target.unlink(missing_ok=True)
-        except OSError:
+            media_storage.delete(file_key)
+        except (OSError, StorageReadOnlyError):
             pass
 
 
@@ -69,13 +64,12 @@ async def upload_review_images(
     if not eligibility.get("canReview") and not eligibility.get("canEdit"):
         raise HTTPException(status_code=403, detail=eligibility.get("message") or "Bạn chưa đủ điều kiện tải ảnh đánh giá.")
 
-    upload_dir = Path("uploads") / "reviews" / str(user_id) / str(product_id)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    stored_count = sum(1 for path in upload_dir.iterdir() if path.is_file())
+    storage_prefix = f"reviews/{user_id}/{product_id}"
+    stored_count = media_storage.count(storage_prefix)
     if stored_count + len(files) > MAX_STORED_REVIEW_IMAGES_PER_PRODUCT:
         raise HTTPException(status_code=400, detail="Bạn đã tải quá nhiều ảnh cho sản phẩm này.")
 
-    created_paths: list[Path] = []
+    created_keys: list[str] = []
     results: list[dict] = []
     try:
         for upload in files:
@@ -83,14 +77,20 @@ async def upload_review_images(
             if len(data) > MAX_REVIEW_IMAGE_BYTES:
                 raise HTTPException(status_code=400, detail=f"Ảnh {upload.filename or ''} vượt quá 5 MB.")
             extension = validate_review_image(upload.content_type or "", data)
-            path = upload_dir / f"{uuid4().hex}{extension}"
-            path.write_bytes(data)
-            created_paths.append(path)
-            public_url = f"{base_url.rstrip('/')}/{path.as_posix()}"
+            file_key = f"{storage_prefix}/{uuid4().hex}{extension}"
+            try:
+                media_storage.write_bytes(file_key, data, upload.content_type or "application/octet-stream")
+            except StorageReadOnlyError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            created_keys.append(file_key)
+            public_url = media_storage.public_url(file_key, base_url)
             results.append({"url": public_url})
     except Exception:
-        for path in created_paths:
-            path.unlink(missing_ok=True)
+        for file_key in created_keys:
+            try:
+                media_storage.delete(file_key)
+            except (OSError, StorageReadOnlyError):
+                pass
         raise
     finally:
         for upload in files:

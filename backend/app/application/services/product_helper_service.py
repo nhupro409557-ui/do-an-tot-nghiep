@@ -2,6 +2,8 @@ import unicodedata
 from uuid import UUID
 
 from fastapi import HTTPException
+
+from app.infrastructure.storage import media_storage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.repositories import product_repo
@@ -156,7 +158,11 @@ def validate_optimized_media(payload: object) -> None:
     if len(images) > 20:
         raise HTTPException(status_code=400, detail="Không thể tải lên quá 20 ảnh.")
     for image in images:
-        if image and not (image.startswith("/images/") or "/uploads/" in image or image.startswith("data:")):
+        if image and not (
+            image.startswith("/images/")
+            or media_storage.file_key_from_url(image)
+            or image.startswith("data:")
+        ):
             raise HTTPException(status_code=400, detail=f"Định dạng URL ảnh không hợp lệ: {image}")
 
 

@@ -42,12 +42,15 @@ def test_deletes_only_owned_review_images(tmp_path, monkeypatch):
     upload_dir.mkdir(parents=True)
     owned_image = upload_dir / "owned.jpg"
     owned_image.write_bytes(b"review-image")
+    stable_image = upload_dir / "stable.webp"
+    stable_image.write_bytes(b"review-image")
     unrelated_image = tmp_path / "outside.jpg"
     unrelated_image.write_bytes(b"outside-image")
 
     delete_owned_review_images(
         urls=[
             f"http://localhost:8000/uploads/reviews/{user_id}/{product_id}/owned.jpg",
+            f"http://localhost:8000/media/reviews/{user_id}/{product_id}/stable.webp",
             "http://localhost:8000/outside.jpg",
         ],
         user_id=user_id,
@@ -55,4 +58,5 @@ def test_deletes_only_owned_review_images(tmp_path, monkeypatch):
     )
 
     assert not owned_image.exists()
+    assert not stable_image.exists()
     assert unrelated_image.exists()

@@ -1,11 +1,10 @@
-import os
-from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.after_sales.attachments import schedule_attachment_cleanup
 from app.infrastructure.database.repositories import after_sales_repo
+from app.infrastructure.storage import StorageReadOnlyError, media_storage
 
 
 async def run_maintenance(session: AsyncSession) -> dict:
@@ -154,12 +153,10 @@ async def run_maintenance(session: AsyncSession) -> dict:
     deleted_files = 0
     for attachment in await after_sales_repo.cleanup_due_attachments(session):
         try:
-            path = Path(attachment["storage_key"])
-            if path.exists():
-                os.remove(path)
+            media_storage.delete(attachment["storage_key"])
             await after_sales_repo.mark_attachment_deleted(session, attachment["id"])
             deleted_files += 1
-        except OSError:
+        except (OSError, StorageReadOnlyError):
             continue
     await session.commit()
     return {

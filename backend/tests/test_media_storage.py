@@ -86,6 +86,23 @@ def test_extracts_file_key_from_stable_and_legacy_urls(tmp_path, url, expected):
     assert storage.file_key_from_url(url) == expected
 
 
+def test_extracts_file_key_from_legacy_direct_s3_url(tmp_path):
+    storage = MediaStorage(
+        make_settings(
+            tmp_path,
+            media_storage_driver="s3",
+            s3_bucket="media-bucket",
+            s3_access_key_id="access-key",
+            s3_secret_access_key="secret-key",
+            s3_public_base_url="https://cdn.example.com/store-media",
+        )
+    )
+
+    assert storage.file_key_from_url(
+        "https://cdn.example.com/store-media/products/photo.webp"
+    ) == "products/photo.webp"
+
+
 @pytest.mark.parametrize("file_key", ["../secret.txt", "/absolute.jpg", "content/../../secret.txt"])
 def test_rejects_unsafe_file_keys(tmp_path, file_key):
     storage = MediaStorage(make_settings(tmp_path))

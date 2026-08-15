@@ -705,7 +705,10 @@ async def list_requests(
                        SELECT jsonb_agg(jsonb_build_object(
                            'id', a.id::text,
                            'originalName', a.original_name,
-                           'url', '/' || a.storage_key,
+                           'url', CASE
+                               WHEN a.storage_key LIKE 'uploads/%' THEN '/media/' || substr(a.storage_key, 9)
+                               ELSE '/media/' || ltrim(a.storage_key, '/')
+                           END,
                            'contentType', a.content_type,
                            'sizeBytes', a.size_bytes,
                            'createdAt', a.created_at
